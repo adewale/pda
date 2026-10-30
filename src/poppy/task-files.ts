@@ -42,7 +42,7 @@ export class TaskFiles {
     // Even unresolved filename spans are data, not ordinary "this photo"
     // references. Network locators were already removed as opaque spans.
     // String offsets are UTF-16; replace spans without changing their offsets.
-    const plain = spans.filter(span => span.selectable || (span.name.includes(".") && !recipientCue(narrative, span.start))).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
+    const plain = spans.filter(span => span.selectable || (/[\s.]/u.test(span.name) && !recipientCue(narrative, span.start))).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
     const unresolvedName = [...plain.matchAll(/\S+/gu)].some(match => /\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)["'”’»)\],.!?;:]*$/iu.test(match[0]) && !recipientCue(plain, match.index));
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
     // Match complete whitespace-delimited phrases, with sentence punctuation,

@@ -103,9 +103,9 @@ describe("photos selected by the User's task", () => {
     expect(TaskFiles.fromUser(task, [marker]).includes([lake.id])).toBe(true);
   });
 
-  it("does not borrow a recent file from an unsupported unquoted historical name", () => {
-    const old = { ...privatePhoto, name: "this photo .odd" };
-    const selected = TaskFiles.fromUser("Print this photo .odd", [attachmentMarker(old), marker]);
+  it.each(["this photo .odd", "this photo backup"])("does not borrow a recent file from an unsupported unquoted historical name: %s", name => {
+    const old = { ...privatePhoto, name };
+    const selected = TaskFiles.fromUser(`Print the file ${name}`, [attachmentMarker(old), marker]);
     expect(selected.includes([old.id])).toBe(false);
     expect(selected.includes([lake.id])).toBe(false);
   });

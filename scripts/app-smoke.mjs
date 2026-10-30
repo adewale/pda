@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -233,8 +234,11 @@ try {
   if (output && activePage) await activePage.screenshot({ type: "png", fullPage: true }).then(bytes => writeFileSync(`${output}.failure.png`, Buffer.from(bytes))).catch(() => {});
   throw error;
 } finally {
-  await browser?.close().catch(() => {});
+  const closing = browser?.close().catch(() => {});
+  if (closing) await Promise.race([closing, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
+  const stopped = child?.pid && child.exitCode === null && child.signalCode === null ? once(child, "exit").catch(() => {}) : null;
   child?.kill("SIGKILL");
+  if (stopped) await stopped;
   await runtime?.dispose();
   rmSync(directory, { recursive: true, force: true });
 }
