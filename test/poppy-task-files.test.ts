@@ -117,6 +117,13 @@ describe("photos selected by the User's task", () => {
     expect(selected.includes([lake.id])).toBe(false);
   });
 
+  it.each([
+    ['"', '"'], ["‘", "’"], ["“", "”"], ["'", "'"], ["«", "»"]
+  ].flatMap(([open, close]) => [["", ""], ["(", ")"], ["[", "]"], ["([", "])"]].map(([before, after]) => `${before}${open}some this photo${close}${after}`)))("keeps wrapped quoted recipient data opaque: %s", title => {
+    const selected = TaskFiles.fromUser(`Check my order status at ${title} (first.example).`, [attachmentMarker(privatePhoto)]);
+    expect(selected.includes([privatePhoto.id])).toBe(false);
+  });
+
   it("does not select a historical filename inside a quoted recipient's title", () => {
     const selected = TaskFiles.fromUser("Check orders at “Vendor private.jpg” (first.example).", [attachmentMarker(privatePhoto), marker]);
     expect(selected.includes([privatePhoto.id])).toBe(false);

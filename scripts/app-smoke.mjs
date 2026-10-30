@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
-import { build } from "esbuild";
+import { build, stop } from "esbuild";
 import { exportJWK, generateKeyPair } from "jose";
 import puppeteer from "@cloudflare/puppeteer";
 import { approvalJourneys } from "./app-approval-journey.mjs";
@@ -234,11 +234,15 @@ try {
   if (output && activePage) await activePage.screenshot({ type: "png", fullPage: true }).then(bytes => writeFileSync(`${output}.failure.png`, Buffer.from(bytes))).catch(() => {});
   throw error;
 } finally {
+  process.stderr.write("cleanup: closing browser\n");
   const closing = browser?.close().catch(() => {});
   if (closing) await Promise.race([closing, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
   const stopped = child?.pid && child.exitCode === null && child.signalCode === null ? once(child, "exit").catch(() => {}) : null;
   child?.kill("SIGKILL");
   if (stopped) await stopped;
+  process.stderr.write("cleanup: Chromium exited; disposing workerd\n");
   await runtime?.dispose();
+  process.stderr.write("cleanup: workerd disposed\n");
   rmSync(directory, { recursive: true, force: true });
+  stop(); // Release this one-shot CLI's esbuild service as well as workerd.
 }

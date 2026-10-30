@@ -7,8 +7,17 @@ export function recipient(value: string): string {
   } catch { return ""; }
 }
 
+const RECIPIENT_PREFIX = String.raw`\b(?:at|to|with|company|shop|store)\s+[(\["'“‘«]*`;
+const RECIPIENT_CUE = new RegExp(`${RECIPIENT_PREFIX}$`, "iu");
+const RECIPIENT_TITLES = new RegExp(`${RECIPIENT_PREFIX}(?:"[^"]*"|'[^']*'|“[^”]*”|‘[^’]*’|«[^»]*»)`, "giu");
+
 export function recipientCue(text: string, at: number): boolean {
-  return /\b(?:at|to|with|company|shop|store)\s+[(\["'“‘«]*$/iu.test(text.slice(Math.max(0, at - 100), at));
+  return RECIPIENT_CUE.test(text.slice(Math.max(0, at - 100), at));
+}
+
+/** File selection must treat every supported quoted receiver title as data. */
+export function withoutRecipientData(text: string): string {
+  return text.replace(RECIPIENT_TITLES, value => " ".repeat(value.length));
 }
 
 type Locator = { host: string; qualified: boolean; start: number; named: boolean };

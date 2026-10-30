@@ -1,5 +1,5 @@
 import { MARKER, markersIn } from "../attachments";
-import { recipientCue, taskText } from "./task-text";
+import { recipientCue, taskText, withoutRecipientData } from "./task-text";
 
 /**
  * Files available for the genuine User's task, never an instruction to upload.
@@ -20,7 +20,7 @@ export class TaskFiles {
   static fromUser(task: string, history: readonly string[]): TaskFiles {
     const selected = new Set(markersIn(task));
     const source = taskText(task.replace(MARKER, "")).narrative;
-    const narrative = source.replace(/\b(?:at|to|with|company|shop|store)\s+(?:"[^"]*"|'[^']*'|“[^”]*”|‘[^’]*’|«[^»]*»)/giu, text => " ".repeat(text.length));
+    const narrative = withoutRecipientData(source);
     const names = new Map<string, Set<string>>();
     for (const text of history) {
       for (const match of text.matchAll(MARKER)) {
