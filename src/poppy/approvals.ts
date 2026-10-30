@@ -5,11 +5,11 @@ import { isObject } from "./json";
 /**
  * The form a local approval's request is stored in (`poppy_approvals.request`).
  * A row in any other form, from before a deploy or tampered with, can't be
- * sent: `readApproval` refuses it and the card says why. Version 1 was
- * `{ kind, request: { issuer, call | submission }, attachments? }`, read back
- * with a cast.
+ * sent: `readApproval` refuses it and the card says why. Version 3 is the
+ * current task/Company-terms form. Earlier pending approvals are unsupported,
+ * not migrated or executed; the User must start the task again.
  */
-export const APPROVAL_VERSION = 2;
+export const APPROVAL_VERSION = 3;
 
 const scalar: Decoder<string | number | boolean> = (value, at) =>
   typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
@@ -38,8 +38,7 @@ const openApiCall = object({
 });
 
 const mcpCall = object({ apiUrl: string, tool: string, args: json, approval: optional(approvalV2) });
-// Older bindings precede the first withdrawal generation and are interpreted as generation zero.
-const binding = object({ account: nullable(string), sessionId: string, authorityGeneration: optional(integer) });
+const binding = object({ account: nullable(string), sessionId: string, authorityGeneration: integer });
 
 /** Exactly what a website form sends (browser.ts `FormSubmission`). */
 const submission = object({
@@ -52,9 +51,9 @@ const submission = object({
 
 const approval = tagged("kind", {
   /** `method` and `url` are what the card showed; the call is checked again and must still make exactly them. */
-  openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, binding: optional(binding), attachments: optional(array(attachment)) }),
-  mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall, binding: optional(binding) }),
-  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: optional(object({ account: nullable(string), sessionId: nullable(string), contextId: string, authorityGeneration: optional(integer) })) }),
+  openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, binding, attachments: optional(array(attachment)) }),
+  mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall, binding }),
+  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: object({ account: nullable(string), sessionId: nullable(string), contextId: string, authorityGeneration: integer }) }),
   /** 0.3: an operation a Company Agent returned in a conversation; approved, it goes back in a message's `approval` (Ops 6). */
   "message-approval": object({ v: literal(APPROVAL_VERSION), kind: literal("message-approval"), conversationId: string, approval: approvalV2, binding })
 });

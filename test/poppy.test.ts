@@ -1802,7 +1802,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       const card = (await cards(a)).find((item) => item.kind === "approval")!;
       const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
       expect(JSON.parse(row!.request)).toEqual({
-        v: 2,
+        v: 3,
         kind: "openapi",
         method: "POST",
         url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
@@ -1811,13 +1811,23 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       });
     });
 
-    it("refuses an approval stored in an older form, and says so on its card", async () => {
-      const { after, a } = await approveRewritten((stored) => ({ kind: stored.kind, request: { issuer: "https://issuer.example", call: stored.call } }));
+    it.each([1, 2])("refuses unsupported stored approval version %i instead of migrating it", async version => {
+      const { after, a } = await approveRewritten(stored => ({ ...stored, v: version }));
       expect(after.status).toBe("failed");
       expect(after.result).toBe(
-        "Not sent: this approval can't be sent, because it was stored in a form (version 1) this version of the agent doesn't send. Nothing was sent; ask again if you still want it."
+        `Not sent: this approval can't be sent, because it was stored in a form (version ${version}) this version of the agent doesn't send. Nothing was sent; ask again if you still want it.`
       );
       expect(await a.stub.poppyWaitForNotice("couldn't be sent")).toContain("nothing was sent");
+    });
+
+    it.each(["binding", "authorityGeneration"])("refuses a current approval missing %s without inventing default authority", async field => {
+      const { after } = await approveRewritten(stored => {
+        if (field === "binding") delete stored.binding;
+        else delete stored.binding.authorityGeneration;
+        return stored;
+      });
+      expect(after.status).toBe("failed");
+      expect(after.result).toContain("isn't one this agent stored");
     });
 
     it("refuses a stored row that was tampered with: a call that no longer makes the URL approved, or one that isn't well formed", async () => {

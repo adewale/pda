@@ -52,13 +52,16 @@ describe("conversation approval authority", () => {
     expect((await cards(a)).find(item => item.approvalId === card.approvalId)).toMatchObject({ status: "failed", result: expect.stringContaining("[approval_changed]") });
   });
 
-  it("accepts an older binding without a generation only before any sign-out", async () => {
+  it("refuses a conversation approval without an explicit withdrawal generation", async () => {
     const c = await company();
     const a = await agent();
     const card = await terms(a, c);
     await a.stub.poppySql("UPDATE poppy_approvals SET request = json_remove(request, '$.binding.authorityGeneration') WHERE id = ?", card.approvalId);
+    const before = (await requests(c)).length;
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    expect((await c.stub.state()).performs).toBe(1);
+    expect(messagePosts((await requests(c)).slice(before))).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find(item => item.approvalId === card.approvalId)).toMatchObject({ status: "failed", result: expect.stringContaining("can't be sent") });
   });
 
   it("refuses an older conversation approval that has no account and Session binding", async () => {

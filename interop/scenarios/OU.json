@@ -12,9 +12,9 @@
     {"agent": "approve_op", "when": "${upload.held}", "params": {"operation": "${upload.held}", "decision": "approve"}, "save": "approved", "note": "An agent that asks its User before a file leaves it says so with held; the User approves, and the file is sent."},
     {"runner": "first", "params": {"of": ["${approved.result.body.id}", "${upload.body.id}"]}, "save": "upload_id", "note": "The uploaded file's id, from whichever step sent it. The fixture's openapi_propose refers to it as ${upload_id}."},
     {"agent": "api", "params": {"api": "${fixture.openapi_propose.api}", "operation": "${fixture.openapi_propose.operation}", "args": "${fixture.openapi_propose.args}"}, "save": "p"},
+    {"expect": {"${p.held}": {"$exists": true}, "${p.operation.operation_id}": {"$exists": true}, "${p.operation.revision}": {"$exists": true}}},
     {"agent": "approve_op", "params": {"operation": "${p.held}", "decision": "approve"}, "save": "a", "note": "The User approves the Company's exact terms; the stored order goes again with Poppy-Approval (Ops 6)."},
-    {"agent": "approve_op", "when": "${a.held}", "params": {"operation": "${a.held}", "decision": "approve"}, "save": "a", "note": "Compatibility: an agent may add its own preliminary confirmation. If that first decision only obtained Company terms, approve those terms now."},
-    {"expect": {"${a.status}": "done"}},
+    {"expect": {"${a.status}": "done", "${a.approved.operation_id}": "${p.operation.operation_id}", "${a.approved.revision}": "${p.operation.revision}"}},
     {"agent": "session", "save": "after"},
     {"expect": {"${after.signed_in}": false, "${after.session_id}": "${s.session_id}"}}
   ]

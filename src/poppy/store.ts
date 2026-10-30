@@ -140,7 +140,6 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   action_key TEXT,
   action_owner TEXT,
   operation_id TEXT,
-  action_identity_checked INTEGER NOT NULL DEFAULT 0,
   notification_pending INTEGER NOT NULL DEFAULT 0,
   notification TEXT,
   notification_batch_id TEXT,
@@ -224,12 +223,6 @@ export function migrate(sql: Sql): void {
     if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === name)) sql.exec(`ALTER TABLE poppy_approvals ADD COLUMN ${name} ${type}`);
   }
   sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_action ON poppy_approvals (issuer, action_owner, action_key)");
-  // Remember failed decoding too: old unreadable requests must not be re-read on every decision.
-  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "action_identity_checked")) {
-    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN action_identity_checked INTEGER NOT NULL DEFAULT 0");
-  }
-  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_unchecked_action ON poppy_approvals (id) WHERE action_identity_checked = 0");
-  sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE action_identity_checked = 0 AND action_key IS NOT NULL");
   // Historical receipts were already reported. Interrupted attempts still need recovery.
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification_pending")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification_pending INTEGER NOT NULL DEFAULT 0");
@@ -482,7 +475,6 @@ export const approvalsTable = table("poppy_approvals", {
   action_key: nullable(text),
   action_owner: nullable(text),
   operation_id: nullable(text),
-  action_identity_checked: integerOf(flag),
   notification_pending: integerOf(flag),
   notification: nullable(savedApprovalNotification),
   notification_batch_id: nullable(text),

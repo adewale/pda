@@ -107,12 +107,6 @@ const exchange = (w: Pick<World, "client" | "company">, label: string, callKey: 
 const approvals = (w: Pick<World, "sql">) =>
   new Map(w.sql.exec("SELECT id, status FROM poppy_approvals").toArray().map((row) => [String(row.id), String(row.status)]));
 
-/** The operation a terms card approves, from the call it would send. */
-function operationOf(sql: World["sql"], card: string): string {
-  const row = sql.exec("SELECT request FROM poppy_approvals WHERE id = ?", card).toArray()[0]!;
-  return (JSON.parse(String(row.request)) as { call: { approval: { operation_id: string } } }).call.approval.operation_id;
-}
-
 /** The current request obtains Company terms immediately; no preliminary-card fixture. */
 async function propose(w: Pick<World, "client" | "company">, label: string): Promise<{ terms: string; operation: string }> {
   const response = await exchange(w, label, crypto.randomUUID());
@@ -158,13 +152,13 @@ function enabled(model: Model): Command[] {
  */
 async function bindingGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
   const row = w.sql.exec("SELECT label, request FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
-  const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string; account: string | null; authorityGeneration?: number } }).binding;
+  const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string; account: string | null; authorityGeneration: number } }).binding;
   const session = w.client.session(w.company.issuer, String(row.label));
   const current = session?.session_id;
   const userId = w.client.userId(w.company.issuer);
   const remote = (await mock.state()).sessions.find((session) => session.sid === current && session.userId === userId);
   return bound?.sessionId !== current || bound?.account !== session?.account ||
-    (bound?.authorityGeneration ?? 0) !== session?.authority_generation || remote?.ended === true;
+    bound?.authorityGeneration !== session?.authority_generation || remote?.ended === true;
 }
 
 /** Approve a card whose Session is gone: it fails, and the Company does nothing. False, and nothing sent, when its Session is live. */

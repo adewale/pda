@@ -67,11 +67,15 @@ describe("approval authorization and withdrawal", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect(await approvals(c)).toEqual([]);
 
-    // Signed in again, the User asks afresh. The Company answers with the same unexpired revision (Ops 4),
-    // so its card, one per revision, waits again, now for the new request; approved, it goes once.
+    // Signed in again, the User asks afresh. Even unchanged Company terms need
+    // a distinct decision record: a delayed click must not revive the old one.
     await signInDirect(a, c);
     const fresh = await terms(a, c);
-    expect(fresh).toMatchObject({ approvalId: card.approvalId, open: true, status: "pending" });
+    expect(fresh).toMatchObject({ open: true, status: "pending" });
+    expect(fresh.approvalId).not.toBe(card.approvalId);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find(item => item.approvalId === fresh.approvalId)).toMatchObject({ status: "pending", open: true });
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: fresh.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
     expect(await approvals(c)).toHaveLength(1);

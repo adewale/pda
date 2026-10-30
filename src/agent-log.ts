@@ -73,6 +73,8 @@ type TurnState = {
   model: ModelTally;
   tools: ToolCall[];
   toolCount: number;
+  activeTools: number;
+  ended: boolean;
   readUrl: { count: number; rendered: number; statuses: number[]; errors: Record<Safe, number> } | null;
   compaction: { count: number; reasons: Safe[]; blocking: boolean; summary?: Safe } | null;
   stopReason: Safe | null;
@@ -240,6 +242,8 @@ export class AgentLog extends LifecycleCapability implements Units {
       model: { count: 0, refused: 0, retries: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0, latency_ms: 0, errors: {} },
       tools: [],
       toolCount: 0,
+      activeTools: 0,
+      ended: false,
       readUrl: null,
       compaction: null,
       stopReason: null,
@@ -275,6 +279,13 @@ export class AgentLog extends LifecycleCapability implements Units {
     const turn = this.#turn;
     if (!turn) return;
     this.#turn = null;
+    turn.ended = true;
+    // A queued run_end can arrive while an instrumented call still settles.
+    // Detach the turn so the next run can start, but never emit partial tools.
+    if (turn.activeTools === 0) this.#writeTurn(turn);
+  }
+
+  #writeTurn(turn: TurnState): void {
     const { event, model, last } = turn;
     if (last) {
       event.set({
@@ -351,6 +362,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     const turn = this.#openTurn(owned ? "tool" : "unknown");
     const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0, ...(callId ? { call_id: id(callId) } : {}) };
     const started = Date.now();
+    turn.activeTools++;
     try {
       const result = await inScope(turn.event, run, call);
       this.#classify(turn, call, result);
@@ -363,7 +375,9 @@ export class AgentLog extends LifecycleCapability implements Units {
       call.duration_ms = Date.now() - started;
       turn.toolCount++;
       if (turn.tools.length < LIMITS.toolCalls) turn.tools.push(call);
-      if (owned && this.#turn === turn && !turn.run) this.#endTurn();
+      turn.activeTools--;
+      if (turn.ended && turn.activeTools === 0) this.#writeTurn(turn);
+      else if (owned && this.#turn === turn && !turn.run) this.#endTurn();
     }
   }
 

@@ -628,7 +628,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
         tool: text(params.tool, "tool"),
         args: args as Json
       });
-      if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
+      if (isRecord(result) && typeof result.proposed === "string") return heldApiResult(c, result.proposed);
       return { status: 200, body: result };
     }
     const files = uploads(args.files);
@@ -642,7 +642,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     });
     // File disclosure and Company operations wait for a User decision:
     // `held` is the approval `approve_op` decides. Routine task writes run normally.
-    if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
+    if (isRecord(result) && typeof result.proposed === "string") return heldApiResult(c, result.proposed);
     return apiResult(result);
   },
 
@@ -740,6 +740,15 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** Distinguish actual Company terms from separate file-disclosure consent. */
+function heldApiResult(company: Company, id: string) {
+  const row = rows(agent.client.sql, approvalsTable.pick("request"), "SELECT request FROM poppy_approvals WHERE id = ? AND issuer = ?", id, company.issuer)[0];
+  const saved = row ? readApproval(row.request) : undefined;
+  if (!saved?.ok) throw new StepError(500, "invalid_response", "The held request has no readable approval record");
+  const approval = saved.value.kind === "openapi" || saved.value.kind === "mcp" ? saved.value.call.approval : undefined;
+  return { held: id, ...(approval ? { operation: { operation_id: approval.operation_id, revision: approval.revision } } : {}) };
+}
+
 /**
  * An `api` step's files (spec section 5.2: each `{name, type, data}`, the
  * runner having read it from interop/files/), attached as the User attaches
@@ -817,7 +826,8 @@ async function decideHeld(id: string, decision: "approve" | "decline", company: 
     // The executor's summary was cut short; keep the text.
     outcome = row.result;
   }
-  return { status: "done", result: apiResult(outcome) as Json };
+  const approved = heldApiResult(company, id).operation;
+  return { status: "done", result: apiResult(outcome) as Json, ...(approved ? { approved } : {}) };
 }
 
 async function step(request: Request): Promise<Response> {

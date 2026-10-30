@@ -15,7 +15,7 @@ import { randomId, sha256 } from "./jwt";
 import type { OperationV2 } from "./operations-v2";
 import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
-import { approvalBatchesTable, approvalsTable, cardsTable, intent, taskCallsTable } from "./store";
+import { approvalBatchesTable, approvalsTable, cardsTable, taskCallsTable } from "./store";
 import { approvalResult, checkedOutcomeText, isTaskRequest, storedResolution } from "./approval-outcome";
 import type { CardWriteOptions } from "./cards";
 import { inspectResultLinks } from "./result-links";
@@ -257,9 +257,10 @@ type ActionIdentity = { readonly key: string; readonly owner: string; readonly o
  * Account operations span Sessions; signed-out actions belong to one Session.
  * Company operation ids also connect revisions returned through different interfaces.
  */
-async function actionIdentity(label: string, approval: NewApproval): Promise<ActionIdentity> {
+async function actionIdentity(approval: NewApproval): Promise<ActionIdentity> {
   const binding = approval.binding;
-  const owner = canonicalJson(binding?.account ? ["account", binding.account] : binding?.sessionId ? ["session", binding.sessionId] : ["legacy-label", label]);
+  const owner = canonicalJson(binding.account !== null ? ["account", binding.account]
+    : approval.kind === "browse-submit" && binding.sessionId === null ? ["context", approval.binding.contextId] : ["session", binding.sessionId]);
   const operationId = approval.kind === "message-approval" ? approval.approval.operation_id
     : approval.kind === "openapi" || approval.kind === "mcp" ? approval.call.approval?.operation_id ?? null : null;
   let action: Json;
@@ -272,18 +273,6 @@ async function actionIdentity(label: string, approval: NewApproval): Promise<Act
     case "browse-submit": action = toJson(["browse-submit", approval.submission]); break;
   }
   return { key: await sha256(canonicalJson(action)), owner, operationId };
-}
-
-async function backfillActionIdentities(client: PoppyClient): Promise<void> {
-  for (const row of rows(client.sql, approvalsTable.pick("id", "label", "request"), "SELECT id, label, request FROM poppy_approvals WHERE action_identity_checked = 0")) {
-    const read = readApproval(row.request);
-    if (!read.ok) {
-      client.sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE id = ?", row.id);
-      continue;
-    }
-    const action = await actionIdentity(row.label, read.value);
-    client.sql.exec("UPDATE poppy_approvals SET action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1 WHERE id = ? AND action_identity_checked = 0", action.key, action.owner, action.operationId, row.id);
-  }
 }
 
 /**
@@ -335,17 +324,10 @@ export async function proposeLocal(
     throw new PoppyError("approval_changed", "Preliminary API-write approvals are not supported. Start the task again for the Company's current terms.", 0);
   }
   const id = fixedId ?? randomId("apr_");
-  const action = await actionIdentity(label, approval);
-  await backfillActionIdentities(client);
+  const action = await actionIdentity(approval);
   const stored = storedApproval(approval);
   const attachments = approvalAttachments(stored);
   const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
-  if (publish && terms && existing?.status === "unknown" && existing.outcome_resolution === "not_performed" && replacesExecuting) {
-    // A fresh, checked attempt gets its own decision record; preserve the original
-    // uncertain receipt and the User's assertion instead of reopening history.
-    const retryId = intent(client.sql, `reapproval|${replacesExecuting}|${id}`, () => randomId("apr2_"));
-    return proposeLocal(client, company, label, summary, approval, retryId, terms, replacesExecuting);
-  }
   if (!publish && existing) {
     if (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored) throw new PoppyError("approval_changed", "This tool call already made a different request. Nothing will be sent again.", 0);
     return recordTask?.(id) ?? id;
@@ -356,7 +338,7 @@ export async function proposeLocal(
       .find(row => {
         const saved = readApproval(row.request);
         return saved.ok && (isTaskRequest(row.id) || ((saved.value.kind === "openapi" || saved.value.kind === "mcp") && saved.value.call.approval !== undefined)) &&
-          canonicalJson(toJson(saved.value.binding ?? null)) === canonicalJson(toJson(approval.binding ?? null));
+          canonicalJson(toJson(saved.value.binding)) === canonicalJson(toJson(approval.binding));
       });
     requireKnownOutcome(client, company.issuer, action, waiting ? [waiting.id] : []);
     if (waiting) return recordTask?.(waiting.terms_approval_id ?? waiting.id) ?? waiting.terms_approval_id ?? waiting.id;
@@ -365,31 +347,17 @@ export async function proposeLocal(
   requireKnownOutcome(client, company.issuer, action, [
     ...(existing?.status === "pending" ? [id] : []), ...(replacing ? [replacing.id] : [])
   ]);
-  // A Company's terms have one card per revision (operations-v2.ts `approvalCardId`), so a new request of
-  // the User's that the Company answers with the same revision asks for the same terms again (Ops 4).
-  const askedAgain = terms !== undefined && existing !== undefined && existing.issuer === company.issuer && existing.label === label && existing.summary === summary && existing.request !== stored;
-  if (askedAgain) {
-    // Sent already: its outcome stands, and the Company performs it at most once (Ops 7).
-    if (existing.status !== "pending" && existing.status !== "declined" && existing.status !== "failed") return id;
-    // Report the previous decision before reusing this revision's card for a new attempt.
-    await notifyApprovalDecision(client, id);
-    // Waiting, declined, or never sent: the card waits for the User's decision on the newest request.
-    client.sql.exec(
-      "UPDATE poppy_approvals SET request = ?, terms = ?, action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1, status = 'pending', result = NULL, outcome_resolution = NULL, outcome_resolved_at = NULL WHERE id = ? AND status = ?",
-      stored,
-      JSON.stringify(terms),
-      action.key, action.owner, action.operationId,
-      id,
-      existing.status
-    );
-  } else if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
+  // Returning the revision currently being sent is a known refusal; never
+  // replace its request or make a self-link. Decision records are immutable.
+  if (terms && existing?.status === "executing" && id === replacesExecuting && existing.issuer === company.issuer && existing.label === label && existing.summary === summary) return id;
+  if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
     throw new PoppyError("approval_changed", "This tool call already proposed a different request. Use a new call for fresh approval.", 0);
   }
-  if (existing && !askedAgain && existing.status !== "pending") return id;
+  if (existing && existing.status !== "pending") return id;
   if (!existing) {
     client.rememberCompany("approval", id, company);
     client.sql.exec(
-      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms, action_key, action_owner, operation_id, action_identity_checked) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 1)",
+      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms, action_key, action_owner, operation_id) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
       id,
       company.issuer,
       label,
@@ -442,7 +410,10 @@ async function expirePendingTerms(client: PoppyClient, issuer: string, action: A
  * A fresh model call for a request already awaiting terms reuses those terms, without another send.
  */
 export async function dispatchTaskRequest(client: PoppyClient, company: Company, label: string, summary: string, request: Extract<NewApproval, { kind: "openapi" | "mcp" }>, fixedId: string): Promise<Json> {
-  const hash = await sha256(canonicalJson(toJson({ issuer: company.issuer, label, request })));
+  // Authority is captured in the immutable request, not the call fingerprint:
+  // replay returns that original attempt even after sign-out or a known Session restart.
+  const { binding: _binding, ...intent } = request;
+  const hash = await sha256(canonicalJson(toJson({ issuer: company.issuer, label, request: intent })));
   const bound = one(client.sql, taskCallsTable.row, "SELECT * FROM poppy_task_calls WHERE call_id = ?", fixedId);
   if (bound && bound.request_hash !== hash) throw new PoppyError("approval_changed", "This tool call already made a different task request. Nothing will be sent again.", 0);
   const record = (target: string): string => {
@@ -599,10 +570,9 @@ async function repairTerminalApprovalCard(client: PoppyClient, id: string): Prom
  * Preserve the original unknown receipt, and record this assertion separately. It never resends a request.
  */
 export async function resolveApprovalOutcome(client: PoppyClient, id: string, outcome: "performed" | "not_performed"): Promise<void> {
-  await backfillActionIdentities(client);
   const selected = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!selected || selected.status !== "unknown") throw new PoppyError("invalid_request", "Only a receipt with an unknown outcome can be reconciled. Nothing was sent.", 0);
-  // A terms chain represents one request, even when its original local card and terms card both show unknown.
+  // One request can have an internal task record and several Company revisions.
   const candidates = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND label = ? AND status IN ('unknown', 'terms')", selected.issuer, selected.label);
   const linked = new Set([id]);
   for (;;) {
@@ -676,7 +646,6 @@ async function settleTermsApprovals(client: PoppyClient): Promise<void> {
  * once for one card and once for a batch (`decideLocal`, `decideLocalBatch`).
  */
 async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline", batch?: string, task?: { failed(error: unknown): void }): Promise<string | null> {
-  await backfillActionIdentities(client);
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return null;
   const company = await client.resumeCompany(row.issuer, "approval", id);
@@ -918,7 +887,7 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   // A known approval_required handoff belongs to its terms card even if publication
   // interrupted the initial task before it could record the final waiting state.
-  client.sql.exec("UPDATE poppy_approvals SET status = 'terms' WHERE id GLOB 'req_*' AND status = 'executing' AND terms_approval_id IS NOT NULL");
+  client.sql.exec("UPDATE poppy_approvals SET status = 'terms' WHERE status = 'executing' AND terms_approval_id IS NOT NULL");
   // A task record created before dispatch began is not a card waiting for a click.
   // After a crash report that no action was sent rather than leaving it pending forever.
   client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = 'Interrupted before dispatch. Nothing was sent.', notification_pending = 1 WHERE id GLOB 'req_*' AND status = 'pending'");
@@ -957,6 +926,19 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
     );
   }
   await settleTermsApprovals(client);
+  // Terms can be committed and linked before their first card reaches storage.
+  // Repair publication only: never decide, resend, or show the internal req_ row.
+  for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'pending' AND terms IS NOT NULL")) {
+    if (isTaskRequest(row.id) || !row.terms) continue;
+    const saved = readApproval(row.request);
+    if (!saved.ok) continue;
+    const company = client.companyByIssuer(row.issuer);
+    await client.host.showCard({
+      id: `approval-${row.id}`, kind: "approval", company: company.name, domain: company.domain,
+      open: true, approvalId: row.id, summary: row.summary, status: "pending", terms: row.terms,
+      ...approvalAttachments(row.request), ...batchKeyOf(row.issuer, row.request)
+    }, { repair: true });
+  }
   for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE notification_pending = 1")) {
     await repairTerminalApprovalCard(client, row.id);
     if (!batched.has(row.id)) await notifyApprovalDecision(client, row.id);

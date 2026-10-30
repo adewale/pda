@@ -596,7 +596,7 @@ describe("photos the User decides to send together on one card", () => {
       "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, 'x', 'Submit a form', ?, 'pending', 0)",
       other.approvalId,
       c.hosts.issuer,
-      JSON.stringify({ v: 2, kind: "browse-submit", submission: { from: `https://${c.domain}/`, method: "POST", action: `https://${c.domain}/f`, enctype: "application/x-www-form-urlencoded", fields: [] } })
+      JSON.stringify({ v: 3, kind: "browse-submit", binding: { account: null, sessionId: null, contextId: "ctx_unsent", authorityGeneration: 0 }, submission: { from: `https://${c.domain}/`, method: "POST", action: `https://${c.domain}/f`, enctype: "application/x-www-form-urlencoded", fields: [] } })
     );
     await a.stub.poppyFrame({ type: "poppy.approvals", decisions: [photo!, other].map((card) => ({ approvalId: card.approvalId, decision: "approve" })) });
     expect(await photoRequests(c)).toEqual([]);

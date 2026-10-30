@@ -12,11 +12,11 @@
  * is a type error in any event field is test/log-types.ts, under typecheck.
  */
 import { env } from "cloudflare:workers";
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { DIAGNOSTIC_EVENTS } from "../src/agent-log";
+import { AgentLog, DIAGNOSTIC_EVENTS } from "../src/agent-log";
 import { base64url } from "../src/base64url";
-import { agentId as pseudonym, code, domain, id, literal, message, modelId, origin, redact, SERVICE, toolName, wideEvent } from "../src/log";
+import { agentId as pseudonym, code, domain, id, literal, message, modelId, origin, redact, reportError, SERVICE, toolName, wideEvent } from "../src/log";
 import { routeOf } from "../src/index";
 import { agentNameFor } from "../src/session";
 import { PoppyError } from "../src/poppy/client";
@@ -101,6 +101,33 @@ describe("http events", () => {
 });
 
 describe("turn events", () => {
+  it("settles in-flight tool diagnostics before emitting an ended turn, without holding the next run", async () => {
+    const a = await agent();
+    await runInDurableObject(a.stub, async (_instance, state) => {
+      const log = new AgentLog({ sql: state.storage.sql, agentId: pseudonym(a.stub.id.toString())! });
+      const before = log.events().length;
+      log.onPiEvents([{ type: "run_start", inputs: [] }]);
+      let release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const pending = log.tool(toolName("calculate")!, async () => {
+        await held;
+        reportError(new PoppyError("invalid_client", "private-company-refusal", 401), { source: literal("held-tool") });
+        return { isError: true, details: { error: "invalid_client" } };
+      }, "late-result");
+      try {
+        log.onPiEvents([{ type: "run_end", inputs: [] }]);
+        expect(log.events().slice(before)).toEqual([]);
+        log.onPiEvents([{ type: "run_start", inputs: [] }, { type: "run_end", inputs: [] }]);
+        expect(log.events().slice(before).map(line => JSON.parse(line).tool_count)).toEqual([0]);
+      } finally { release(); await pending; }
+      const lines = log.events().slice(before);
+      expect(lines).toHaveLength(2);
+      const ended = JSON.parse(lines[1]!);
+      expect(ended).toMatchObject({ tool_count: 1, tool_calls: [{ call_id: "late-result", error_code: "invalid_client" }], errors: [{ type: "PoppyError", code: "invalid_client" }] });
+      expect(lines.join("\n")).not.toContain("private-company-refusal");
+    });
+  });
+
   it("writes one for the User's message, naming the socket's request and the model call", async () => {
     const a = await agent();
     const mark = await a.stub.poppyLogMark();
@@ -298,13 +325,18 @@ describe("a Company's words", () => {
     // The background jobs, due now: the conversation's read fails on the refused token, and its job's event records why.
     await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
     await runDurableObjectAlarm(a.stub);
+    // Await the signed-in read's actual refusal before changing authority.
+    // The privacy oracle must inspect completed work, not assume an alarm
+    // has already run merely because it was requested.
+    await until(async () => (await eventsOf(a, mark)).some(event =>
+      (event.errors ?? []).some((error: Record<string, unknown>) => error.type === "PoppyError" && error.code === "invalid_client")));
     // Signing out reaches the revocation endpoint, which refuses too; its job runs now.
     await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
     await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
     await runDurableObjectAlarm(a.stub);
 
     const lines = (await a.stub.poppyLogsSince(mark)).join("\n");
-    const events = await wideEvents(a, mark);
+    const events = await eventsOf(a, mark);
     const errors = events.flatMap((event) => (event.errors ?? []) as Array<Record<string, unknown>>);
     // The refusals were logged, by class and code: never the Company's words.
     expect(errors.some((error) => error.type === "PoppyError" && error.code === "invalid_client")).toBe(true);
