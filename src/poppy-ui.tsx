@@ -659,7 +659,7 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
     }
     case "approval": {
       const resolution = card.outcomeResolution;
-      const task = isTaskRequest(card.approvalId);
+      const task = isTaskRequest(card.approvalId) || card.taskRequested === true;
       const result = approvalResult(card.status, resolution);
       // A checked outcome is attributed to the User; the original Company response stays separate.
       const detail = resolution ? "you checked with the Company" : card.answer

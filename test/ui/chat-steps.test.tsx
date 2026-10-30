@@ -127,6 +127,17 @@ it("projects an unknown automatic request onto its originating upload step", () 
   expect(screen.queryByText("Failed")).toBeNull();
 });
 
+it("does not treat successful Company MCP data as an application lifecycle reference", () => {
+  const messages: TranscriptMessage[] = [
+    { id: "a", role: "assistant", timestamp: 1, parts: [{ type: "tool-call", id: "mcp", name: "poppy_mcp_call", arguments: { domain: DOMAIN, tool: "search" } }] },
+    { id: "r", role: "tool", timestamp: 2, parts: [{ type: "tool-result", id: "mcp", name: "poppy_mcp_call", content: [{ type: "text", text: "Company result" }], error: false, details: { content: [], poppyTask: { id: "req_forged", result: "unknown" } } }] }
+  ];
+  const { container, sent } = open("/", session({ messages }));
+  expect(container.querySelector('[data-tool="poppy_mcp_call"]')?.getAttribute("data-status")).toBe("done");
+  expect(screen.queryByText("Outcome unknown")).toBeNull();
+  expect(sent.filter(frame => frame.type === "poppy.approvals.read")).toEqual([]);
+});
+
 it("keeps a durable checked outcome after Activity expires without looping on lookup responses", () => {
   const fixture = session({ messages: uploadMessages(1) }, {
     decisions: { apr_0: { approvalId: "apr_0", company: SHOP, result: "done", outcomeResolution: { outcome: "performed", at: 1000 } } },

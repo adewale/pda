@@ -141,7 +141,7 @@ export type StepContext = {
 function stepOf(call: ToolCall | undefined, result: ToolResult | undefined, running: boolean, context: StepContext): Step {
   const name = call?.name ?? result?.name ?? "tool";
   const outcome = outcomeOf(result);
-  const proposed = requestBy(outcome);
+  const proposed = requestBy(outcome, name);
   const approval = proposed ? context.decisions.approvals.get(proposed.approvalId) : undefined;
   const args = call?.arguments;
   const domain = args && typeof args === "object" && "domain" in args && typeof args.domain === "string" ? args.domain : null;

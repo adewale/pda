@@ -79,7 +79,7 @@ export function approvalsOnSteps(messages: readonly TranscriptMessage[]): Set<st
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "tool-result") continue;
-      const proposed = requestBy({ error: part.error, ...(part.details !== undefined ? { details: part.details } : {}) });
+      const proposed = requestBy({ error: part.error, ...(part.details !== undefined ? { details: part.details } : {}) }, part.name);
       if (proposed) ids.add(proposed.approvalId);
     }
   }

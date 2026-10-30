@@ -25,7 +25,23 @@ Initial source-review pin: `00d034c713624afa81ba690d19e4d7630551e77e`. Three ind
 - **Canonical projection:** the unchanged Hegel property exposed different lifecycle IDs on coalesced outcomes. Prefer the canonical task root and project through linked terms/revisions, with cycle refusal and an indexed parent lookup. The property was fixed in production code, not narrowed or weakened.
 - **All file methods:** file-bearing calls retain durable dispatch rather than taking the ordinary GET fast path.
 
-## Verification at the fix candidate
+## Second independent review and corrections
+
+Three fresh source-only reviews inspected `0b499a1209208383bc9a704d7b400e0e26da0d0f`. They confirmed the initial corrections and found five further structural/lifecycle failures and two presentation issues:
+
+- A qualified URL inside a schemeless URL or email query was scanned separately. `task-text.ts` now consumes the complete outer locator once; paths, queries and email data remain opaque. Network references also cannot select a historical filename. Obedient-model regressions require zero second-Company requests.
+- A longer filename mentioned in narrative selected a contained shorter name. Full known filename spans are resolved before IDs are added; contained suffixes are suppressed, and crossing overlaps remain ambiguous.
+- Duplicate `this photo.jpg` names fell through to an unrelated recent photo. Recognized unresolved filename spans are removed from ordinary-reference inference. Ordinary extensionless words are not filename grants without quotes or an explicit naming clause.
+- Adoption retired only one of multiple equivalent pending disclosures. Every equivalent pending sibling is linked and made non-executable before sending. One-, two- and three-old-card histories, delayed decisions and restart retain one upload. Linked read-only projections follow the actual child state.
+- Receipt-publication failure replaced a committed success or stripped an unknown outcome's reference. Completion now rereads the durable business outcome even when publication throws. Real SDK tool-result tests cover both successful and unknown automatic uploads; restoration/restart does not send again.
+- Raw Company MCP data could forge the new `poppyTask` field. Only the application-owned OpenAPI result path supplies this UI reference; forged MCP data cannot change state or trigger a durable lookup. Company result data is retained, not discarded.
+- Adopted disclosure receipts and Activity falsely implied a card click. The successful claim records task-selection attribution separately from authority; linked receipts, Activity and recovery notices preserve it. The marker confers no execution permission.
+
+The supervisor reproduced nine selection/recipient failures before correction. Disabling sibling retirement and publication-boundary recovery makes four lifecycle regressions fail; disabling the two presentation corrections makes both UI regressions fail. Additional checks cover Unicode hostname suffixes, filename/recipient-name collisions, sentence punctuation and the durable classification of a file-bearing GET before transport refusal/loss. A counterfactual GET description is not evidence that the strict mock serves GET uploads.
+
+The corrected source passed **2,209 tests in 118 files**, none skipped: Workers 1,330; durability 3; page 268; interop unit/contract 415; properties 193. Typecheck, the docs-name check and the pinned-spec check passed. The unchanged Hegel properties retain their original generators and assertions. Browser/crash runs at the preceding pin are not silently promoted to this source revision; final receipts identify their own pin.
+
+## Verification at the preceding fix candidate
 
 The supervisor ran `npm run typecheck`, `npm test` and `npm run check:spec`. The full suite passed **2,186 tests in 118 files**, none skipped: Workers 1,309; durability 3; page 266; interop unit/contract 415; properties 193. Hegel used its default case count, including the unchanged coalescing property. The docs-name check verified 386 Appendix A names and nine adversarial scenarios/four named tests; existence is not behavioral coverage. The spec check verified 43 dispositions and 13 pinned pages.
 

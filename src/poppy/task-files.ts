@@ -1,11 +1,10 @@
 import { MARKER, markersIn } from "../attachments";
+import { recipientCue, taskText } from "./task-text";
 
 /**
- * Photos selected in the User's task, not in Company text or tool arguments.
- * Selection is not an instruction to upload: the upload must still serve the
- * User's task, at a Company that task authorizes. An unselected file needs the
- * User's separate disclosure decision. No model tool can manufacture this
- * context by setting an `approved` flag.
+ * Files available for the genuine User's task, never an instruction to upload.
+ * The model must still determine that disclosure serves that task. Company
+ * words and model-supplied permission flags cannot manufacture this context.
  */
 export class TaskFiles {
   private constructor(private readonly ids: ReadonlySet<string>) {}
@@ -17,10 +16,10 @@ export class TaskFiles {
     return [...new Set(history.flatMap(text => [...text.matchAll(MARKER)].map(match => match[0].split(" · ")[1] ?? "")).filter(Boolean))];
   }
 
-  /** `task` and `history` contain only genuine User messages, never our notices. */
+  /** `task` and `history` are original placed User inputs, not model summaries. */
   static fromUser(task: string, history: readonly string[]): TaskFiles {
     const selected = new Set(markersIn(task));
-    const narrative = task.replace(MARKER, ""); // Metadata cannot select another saved file.
+    const narrative = taskText(task.replace(MARKER, "")).narrative;
     const names = new Map<string, Set<string>>();
     for (const text of history) {
       for (const match of text.matchAll(MARKER)) {
@@ -31,16 +30,22 @@ export class TaskFiles {
         names.set(name, ids);
       }
     }
-    // A filename must identify one photo and be named as a whole filename,
-    // not appear inside another name. Ambiguous names keep the consent card.
-    for (const [name, ids] of names) {
-      if (ids.size === 1 && namesFile(narrative, name)) for (const id of ids) selected.add(id);
+    const spans = [...names].flatMap(([name, ids]) => fileSpans(narrative, name).map(span => ({ ...span, ids })));
+    // Longest complete known filenames win over contained suffixes. Crossing
+    // overlaps and duplicate names remain ambiguous rather than choosing a file.
+    const maximal = maximalSpans(spans);
+    for (const span of maximal) {
+      if (span.selectable && span.ids.size === 1 && !maximal.some(other => other !== span && other.start < span.end && span.start < other.end)) {
+        for (const id of span.ids) selected.add(id);
+      }
     }
-    // Ordinary follow-ups can refer to the last User-selected photo(s).
-    // A singular reference cannot silently choose among a batch of photos.
+    // Even unresolved filename spans are data, not ordinary "this photo"
+    // references. Network locators were already removed as opaque spans.
+    // String offsets are UTF-16; replace spans without changing their offsets.
+    const plain = spans.filter(span => span.selectable).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
-    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b/i.test(narrative);
-    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b/i.test(narrative);
+    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b/i.test(plain);
+    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b/i.test(plain);
     if (selected.size === 0 && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
     return new TaskFiles(selected);
   }
@@ -48,14 +53,30 @@ export class TaskFiles {
   includes(ids: readonly string[]): boolean { return ids.every(id => this.ids.has(id)); }
 }
 
-function namesFile(text: string, name: string): boolean {
+function fileSpans(text: string, name: string): { start: number; end: number; selectable: boolean }[] {
+  return nameSpans(text, name).map(span => {
+    const before = Array.from(text.slice(0, span.start)).at(-1) ?? "";
+    const after = Array.from(text.slice(span.end))[0] ?? "";
+    const quoted = ["''", '\"\"', "‘’", "“”", "«»"].includes(before + after);
+    const selectable = (/\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name) && !recipientCue(text, span.start)) || quoted || /\b(?:named|called|filename is) $/i.test(text.slice(0, span.start));
+    return { ...span, selectable };
+  });
+}
+
+export function maximalSpans<T extends { start: number; end: number }>(spans: readonly T[]): T[] {
+  return spans.filter(span => !spans.some(other => other.start <= span.start && other.end >= span.end && (other.start < span.start || other.end > span.end)));
+}
+
+export function nameSpans(text: string, name: string): { start: number; end: number }[] {
   const part = /[\p{L}\p{N}_.-]/u;
+  const spans: { start: number; end: number }[] = [];
   let at = text.indexOf(name);
   while (at >= 0) {
     const before = Array.from(text.slice(0, at)).at(-1) ?? "";
     const after = Array.from(text.slice(at + name.length))[0] ?? "";
-    if (!part.test(before) && !part.test(after)) return true;
+    const sentenceEnd = /^\.(?:\s|$|["'”’])/u.test(text.slice(at + name.length));
+    if (!part.test(before) && (!part.test(after) || sentenceEnd)) spans.push({ start: at, end: at + name.length });
     at = text.indexOf(name, at + 1);
   }
-  return false;
+  return spans;
 }

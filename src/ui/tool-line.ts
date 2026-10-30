@@ -55,7 +55,8 @@ export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: stri
 }
 
 /** A safe lifecycle reference written by our task dispatcher, including failures. */
-export function taskBy(outcome: ToolOutcome | undefined): { approvalId: string; result: ApprovalResult } | null {
+export function taskBy(outcome: ToolOutcome | undefined, name: string): { approvalId: string; result: ApprovalResult } | null {
+  if (name !== "poppy_api_call") return null; // Raw MCP successes are Company data, not application metadata.
   const task = isRecord(outcome?.details) ? outcome.details.poppyTask : undefined;
   if (!isRecord(task) || typeof task.id !== "string" || !isDiagnosticFlowId(task.id)) return null;
   switch (task.result) {
@@ -65,7 +66,7 @@ export function taskBy(outcome: ToolOutcome | undefined): { approvalId: string; 
   }
 }
 
-export function requestBy(outcome: ToolOutcome | undefined): { approvalId: string } | null { return proposedBy(outcome) ?? taskBy(outcome); }
+export function requestBy(outcome: ToolOutcome | undefined, name: string): { approvalId: string } | null { return proposedBy(outcome) ?? taskBy(outcome, name); }
 
 type Args = Record<string, unknown>;
 
@@ -107,9 +108,9 @@ function proposed(outcome: ToolOutcome | undefined): boolean {
   return typeof outcome.text === "string" && /"proposed"\s*:/.test(outcome.text);
 }
 
-function stateOf(outcome: ToolOutcome | undefined): ToolState {
+function stateOf(outcome: ToolOutcome | undefined, name: string): ToolState {
   if (!outcome) return "running";
-  if (outcome.missing || taskBy(outcome)?.result === "unknown") return "unknown";
+  if (outcome.missing || taskBy(outcome, name)?.result === "unknown") return "unknown";
   if (outcome.error) return "failed";
   return proposed(outcome) ? "waiting" : "done";
 }
@@ -137,7 +138,7 @@ function size(bytes: number): string {
 
 /** The lines for the general tools (src/tools/): read_url, memory, time and maths. Null for any other name. */
 function generalLine(name: string, a: Args, outcome: ToolOutcome | undefined): ToolLine | null {
-  const state = stateOf(outcome);
+  const state = stateOf(outcome, name);
   const details = isRecord(outcome?.details) ? outcome.details : {};
   const line = (text: string, how: ToolHow, quote?: string): ToolLine => ({ text, ...(quote ? { quote } : {}), how, access: null, state });
   switch (name) {
@@ -218,7 +219,7 @@ export function describeToolCall(
   const a: Args = isRecord(args) ? args : {};
   const domain = str(a.domain);
   const company = domain ? (companies.get(domain.toLowerCase()) ?? domain) : "the Company";
-  const state = stateOf(outcome);
+  const state = stateOf(outcome, name);
   const line = (text: string, how: ToolHow | null, accessLevel: ToolAccess | null = null, quote?: string): ToolLine => ({
     text,
     ...(quote ? { quote } : {}),
@@ -280,7 +281,7 @@ export function describeToolCall(
             if (state === "failed") return upload(`Couldn't confirm sending ${photos} to ${company}`, "failed");
             if (state === "running" || (isRecord(outcome?.details) && outcome.details.status === "in_progress")) return upload(`Sending ${photos} to ${company}`, "running");
             const status = isRecord(outcome?.details) ? outcome.details.status : undefined;
-            if (state !== "unknown" && (taskBy(outcome)?.result === "done" || (typeof status === "number" && status >= 200 && status < 300 && status !== 202))) return upload(`Sent ${photos} to ${company}`);
+            if (state !== "unknown" && (taskBy(outcome, name)?.result === "done" || (typeof status === "number" && status >= 200 && status < 300 && status !== 202))) return upload(`Sent ${photos} to ${company}`);
             return upload(`Couldn't confirm sending ${photos} to ${company}`, "unknown");
         }
       }

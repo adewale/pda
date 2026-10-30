@@ -60,6 +60,34 @@ describe("photos selected by the User's task", () => {
     expect(files.includes([privatePhoto.id])).toBe(false);
   });
 
+  it.each([false, true])("does not select a contained filename when the User names the longer one (attached: %s)", attached => {
+    const copy = { ...lake, name: "copy of private.jpg" };
+    const task = `Print copy of private.jpg${attached ? `\n${attachmentMarker(copy)}` : ""}`;
+    const files = TaskFiles.fromUser(task, [attachmentMarker(privatePhoto), attachmentMarker(copy), task]);
+    expect(files.includes([copy.id])).toBe(true);
+    expect(files.includes([privatePhoto.id])).toBe(false);
+  });
+
+  it("does not fall from an ambiguous filename into an unrelated recent photo", () => {
+    const a = attachmentMarker({ ...lake, name: "this photo.jpg" });
+    const b = attachmentMarker({ ...lake, id: "att_cccccccccccccccccccccc", name: "this photo.jpg" });
+    const files = TaskFiles.fromUser("Print this photo.jpg", [a, b, attachmentMarker(privatePhoto)]);
+    expect(files.includes([lake.id])).toBe(false);
+    expect(files.includes([privatePhoto.id])).toBe(false);
+  });
+
+  it("does not select filenames from URL or email data", () => {
+    for (const task of ["Track https://first.example/?file=private.jpg", "Track first.example/?file=private.jpg", "Email private.jpg@example.net"]) {
+      expect(TaskFiles.fromUser(task, [attachmentMarker(privatePhoto)]).includes([privatePhoto.id]), task).toBe(false);
+    }
+  });
+
+  it("does not turn an ordinary reference into an extensionless historical filename", () => {
+    const ordinary = attachmentMarker({ ...lake, name: "photo" });
+    expect(TaskFiles.fromUser("Print that photo", [ordinary, attachmentMarker(privatePhoto)]).includes([lake.id])).toBe(false);
+    expect(TaskFiles.fromUser("Print ‘photo’", [ordinary]).includes([lake.id])).toBe(true);
+  });
+
   it("freezes a selection before a later task replaces it", () => {
     const history = [marker];
     const first = TaskFiles.fromUser(marker, history);
@@ -105,9 +133,38 @@ describe("task recipient selection", () => {
     expect(scope.allow("first.example:8443")).toBe(true);
   });
 
+  it("does not let a historical filename erase an explicit recipient or create a hostname suffix", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("Print this photo at first.example.", false, "task", ["first.example"]);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+    const title = new TaskCompanyScope();
+    title.update("Print Holiday at second.example at first.example.", true, "other", ["Holiday at second.example"]);
+    expect(title.allow("second.example")).toBe(false);
+    expect(title.allow("first.example")).toBe(true);
+    const unicode = new TaskCompanyScope();
+    unicode.update("Print this photo at bücher.example.", false);
+    expect(unicode.allow("cher.example")).toBe(false);
+    expect(unicode.allow("xn--bcher-kva.example")).toBe(true);
+  });
+
   it("does not read an email URL's query as a Company recipient", () => {
     const scope = new TaskCompanyScope();
     scope.update("Print at first.example. Email ada@second.example?subject=prints.", false);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+  });
+
+  it.each([
+    "first.example/orders?return_to=https://second.example",
+    "https://first.example/orders?return_to=https://second.example",
+    "first.example/orders?(x)=https://second.example",
+    "ada@first.example?return_to=https://second.example",
+    "/orders?return_to=https://second.example",
+    "用户@first.example?return_to=https://second.example"
+  ])("never scans inside the outer locator %s for another recipient", locator => {
+    const scope = new TaskCompanyScope();
+    scope.update(`Print at first.example. Tracking: ${locator}`, true);
     expect(scope.allow("second.example")).toBe(false);
     expect(scope.allow("first.example")).toBe(true);
   });

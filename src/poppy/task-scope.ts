@@ -1,9 +1,6 @@
 import { MARKER } from "../attachments";
-
-function recipient(value: string): string {
-  try { return new URL(value.includes("://") ? value : `https://${value}`).host.toLowerCase().replace(/\.(?=:|$)/, ""); }
-  catch { return ""; }
-}
+import { maximalSpans, nameSpans } from "./task-files";
+import { recipient, recipientCue, taskText } from "./task-text";
 
 /** Company content cannot expand the set of Companies the User's task reaches. */
 export class TaskCompanyScope {
@@ -21,20 +18,34 @@ export class TaskCompanyScope {
       this.#key = key;
       // A filename, email address or a URL's query/path is not the User
       // choosing another recipient. URLs name only their actual host and port.
-      const dataWords = new Set(filenames.flatMap(name => name.toLowerCase().split(/[^a-z0-9.@-]+/).map(word => word.replace(/\.+$/, ""))));
-      const explicit = new Set<string>();
-      this.#task = task.replace(MARKER, "")
-        .replace(/\bhttps?:\/\/[^\s<>"\])]+/gi, value => { explicit.add(recipient(value)); return " "; })
-        .replace(/(?<![a-z0-9.@-])(?:localhost|[a-z0-9.-]+\.[a-z0-9-]+\.?)(?::[0-9]+(?:[\\/?#][^\s<>"\])]*)?|[\\/?#][^\s<>"\])]*)/gi, value => { const named = recipient(value); if (!dataWords.has(named.replace(/:[0-9]+$/, ""))) explicit.add(named); return " "; })
-        .replace(/[\\/?#][^\s<>"\]]*/g, "")
-        .toLowerCase().split(/[^a-z0-9.@-]+/).filter(word => !dataWords.has(word.replace(/\.+$/, ""))).join(" ");
-      this.#domains = explicit;
+      const dataWords = new Set(filenames.flatMap(name => name.toLowerCase().split(/[^\p{L}\p{N}_.@-]+/u).map(word => word.replace(/\.+$/, ""))));
+      const base = task.replace(MARKER, "");
+      const names = maximalSpans(filenames.flatMap(name => nameSpans(base, name).map(span => ({ ...span, name }))));
+      const parsed = taskText(base);
+      let ambiguousDestination = false;
+      const narrative = names.reduce((text, span) => {
+        if (text.slice(span.start, span.end) !== span.name) return text; // Already inside an opaque locator.
+        const hostName = /^[\p{L}\p{N}_.:-]+$/u.test(span.name) && span.name.includes(".");
+        if (hostName && recipientCue(base, span.start)) return text;
+        ambiguousDestination ||= /\b(?:at|to|with|company|shop|store)\s+[^\s]*\./iu.test(span.name);
+        return text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end);
+      }, parsed.narrative);
+      this.#task = narrative.replace(/[\\/?#][^\s<>"\]]*/g, "")
+        .toLowerCase().split(/[^\p{L}\p{N}_.@-]+/u).join(" ");
+      this.#domains = new Set(parsed.locators.filter(locator => {
+        if (locator.qualified || !locator.host) return true;
+        const compoundName = names.some(span => span.start < locator.start && locator.start < span.end);
+        const allowed = !compoundName && (locator.named || !dataWords.has(locator.host.replace(/:[0-9]+$/, "")));
+        ambiguousDestination ||= !allowed;
+        return allowed;
+      }).map(locator => locator.host));
       // A literal destination already constrains the first call, not only
       // later calls after Company content. Filenames and emails aren't one.
       for (const word of this.#task.split(" ")) {
         const named = word.replace(/\.+$/, "");
-        if (/^(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*$/.test(named)) this.#domains.add(named);
+        if (/^(?:[\p{L}\p{N}_-]+\.)+[\p{L}][\p{L}\p{N}_-]*$/u.test(named)) this.#domains.add(recipient(named));
       }
+      if (ambiguousDestination) this.#domains.add(""); // Ambiguity cannot enable an inferred recipient.
       const remembered = this.first?.(key);
       if (remembered) this.#domains.add(remembered);
       this.#foreign = false;
@@ -48,7 +59,7 @@ export class TaskCompanyScope {
     if (!host) return false;
     if (this.#domains.has(host)) return true;
     const words = this.#task.toLowerCase();
-    const named = words.split(/[^a-z0-9.@-]+/).some((word) => word.replace(/\.+$/, "") === host);
+    const named = words.split(/[^\p{L}\p{N}_.@-]+/u).some((word) => word.replace(/\.+$/, "") === host);
     if (named || (!this.#foreign && this.#domains.size === 0 && words && (this.first?.(this.#key, host) ?? host) === host)) {
       this.#domains.add(host);
       return true;

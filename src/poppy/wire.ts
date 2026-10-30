@@ -72,6 +72,8 @@ export type Card =
       readonly result?: string;
       /** The User checked the original outcome with the Company; the original receipt remains in history. */
       readonly outcomeResolution?: OutcomeResolution;
+      /** An equivalent disclosure was sent by a fresh task selection, not a card click. */
+      readonly taskRequested?: boolean;
       /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
       readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
