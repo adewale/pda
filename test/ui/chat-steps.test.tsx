@@ -275,7 +275,9 @@ describe("the order", () => {
     expect(screen.getByText(/Print 3 photos as 4×6 lustre prints/).closest("figure")!.textContent).toContain(`${SHOP} says:`);
     const preview = screen.getByRole("link", { name: "items 1 preview" });
     expect(preview.getAttribute("target")).toBe("_blank");
-    fireEvent.click(screen.getByRole("button", { name: "Approve $15.00" }));
+    // The total is in the viewer's own locale: "$15.00" in en-US, "US$15.00" in en-GB.
+    const total = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(15);
+    fireEvent.click(screen.getByRole("button", { name: `Approve ${total}` }));
     expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr2_order1", decision: "approve" }]);
   });
 

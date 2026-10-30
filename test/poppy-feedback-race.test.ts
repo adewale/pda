@@ -42,8 +42,9 @@ it("lets a queued report retry after the first attempt fails before dispatch", a
         sendFeedback(client, C, "main", task, description),
         sendFeedback(client, C, "main", task, description)
       ]);
-      expect(results[0]?.status).toBe("rejected");
-      expect(results[1]).toMatchObject({ status: "fulfilled", value: { kind: "accepted" } });
+      // Both callers check excluded tasks before queuing; either can reach the queue first.
+      expect(results.map(result => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+      expect(results.find(result => result.status === "fulfilled")).toMatchObject({ value: { kind: "accepted" } });
       expect(await sendFeedback(client, C, "main", task, description)).toEqual({ kind: "already_sent" });
     } finally { remote.mockRestore(); }
   });

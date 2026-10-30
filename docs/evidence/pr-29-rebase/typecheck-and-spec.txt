@@ -1,0 +1,8 @@
+> pda@0.0.0 typecheck
+> tsc --noEmit
+
+
+> pda@0.0.0 check:spec
+> node scripts/check-spec.mjs
+
+Verified 43 changelog dispositions and 13 pinned pages (0.3, retrieved 2026-10-29).

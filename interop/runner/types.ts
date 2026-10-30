@@ -81,6 +81,13 @@ export type Step = {
   /** A `${...}` reference: the step runs only when it names something other than null or false. */
   readonly when?: string;
   readonly expect?: Expectations;
+  /**
+   * On an `expect` step: it states what the Company must offer for the
+   * scenario to apply (conversations, an MCP API). A live Company claims
+   * nothing (spec §10), so a miss makes its cell unsupported; a Company with
+   * an adapter claims the scenario in its manifest, so a miss fails.
+   */
+  readonly offers?: true;
   readonly note?: string;
 };
 

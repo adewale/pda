@@ -1,0 +1,21 @@
+Fixture preflight regressions on original PR head 6b32b10c402a0326c351088e107a9a6593ed77ba.
+Command: npx vitest run --config interop/vitest.config.ts interop/test/runner.test.ts interop/test/scenario.test.ts
+Seven expected failures: four CLI preflight cases and true/0/empty-string conditions.
+The initial run also had one unrelated openssl EPERM sandbox failure (8 failures total); with command network permission that existing check passes.
+
+     × checks parameters only when a fixture condition is active (true) 8ms
+     × checks parameters only when a fixture condition is active (0) 1ms
+     × checks parameters only when a fixture condition is active () 0ms
+   × rejects a live nested reference before any adapter call 9ms
+   × rejects a live embedded reference before any adapter call 5ms
+   × rejects a live optional step before any adapter call 3ms
+   × rejects a live active condition before any adapter call 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live nested reference before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live embedded reference before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live optional step before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live active condition before any adapter call
+ FAIL  |interop| interop/test/scenario.test.ts > a cell > checks parameters only when a fixture condition is active (true)
+ FAIL  |interop| interop/test/scenario.test.ts > a cell > checks parameters only when a fixture condition is active (0)
+ FAIL  |interop| interop/test/scenario.test.ts > a cell > checks parameters only when a fixture condition is active ()
+      Tests  8 failed | 63 passed (71)

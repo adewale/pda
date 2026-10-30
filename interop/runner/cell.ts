@@ -73,7 +73,8 @@ export function withWebPage(fixture: unknown, domain: string): Record<string, un
   return typeof base.web_page === "string" ? base : { ...base, web_page: `https://${domain}/` };
 }
 
-export async function runCell(scenario: Scenario, fixture: unknown, driver: Driver): Promise<CellRun> {
+/** `live`: the Company is a public deployment with no manifest, so an `offers` miss is unsupported (spec §10). */
+export async function runCell(scenario: Scenario, fixture: unknown, driver: Driver, options: { live?: boolean } = {}): Promise<CellRun> {
   const saved: Saved = { fixture: withScopes(fixture) };
   const steps: StepRecord[] = [];
   const mayRefuse = expectedRefusals(scenario);
@@ -88,6 +89,9 @@ export async function runCell(scenario: Scenario, fixture: unknown, driver: Driv
     if (actor === "expect") {
       const failures = evaluate(step.expect!, saved);
       record(failures.length === 0, failures.length ? { error: failures.join("; ") } : {});
+      if (failures.length && step.offers && options.live) {
+        return end("unsupported", `step ${index} (expect): the Company doesn't offer what ${scenario.id} tests: ${failures.join("; ")}`);
+      }
       if (failures.length) return end("fail", `step ${index} (expect): ${failures.join("; ")}`);
       continue;
     }

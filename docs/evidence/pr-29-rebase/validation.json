@@ -1,0 +1,77 @@
+{
+  "originalHead": "de613e0b49a9783315d27f75262b3e1647809575",
+  "originalBase": "73030c4f7b0028b5a93723c72dbe0166b15bcc53",
+  "newBase": "4c92a2d890d771feedf7a8fc7274d86644626f70",
+  "testedSourceCommit": "05fbcd5cda97222249eea92cec553c30d2d1235b",
+  "oldGridCommitOmitted": "ee86997bccf9abd7702aff527642d90d77c7b007",
+  "omissionReason": "Its peer adapters, S4 reading and 0.1/0.2 known failures were retired by merged PR36; preserve the dated source rather than reintroducing them.",
+  "checks": {
+    "typecheck": true,
+    "specPin": {
+      "dispositions": 43,
+      "pages": 13
+    },
+    "passed": 2104,
+    "skipped": 1,
+    "files": 114,
+    "interopPassed": 435,
+    "localeCasesPassedEach": 14,
+    "locales": [
+      "en-GB",
+      "en-US"
+    ]
+  },
+  "newRegressionBefore": {
+    "failed": 2,
+    "passed": 22,
+    "causes": [
+      "CL missing offers flag after the 0.3 scenario change",
+      "Literal parameter keys incorrectly treated as interpolated references"
+    ]
+  },
+  "visualFixture": "Synthetic discover response with no MCP/conversations, actual immutable runCell modules and unchanged production report renderer. No external Company requests.",
+  "changedSourceSha256": {
+    "interop/runner/cell.ts": "c9871ec3a1da809b78ab546e14d17445d37b7c7ffec70ad7691d219aba1562e4",
+    "interop/runner/cli.ts": "6db94d1aff4a54edad474720f1cba5ee775c07ffa6f4f67002f64f314f63db02",
+    "interop/runner/scenario.ts": "529a241cdcef3fbb2ffb7c3e16b96bea87be8a66aea360aafe7f1a5d2322013b",
+    "interop/runner/types.ts": "35dff4d40d9c7c037d1e88adc28561b8d3ee9cb84e6b92c03b0ed18b8897a26a",
+    "interop/scenarios/C.json": "8405b2596287c7e7a6999e2f936283a356580895a43016be95b8aee7112c5f95",
+    "interop/scenarios/CL.json": "9200e51584683807cbdfa7cb2610568adc54b2afc7243cbeb77d712a45f7b8d1",
+    "interop/scenarios/ML.json": "88c1a6afb1d54061e269d1112cdf7f352d9bee5b04ead3981bc6f3c0fe8956d2",
+    "interop/test/runner.test.ts": "17f9fdbb5822bd69c3556bfc26f9eadaa5c0739e81914cf7b90918b344cf64e4",
+    "interop/test/scenario.test.ts": "fdebf83f1e37230dce095df9aff893f0d4c63040c3ad38ab48688c9df7eac051",
+    "test/ui/chat-steps.test.tsx": "7baed8ec5d53ac3ada242b1161a31ab5730a281cab67572132fda472072fb2b7",
+    "test/poppy-feedback-race.test.ts": "71ed9c9438e789586a0b97af8bfd357f10262f284482b54b38034bb0678e50b9"
+  },
+  "artifactSha256": {
+    "after.html": "d3f6e86bc716413a93affe57144355556da71cb4073f5003b2be3d255b4cddc1",
+    "after.png": "7893af675b603ddc4042e70448e31ca46ea9809ba85639ee084255ee1fc0ff51",
+    "audit-before.txt": "a57158ae824bf6963261a52d21ed6c226134efd9bd9c29ae5e5d9f7fcd4d769e",
+    "before.html": "718ffbc571b7390e53038e6ba824a1232c4d154719a6a8442c97841ad8815d31",
+    "before.png": "a6e2153082893107210f835a3fcb2c24b91921eccfe8422f4803d6b7a2b492da",
+    "capture.mjs": "afc6d51bc2f350d42695ffbb982e65c8b047dda67c551d4a21a372f98ffa9000",
+    "feedback-order-after.txt": "11eafeb35175e93e351d7c2ba2f83a4c0ce74527485ee41b0d6a9076dfba90b6",
+    "feedback-order-before.txt": "3fbe81def7dc9d03fb698b730ad6a466b110f1f27ba575e7a7da502bb14222bd",
+    "interop-after.txt": "a14f412f040f6aadc286294f5c014b0b8cc8fd4e9987ff4a464333c5c46df45e",
+    "locale-gb.txt": "6b4e6bbc64772853b40c2c5aee70b17d2a04fb514dc64fc942831e0d8304dc41",
+    "locale-us.txt": "9e1f6b40eea5b659682759032f11c8a80ffbf08c6afcbe64d092106b0a3b565c",
+    "review-before.txt": "45c1c404b643190aca1eb6e05a5d37028bb432406ea902b6495f83dd8a625d6e",
+    "tests-summary.txt": "4638681e97df57671de676d71058be89c9ac81d6c688e6fe7ac8cb3e0194be33",
+    "typecheck-and-spec.txt": "5d66a63a5309414e3821dbf2bef5e1f0e8708b05c8eb5eccd790a64e645808d5",
+    "visual-receipt.json": "d5c670544bab61268333c91e6109847918417e8c3668613327463cdd3ddf2351"
+  },
+  "adversarialAudit": {
+    "previousHead": "6b32b10c402a0326c351088e107a9a6593ed77ba",
+    "fixes": [
+      "Shared bounded interpolation catches fixture-injected references",
+      "Optional params and fixture-known conditions checked during planning",
+      "Unknown runtime-built expressions deferred",
+      "Historical registry link pinned",
+      "Renderer and full dependency closure loaded from pinned commits"
+    ],
+    "addedCases": 13,
+    "preflightRegressionsFailedBefore": 7,
+    "initialFocusedRunEnvironmentFailure": "One additional openssl EPERM without command network permission; existing check passes with permission.",
+    "feedbackTest": "Initial full run exposed caller-order assumption; assert one rejected and one accepted result in either order. Four targeted tests and the full-suite rerun pass."
+  }
+}

@@ -8,12 +8,13 @@ import { upstreamFor } from "../proxy/routing.mjs";
 import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
-import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegistry, loadScenarios, negotiateVersion, parseOptions, runExitCode, runOne, selected } from "../runner/cli.ts";
+import { gridCoverage, liveCompanyManifest, liveFixture, LIVE_GREETING, imageOf, loadKnownFailures, loadRegistry, loadScenarios, negotiateVersion, parseOptions, runCells, runExitCode, runOne, selected } from "../runner/cli.ts";
 import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
-import type { Cell } from "../runner/types.ts";
+import { lintScenario, missingFixture } from "../runner/scenario.ts";
+import type { Cell, Scenario } from "../runner/types.ts";
 import { recording } from "./helpers.ts";
 
 describe("options", () => {
@@ -347,4 +348,75 @@ it("stops a live version mismatch before a Session request can send credentials"
     expect(cell.reason).toContain("declares 0.1");
     expect(calls).toEqual(["discover"]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("builds live fixtures consistently without depending on retired registry peers", () => {
+  const entry = liveEntry("retail", { fixture: { openapi_public: { api: "openapi", operation: "get", args: {} } } });
+  const fixture = liveFixture(entry, "retail.example");
+  const publicRead: Scenario = { id: "PUBLIC", title: "public read", steps: [
+    { agent: "api", params: { api: "${fixture.openapi_public.api}", operation: "${fixture.openapi_public.operation}", args: "${fixture.openapi_public.args}" } }
+  ] };
+  expect(missingFixture(publicRead, fixture)).toBeNull();
+  expect(missingFixture(publicRead, liveFixture(liveEntry("no-api"), "no-api.example"))).toBe("fixture.openapi_public.api");
+  expect(fixture).toMatchObject({ prompts: { hello: LIVE_GREETING }, web_page: "https://retail.example/" });
+  const C = loadScenarios().find((scenario) => scenario.id === "C")!;
+  expect(missingFixture(C, liveFixture(liveEntry("conversation"), "conversation.example"))).toBeNull();
+});
+
+it.each(["nested reference", "embedded reference", "optional step", "active condition"])("rejects a live %s before any adapter call", async mode => {
+  const original = loadScenarios().find(scenario => scenario.id === "S0")!;
+  const fixture = {
+    enabled: true,
+    openapi_public: { api: "openapi", operation: "GET /catalog", args: { account: mode === "embedded reference" ? "account=${fixture.missing}" : "${fixture.missing}" } }
+  };
+  const scenario: Scenario = mode === "optional step" || mode === "active condition"
+    ? { ...original, steps: original.steps.map((step, index) => index === 3
+      ? { ...step, ...(mode === "optional step" ? { optional: true } : { when: "${fixture.enabled}" }), params: { api: "openapi", operation: "GET /catalog", args: { account: "${fixture.missing}" } } }
+      : step) }
+    : original;
+  if (mode === "optional step" || mode === "active condition") fixture.openapi_public.args = { account: "available" };
+  expect(lintScenario(scenario, "S0.json")).toEqual([]);
+  const agentEntry = loadRegistry().implementations.find(entry => entry.name === "pda")!;
+  const implementation = (entry: RegistryEntry) => ({
+    entry, target: entry.name, domain: "synthetic.example", hooks: [], broken: null,
+    manifest: { interop: 1, name: entry.name, role: entry.role, commit: "test", poppy: ["0.3"], scenarios: [scenario.id] }
+  });
+  const calls: string[] = [];
+  const cells = await runCells({
+    scenarios: [scenario], agents: [implementation(agentEntry)], companies: [implementation(liveEntry("synthetic", { protocolVersion: "0.3", fixture }))],
+    lane: "live", proxy: null, resultsDir: tmpdir(), retry: false, log: () => {},
+    control: async (_target, _method, pathname) => {
+      calls.push(pathname);
+      return { status: 200, body: { ok: true, result: { poppy_version: "0.3", signed_in: false, session_id: "synthetic" } } };
+    }
+  });
+  expect(cells).toHaveLength(1);
+  expect(cells[0]).toMatchObject({ outcome: "unsupported", steps: [] });
+  expect(cells[0]!.reason).toContain("fixture.missing");
+  expect(calls).toEqual([]);
+});
+
+it("executes a complete live fixture while leaving earlier-result references for runtime", async () => {
+  const scenario = loadScenarios().find(scenario => scenario.id === "S0")!;
+  const agent = loadRegistry().implementations.find(entry => entry.name === "pda")!;
+  const company = liveEntry("synthetic", { protocolVersion: "0.3", fixture: {
+    openapi_public: { api: "openapi", operation: "GET /catalog", args: { account: "${s.session_id}" } }
+  } });
+  const implementation = (entry: RegistryEntry) => ({
+    entry, target: entry.name, domain: "synthetic.example", hooks: [], broken: null,
+    manifest: { interop: 1, name: entry.name, role: entry.role, commit: "test", poppy: ["0.3"], scenarios: [scenario.id] }
+  });
+  const apiArgs: unknown[] = [];
+  const cells = await runCells({
+    scenarios: [scenario], agents: [implementation(agent)], companies: [implementation(company)],
+    lane: "live", proxy: null, resultsDir: tmpdir(), retry: false, log: () => {},
+    control: async (_target, _method, pathname, body) => {
+      if (pathname !== "/step") return { status: 200, body: {} };
+      const { op, params } = body as { op: string; params: { args?: unknown } };
+      if (op === "api") apiArgs.push(params.args);
+      return { status: 200, body: { ok: true, result: { poppy_version: "0.3", signed_in: false, session_id: "synthetic", status: 200 } } };
+    }
+  });
+  expect(cells[0]!.outcome).toBe("pass");
+  expect(apiArgs).toEqual([{ account: "synthetic" }, { account: "synthetic" }]);
 });

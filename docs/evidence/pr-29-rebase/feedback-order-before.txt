@@ -1,0 +1,23 @@
+FAIL  |personal-agent| test/poppy-feedback-race.test.ts > lets a queued report retry after the first attempt fails before dispatch
+AssertionError: expected 'fulfilled' to be 'rejected' // Object.is equality
+
+Expected: "rejected"
+Received: "fulfilled"
+
+ ❯ test/poppy-feedback-race.test.ts:45:34
+     43|         sendFeedback(client, C, "main", task, description)
+     44|       ]);
+     45|       expect(results[0]?.status).toBe("rejected");
+       |                                  ^
+     46|       expect(results[1]).toMatchObject({ status: "fulfilled", value: {…
+     47|       expect(await sendFeedback(client, C, "main", task, description))…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 51 passed (52)
+      Tests  1 failed | 1219 passed | 1 skipped (1221)
+   Start at  19:15:38
+   Duration  164.20s (transform 16.20s, setup 0ms, import 307.03s, tests 148.27s, environment 9ms)
