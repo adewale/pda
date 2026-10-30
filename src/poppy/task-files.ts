@@ -30,7 +30,7 @@ export class TaskFiles {
         names.set(name, ids);
       }
     }
-    const spans = [...names].flatMap(([name, ids]) => fileSpans(narrative, name).map(span => ({ ...span, ids })));
+    const spans = [...names].flatMap(([name, ids]) => fileSpans(narrative, name).map(span => ({ ...span, ids, name })));
     // Longest complete known filenames win over contained suffixes. Crossing
     // overlaps and duplicate names remain ambiguous rather than choosing a file.
     const maximal = maximalSpans(spans);
@@ -42,11 +42,14 @@ export class TaskFiles {
     // Even unresolved filename spans are data, not ordinary "this photo"
     // references. Network locators were already removed as opaque spans.
     // String offsets are UTF-16; replace spans without changing their offsets.
-    const plain = spans.filter(span => span.selectable).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
+    const plain = spans.filter(span => span.selectable || (span.name.includes(".") && !recipientCue(narrative, span.start))).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
+    const unresolvedName = [...plain.matchAll(/\S+/gu)].some(match => /\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)["'”’»)\],.!?;:]*$/iu.test(match[0]) && !recipientCue(plain, match.index));
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
-    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b(?!\.[\p{L}\p{N}])/iu.test(plain);
-    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b(?!\.[\p{L}\p{N}])/iu.test(plain);
-    if (selected.size === 0 && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
+    // Match complete whitespace-delimited phrases, with sentence punctuation,
+    // rather than borrowing a noun from any kind of filename continuation.
+    const plural = /(?:^|\s)[(\["'“‘«]*(?:these|those|my|the attached) (?:photos|pictures|images)["'”’»)\].,!?;:]*(?=\s|$)/iu.test(plain);
+    const singular = /(?:^|\s)[(\["'“‘«]*(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))["'”’»)\].,!?;:]*(?=\s|$)/iu.test(plain);
+    if (selected.size === 0 && !unresolvedName && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
     return new TaskFiles(selected);
   }
 

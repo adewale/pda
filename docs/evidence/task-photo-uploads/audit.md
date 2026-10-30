@@ -53,6 +53,10 @@ The full run also caught an over-refusal: ordinary question punctuation was bein
 
 Browser evidence now fixes the color scheme to light on both sides, rather than inheriting a sunset-dependent OS theme. Mobile evidence uses ordinary scrolling to frame the confirmed upload. Neither change alters application behavior or edits screenshot pixels.
 
+## Final targeted follow-up
+
+At `d277eaa7498f2b8e668d73d141e3c5274fcf8772`, the UI/lifecycle reviewer cleared the recovery correction. Security found that the dot-only deictic exclusion still let `this photo-old.jpg` and Unicode continuations borrow a recent stored photo. Seven counterexamples failed before correction. Ordinary references now require complete whitespace-delimited phrases with sentence punctuation, not a growing list of forbidden filename suffixes. Unresolved image filenames and unsupported known filenames cannot lend a reference to the recent-photo fallback. The obedient-model variants require disclosure cards and zero uploads. Typecheck and 156 focused tests pass; final-pin gates and the targeted reviewer follow-up are separate receipts.
+
 ## Verification at the preceding fix candidate
 
 The supervisor ran `npm run typecheck`, `npm test` and `npm run check:spec`. The full suite passed **2,186 tests in 118 files**, none skipped: Workers 1,309; durability 3; page 266; interop unit/contract 415; properties 193. Hegel used its default case count, including the unchanged coalescing property. The docs-name check verified 386 Appendix A names and nine adversarial scenarios/four named tests; existence is not behavioral coverage. The spec check verified 43 dispositions and 13 pinned pages.

@@ -95,8 +95,19 @@ describe("photos selected by the User's task", () => {
     expect(TaskFiles.fromUser(`Check orders at first.example. Tracking: orders${ignored}private.jpg`, [attachmentMarker(privatePhoto)]).includes([privatePhoto.id])).toBe(false);
   });
 
-  it.each(["this photo.jpg", "those photos.png", "the photo I sent.webp"])("does not borrow the latest file from a phrase inside an unknown filename: %s", filename => {
+  it.each(["this photo.jpg", "those photos.png", "the photo I sent.webp", "this photo-old.jpg", "this photo_old.jpg", "this photo\u200b.jpg", "this photo\u034f.jpg", "this photo!.jpg", "this photo×.jpg", "those photos-old.png", "the photo I sent-old.webp", "this photo beach.jpg", "the photo I sent beach.jpg"])("does not borrow the latest file from a phrase inside an unknown filename: %s", filename => {
     expect(TaskFiles.fromUser(`Print ${filename} at first.example`, [marker]).includes([lake.id])).toBe(false);
+  });
+
+  it.each(["Print this photo.", "Print “this photo”.", "Print those photos, please."])("keeps complete ordinary references with sentence punctuation: %s", task => {
+    expect(TaskFiles.fromUser(task, [marker]).includes([lake.id])).toBe(true);
+  });
+
+  it("does not borrow a recent file from an unsupported unquoted historical name", () => {
+    const old = { ...privatePhoto, name: "this photo .odd" };
+    const selected = TaskFiles.fromUser("Print this photo .odd", [attachmentMarker(old), marker]);
+    expect(selected.includes([old.id])).toBe(false);
+    expect(selected.includes([lake.id])).toBe(false);
   });
 
   it("does not select a historical filename from a quoted recipient", () => {
