@@ -61,6 +61,12 @@ The next targeted review found that recipient-cued known spans were still exempt
 
 The wrapped-recipient follow-up exposed a grammar mismatch: the cue accepted parentheses/brackets, but quoted-title opacity did not. Fifteen of twenty quote/wrapper combinations failed before correction. Both now derive from one receiver-prefix grammar; all twenty combinations pass, with genuine-User/obedient-model parentheses/bracket histories recording zero uploads. Browser cleanup diagnostics distinguish completed assertions from process exit and explicitly release the CLI's esbuild service; no timed-out run is promoted to an exit-zero receipt.
 
+## Release pin
+
+The targeted security reviewer cleared `17c5ba9b2acecf62086b90a4029244871f7b04e2`; the earlier UI/lifecycle correction remains unchanged. At that application pin, the supervisor ran 2,284 tests in 118 files with none skipped, typecheck/spec/docs checks, the matched baseline/current Chromium journeys, the current mobile negative control, all 16 shared process-crash probes and 13 interop cells. [The release receipt](release/README.md) records exact scope, artifacts, hashes and limitations.
+
+CI then exposed an order assumption in the existing feedback-race test: invocation order did not establish admission order after asynchronous preflight. A transport barrier now establishes the intended history; all original assertions remain. Removing queued rejection recovery makes that test fail. No production code changed for this test correction, and its mutation was restored. Final-head CI is a separate gate, not inferred from local passes.
+
 ## Verification at the preceding fix candidate
 
 The supervisor ran `npm run typecheck`, `npm test` and `npm run check:spec`. The full suite passed **2,186 tests in 118 files**, none skipped: Workers 1,309; durability 3; page 266; interop unit/contract 415; properties 193. Hegel used its default case count, including the unchanged coalescing property. The docs-name check verified 386 Appendix A names and nine adversarial scenarios/four named tests; existence is not behavioral coverage. The spec check verified 43 dispositions and 13 pinned pages.

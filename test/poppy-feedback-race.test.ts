@@ -29,23 +29,34 @@ it("lets a queued report retry after the first attempt fails before dispatch", a
     const client = instance.poppy.client;
     const C = await client.company(c.domain);
     const original = client.host.fetcher;
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
     let first = true;
     const remote = vi.spyOn(client.host, "fetcher").mockImplementation(async request => {
       if (new URL(request.url).pathname.endsWith("/feedback") && first) {
         first = false;
+        entered();
+        await held;
         throw new Error("Synthetic failure before Company dispatch");
       }
       return original(request);
     });
     try {
-      const results = await Promise.allSettled([
-        sendFeedback(client, C, "main", task, description),
-        sendFeedback(client, C, "main", task, description)
-      ]);
+      // excludedTasks is asynchronous: invocation order alone does not establish
+      // dispatch order. Hold the first transport and admit the queued attempt.
+      const initial = sendFeedback(client, C, "main", task, description);
+      await reached;
+      const queued = sendFeedback(client, C, "main", task, description);
+      const settled = Promise.allSettled([initial, queued]);
+      await Promise.resolve();
+      release();
+      const results = await settled;
       expect(results[0]?.status).toBe("rejected");
       expect(results[1]).toMatchObject({ status: "fulfilled", value: { kind: "accepted" } });
       expect(await sendFeedback(client, C, "main", task, description)).toEqual({ kind: "already_sent" });
-    } finally { remote.mockRestore(); }
+    } finally { release(); remote.mockRestore(); }
   });
   expect((await c.stub.state()).feedback).toHaveLength(1);
 });
