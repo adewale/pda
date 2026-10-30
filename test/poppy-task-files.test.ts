@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { attachmentMarker, type AttachmentInfo } from "../src/attachments";
 import { TaskFiles } from "../src/poppy/task-files";
+import { TaskCompanyScope } from "../src/poppy/task-scope";
 
 const lake: AttachmentInfo = { id: "att_aaaaaaaaaaaaaaaaaaaaaa", name: "lake.jpg", type: "image/jpeg", size: 1024 };
 const privatePhoto: AttachmentInfo = { ...lake, id: "att_bbbbbbbbbbbbbbbbbbbbbb", name: "private.jpg" };
@@ -44,6 +45,14 @@ describe("photos selected by the User's task", () => {
     expect(TaskFiles.fromUser("Print that photo", history).includes([lake.id])).toBe(false);
   });
 
+  it("does not use attachment metadata as a reference to another saved file", () => {
+    const copy = { ...lake, name: "copy of private.jpg" };
+    const task = `Print this photo at shop.example\n${attachmentMarker(copy)}`;
+    const files = TaskFiles.fromUser(task, [attachmentMarker(privatePhoto), task]);
+    expect(files.includes([lake.id])).toBe(true);
+    expect(files.includes([privatePhoto.id])).toBe(false);
+  });
+
   it("does not treat a filename containing a photo reference as selecting a different recent photo", () => {
     const named = attachmentMarker({ ...lake, name: "this photo.jpg" });
     const files = TaskFiles.fromUser("Print this photo.jpg", [named, attachmentMarker(privatePhoto)]);
@@ -59,5 +68,54 @@ describe("photos selected by the User's task", () => {
     expect(first.includes([lake.id])).toBe(true);
     expect(first.includes([privatePhoto.id])).toBe(false);
     expect(next.includes([lake.id])).toBe(false);
+  });
+});
+
+describe("task recipient selection", () => {
+  it("constrains the first model call to an explicit recipient, not just calls after Company content", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("Print this photo at first.example", false);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+  });
+
+  it("does not turn a filename repeated in the User's narrative into a second recipient", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("Print at first.example. The photo is copy of second.example.", false, "task", ["copy of second.example"]);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+    const explicit = new TaskCompanyScope();
+    explicit.update("Print this at https://second.example/prints", false, "new-task", ["second.example"]);
+    expect(explicit.allow("second.example")).toBe(true);
+    expect(explicit.allow("third.example")).toBe(false);
+  });
+
+  it.each(["https://first.example/orders?return_to=second.example", "first.example/orders?return_to=second.example", "first.example\\\\second.example", "[prints](https://first.example.)"])("takes only the host from %s even before the first contact", locator => {
+    const scope = new TaskCompanyScope();
+    scope.update(`Print this photo at ${locator}. Email ada@second.example.`, false);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+  });
+
+  it.each(["https://first.example:8443", "first.example:8443/orders"])("keeps a non-default destination port in %s", locator => {
+    const scope = new TaskCompanyScope();
+    scope.update(`Print at ${locator}`, false);
+    expect(scope.allow("first.example")).toBe(false);
+    expect(scope.allow("first.example:8444")).toBe(false);
+    expect(scope.allow("first.example:8443")).toBe(true);
+  });
+
+  it("does not read an email URL's query as a Company recipient", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("Print at first.example. Email ada@second.example?subject=prints.", false);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("first.example")).toBe(true);
+  });
+
+  it("keeps one inferred first Company when the User names a brand rather than a literal hostname", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("Print this photo with Poppy", false);
+    expect(scope.allow("first.example")).toBe(true);
+    expect(scope.allow("second.example")).toBe(false);
   });
 });

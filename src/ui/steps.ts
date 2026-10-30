@@ -6,7 +6,7 @@
 import type { TranscriptMessage } from "../protocol";
 import type { ActivityEntry, ActivityResult, Card } from "../poppy/wire";
 import { resultFacts } from "./result-facts";
-import { proposedBy, type ToolDecision } from "./tool-line";
+import { requestBy, type ToolDecision } from "./tool-line";
 import { approvalResult, checkedOutcomeText, type ApprovalDecision } from "../poppy/approval-outcome";
 
 type ApprovalCard = Extract<Card, { kind: "approval" }>;
@@ -79,7 +79,7 @@ export function approvalsOnSteps(messages: readonly TranscriptMessage[]): Set<st
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "tool-result") continue;
-      const proposed = proposedBy({ error: part.error, ...(part.details !== undefined ? { details: part.details } : {}) });
+      const proposed = requestBy({ error: part.error, ...(part.details !== undefined ? { details: part.details } : {}) });
       if (proposed) ids.add(proposed.approvalId);
     }
   }

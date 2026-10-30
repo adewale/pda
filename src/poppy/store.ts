@@ -218,6 +218,7 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms_approval_id")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms_approval_id TEXT");
   }
+  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_terms_parent ON poppy_approvals (terms_approval_id) WHERE terms_approval_id IS NOT NULL");
   // Separate a request's original uncertain outcome from the User's later reconciliation.
   for (const [name, type] of [["action_key", "TEXT"], ["action_owner", "TEXT"], ["operation_id", "TEXT"], ["outcome_resolution", "TEXT"], ["outcome_resolved_at", "INTEGER"]] as const) {
     if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === name)) sql.exec(`ALTER TABLE poppy_approvals ADD COLUMN ${name} ${type}`);

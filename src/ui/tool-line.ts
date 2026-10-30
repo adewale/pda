@@ -4,12 +4,12 @@
  * where, how and with what access, in the words the rest of the page uses.
  * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
-import { isApprovalId, type ApprovalResult } from "../poppy/approval-outcome";
+import { isApprovalId, isDiagnosticFlowId, type ApprovalResult } from "../poppy/approval-outcome";
 import { messageDelivery } from "../poppy/message-result";
 
 export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator" | "schedule";
 export type ToolAccess = "view" | "view and change";
-export type ToolState = "running" | "done" | "failed" | "waiting";
+export type ToolState = "running" | "done" | "failed" | "waiting" | "unknown";
 
 export type ToolLine = {
   /** What the agent did, in the past tense. */
@@ -19,11 +19,15 @@ export type ToolLine = {
   readonly how: ToolHow | null;
   readonly access: ToolAccess | null;
   readonly state: ToolState;
+  /** An affirmative action outcome, when the tool supplies one without a card. */
+  readonly result?: ApprovalResult;
 };
 
 /** What the page knows about a call's result. */
 export type ToolOutcome = {
   readonly error: boolean;
+  /** A stopped call has no recorded result; never manufacture success. */
+  readonly missing?: true;
   /** The tool's structured result, where it has one. */
   readonly details?: unknown;
   /** Its text, for results that are only text. */
@@ -49,6 +53,19 @@ export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: stri
   if (isApprovalId(proposed)) return { approvalId: proposed };
   return null;
 }
+
+/** A safe lifecycle reference written by our task dispatcher, including failures. */
+export function taskBy(outcome: ToolOutcome | undefined): { approvalId: string; result: ApprovalResult } | null {
+  const task = isRecord(outcome?.details) ? outcome.details.poppyTask : undefined;
+  if (!isRecord(task) || typeof task.id !== "string" || !isDiagnosticFlowId(task.id)) return null;
+  switch (task.result) {
+    case "waiting": case "in_progress": case "done": case "declined": case "failed": case "unknown":
+      return { approvalId: task.id, result: task.result };
+    default: return null;
+  }
+}
+
+export function requestBy(outcome: ToolOutcome | undefined): { approvalId: string } | null { return proposedBy(outcome) ?? taskBy(outcome); }
 
 type Args = Record<string, unknown>;
 
@@ -92,6 +109,7 @@ function proposed(outcome: ToolOutcome | undefined): boolean {
 
 function stateOf(outcome: ToolOutcome | undefined): ToolState {
   if (!outcome) return "running";
+  if (outcome.missing || taskBy(outcome)?.result === "unknown") return "unknown";
   if (outcome.error) return "failed";
   return proposed(outcome) ? "waiting" : "done";
 }
@@ -245,7 +263,7 @@ export function describeToolCall(
       const files = isRecord(a.files) ? Object.keys(a.files).length : 0;
       if (files) {
         const photos = decision?.photos?.length ? clip(decision.photos.map((photo) => `“${photo}”`).join(", "), 80) : files === 1 ? "your photo" : "your photos";
-        const upload = (text: string, state: ToolState = "done"): ToolLine => ({ text, how: "API", access: "view and change", state });
+        const upload = (text: string, state: ToolState = "done"): ToolLine => ({ text, how: "API", access: "view and change", state, result: decision?.result ?? (state === "done" ? "done" : state === "running" ? "in_progress" : state) });
         switch (decision?.result) {
           case "in_progress":
             return upload(`Sending ${photos} to ${company}`, "running");
@@ -256,12 +274,14 @@ export function describeToolCall(
           case "failed":
             return upload(`Couldn't send ${photos} to ${company}`, "failed");
           case "unknown":
-            return upload(`Sent ${photos} to ${company}, but the outcome is unknown`, "failed");
+            return upload(`Couldn't confirm sending ${photos} to ${company}`, "unknown");
           default:
             if (state === "waiting") return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
             if (state === "failed") return upload(`Couldn't confirm sending ${photos} to ${company}`, "failed");
             if (state === "running" || (isRecord(outcome?.details) && outcome.details.status === "in_progress")) return upload(`Sending ${photos} to ${company}`, "running");
-            return upload(`Sent ${photos} to ${company}`);
+            const status = isRecord(outcome?.details) ? outcome.details.status : undefined;
+            if (state !== "unknown" && (taskBy(outcome)?.result === "done" || (typeof status === "number" && status >= 200 && status < 300 && status !== 202))) return upload(`Sent ${photos} to ${company}`);
+            return upload(`Couldn't confirm sending ${photos} to ${company}`, "unknown");
         }
       }
       if (match && match[1]!.toUpperCase() === "GET") return line(`Read ${noun(match[2]!)} at ${company}`, "API", "view");

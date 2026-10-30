@@ -633,7 +633,7 @@ describe("configuration", () => {
     expect(html).not.toContain("Proposed account actions require your confirmation");
     expect(html).toContain("The operator can access the stored data");
     expect(html).toContain("Model providers process submitted data under their own terms and account settings");
-    expect(html).toContain("smaller copies of recent attached photos");
+    expect(html).toContain("the original image when no preview is available and the file is small enough");
     expect(html).toContain("credentials entered in that form go only to the Company's sign-in endpoint, never to the model");
     expect(html).toContain("up to 50 recently logged actions");
     expect(html).toContain("count and size limits, not a time limit");

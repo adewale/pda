@@ -2,7 +2,12 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
 import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { TaskCompanyScope } from "./task-scope";
 import { TaskFiles } from "./task-files";
-import { callMcpTool, callOpenApi, describeOpenApi, listMcpTools, openApiScopeDescriptions } from "./apis";
+import { TASK_SCOPE_MEMO, type TurnReader, type UserTaskReader } from "../tools/turn-authority";
+import type { Context } from "@earendil-works/chord/context";
+import { intent, intentsTable } from "./store";
+import { one } from "../rows";
+import { beforeCompanyDiscovery } from "./discovery-authority";
+import { callMcpTool, callOpenApi, describeOpenApi, listMcpTools, openApiScopeDescriptions, replayOpenApiCall } from "./apis";
 import { openAtCompanies } from "./activity";
 import { browse, type BrowseAction, type PoppyBrowser } from "./browser";
 import { PoppyClient, PoppyError } from "./client";
@@ -66,11 +71,12 @@ function failure(error: unknown): { output: { type: "text"; text: string }[]; de
       : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
   // The error's code, and the extension an `extension_required` names, as data (spec 3.3).
   const details: Json =
-    error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}) } : null;
+    error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}), ...(error.detail.poppyTask ? { poppyTask: { ...error.detail.poppyTask } } : {}) } : null;
   return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
 type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;
+type Invocation = { readonly api: TurnReader; readonly context: Context };
 
 function tool<T extends TSchema>(
   definition: {
@@ -79,13 +85,13 @@ function tool<T extends TSchema>(
     parameters: T;
     replay: "safe" | "unsafe";
   },
-  run: (args: Args<T>, callKey: string) => Promise<unknown>
+  run: (args: Args<T>, callKey: string, signal?: AbortSignal, invocation?: Invocation) => Promise<unknown>
 ): ToolRegistration<T> {
   return {
     ...definition,
-    async execute(args, api) {
+    async execute(args, api, context) {
       try {
-        return text(await run(args, `${api.conversationId}|${api.callId}`));
+        return text(await run(args, `${api.conversationId}|${api.callId}`, context.abortSignal, { api, context }));
       } catch (error) {
         return failure(error);
       }
@@ -99,28 +105,30 @@ const Label = Type.Optional(
 );
 
 /** The `poppy` Pi extension: the model's tools. They never see tokens, keys, codes or credentials. */
-export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBrowser): Extension {
-  const scope = new TaskCompanyScope();
-  let taskFiles = TaskFiles.none();
-  const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key) => {
+export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBrowser, userTask?: UserTaskReader): Extension {
+  const firstCompany = (key: string, candidate?: string) => {
+    const held = `task-company|${key}`;
+    return candidate === undefined ? one(client().sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", held)?.value : intent(client().sql, held, () => candidate);
+  };
+  const scope = new TaskCompanyScope(firstCompany);
+  const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key, signal, invocation) => {
     const domain = (args as { domain?: unknown }).domain;
-    if (typeof domain === "string") {
+    if (typeof domain === "string" && definition.name !== "poppy_api_call") {
       if (!scope.allow(domain)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
     }
-    const answer = await run(args, key);
+    const answer = await run(args, key, signal, invocation);
     if (typeof domain === "string") scope.receivedCompanyContent();
     return answer;
   });
   const company = (domain: string) => client().company(domain);
   return {
     name: "poppy",
-    hooks: [hook(GenerationTask, { beforeRequest: ({ messages }) => {
-      const users = messages.map((message, index) => ({ message, index })).filter(({ message }) => message.role === "user").map(({ message, index }) => ({ index, text: typeof message.content === "string" ? message.content : message.content.map((part) => part.type === "text" ? part.text : "").join("") }));
-      const genuine = users.filter(({ text }) => !text.trimStart().startsWith("[") || text.trimStart().startsWith("[attachment "));
-      const trusted = genuine.at(-1);
-      const foreign = users.at(-1)?.index !== trusted?.index || messages.slice((trusted?.index ?? -1) + 1).some((message) => message.role === "toolResult");
-      scope.update(trusted?.text ?? "", foreign, `${trusted?.index ?? -1}:${trusted?.text ?? ""}`);
-      taskFiles = TaskFiles.fromUser(trusted?.text ?? "", genuine.map(user => user.text));
+    hooks: [hook(GenerationTask, { beforeRequest: async ({ messages }, api, context) => {
+      const task = await userTask?.(api, context);
+      const index = task ? messages.map(message => message.role === "user" ? typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.type === "text" ? part.text : "").join("") : undefined).lastIndexOf(task.text) : -1;
+      const foreign = !task?.userStarted || task.foreign || messages.slice(index + 1).some(message => message.role === "toolResult");
+      await api.memo(TASK_SCOPE_MEMO, { key: task?.key ?? null, foreign }, context);
+      scope.update(task?.text ?? "", foreign, task?.key ?? "no-genuine-input", TaskFiles.names(task?.history ?? []));
       return undefined;
     } })],
     sections: [{ key: "poppy", render: () => PREAMBLE, tag: true }],
@@ -357,20 +365,30 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           // and outcome; replay never repeats an uncertain action.
           replay: "safe"
         },
-        async ({ domain, operation: name, api, params, body, bodyValue, files, session }, callKey) => {
-          const selectedFiles = taskFiles; // Freeze this task before asynchronous discovery.
+        async ({ domain, operation: name, api, params, body, bodyValue, files, session }, callKey, signal, invocation) => {
           if (body !== undefined && bodyValue !== undefined) {
             throw new PoppyError("invalid_body", "Pass either body or bodyValue, not both. Nothing was sent.", 0);
           }
           const requestBody = body !== undefined ? body : bodyValue;
-          return callOpenApi(client(), await company(domain), session ?? "main", {
-            operation: name,
-            callKey,
-            ...(api ? { apiUrl: api } : {}),
-            ...(params ? { params } : {}),
-            ...(requestBody !== undefined ? { body: json(requestBody, "body") } : {}),
-            ...(files ? { files } : {})
-          }, selectedFiles);
+          const c = client();
+          const label = session ?? "main";
+          const disclosure = one(c.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `approval|${callKey}`);
+          // An existing disclosure call cannot become automatic; its stored
+          // request still checks the original binding before a User decision.
+          const checkpoint = files && Object.keys(files).length && !disclosure ? beforeCompanyDiscovery(c, domain, label, callKey) : undefined;
+          const request = { operation: name, callKey, ...(api ? { apiUrl: api } : {}), ...(params ? { params } : {}), ...(requestBody !== undefined ? { body: json(requestBody, "body") } : {}), ...(files ? { files } : {}) };
+          const scoped = typeof invocation?.api.snapshot === "function";
+          const originatingTask = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+          const selectedFiles = originatingTask ? TaskFiles.fromUser(originatingTask.text, originatingTask.history) : TaskFiles.none();
+          const apiScope = scoped ? new TaskCompanyScope(firstCompany) : scope;
+          if (scoped) apiScope.update(originatingTask?.text ?? "", originatingTask?.foreign ?? true, originatingTask?.key ?? "no-genuine-input", TaskFiles.names(originatingTask?.history ?? []));
+          const beforeDispatch = () => { if (signal?.aborted || (scoped && !originatingTask?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0); };
+          const replay = await replayOpenApiCall(c, domain, label, request, beforeDispatch);
+          if (replay !== undefined) return replay;
+          if (!apiScope.allow(domain)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
+          const found = await c.company(domain);
+          checkpoint?.(found);
+          return callOpenApi(c, found, label, request, selectedFiles, domain, beforeDispatch);
         }
       ),
       scopedTool(

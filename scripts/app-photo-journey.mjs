@@ -20,7 +20,7 @@ async function approve(page) {
   await handle.dispose();
 }
 
-export async function photoJourneys({ runtime, page, network, agentName, output, baselineConsent = false }) {
+export async function photoJourneys({ runtime, page, network, agentName, output, baselineConsent = false, negativeControl = false }) {
   const agents = await runtime.getDurableObjectNamespace("PersonalAgent");
   const companies = await runtime.getDurableObjectNamespace("MOCK_COMPANY");
   const agent = agents.getByName(agentName);
@@ -37,7 +37,9 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
   const capture = async suffix => {
     if (!output) return;
     const file = `${output}.photo-${suffix}.png`;
-    writeFileSync(file, Buffer.from(await page.screenshot({ type: "png", fullPage: true })));
+    // The app is a viewport-height layout with its own scrollers. A full-page
+    // capture can resize dvh and crop the mobile request panel misleadingly.
+    writeFileSync(file, Buffer.from(await page.screenshot({ type: "png" })));
     screenshots.push(file);
   };
   try {
@@ -86,15 +88,22 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
       assert.deepEqual(before.operations.map(operation => [operation.state, operation.confirms]), [["proposed", 0]]);
       await page.waitForFunction(summary => [...document.querySelectorAll("article")].some(article => article.innerText.includes(summary)), {}, terms.terms.summary);
       if (!baselineConsent) {
-        await page.waitForFunction(() => [...document.querySelectorAll('[data-tool="poppy_api_call"]')].some(element => /Sent your photo/.test(element.innerText)));
+        await page.waitForFunction(domain => [...document.querySelectorAll('[data-tool="poppy_api_call"]')].some(element => element.innerText.includes(domain) && /Sent your photo/.test(element.innerText)), {}, domain);
         assert.equal(await page.evaluate(() => document.body.innerText.includes("Asked you to approve sending your photo")), false);
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await capture(`terms-${viewport}`);
       await approve(page);
       await until(ownCards, cards => cards.find(card => card.approvalId === terms.approvalId)?.status === "done", "Print terms did not settle");
+      const completed = (await ownCards()).find(card => card.approvalId === terms.approvalId);
+      const checkout = JSON.parse(completed.result).body.order.checkout_url;
+      assert.equal(new URL(checkout).hostname, domain);
       await page.reload({ waitUntil: "networkidle0" });
-      await page.waitForSelector('a[href*="/checkout/ord_"]');
+      await page.waitForFunction(href => [...document.querySelectorAll("a[href]")].some(link => link.getAttribute("href") === href && link.href === href), {}, checkout);
+      // Oracle sabotage: a previous desktop link must not stand in for this
+      // mobile receipt. This is test-harness DOM removal, never app behavior.
+      if (negativeControl && viewport === "mobile") await page.evaluate(href => document.querySelectorAll("a[href]").forEach(link => { if (link.getAttribute("href") === href) link.remove(); }), checkout);
+      assert.equal(await page.evaluate(href => [...document.querySelectorAll("a[href]")].some(link => link.getAttribute("href") === href && link.href === href), checkout), true, "The current Company's exact checkout receipt must survive reload");
       const state = await company.state();
       const uploads = state.requests.filter(request => request.url.endsWith("/photos"));
       const orders = state.requests.filter(request => request.url.endsWith("/prints"));
@@ -110,7 +119,7 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
       await capture(`done-${viewport}`);
       receipts.push({ viewport, attachmentViaRealComposer: true, uploads: uploads.length, approvals: clicks.length, companyOperations: 1, approvedOrderRequests: 1, orderStatuses: orders.map(request => request.status), survivesReload: true, checkoutOpened: false, strictViolations: 0, strictWarnings: 0 });
     }
-    return { baselineConsent, journeys: receipts, screenshots };
+    return { baselineConsent, negativeControl, journeys: receipts, screenshots };
   } finally {
     network.off("Network.webSocketFrameSent", onFrame);
   }

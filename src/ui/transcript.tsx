@@ -28,7 +28,7 @@ import { redactQueries } from "./result-facts";
 import { isPlainClick } from "./route";
 import { Status } from "./status";
 import type { ApprovalStep, stepDecisions } from "./steps";
-import { companyNames, describeToolCall, proposedBy, type ToolDecision, type ToolHow, type ToolLine, type ToolOutcome } from "./tool-line";
+import { companyNames, describeToolCall, requestBy, type ToolDecision, type ToolHow, type ToolLine, type ToolOutcome } from "./tool-line";
 
 /** An image the page may load: `data:`, or this origin's own. */
 function isOwnImage(src: string): boolean {
@@ -104,6 +104,7 @@ const HOW_ICON: Record<ToolHow, ReactNode> = {
 /** A step's state in the shared words (src/ui/status.tsx); null for one that simply finished, which needs no word. */
 function stepResult(line: ToolLine, decision: ToolDecision | undefined): ActivityResult | null {
   if (decision) return decision.result;
+  if (line.result) return line.result;
   switch (line.state) {
     case "running":
       return "in_progress";
@@ -111,6 +112,8 @@ function stepResult(line: ToolLine, decision: ToolDecision | undefined): Activit
       return "waiting";
     case "failed":
       return "failed";
+    case "unknown":
+      return "unknown";
     case "done":
       return null;
   }
@@ -138,12 +141,12 @@ export type StepContext = {
 function stepOf(call: ToolCall | undefined, result: ToolResult | undefined, running: boolean, context: StepContext): Step {
   const name = call?.name ?? result?.name ?? "tool";
   const outcome = outcomeOf(result);
-  const proposed = proposedBy(outcome);
+  const proposed = requestBy(outcome);
   const approval = proposed ? context.decisions.approvals.get(proposed.approvalId) : undefined;
   const args = call?.arguments;
   const domain = args && typeof args === "object" && "domain" in args && typeof args.domain === "string" ? args.domain : null;
   const decision: ToolDecision | undefined = approval;
-  const line = describeToolCall(name, call?.arguments ?? {}, outcome ?? (running ? undefined : { error: false }), context.companies, decision);
+  const line = describeToolCall(name, call?.arguments ?? {}, outcome ?? (running ? undefined : { error: false, missing: true }), context.companies, decision);
   return { call, result, line, name, running, domain, approval, status: line ? stepResult(line, decision) : null };
 }
 

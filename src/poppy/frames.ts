@@ -14,7 +14,7 @@ const decision = literal("approve", "decline");
 const approvalIds: Decoder<readonly string[]> = (value, at) => {
   if (!Array.isArray(value) || value.length > APPROVAL_READ_LIMIT) throw new DecodeError("Invalid approval lookup");
   const ids = array(string)(value, at);
-  if (ids.some(id => !isApprovalId(id))) throw new DecodeError("Invalid approval lookup");
+  if (ids.some(id => !isDiagnosticFlowId(id))) throw new DecodeError("Invalid approval lookup");
   return ids;
 };
 

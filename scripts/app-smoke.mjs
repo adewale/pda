@@ -185,7 +185,7 @@ try {
     evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output });
   }
   if (args.includes("--photo-journey")) {
-    evidence.photoJourneys = await photoJourneys({ runtime, page, network, agentName: await agentNameFor(identity), output, baselineConsent: args.includes("--baseline-photo-consent") });
+    evidence.photoJourneys = await photoJourneys({ runtime, page, network, agentName: await agentNameFor(identity), output, baselineConsent: args.includes("--baseline-photo-consent"), negativeControl: args.includes("--photo-negative-control") });
   }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });

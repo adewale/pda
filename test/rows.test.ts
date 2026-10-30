@@ -6,6 +6,7 @@ import { rows, TABLES } from "../src/rows";
 import "../src/poppy/store";
 import "../src/poppy/protocol-log";
 import "../src/tools/memory-store";
+import "../src/tools/turn-authority";
 import "../src/tools/schedule-store";
 import "../src/web-push";
 import { RenderLimiter } from "../src/tools/render";

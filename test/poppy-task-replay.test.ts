@@ -217,7 +217,7 @@ describe("durable task replay adversarial regressions", () => {
           const target = await client.lookup(c.domain);
           if (!("issuer" in target)) throw new Error("Expected API Company");
           const result = await callOpenApi(client, target, "main", { ...openapi, callKey: "deep-result" });
-          expect(result).toEqual({ status: 201, body });
+          expect(result).toEqual({ status: 201, body, poppyTask: { id: expect.stringMatching(/^req_[A-Za-z0-9_-]+$/), result: "done" } });
         } finally { outgoing.mockRestore(); }
       });
     } catch (error) { unexpected = String(error); }

@@ -12,9 +12,15 @@ export class TaskFiles {
 
   static none(): TaskFiles { return new TaskFiles(new Set()); }
 
+  /** Names are task data, not additional Company destinations. */
+  static names(history: readonly string[]): readonly string[] {
+    return [...new Set(history.flatMap(text => [...text.matchAll(MARKER)].map(match => match[0].split(" · ")[1] ?? "")).filter(Boolean))];
+  }
+
   /** `task` and `history` contain only genuine User messages, never our notices. */
   static fromUser(task: string, history: readonly string[]): TaskFiles {
     const selected = new Set(markersIn(task));
+    const narrative = task.replace(MARKER, ""); // Metadata cannot select another saved file.
     const names = new Map<string, Set<string>>();
     for (const text of history) {
       for (const match of text.matchAll(MARKER)) {
@@ -28,13 +34,13 @@ export class TaskFiles {
     // A filename must identify one photo and be named as a whole filename,
     // not appear inside another name. Ambiguous names keep the consent card.
     for (const [name, ids] of names) {
-      if (ids.size === 1 && namesFile(task, name)) for (const id of ids) selected.add(id);
+      if (ids.size === 1 && namesFile(narrative, name)) for (const id of ids) selected.add(id);
     }
     // Ordinary follow-ups can refer to the last User-selected photo(s).
     // A singular reference cannot silently choose among a batch of photos.
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
-    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b/i.test(task);
-    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b/i.test(task);
+    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b/i.test(narrative);
+    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b/i.test(narrative);
     if (selected.size === 0 && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
     return new TaskFiles(selected);
   }
