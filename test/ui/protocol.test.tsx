@@ -192,6 +192,19 @@ describe("protocol view", () => {
  * ready when the button is pressed, and again after each copy.
  */
 describe("diagnostics", () => {
+  it("selects one flow and refuses to export an older response for another scope", async () => {
+    const sent: PoppyClientFrame[] = [];
+    const send = (frame: PoppyClientFrame) => { sent.push(frame); return true; };
+    const entry = { id: "approval-req_selected", at: AT, kind: "approval" as const, issuer: ISSUER, company: "Print", account: null, what: "Requested for your task", how: "api" as const, access: "view_and_change" as const, decidedBy: null, result: "done" as const };
+    const protocol: ProtocolView = { companies: [], logs: {}, diagnostics: { text: "recent events", at: AT } };
+    const page = render(<ActivityPage activity={{ inProgress: [], log: [entry] }} protocol={protocol} send={send} />);
+    fireEvent.change(screen.getByLabelText("Diagnostic scope"), { target: { value: "req_selected" } });
+    expect(sent.at(-1)).toEqual({ type: "poppy.diagnostics", flowId: "req_selected" });
+    expect((screen.getByRole("button", { name: "Download diagnostics" }) as HTMLButtonElement).disabled).toBe(true);
+    page.rerender(<ActivityPage activity={{ inProgress: [], log: [entry] }} protocol={{ ...protocol, diagnostics: { text: "one flow", at: AT + 1, flowId: "req_selected" } }} send={send} />);
+    expect((screen.getByRole("button", { name: "Download diagnostics" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   const text = 'Poppy Demo Agent diagnostics\nAgent: 0123abcd\n\n{"kind":"turn","outcome":"success"}\n';
 
   it("asks the agent once when Activity opens, and copies what it sent", async () => {

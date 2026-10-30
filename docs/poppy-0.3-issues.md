@@ -447,7 +447,9 @@ We implemented the 28 October text in our client and mock Company after the issu
 
 ### 40. Nothing says which writes need approval, so a careful agent asks the User twice
 
-*Interop, safety. Operations (introduction, 4).*
+**Withdrawn, 29 October.** This described our extra policy that every write needed a separate confirmation click. Operations 2 deliberately lets the Company choose which actions need confirmation, and the guides discourage confirmation of routine changes the User already requested. The normal flow sends the task request first and asks when the Company returns its terms. [Decision 38](decisions.md#38-task-requests-use-the-companys-approval-boundary) replaces our blanket preliminary card. The original argument is retained below as history, not an outstanding protocol defect.
+
+*Original assessment: Interop, safety. Operations (introduction, 4).*
 
 **What the text says.** "Operations add no endpoints. A Company chooses which actions need approval." A Company that doesn't ask performs the write at once.
 

@@ -15,11 +15,9 @@ import { agent, cards, company, requests, signInDirect, tool, type Agent, type C
 
 const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
 
-/** Our card for the write approved; the Company's terms wait on their own card (Ops 4). */
+/** The task request returned the Company's terms, still awaiting the User (Ops 4). */
 async function terms(a: Agent, c: Company): Promise<Record<string, any>> {
   expect((await tool(a, "poppy_api_call", exchange(c))).isError).toBe(false);
-  const ours = (await cards(a)).find((card) => card.kind === "approval" && card.open)!;
-  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
   const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
   expect(card).toMatchObject({ status: "pending" });
   return card;
@@ -69,11 +67,15 @@ describe("approval authorization and withdrawal", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect(await approvals(c)).toEqual([]);
 
-    // Signed in again, the User asks afresh. The Company answers with the same unexpired revision (Ops 4),
-    // so its card, one per revision, waits again, now for the new request; approved, it goes once.
+    // Signed in again, the User asks afresh. Even unchanged Company terms need
+    // a distinct decision record: a delayed click must not revive the old one.
     await signInDirect(a, c);
     const fresh = await terms(a, c);
-    expect(fresh).toMatchObject({ approvalId: card.approvalId, open: true, status: "pending" });
+    expect(fresh).toMatchObject({ open: true, status: "pending" });
+    expect(fresh.approvalId).not.toBe(card.approvalId);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find(item => item.approvalId === fresh.approvalId)).toMatchObject({ status: "pending", open: true });
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: fresh.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
     expect(await approvals(c)).toHaveLength(1);

@@ -1,3 +1,11 @@
+/** Our task-dispatch records share recovery with approvals, but never imply a confirmation click. */
+export function isTaskRequest(id: string): boolean { return id.startsWith("req_"); }
+
+/** A task or approval ID, never a URL, query or free text from an export request. */
+export function isDiagnosticFlowId(value: string): boolean {
+  return /^(?:req|apr2?)_[A-Za-z0-9_-]{1,256}$/.test(value);
+}
+
 /** The original attempt and the User's later assertion are independent facts. */
 export const APPROVAL_STATUSES = ["pending", "executing", "declined", "done", "terms", "refused", "failed", "unknown"] as const;
 export type ApprovalStatus = typeof APPROVAL_STATUSES[number];

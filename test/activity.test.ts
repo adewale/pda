@@ -143,9 +143,6 @@ describe("poppy.activity", () => {
     const a = await agent();
     await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    // Our card for the write first; approved, the Company answers with its terms, on a card of their own (Ops 4).
-    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
     const entryOf = (frame: Activity) => frame.log.find((entry) => entry.id === `approval-${card.approvalId}`);
     const p = await page(a);
@@ -158,8 +155,6 @@ describe("poppy.activity", () => {
       decidedBy: null,
       result: "waiting"
     });
-    // Our own card's request went, and what it asked is now the Company's to say.
-    expect(p.latest().log.find((entry) => entry.id === `approval-${ours.approvalId}`)).toMatchObject({ quoteBy: "agent", decidedBy: "you", result: "waiting" });
 
     // The page is told as soon as it changes, without asking again.
     const before = p.frames.length;
@@ -178,19 +173,16 @@ describe("poppy.activity", () => {
     p.socket.close();
   });
 
-  it("logs a local approval with how it would act, and leaves an approved API call's response out", async () => {
+  it("logs routine task dispatch without inventing approval and leaves its API response out", async () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect((await cards(a)).filter(item => item.kind === "approval")).toEqual([]);
     const p = await page(a);
-    expect(find(p.latest().log, "approval")).toMatchObject({ how: "api", decidedBy: null, result: "waiting", quote: card.summary });
-    const before = p.frames.length;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    const done = await p.next((frame) => find(frame.log, "approval")?.result === "done", before);
-    expect(find(done.log, "approval")!.decidedBy).toBe("you");
-    expect(find(done.log, "approval")!.outcome).toBeUndefined();
+    expect(find(p.latest().log, "approval")).toMatchObject({ how: "api", what: "Requested for your task", decidedBy: null, result: "done" });
+    expect(find(p.latest().log, "approval")!.outcome).toBeUndefined();
+    expect((await c.stub.state()).performs).toBe(1);
     p.socket.close();
   });
 });

@@ -10,7 +10,7 @@ The implementation follows the text retrieved on **29 October 2026** ([snapshot]
 
 | Component | Poppy versions | What it does |
 | --- | --- | --- |
-| [PDA application and client](pda-spec.md) | 0.3 | Signs in to Companies, uses their APIs and conversations, and asks for approval before account changes, then for the Company's terms when it asks (Operations 2) |
+| [PDA application and client](pda-spec.md) | 0.3 | Signs in to Companies, uses their APIs and conversations, and asks for approval of the Company's exact terms when it returns an operation (Operations 2); file uploads retain separate disclosure consent |
 | [Document validator](docs/validator.md) | 0.3 | Checks Company discovery, OAuth and protected resource metadata, client metadata and keys. One library backs the web form, HTTP API and CLI |
 | [Reference/mock Company](interop/README.md#the-fake-implementations) | 0.3 | Serves Company endpoints and records violations. Tests select lenient, strict, deliberately flawed or adversarial behavior |
 | [Fake test Personal Agents](interop/README.md#the-fake-implementations) | 0.3 | Exercise Companies with lenient, strict or sloppy behavior; the restored malicious agent sends mutated 0.3 requests to our own mocks |

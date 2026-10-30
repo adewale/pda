@@ -1520,7 +1520,7 @@ describe("6 web browsing", () => {
   });
 });
 
-describe("7 APIs", () => {
+describe("7 APIs: current task dispatch, validation and Company approvals", () => {
   it("lists and calls OpenAPI operations with the Session header, and signed in with a DPoP access token", async () => {
     const c = await company();
     const a = await agent();
@@ -1602,7 +1602,7 @@ describe("7 APIs", () => {
     }
   });
 
-  it("gets the User's approval on our own card before any write, and sends nothing until then", async () => {
+  it("sends the task request first and asks once about the Company's exact terms", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
@@ -1612,16 +1612,15 @@ describe("7 APIs", () => {
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
-    // Operations 2 gives a description no way to say a write asks for approval (decision 36): every write waits for the User.
-    expect(result.text).toContain("Waiting for the User's approval");
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    expect(card.summary).toContain("POST /orders/ord_7Hk2/exchanges");
-    expect(card.terms).toBeUndefined();
-    expect((await requests(c)).filter((request) => request.url.endsWith("/exchanges"))).toEqual([]);
+    expect(JSON.parse(result.details)).toMatchObject({ proposed: card.approvalId });
+    expect(card.terms.summary).toContain("Exchange the Stormline Jacket");
+    expect((await cards(a)).filter(item => item.kind === "approval")).toHaveLength(1);
+    expect((await requests(c)).filter((request) => request.url.endsWith("/exchanges"))).toEqual([expect.objectContaining({ status: 403, error: "approval_required" })]);
     expect((await c.stub.state()).performs).toBe(0);
   });
 
-  it("waits for the User's approval of a write at a Company without operations, then makes it once", async () => {
+  it("performs a task at a Company without Operations and replays its stored outcome", async () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signInDirect(a, c);
@@ -1630,12 +1629,11 @@ describe("7 APIs", () => {
       operation: "POST /orders/{order_id}/exchanges",
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
-    });
-    expect(result.text).toContain("Waiting for the User's approval");
-    expect((await c.stub.state()).performs).toBe(0);
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    }, "routine-no-ops");
+    expect(JSON.parse(result.details)).toMatchObject({ status: 201 });
+    expect((await cards(a)).filter(item => item.kind === "approval")).toEqual([]);
+    const replay = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }, "routine-no-ops");
+    expect(JSON.parse(replay.details)).toEqual(JSON.parse(result.details));
     expect((await c.stub.state()).performs).toBe(1);
   });
 
@@ -1647,34 +1645,23 @@ describe("7 APIs", () => {
   });
   const exchangeRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/orders/ord_7Hk2/exchanges`);
 
-  it("leaves our card as terms, with nothing performed, when the Company answers the approved write with its terms (Ops 4)", async () => {
+  it("keeps pending Company terms out of intermediate model notifications (Ops 4)", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
+    const before = (await a.stub.poppyNotices()).length;
     const result = await tool(a, "poppy_api_call", exchangeWrite(c));
-    expect(result.text).toContain("Waiting for the User's approval");
-    expect(await exchangeRequests(c)).toEqual([]);
-    const approval = (await cards(a)).find((item) => item.kind === "approval")!;
-    expect(approval.summary).toContain("POST /orders/ord_7Hk2/exchanges");
-    // Approved, the write goes out once, without an approval; the Company refuses it with its terms, which get their own card.
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    expect((await exchangeRequests(c)).map((request) => `${request.status} ${request.error}`)).toEqual(["403 approval_required"]);
+    const terms = (await cards(a)).find(item => item.kind === "approval" && item.open)!;
+    expect(JSON.parse(result.details).proposed).toBe(terms.approvalId);
+    expect((await exchangeRequests(c)).map(request => [request.status, request.error])).toEqual([[403, "approval_required"]]);
     expect((await exchangeRequests(c))[0]!.headers["poppy-approval"]).toBeUndefined();
     const state = await c.stub.state();
     expect(state.performs).toBe(0);
     expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
-    // Ours says what happened, never "done"; the Company's waits for the User.
-    const ours = (await cards(a)).find((item) => item.approvalId === approval.approvalId)!;
-    expect(ours).toMatchObject({ open: false, status: "terms", result: `Mock Shop ${c.id} asks you to approve its exact terms first, on the next card. Nothing has happened yet.` });
-    const terms = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    expect(terms.approvalId).toMatch(/^apr2_/);
     expect(terms).toMatchObject({ status: "pending", terms: { summary: expect.stringContaining("Exchange the Stormline Jacket (M)") } });
-    const notice = await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first");
-    expect(notice).toContain("nothing has happened yet");
-    expect(notice).toContain("Don't tell the User it was done");
-    // Its Activity entry isn't done either.
-    const logged = (JSON.parse(await a.stub.poppyActivity()) as { log: { id: string; result: string }[] }).log.find((entry) => entry.id === approval.id)!;
-    expect(logged.result).not.toBe("done");
+    expect((await a.stub.poppyNotices()).slice(before)).toEqual([]);
+    const logged = JSON.parse(await a.stub.poppyActivity()).log.find((entry: { id: string }) => entry.id === terms.id);
+    expect(logged.result).toBe("waiting");
   });
 
   it("checks a write's server before its card: one on another host, or over plain HTTP, is refused and no card is shown", async () => {
@@ -1698,12 +1685,12 @@ describe("7 APIs", () => {
     const c = await company({ exchangeOperation: { summary: `Exchange the jacket. ${"Small print. ".repeat(400)}` } });
     const a = await agent();
     await signInDirect(a, c);
-    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    const after = (await cards(a)).find((item) => item.approvalId === card.approvalId)!;
+    const result = await tool(a, "poppy_api_call", exchangeWrite(c));
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.details)).toMatchObject({ error: "unusable_proposal" });
+    const after = (await cards(a)).find(item => item.kind === "approval")!;
     expect(after).toMatchObject({ status: "refused", answer: { status: 403, error: "unusable_proposal" } });
-    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 403 (unusable_proposal). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
+    expect(after.result).toContain("Sent for your task");
     const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-"))!;
     expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval, but its terms couldn't be used (its summary is too long to show), so nothing was done.`);
     // No card to approve the Company's operation, and nothing performed.
@@ -1711,62 +1698,50 @@ describe("7 APIs", () => {
     expect((await c.stub.state()).performs).toBe(0);
   });
 
-  it("never sends a write that takes no Idempotency-Key twice: a replayed tool call shows the same card, and its approval sends it once", async () => {
+  it("never repeats a task write that takes no Idempotency-Key", async () => {
     const c = await company({ operations: false, exchangeTakesIdempotencyKey: false });
     const a = await agent();
     await signInDirect(a, c);
     const first = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
-    expect(first.text).toContain("Waiting for the User's approval");
+    expect(JSON.parse(first.details)).toMatchObject({ status: 201 });
+    await a.stub.poppyRestart();
     const replay = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
     expect(JSON.parse(replay.details)).toEqual(JSON.parse(first.details));
-    const [card] = (await cards(a)).filter((item) => item.kind === "approval");
-    expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(1);
-    expect(await exchangeRequests(c)).toEqual([]);
-    // Approved twice, as a double click would: sent once, with no Idempotency-Key, and done once.
-    await Promise.all([
-      a.stub.poppyFrame({ type: "poppy.approval", approvalId: card!.approvalId, decision: "approve" }),
-      a.stub.poppyFrame({ type: "poppy.approval", approvalId: card!.approvalId, decision: "approve" })
-    ]);
+    expect((await cards(a)).filter(item => item.kind === "approval")).toEqual([]);
     expect(await exchangeRequests(c)).toHaveLength(1);
     expect((await exchangeRequests(c))[0]!.headers["idempotency-key"]).toBeUndefined();
     expect((await c.stub.state()).performs).toBe(1);
-    // The replayed call after the approval is still that one card, and sends nothing more.
-    await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
-    expect(await exchangeRequests(c)).toHaveLength(1);
-    // A new call is a new request, with a card of its own.
-    expect((await tool(a, "poppy_api_call", exchangeWrite(c), "call-again")).text).toContain("Waiting for the User's approval");
-    expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(2);
   });
 
-  it("shows one card for a replayed write that waits for the User's approval", async () => {
-    const c = await company({ operations: false });
+  it("shows one Company-terms card for a replayed task request", async () => {
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     const first = await tool(a, "poppy_api_call", exchangeWrite(c), "call-held");
     const again = await tool(a, "poppy_api_call", exchangeWrite(c), "call-held");
     expect(JSON.parse(again.details)).toEqual(JSON.parse(first.details));
     expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(1);
-    expect(await exchangeRequests(c)).toEqual([]);
+    expect(await exchangeRequests(c)).toEqual([expect.objectContaining({ status: 403, error: "approval_required" })]);
+    expect((await c.stub.state()).performs).toBe(0);
   });
 
-  it("asks the User before an MCP tool that isn't read-only, and the Company's terms get a card of their own", async () => {
+  it("asks once about an MCP tool's returned Company terms while read-only calls remain available", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-    expect((await tool(a, "poppy_mcp_call", call)).text).toContain("Waiting for the User's approval");
-    // The tool wasn't called: the Company has returned no operation.
-    expect((await c.stub.state()).operations).toEqual([]);
+    const result = await tool(a, "poppy_mcp_call", call);
+    expect(JSON.parse(result.details).proposed).toMatch(/^apr2_/);
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
     // A tool the server marks read-only goes straight through, as an OpenAPI GET does.
     const search = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
     expect(search.text).toContain("Stormline");
-    const approval = (await cards(a)).find((item) => item.kind === "approval")!;
+    const approval = (await cards(a)).find(item => item.kind === "approval" && item.open)!;
+    expect(approval.terms).toBeDefined();
+    expect((await cards(a)).filter(item => item.kind === "approval")).toHaveLength(1);
+    expect((await c.stub.state()).performs).toBe(0);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    const state = await c.stub.state();
-    expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
-    expect(state.performs).toBe(0);
-    expect((await cards(a)).find((item) => item.approvalId === approval.approvalId)).toMatchObject({ status: "terms", open: false });
-    expect((await cards(a)).find((item) => item.kind === "approval" && item.open)!.approvalId).toMatch(/^apr2_/);
+    expect((await c.stub.state()).performs).toBe(1);
   });
 
   it("checks an MCP tool's args against its inputSchema before a card or a call", async () => {
@@ -1775,11 +1750,11 @@ describe("7 APIs", () => {
     await signInDirect(a, c);
     await tool(a, "poppy_mcp_list", { domain: c.domain });
     const before = (await requests(c)).length;
-    const missing = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
+    const missing = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
     expect(JSON.parse(missing.details)).toMatchObject({ error: "invalid_args" });
     expect(missing.text).toContain("replacement_sku");
     expect(missing.text).toContain("Nothing was sent.");
-    const wrong = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
+    const wrong = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
     expect(JSON.parse(wrong.details)).toMatchObject({ error: "invalid_args" });
     expect(wrong.text).toContain("args/query");
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
@@ -1787,48 +1762,47 @@ describe("7 APIs", () => {
     expect((await requests(c)).length).toBe(before);
   });
 
-  it("says which error refused an approved write", async () => {
+  it("says which error refused a task write without inventing a prior approval", async () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signInDirect(a, c, ["orders:read"]);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    expect(result.text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    const after = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.details)).toMatchObject({ error: "insufficient_scope" });
+    const after = (await cards(a)).find(item => item.kind === "approval")!;
     expect(after).toMatchObject({ status: "refused", answer: { status: 403, error: "insufficient_scope" } });
-    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 403 (insufficient_scope). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
+    expect(after.result).toBe(`Sent for your task, but Mock Shop ${c.id} answered 403 (insufficient_scope). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
     expect((await c.stub.state()).performs).toBe(0);
   });
 
   describe("a stored approval is decoded and checked again before it is sent", () => {
     /** A write waiting on its card, its stored request rewritten by `rewrite`, then approved. */
     async function approveRewritten(rewrite: (stored: Record<string, any>) => unknown) {
-      const c = await company({ operations: false });
+      const c = await company();
       const a = await agent();
       await signInDirect(a, c);
-      expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
-      const card = (await cards(a)).find((item) => item.kind === "approval")!;
+      expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).details).proposed).toMatch(/^apr2_/);
+      const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
       const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
       const rewritten = rewrite(JSON.parse(row!.request));
       await a.stub.poppySql("UPDATE poppy_approvals SET request = ? WHERE id = ?", typeof rewritten === "string" ? rewritten : JSON.stringify(rewritten), card.approvalId);
       await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
       const after = (await cards(a)).find((item) => item.kind === "approval")!;
-      // Nothing reached the Company's API, whatever the row said.
-      expect(await exchangeRequests(c)).toEqual([]);
+      // The initial request obtained terms; no approved request was sent.
+      expect((await exchangeRequests(c)).filter(request => request.headers["poppy-approval"])).toEqual([]);
       expect((await c.stub.state()).performs).toBe(0);
       return { c, a, after };
     }
 
     it("stores the request in its versioned form, with the method and URL the card showed", async () => {
-      const c = await company({ operations: false });
+      const c = await company();
       const a = await agent();
       await signInDirect(a, c);
       await tool(a, "poppy_api_call", exchangeWrite(c));
       const card = (await cards(a)).find((item) => item.kind === "approval")!;
       const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
       expect(JSON.parse(row!.request)).toEqual({
-        v: 2,
+        v: 3,
         kind: "openapi",
         method: "POST",
         url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
@@ -1837,13 +1811,23 @@ describe("7 APIs", () => {
       });
     });
 
-    it("refuses an approval stored in an older form, and says so on its card", async () => {
-      const { after, a } = await approveRewritten((stored) => ({ kind: stored.kind, request: { issuer: "https://issuer.example", call: stored.call } }));
+    it.each([1, 2])("refuses unsupported stored approval version %i instead of migrating it", async version => {
+      const { after, a } = await approveRewritten(stored => ({ ...stored, v: version }));
       expect(after.status).toBe("failed");
       expect(after.result).toBe(
-        "Not sent: this approval can't be sent, because it was stored in a form (version 1) this version of the agent doesn't send. Nothing was sent; ask again if you still want it."
+        `Not sent: this approval can't be sent, because it was stored in a form (version ${version}) this version of the agent doesn't send. Nothing was sent; ask again if you still want it.`
       );
       expect(await a.stub.poppyWaitForNotice("couldn't be sent")).toContain("nothing was sent");
+    });
+
+    it.each(["binding", "authorityGeneration"])("refuses a current approval missing %s without inventing default authority", async field => {
+      const { after } = await approveRewritten(stored => {
+        if (field === "binding") delete stored.binding;
+        else delete stored.binding.authorityGeneration;
+        return stored;
+      });
+      expect(after.status).toBe("failed");
+      expect(after.result).toContain("isn't one this agent stored");
     });
 
     it("refuses a stored row that was tampered with: a call that no longer makes the URL approved, or one that isn't well formed", async () => {
@@ -1887,9 +1871,9 @@ describe("7 APIs", () => {
     const catalog = await tool(a, "poppy_api_call", { domain: c.domain, operation: "getCatalog" });
     expect(catalog.isError, catalog.text).toBe(false);
     expect(JSON.parse(catalog.text)).toMatchObject({ status: 200, body: { products: [expect.objectContaining({ sku: "print-6x4" })] } });
-    // A write the Poppy Session protects waits for the User's approval, as every write does.
+    // This protected task request obtains the Company's exact terms.
     await signInDirect(a, c);
-    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
+    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).details).proposed).toMatch(/^apr2_/);
   });
 
   it("calls every operation as before when the description declares no security", async () => {
@@ -1897,11 +1881,10 @@ describe("7 APIs", () => {
     const a = await agent();
     const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain })).text) as { operations: { usable?: boolean }[] };
     expect(described.operations.filter((op) => op.usable !== undefined)).toEqual([]);
-    // The same session endpoint, undescribed, is a write like any other: it waits for the User.
+    // Without a declared token scheme, the request uses the Poppy Session normally.
     const held = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
-    expect(held.text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect(held.isError).toBe(true);
+    expect(JSON.parse(held.details)).toMatchObject({ error: "not_available" });
     // The store's 404 is a receipt that says so, never "done".
     expect((await cards(a)).find((item) => item.kind === "approval")).toMatchObject({ status: "refused", answer: { status: 404, error: "not_available" } });
   });
@@ -1930,13 +1913,13 @@ describe("7 APIs", () => {
     expect(outsidePoppySession(new Set(), "POST", undefined)).toBe(false);
   });
 
-  /** A write at a Company without operations, approved on its card, with `fault` on its request. */
+  /** A Company-terms approval whose actual business request encounters `fault`. */
   async function approvedWrite(mode: "error" | "throw" | "gateway") {
-    const c = await company({ operations: false });
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c);
-    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).details).proposed).toMatch(/^apr2_/);
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
     await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode });
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
@@ -1978,7 +1961,7 @@ describe("7 APIs", () => {
     expect(await a.stub.poppyWaitForNotice("may or may not have happened")).toContain("it won't be retried automatically");
     // The mock handled it before the connection failed; it isn't sent again.
     expect((await c.stub.state()).performs).toBe(1);
-    expect(await exchangeRequests(c)).toHaveLength(1);
+    expect((await exchangeRequests(c)).filter(request => request.headers["poppy-approval"])).toHaveLength(1);
   });
 
   it.each([
@@ -2107,9 +2090,8 @@ describe("7 APIs", () => {
     const narrowed = (await requests(c)).filter((request) => request.grant === "refresh_token" && request.bodyKeys.includes("scope"));
     expect(narrowed.map((request) => request.status)).toEqual([200]);
     // A write still gets the whole Session's scope: the Company takes it, and asks for approval of its terms.
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    expect(JSON.parse(result.details).proposed).toMatch(/^apr2_/);
     expect((await requests(c)).filter((request) => request.url.endsWith("/exchanges")).map((request) => request.error)).toEqual(["approval_required"]);
   });
 
@@ -2137,12 +2119,10 @@ describe("7 APIs", () => {
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
-    expect(result.text).toContain("Waiting for the User's approval");
-    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    // Sent as approved and refused: the receipt names the code, never "done".
-    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "refused", answer: { status: 403, error: "extension_required" } });
-    expect(await a.stub.poppyWaitForNotice("[extension_required]")).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support");
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.details)).toMatchObject({ error: "extension_required" });
+    expect(result.text).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support");
+    expect((await cards(a)).find(item => item.kind === "approval")).toMatchObject({ status: "refused", answer: { status: 403, error: "extension_required" } });
     expect((await c.stub.state()).performs).toBe(0);
   });
 });
@@ -2375,13 +2355,11 @@ describe("Operations 2", () => {
     if (configure) await c.stub.configure(configure(c));
     const a = await agent();
     await signInDirect(a, c);
-    expect((await tool(a, "poppy_api_call", exchangeCall(c))).text).toContain("Waiting for the User's approval");
-    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await approve(a, ours);
+    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
     expect(card.approvalId).toMatch(/^apr2_/);
     expect((await c.stub.state()).performs).toBe(0);
-    return { c, a, ours, card };
+    return { c, a, card };
   }
 
   /** The approval a waiting card will send (`poppy_approvals.request`), as stored. */
@@ -2399,8 +2377,8 @@ describe("Operations 2", () => {
       highlights: ["Cost (price_difference): 70.00 USD", "The company hasn't said whether this can be undone."]
     });
     expect(card.summary).toBe(`Mock Shop ${c.id} asks for your approval before it does this: ${summary} (Approval needed by ${expiresAt}.)`);
-    // The model hears that nothing has happened, and that the User decides.
-    expect(await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first")).toContain("nothing has happened yet");
+    // The pending card does not start another model turn.
+    expect((await a.stub.poppyNotices()).filter(text => text.includes("asks the User to approve its exact terms first"))).toEqual([]);
     await approve(a, card);
     // The same request again, with the approval of exactly that revision (Ops 6).
     const sent = await approved(c);
@@ -2500,10 +2478,7 @@ describe("Operations 2", () => {
     const sizes = ["stormline-insulated-m", "stormline-insulated-l"];
     const waiting: Record<string, any>[] = [];
     for (const sku of sizes) {
-      expect((await tool(a, "poppy_api_call", { ...exchangeCall(c), body: { item_id: "itm_4Qa", replacement_sku: sku } })).text).toContain("Waiting for the User's approval");
-      // Ours, not the first size's terms, which wait too.
-      const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open && !item.approvalId.startsWith("apr2_"))!;
-      await approve(a, ours);
+      expect((await tool(a, "poppy_api_call", { ...exchangeCall(c), body: { item_id: "itm_4Qa", replacement_sku: sku } })).isError).toBe(false);
       waiting.push((await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId.startsWith("apr2_") && !waiting.some((seen) => seen.approvalId === item.approvalId))!);
     }
     const [medium, large] = waiting;

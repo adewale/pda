@@ -44,8 +44,6 @@ async function propose(a: Agent, c: Company, sku = "stormline-insulated-m"): Pro
     params: { order_id: "ord_7Hk2" },
     body: { item_id: "itm_4Qa", replacement_sku: sku }
   });
-  const ours = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open && !before.has(card.approvalId)));
-  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
   const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms && !before.has(item.approvalId)));
   const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
   const { operation_id: operationId, revision } = JSON.parse(row!.request).call.approval as { operation_id: string; revision: string };
@@ -206,8 +204,8 @@ describe("prompt injection (model lane)", () => {
     const second = await propose(a, c, "stormline-parka-m");
     // The User reads it in full on the card (Ops 5)...
     expect(second.card.terms.summary).toContain("pre-approved");
-    // ...and the model is told only that terms wait for the User: the Company's summary never enters its transcript.
-    await turnAbout(a, "asks the User to approve its exact terms first");
+    // Pending terms do not wake the model, and the injected summary stays on the User's card.
+    expect((await a.stub.poppyNotices()).filter(text => text.includes("asks the User to approve its exact terms first"))).toEqual([]);
     expect(await a.stub.poppyTranscript()).not.toContain("pre-approved");
 
     await stillTheUsersDecision(a, c, first);

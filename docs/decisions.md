@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-Why the Poppy Demo Agent is built the way it is. The [spec](../pda-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 13 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
+Why the Poppy Demo Agent is built the way it is. The [spec](../pda-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Each decision records when it was made. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
 
 Back to the [README](../README.md) · What's left to deploy and check: [deployment-tasks.md](deployment-tasks.md)
 
@@ -45,6 +45,9 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 33. [pi-durable 1.3: reopening pi after a storage error, no caches on timers, pi's storage conformance](#33-pi-durable-13-reopening-pi-after-a-storage-error-no-caches-on-timers-pis-storage-conformance)
 34. [read_url hands the page to a reader with no tools](#34-read_url-hands-the-page-to-a-reader-with-no-tools)
 35. [Outcomes on the step that asked, and photo uploads decided on one card](#35-outcomes-on-the-step-that-asked-and-photo-uploads-decided-on-one-card)
+36. [Draft 0.3 beside 0.2](#36-draft-03-beside-02-a-client_id-per-version-our-card-before-the-companys-terms-and-sessions-that-outlive-sign-out)
+37. [0.3 alone](#37-03-alone-what-dropping-01-and-02-overturns-and-settles)
+38. [Task requests use the Company's approval boundary](#38-task-requests-use-the-companys-approval-boundary)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -502,6 +505,8 @@ Each of these closed a specific gap, and each has a test:
 
 ## 36. Draft 0.3 beside 0.2: a client_id per version, our card before the Company's terms, and Sessions that outlive sign-out
 
+The preliminary-card policy below was superseded by [decision 38](#38-task-requests-use-the-companys-approval-boundary). The original choice remains recorded here.
+
 - **Context.** Upstream rewrote draft 0.3 on 28 October ([snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md)): a `Poppy-Session` JWT on every request, signed with a delegated key; plain OAuth for accounts; a browser join through `{browser_session_endpoint}/authorize`; Operations version 2, where a Company refuses a write with the operation and the same request comes back with the approval; Mediated Sign-In as a token-endpoint grant; `author` on messages. Six live Companies already declare 0.3, and Print with Poppy, the one we use most, is on 0.2 with Operations 1. Three choices weren't settled by the text.
 - **Decision.**
   - **A client_id per protocol version.** A client metadata document lists each extension once, with one major `version` (3.3), and Operations 2 counts only when both sides list `"2"`. Listing `"2"` would end Operations 1 at 0.2 Companies; listing `"1"` would mean 0.3 Companies never return operations to us. So 0.3 Companies get `/poppy/0.3/client.json`, which lists Operations 2, and 0.1 and 0.2 Companies keep `/poppy/client.json`, which lists Operations 1. Both use the same `jwks_uri` and redirect URI (`src/poppy/keys.ts`, `src/poppy/routes.ts`, `PoppyClient.clientIdFor`).
@@ -528,3 +533,13 @@ Each of these closed a specific gap, and each has a test:
 - **Alternatives.** *Keep 0.2 for Print with Poppy.* It is the Company we use most, but it would keep every cost above for one Company, and its maintainers can move to 0.3. *Wait for upstream to commit 0.3.* Six live Companies already declared it, and the snapshot pin with a drift check gives us the same reproducibility.
 - **Consequences.** Every Company on 0.1 or 0.2, Print with Poppy among them, is refused until it moves to 0.3, and a deployed agent's accounts there go unused. A Company that allowlisted `/poppy/0.3/client.json` sees `/poppy/client.json`, and the User signs in again. The interop grid has our agent and our mock, with no third party, until a 0.3 peer is pinned. An approval now takes two cards at every Company that asks for one; issue 40 in [poppy-0.3-issues.md](poppy-0.3-issues.md#40-nothing-says-which-writes-need-approval-so-a-careful-agent-asks-the-user-twice) asks upstream for the marker that would make it one.
 - **When.** 28 October 2026.
+
+## 38. Task requests use the Company's approval boundary
+
+- **Context.** The owner's 29 October live run showed premature cards and repeated order requests. Our preliminary card asked about an HTTP request before the Company supplied its terms; its intermediate result started another model turn. Operations 2 §§1, 4–6 instead sends the task request first, and the Company chooses which actions need confirmation. The guides discourage confirming routine changes the User already requested.
+- **Decision.** Send task-authorized OpenAPI writes and MCP calls normally. Ask only when the Company returns an operation, using its exact summary and revision. Keep separate consent for disclosing the User's photos and for website form submission. Store the request before dispatch; reuse pending terms across fresh model calls and return recorded outcomes on tool replay. A handoff to terms does not wake the model. Successful result URL/link fields reach the User directly as labelled HTTPS links; summaries remain inert text.
+- **Alternatives.** Keeping two cards preserves our extra per-write confirmation policy, but that policy caused the premature decision and is not required by Poppy. A new upstream marker is unnecessary for the specified Company-driven flow. Relying on a prompt alone to avoid repeated requests would leave no durable pending-request guard.
+- **Consequences.** A Company may perform a routine task request without another click; the agent must keep it within the User's task. This is an explicit change to our policy, not a claim that types can prove a model's intent. This pre-1.0 agent has no old-flow compatibility: stored approvals use version 3 with explicit bindings and withdrawal generations; earlier forms and preliminary API-write cards are refused, not migrated. Current-flow tests retain unknown-outcome holds and withdrawal checks. Lost approved responses still use the conservative unknown-outcome/reconciliation path; automatic same-approval recovery beyond the transport's existing retries is not added here. Issue 40 is withdrawn. Returned links are not proof of payment, and the reported live checkout failure's exact cause remains unestablished.
+- **Audit follow-up (30 October).** Every coalesced call gets a durable mapping; unchanged terms on a fresh attempt get a new immutable decision, so delayed clicks cannot claim it. Returned terms retain the actual transport's authority. Only an unapproved task may follow a known `invalid_session` refusal without changing account or withdrawal generation. A changed MCP read-only annotation cannot bypass an already recorded outcome. Recovery republishes committed pending terms without sending or deciding them. Sixteen process-kill probes cover approval and initial-task boundaries, plus real Pi MCP settlement and its unsafe negative control.
+- **Diagnostics.** Keep safe per-flow event copies separately from the newest-200 log (50 flows, 200 events/256 KiB each). Export linked lifecycle metadata, not stored requests/results or unrelated protocol logs. Shared unit context and missing pruned history are disclosed. Link-rejection reasons and client-reported source/anchor equality are counts only; no URL value or hash is retained.
+- **When.** 29 October 2026, after the owner requested the correction; audited 30 October.

@@ -1,5 +1,5 @@
 import { array, boolean, DecodeError, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
-import { APPROVAL_READ_LIMIT, isApprovalId } from "./approval-outcome";
+import { APPROVAL_READ_LIMIT, isApprovalId, isDiagnosticFlowId } from "./approval-outcome";
 import type { HistoryFrame } from "../history";
 import { issuerDecoder } from "./issuer";
 import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
@@ -16,6 +16,18 @@ const approvalIds: Decoder<readonly string[]> = (value, at) => {
   const ids = array(string)(value, at);
   if (ids.some(id => !isApprovalId(id))) throw new DecodeError("Invalid approval lookup");
   return ids;
+};
+
+const flowId: Decoder<string> = (value, at) => {
+  const decoded = string(value, at);
+  if (!isDiagnosticFlowId(decoded)) throw new DecodeError("Invalid diagnostic flow ID");
+  return decoded;
+};
+const linkChecks: Decoder<Extract<PoppyClientFrame, { type: "poppy.result_links.checked" }>["checks"]> = (value, at) => {
+  if (!Array.isArray(value) || value.length > 12) throw new DecodeError("Invalid link checks");
+  const checks = array(object({ index: integer, attribute_equal: boolean, resolved_equal: boolean }))(value, at);
+  if (checks.some(check => check.index < 0 || check.index >= 12) || new Set(checks.map(check => check.index)).size !== checks.length) throw new DecodeError("Invalid link checks");
+  return checks;
 };
 
 /** Page → agent. */
@@ -37,7 +49,8 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.revoke.retry": object({ type: literal("poppy.revoke.retry"), id: string }),
   "poppy.card.dismiss": object({ type: literal("poppy.card.dismiss"), id: string }),
   "poppy.protocol": object({ type: literal("poppy.protocol"), key: string }),
-  "poppy.diagnostics": object({ type: literal("poppy.diagnostics") })
+  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), flowId: optional(flowId) }),
+  "poppy.result_links.checked": object({ type: literal("poppy.result_links.checked"), cardId: string, checks: linkChecks })
 });
 
 /**
@@ -81,7 +94,7 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
     issuer: nullable(issuerDecoder),
     entries: array(built<Extract<PoppyServerFrame, { type: "poppy.protocol" }>["entries"][number]>())
   }),
-  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number })
+  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) })
 });
 
 /** The answer to the page's `history.before`. */

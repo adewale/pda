@@ -298,7 +298,7 @@ export type PoppyServerFrame =
    * The agent's diagnostics, to the page that asked (src/agent-log.ts): its
    * newest wide events and every Company's protocol log, as text to copy.
    */
-  | { readonly type: "poppy.diagnostics"; readonly text: string; readonly at: number };
+  | { readonly type: "poppy.diagnostics"; readonly text: string; readonly at: number; readonly flowId?: string };
 
 /** Page → server. */
 export type PoppyClientFrame =
@@ -335,4 +335,6 @@ export type PoppyClientFrame =
   /** Ask for one Company's protocol log; the answer goes to this page only. */
   | { readonly type: "poppy.protocol"; readonly key: string }
   /** Ask for the agent's diagnostics; the answer goes to this page only. Answered by the agent's log, never Poppy. */
-  | { readonly type: "poppy.diagnostics" };
+  | { readonly type: "poppy.diagnostics"; readonly flowId?: string }
+  /** Equality flags from the rendered result anchors; never the URL or its query. */
+  | { readonly type: "poppy.result_links.checked"; readonly cardId: string; readonly checks: readonly { readonly index: number; readonly attribute_equal: boolean; readonly resolved_equal: boolean }[] };

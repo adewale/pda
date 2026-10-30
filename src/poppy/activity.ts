@@ -5,7 +5,7 @@ import { integer, newestRows, nullable, one, rows, text } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, messagesTable, signInsTable, type Sql } from "./store";
 import type { ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
-import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
+import { approvalResult, checkedOutcomeText, isTaskRequest, storedResolution } from "./approval-outcome";
 import { pendingSignOuts, signOutForModel, signOutRecords, type SignOutRecord } from "./signout";
 
 /**
@@ -38,6 +38,7 @@ const approvalRow = object({
   terms: approvalColumns.terms,
   outcome_resolution: approvalColumns.outcome_resolution,
   outcome_resolved_at: approvalColumns.outcome_resolved_at,
+  terms_approval_id: approvalColumns.terms_approval_id,
   kind: nullable(text)
 });
 
@@ -108,14 +109,14 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
   const approvals = rows(
     sql,
     approvalsTable.pick("id", "issuer", "summary", "status", "created_at"),
-    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') OR (status = 'unknown' AND outcome_resolution IS NULL) ORDER BY created_at DESC"
+    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE (status IN ('pending', 'executing') OR (status = 'unknown' AND outcome_resolution IS NULL)) AND NOT (id GLOB 'req_*' AND terms_approval_id IS NOT NULL) ORDER BY created_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     approval: row.id,
     action: row.summary,
     state: row.status === "pending" ? "waiting for the User, on a card on their page"
       : row.status === "unknown" ? "outcome unknown; further writes at this Company are held until the User checks and records the outcome on the receipt"
-      : "approved by the User; being carried out"
+      : isTaskRequest(row.id) ? "carrying out the User's task" : "approved by the User; being carried out"
   }));
 
   const signIns = rows(
@@ -189,8 +190,10 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   for (const row of rows(
     sql,
     approvalRow,
-    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at", "created_at")
+    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at, terms_approval_id", "created_at")
   )) {
+    // The Company's terms own this action's visible lifecycle; its internal dispatch is not another approval.
+    if (isTaskRequest(row.id) && row.terms_approval_id) continue;
     const company = name(row.issuer);
     const resolution = storedResolution(row);
     const result = approvalResult(row.status, resolution);
@@ -208,12 +211,12 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       company,
       account: null,
       // An operation the Company returned is quoted in its own words (Ops 5); anything else in ours.
-      what: row.terms ? `${company} asked for your approval` : "Asked you to approve",
+      what: row.terms ? `${company} asked for your approval` : isTaskRequest(row.id) ? "Requested for your task" : "Asked you to approve",
       quote: row.terms ? row.terms.summary : row.summary,
       quoteBy: row.terms ? "company" : "agent",
       how: row.kind === "browse-submit" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
       access: "view_and_change",
-      decidedBy: row.status === "pending" ? null : "you",
+      decidedBy: row.status === "pending" || isTaskRequest(row.id) ? null : "you",
       result,
       ...(outcome ? { outcome, outcomeBy: resolution ? "you" as const : "agent" as const } : {})
     });
@@ -221,7 +224,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   for (const row of rows(
     sql,
     approvalsTable.pick("id", "issuer", "summary", "created_at"),
-    "SELECT id, issuer, summary, created_at FROM poppy_approvals WHERE status = 'executing'"
+    "SELECT id, issuer, summary, created_at FROM poppy_approvals WHERE status = 'executing' AND NOT (id GLOB 'req_*' AND terms_approval_id IS NOT NULL)"
   )) {
     const company = name(row.issuer);
     inProgress.push({
@@ -229,7 +232,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       kind: "approval",
       issuer: row.issuer,
       company,
-      what: `Doing what you approved at ${company}`,
+      what: isTaskRequest(row.id) ? `Carrying out your task at ${company}` : `Doing what you approved at ${company}`,
       quote: row.summary,
       quoteBy: "agent",
       since: row.created_at

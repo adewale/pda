@@ -1,0 +1,33 @@
+{
+  "baselineCommit": "4c92a2d890d771feedf7a8fc7274d86644626f70",
+  "implementationCommit": "b04764ebdeda37be17f40e08ae921c945f6d5b34",
+  "fixture": {
+    "path": "test/browser/approval-journey-worker.ts",
+    "commit": "b04764ebdeda37be17f40e08ae921c945f6d5b34",
+    "sha256": "50e2e8a34744c854bf1569ab01a8c9ab9dd089da2d15f8946e754318a0df5c1b",
+    "baselineOverlay": "Use this same test-only response-padding fixture at both revisions; no production source overlay."
+  },
+  "environment": {
+    "node": "v24.22.2",
+    "browser": "Google Chrome, headless",
+    "runtime": "local workerd",
+    "locale": "en_US.UTF-8",
+    "identityModelCompany": "synthetic; production signed-cookie verifier and WebSocket"
+  },
+  "artifacts": {
+    "before-approval.png": "f6747fe0e3b827e476258ec2b0ff9c5ab36c2dab26ba56d41574d407986eb07d",
+    "after-approval.png": "10e3f2e59226b8870ea4bdfd3ccc388403292bd2b117c0740f5b9fd10d9da5cb",
+    "before-result.png": "066b69b8cf77c35cec8c3428fe7aec09e77aef1a3cefcc19cbb335c877d26b22",
+    "after-result.png": "2963142a5782815c5da35ff70a899e9e2ceb823cc1aa090cabbf8e101b246de3",
+    "before-mcp.png": "15430578918d3cc9ccbda3276cd74978ce8a8f1250abd78e2f22be086d1046eb",
+    "after-mcp.png": "cc92c0c644af1b2e697d340a82934329b9669220a40581a0303408c5758e9c9b"
+  },
+  "limits": [
+    "No live OAuth, real model, external checkout or payment verification.",
+    "Production diagnostics omit bodies and checkout URLs; they cannot establish the live URL failure cause."
+  ],
+  "regressionCounterexamples": {
+    "baseline": "Five new task-request tests failed before implementation.",
+    "revertedGuards": "Removing pending-request reuse made both transport tests observe another POST; restoring the 2000-character cut made the complete-result test fail with unterminated JSON. Both changes were restored."
+  }
+}

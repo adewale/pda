@@ -1,0 +1,213 @@
+{
+  "own": {
+    "run": "2026-10-30T02:01:48Z",
+    "lane": "local",
+    "isolation": {
+      "network": "poppy-interop-be76cf",
+      "internal": true,
+      "probe": {
+        "tcp 1.1.1.1:443": "ENETUNREACH",
+        "tcp 8.8.8.8:53": "ENETUNREACH",
+        "dns example.com": "EAI_AGAIN"
+      }
+    },
+    "implementations": [
+      {
+        "name": "pda",
+        "role": "agent",
+        "commit": "0d73e94",
+        "readings": {
+          "S1": "issuer",
+          "S2": "jwt-60s",
+          "S3": "insertion",
+          "S23": "per-origin"
+        },
+        "relaxations": []
+      },
+      {
+        "name": "lenient-company",
+        "role": "company",
+        "commit": "0d73e94",
+        "readings": {
+          "S1": "issuer",
+          "S2": "lenient-300s",
+          "S3": "insertion",
+          "S23": "per-company"
+        },
+        "relaxations": []
+      },
+      {
+        "name": "strict-company",
+        "role": "company",
+        "commit": "0d73e94",
+        "readings": {
+          "S1": "issuer",
+          "S2": "jwt-60s",
+          "S3": "insertion",
+          "S23": "per-company"
+        },
+        "relaxations": []
+      }
+    ],
+    "cells": [
+      {
+        "agent": "pda",
+        "company": "lenient-company",
+        "scenario": "AO",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "strict-company",
+        "scenario": "AO",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "lenient-company",
+        "scenario": "AS",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "strict-company",
+        "scenario": "AS",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "lenient-company",
+        "scenario": "O",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "strict-company",
+        "scenario": "O",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "lenient-company",
+        "scenario": "OU",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "strict-company",
+        "scenario": "OU",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "lenient-company",
+        "scenario": "ODUP",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "strict-company",
+        "scenario": "ODUP",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      }
+    ],
+    "levels": {
+      "failure": 0,
+      "warning": 0,
+      "tentative": 0
+    }
+  },
+  "independent": {
+    "run": "2026-10-30T02:02:34Z",
+    "lane": "local",
+    "isolation": {
+      "network": "poppy-interop-8b657e",
+      "internal": true,
+      "probe": {
+        "tcp 1.1.1.1:443": "ENETUNREACH",
+        "tcp 8.8.8.8:53": "ENETUNREACH",
+        "dns example.com": "EAI_AGAIN"
+      }
+    },
+    "implementations": [
+      {
+        "name": "pda",
+        "role": "agent",
+        "commit": "0d73e94",
+        "readings": {
+          "S1": "issuer",
+          "S2": "jwt-60s",
+          "S3": "insertion",
+          "S23": "per-origin"
+        },
+        "relaxations": []
+      },
+      {
+        "name": "print-with-poppy",
+        "role": "company",
+        "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+        "readings": {
+          "S1": "issuer",
+          "S2": "lenient-300s",
+          "S3": "either"
+        },
+        "relaxations": [
+          "APP_MODE=demo, upstream's local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store's own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.",
+          "ALLOW_INTEROP_TEST_HOSTS=true, upstream's own setting for this grid (since 3360d8b): its private-address check lets an agent's client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.",
+          "Sign-in codes: demo mode stores each code email in the store's SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store's access token records."
+        ]
+      }
+    ],
+    "cells": [
+      {
+        "agent": "pda",
+        "company": "print-with-poppy",
+        "scenario": "D",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "print-with-poppy",
+        "scenario": "SD",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      },
+      {
+        "agent": "pda",
+        "company": "print-with-poppy",
+        "scenario": "OU",
+        "outcome": "pass",
+        "blame": null,
+        "rule": null
+      }
+    ],
+    "levels": {
+      "failure": 0,
+      "warning": 0,
+      "tentative": 0
+    }
+  }
+}

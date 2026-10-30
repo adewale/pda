@@ -5,7 +5,8 @@
  *
  * A URL's query or fragment can carry a signature or a token: a signed
  * preview link works for whoever holds it. The log never records one
- * (src/log.ts), and neither does the page: nothing here ever returns one.
+ * (src/log.ts), and these compact facts/raw Details never return one.
+ * Dedicated Company-result link notices preserve the User's exact href.
  */
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>\\]+/gi;

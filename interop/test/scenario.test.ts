@@ -215,15 +215,15 @@ describe("a cell", () => {
       };
     };
     const session: Reply = { kind: "ok", result: { signed_in: false, session_id: "ses_1" } };
-    // The order waits on our card, then on the Company's terms (Ops 4), each held for the User.
-    const order: Reply = { kind: "ok", result: { held: "apr_2" } };
-    const terms: Reply = { kind: "ok", result: { status: "terms", held: "apr2_1" } };
-    const done: Reply = { kind: "ok", result: { status: "done", result: { status: 201, body: { order: { order_id: "ord_1" } } } } };
+    // The task request already obtained Company terms; no preliminary write card.
+    const operation = { operation_id: "op_print", revision: "r1" };
+    const order: Reply = { kind: "ok", result: { held: "apr2_1", operation } };
+    const done: Reply = { kind: "ok", result: { status: "done", approved: operation, result: { status: 201, body: { order: { order_id: "ord_1" } } } } };
     // An agent that asks its User before the photo leaves: held, then approved.
     const held = sequence({
       session: [session, session],
       api: [{ kind: "ok", result: { held: "apr_1" } }, order],
-      approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201, body: { id: "pho_1" } } } }, terms, done]
+      approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201, body: { id: "pho_1" } } } }, done]
     });
     expect((await runCell(OU, fixture, held)).outcome).toBe("pass");
     expect(held.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_1","copies":1}]}}}');
@@ -232,10 +232,10 @@ describe("a cell", () => {
     const direct = sequence({
       session: [session, session],
       api: [{ kind: "ok", result: { status: 201, body: { id: "pho_2" } } }, order],
-      approve_op: [terms, done]
+      approve_op: [done]
     });
     expect((await runCell(OU, fixture, direct)).outcome).toBe("pass");
-    expect(direct.calls.filter((call) => call.startsWith("agent approve_op"))).toEqual(['agent approve_op {"operation":"apr_2","decision":"approve"}', 'agent approve_op {"operation":"apr2_1","decision":"approve"}']);
+    expect(direct.calls.filter((call) => call.startsWith("agent approve_op"))).toEqual(['agent approve_op {"operation":"apr2_1","decision":"approve"}']);
     expect(direct.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_2","copies":1}]}}}');
     // An upload that answered no id fails at `first`, before anything is ordered.
     const none = sequence({ session: [session], api: [{ kind: "ok", result: { status: 201, body: {} } }] });
@@ -243,6 +243,13 @@ describe("a cell", () => {
     expect(run.outcome).toBe("fail");
     expect(run.reason).toContain("runner first");
     expect(none.calls.filter((call) => call.includes("orderPrints"))).toEqual([]);
+
+    // A local held-write decision alone must not pass Operations coverage.
+    const noTerms = sequence({ session: [session, session], api: [{ kind: "ok", result: { status: 201, body: { id: "pho_3" } } }, { kind: "ok", result: { held: "apr_local" } }], approve_op: [done] });
+    expect((await runCell(OU, fixture, noTerms)).outcome).toBe("fail");
+    // Even reported Company terms need a matching recorded approval.
+    const noApproval = sequence({ session: [session, session], api: [{ kind: "ok", result: { status: 201, body: { id: "pho_4" } } }, order], approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201 } } }] });
+    expect((await runCell(OU, fixture, noApproval)).outcome).toBe("fail");
   });
 
   it("sends an api step's files to the agent's adapter as name, type and base64, only from interop/files/", () => {

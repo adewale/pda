@@ -255,6 +255,10 @@ export type ToolCall = {
   name: Safe<"tool">;
   outcome: Safe<"literal">;
   duration_ms: number;
+  call_id?: Safe<"id">;
+  task_request_id?: Safe<"id">;
+  approval_id?: Safe<"id">;
+  reused_pending?: boolean;
   error_code?: Safe;
   issuers?: Safe<"origin">[];
   held?: boolean;

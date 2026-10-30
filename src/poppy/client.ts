@@ -210,6 +210,8 @@ export type TokenOptions = {
   readonly scope?: string;
   /** Internal authority check, after every asynchronous preparation and before each transport attempt. */
   readonly beforeDispatch?: () => void;
+  /** Only a known `invalid_session` refusal may advance an unapproved task's guard to its replacement Session. */
+  readonly onSessionRestart?: (previousSessionId: string, nextSessionId: string) => void;
   /**
    * The service a signed-in request goes to (an OpenAPI description's
    * server, a conversation endpoint), whose protected resource metadata
@@ -1385,6 +1387,7 @@ export class PoppyClient {
         log({ status: response.status, error: "invalid_session" }, { kind: "restart" });
         checkRetry();
         this.#restartSession(company.issuer, label);
+        options.onSessionRestart?.(sid, this.sessionFor(company, label).session_id);
         restarted = true;
         continue;
       }

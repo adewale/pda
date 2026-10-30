@@ -1,0 +1,1658 @@
+{
+  "interop": 1,
+  "run": "2026-10-29T22:58:41Z",
+  "spec": "Personal Agent Protocol Drafts 0.3 (2026-10-29)",
+  "lane": "local",
+  "isolation": {
+    "network": "poppy-interop-847ced",
+    "internal": true,
+    "probe": {
+      "tcp 1.1.1.1:443": "ENETUNREACH",
+      "tcp 8.8.8.8:53": "ENETUNREACH",
+      "dns example.com": "EAI_AGAIN"
+    }
+  },
+  "implementations": [
+    {
+      "name": "pda",
+      "role": "agent",
+      "commit": "b04764e-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "lenient-company",
+      "role": "company",
+      "commit": "b04764e-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "lenient-300s",
+        "S3": "insertion",
+        "S23": "per-company"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "strict-company",
+      "role": "company",
+      "commit": "b04764e-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-company"
+      },
+      "relaxations": []
+    }
+  ],
+  "cells": [
+    {
+      "agent": "pda",
+      "company": "lenient-company",
+      "scenario": "AO",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 49,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.lenient-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "session_id": "qPxWK9ih_EpLpdju075lbQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 15,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.lenient-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=-NqCAjE0kf9b-xHSaACB8A&code_challenge=JpP9zEOhuBsQMNC6Duo_yWjlGyWgsOENr0IWfM4dnmM&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 31,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=-NqCAjE0kf9b-xHSaACB8A&iss=https%3A%2F%2Fauth.lenient-company.company.interop.test&code=cod_ZKvp_1wJyzeMYL18uq_LEw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 33,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "qPxWK9ih_EpLpdju075lbQ"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 35,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "orders": [
+                {
+                  "order_id": "ord_7Hk2",
+                  "account": "acct_ada",
+                  "placed_at": "2026-09-30T10:15:00-07:00",
+                  "items": [
+                    {
+                      "item_id": "itm_4Qa",
+                      "sku": "stormline-m",
+                      "name": "Stormline Jacket (M)"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 1,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "orders": [
+                {
+                  "order_id": "ord_7Hk2",
+                  "account": "acct_ada",
+                  "placed_at": "2026-09-30T10:15:00-07:00",
+                  "items": [
+                    {
+                      "item_id": "itm_4Qa",
+                      "sku": "stormline-m",
+                      "name": "Stormline Jacket (M)"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AO/pda__lenient-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "strict-company",
+      "scenario": "AO",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 23,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.strict-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "session_id": "iJ3SThbNTPNhgRTNmlKWdA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.strict-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=o_kVydMnzafRPfZexLWhNQ&code_challenge=w2WMaQ5gbkhRoEBPXWEDENAdqYRYW1PnwbKFC39SV5w&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 22,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=o_kVydMnzafRPfZexLWhNQ&iss=https%3A%2F%2Fauth.strict-company.company.interop.test&code=cod_3rm3_cPQdsakgS0EpVCcmA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 16,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "iJ3SThbNTPNhgRTNmlKWdA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 29,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "orders": [
+                {
+                  "order_id": "ord_7Hk2",
+                  "account": "acct_ada",
+                  "placed_at": "2026-09-30T10:15:00-07:00",
+                  "items": [
+                    {
+                      "item_id": "itm_4Qa",
+                      "sku": "stormline-m",
+                      "name": "Stormline Jacket (M)"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "orders": [
+                {
+                  "order_id": "ord_7Hk2",
+                  "account": "acct_ada",
+                  "placed_at": "2026-09-30T10:15:00-07:00",
+                  "items": [
+                    {
+                      "item_id": "itm_4Qa",
+                      "sku": "stormline-m",
+                      "name": "Stormline Jacket (M)"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AO/pda__strict-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "lenient-company",
+      "scenario": "AS",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.lenient-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "fO_ooHQGvp2eNDi5IQnj2Q",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.lenient-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=HDoGPKC87WeX09EYyWfdYg&code_challenge=5a4ohkbntcZ7JLd5hid4RaKvhf66H-L_dXaU6mdMeUE&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=HDoGPKC87WeX09EYyWfdYg&iss=https%3A%2F%2Fauth.lenient-company.company.interop.test&code=cod_bErVGqAxJcxZytz9AFIxMg"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 12,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "fO_ooHQGvp2eNDi5IQnj2Q"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 34,
+          "ok": true,
+          "result": {
+            "refused": true,
+            "poppy_error": "insufficient_scope",
+            "status": 403,
+            "detail": "Mock Shop lenient-company: insufficient_scope"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${w.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AS/pda__lenient-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "strict-company",
+      "scenario": "AS",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.strict-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "e7RkJTriUvlVf3yQUP_-vg",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.strict-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=obXlhua_L4G8-IGggisU0Q&code_challenge=EexuhjKy_tBvexALDuRicLv4mvXZ-aEKh9VHrwC7wrY&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=obXlhua_L4G8-IGggisU0Q&iss=https%3A%2F%2Fauth.strict-company.company.interop.test&code=cod_ZRRMZaJdJXIB0YbcufggJw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "e7RkJTriUvlVf3yQUP_-vg"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 24,
+          "ok": true,
+          "result": {
+            "refused": true,
+            "poppy_error": "insufficient_scope",
+            "status": 403,
+            "detail": "Mock Shop strict-company: insufficient_scope"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${w.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AS/pda__strict-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "lenient-company",
+      "scenario": "O",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.lenient-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "session_id": "81VeYvtEhUXVEP-gNjJtrA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.lenient-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread+orders%3Awrite&state=srnPt6Cn_AasMtr3ROp7kg&code_challenge=T87nSisM2b4jO4d2DFgn7Et6dYgFiV_T3ROefmp3lqU&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=srnPt6Cn_AasMtr3ROp7kg&iss=https%3A%2F%2Fauth.lenient-company.company.interop.test&code=cod_9FQeLiR4b8rR1m9ExQ5iFg"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 11,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read orders:write",
+            "session_id": "81VeYvtEhUXVEP-gNjJtrA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "send",
+          "ms": 27,
+          "ok": true,
+          "result": {
+            "conversation": "cnv_VYUmWrvwBBQ",
+            "message_id": "msg_ucvl_5gYlIYDIy1E8j9Aqw",
+            "status": "idle",
+            "responder": "agent",
+            "messages": [
+              {
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve."
+              }
+            ]
+          }
+        },
+        {
+          "actor": "company",
+          "op": "propose_operation",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "operation": "exc_i8UCJSqt"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "read",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "messages": [
+              {
+                "event": "evt_fWX9L2aFvA4",
+                "role": "user",
+                "sender": "agent",
+                "text": "I'd like to exchange the jacket on my order"
+              },
+              {
+                "event": "evt_SdoQi7Tthoo",
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.",
+                "operation": "exc_i8UCJSqt"
+              }
+            ],
+            "cursor": "evt_SdoQi7Tthoo",
+            "has_more": false,
+            "status": "idle",
+            "responder": "agent"
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "performed": 0
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "status": "sent",
+            "outcome": "unknown"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "performed": 1
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "O/pda__lenient-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "strict-company",
+      "scenario": "O",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.strict-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "E6hhquF-GaHNF-wCOlw_FQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.strict-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread+orders%3Awrite&state=o9T4ft0FXDm8eVvlI3ODlg&code_challenge=f9B7v5FOMro0DnEppVtAdwl0PHvW46bIR6AuP5jAvzw&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=o9T4ft0FXDm8eVvlI3ODlg&iss=https%3A%2F%2Fauth.strict-company.company.interop.test&code=cod_ALAvlXaCKVUu3iG36Jaxyg"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read orders:write",
+            "session_id": "E6hhquF-GaHNF-wCOlw_FQ"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "send",
+          "ms": 19,
+          "ok": true,
+          "result": {
+            "conversation": "cnv_h2p7wfwq8CA",
+            "message_id": "msg_HK2NmU2JjJPkdSXQG9hhvg",
+            "status": "idle",
+            "responder": "agent",
+            "messages": [
+              {
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve."
+              }
+            ]
+          }
+        },
+        {
+          "actor": "company",
+          "op": "propose_operation",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "operation": "exc_WHqIvXHC"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "read",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "messages": [
+              {
+                "event": "evt_9izBEcGLbEY",
+                "role": "user",
+                "sender": "agent",
+                "text": "I'd like to exchange the jacket on my order"
+              },
+              {
+                "event": "evt_79DK-p3ejv8",
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.",
+                "operation": "exc_WHqIvXHC"
+              }
+            ],
+            "cursor": "evt_79DK-p3ejv8",
+            "has_more": false,
+            "status": "idle",
+            "responder": "agent"
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "performed": 0
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "status": "sent",
+            "outcome": "unknown"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "performed": 1
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "O/pda__strict-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "lenient-company",
+      "scenario": "OU",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.lenient-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "bH45p8stJHZWGi_mWQwQmg",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "held": "apr_4G94WrUWzbDw6BeEYhLQnw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 14,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "id": "pho_fZ9MOll9YdL3",
+                "name": "lake.jpg",
+                "type": "image/jpeg",
+                "size": 13402
+              }
+            }
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": "pho_fZ9MOll9YdL3"
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "held": "apr2_S6SIdO_M0temxSxTv3U1M6"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "order": {
+                  "order_id": "ord_zK5tiEFJ",
+                  "state": "awaiting_payment",
+                  "checkout_url": "https://lenient-company.company.interop.test/checkout/ord_zK5tiEFJ"
+                }
+              }
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "session_id": "bH45p8stJHZWGi_mWQwQmg",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "OU/pda__lenient-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "strict-company",
+      "scenario": "OU",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.strict-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "q4MulzM7lVnwF1PzQASLkQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "held": "apr_WoRKewjsjegzw-6M25MbpA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 11,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "id": "pho_nzQTnDgzB7tE",
+                "name": "lake.jpg",
+                "type": "image/jpeg",
+                "size": 13402
+              }
+            }
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": "pho_nzQTnDgzB7tE"
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "held": "apr2_jXrSgpuP0iXs6EVEDQJ_R-"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "order": {
+                  "order_id": "ord_rentXTdS",
+                  "state": "awaiting_payment",
+                  "checkout_url": "https://strict-company.company.interop.test/checkout/ord_rentXTdS"
+                }
+              }
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "q4MulzM7lVnwF1PzQASLkQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "OU/pda__strict-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "lenient-company",
+      "scenario": "ODUP",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 13,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.lenient-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "j2OkQ-_iY-3SsyIeuDMyzw",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 5,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.lenient-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread+orders%3Awrite&state=8bX33UDaRfX52urocxRGEg&code_challenge=XsIVmun6irZHVCb9lE3CCosqR3LkAsXJ_F3XWDSAo-k&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=8bX33UDaRfX52urocxRGEg&iss=https%3A%2F%2Fauth.lenient-company.company.interop.test&code=cod_kUvu8EgZ0YvAHfsdYmb5vw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read orders:write",
+            "session_id": "j2OkQ-_iY-3SsyIeuDMyzw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "send",
+          "ms": 20,
+          "ok": true,
+          "result": {
+            "conversation": "cnv_CxGS22rbgWQ",
+            "message_id": "msg_oOT0LVnWXpevT-jH-EkuEA",
+            "status": "idle",
+            "responder": "agent",
+            "messages": [
+              {
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve."
+              }
+            ]
+          }
+        },
+        {
+          "actor": "company",
+          "op": "propose_operation",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "operation": "exc_5t8oDdjJ"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "read",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "messages": [
+              {
+                "event": "evt_aK3TxouLjVo",
+                "role": "user",
+                "sender": "agent",
+                "text": "I'd like to exchange the jacket on my order"
+              },
+              {
+                "event": "evt_8f9NbEOYzqc",
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.",
+                "operation": "exc_5t8oDdjJ"
+              }
+            ],
+            "cursor": "evt_8f9NbEOYzqc",
+            "has_more": false,
+            "status": "idle",
+            "responder": "agent"
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "performed": 0
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "status": "sent",
+            "outcome": "unknown"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "wait",
+          "ms": 502,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "exchange": 12
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "performed": 1
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [
+        {
+          "id": "session-jwt.jti-reused",
+          "side": "agent",
+          "severity": "warning",
+          "basis": "Rule",
+          "exchange": null,
+          "detail": "session-jwt: reused jti 4lzNcX0TfxBbV98WLHXmZw",
+          "source": "company:lenient-company"
+        }
+      ],
+      "har": "ODUP/pda__lenient-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29",
+      "security": true
+    },
+    {
+      "agent": "pda",
+      "company": "strict-company",
+      "scenario": "ODUP",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "issuer": "https://auth.strict-company.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": true,
+            "apis": [
+              "openapi",
+              "mcp"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "session_id": "5eBGtzP_9qs_-sh78k0xYg",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://auth.strict-company.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread+orders%3Awrite&state=HqTLDvxtinQakg1R4yOSgg&code_challenge=I17NO26RstCB7Kd5MDbdKVmqKaM254XNeU4ndAoXK5E&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 5,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=HqTLDvxtinQakg1R4yOSgg&iss=https%3A%2F%2Fauth.strict-company.company.interop.test&code=cod_eJxFP7Mvzks2l4oO-3xMcA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read orders:write",
+            "session_id": "5eBGtzP_9qs_-sh78k0xYg"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "send",
+          "ms": 23,
+          "ok": true,
+          "result": {
+            "conversation": "cnv_LpHJbfYNU5o",
+            "message_id": "msg_UoC98cbDWeweg7seIOSGxQ",
+            "status": "idle",
+            "responder": "agent",
+            "messages": [
+              {
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve."
+              }
+            ]
+          }
+        },
+        {
+          "actor": "company",
+          "op": "propose_operation",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "operation": "exc_uxH4VxWv"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "read",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "messages": [
+              {
+                "event": "evt_5Hc2DIcWVI0",
+                "role": "user",
+                "sender": "agent",
+                "text": "I'd like to exchange the jacket on my order"
+              },
+              {
+                "event": "evt_cqy9120Mj70",
+                "role": "company",
+                "sender": "agent",
+                "text": "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.",
+                "operation": "exc_uxH4VxWv"
+              }
+            ],
+            "cursor": "evt_cqy9120Mj70",
+            "has_more": false,
+            "status": "idle",
+            "responder": "agent"
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "performed": 0
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 11,
+          "ok": true,
+          "result": {
+            "status": "sent",
+            "outcome": "unknown"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "wait",
+          "ms": 501,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 3,
+          "ok": true,
+          "result": {
+            "exchange": 12
+          }
+        },
+        {
+          "actor": "company",
+          "op": "performed_count",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "performed": 1
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [
+        {
+          "id": "session-jwt.jti-reused",
+          "side": "agent",
+          "severity": "warning",
+          "basis": "Rule",
+          "exchange": null,
+          "detail": "session-jwt: reused jti YcjcdtTdTIsQapOoQogRqQ",
+          "source": "company:strict-company"
+        }
+      ],
+      "har": "ODUP/pda__strict-company.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29",
+      "security": true
+    }
+  ],
+  "flaky": [],
+  "staleKnown": [],
+  "levels": {
+    "failure": 0,
+    "warning": 0,
+    "tentative": 0
+  }
+}

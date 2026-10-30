@@ -1,10 +1,11 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
-import { agent, cards, company, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, signInDirect } from "./agent-helpers";
+import { tool } from "./agent-helpers";
 
 async function pending() {
-  const c = await company({ operations: false });
+  const c = await company();
   const a = await agent();
   await signInDirect(a, c);
   expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).isError).toBe(false);
@@ -44,7 +45,7 @@ describe("durable approval notifications", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
-  it("gives a new User decision on a reused terms card a new notification identity", async () => {
+  it("gives each fresh request an immutable decision and notification identity", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
@@ -52,10 +53,14 @@ describe("durable approval notifications", () => {
     let termsId;
     for (let attempt = 0; attempt < 2; attempt++) {
       await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-      const parent = (await cards(a)).find(card => card.kind === "approval" && card.open)!;
-      await a.stub.poppyFrame({ type: "poppy.approval", approvalId: parent.approvalId, decision: "approve" });
       const terms = (await cards(a)).find(card => card.kind === "approval" && card.open)!;
-      if (termsId) expect(terms.approvalId).toBe(termsId);
+      if (termsId) {
+        expect(terms.approvalId).not.toBe(termsId);
+        // A late approval for the earlier declined attempt cannot claim this one.
+        await a.stub.poppyFrame({ type: "poppy.approval", approvalId: termsId, decision: "approve" });
+        expect((await cards(a)).find(card => card.approvalId === terms.approvalId)).toMatchObject({ status: "pending", open: true });
+        expect((await c.stub.state()).performs).toBe(0);
+      }
       termsId = terms.approvalId;
       await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "decline" });
       const [{ id }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(notification, '$.id') AS id FROM poppy_approvals WHERE id = ?", terms.approvalId));

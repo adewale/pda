@@ -217,9 +217,9 @@ export function ActivityPage({ activity, protocol, send, openProtocol = null }: 
       </Section>
       <Section
         title="Diagnostics"
-        description="For the operator, when something went wrong: your agent's last 200 events (when and how it worked, which Companies and tools, model usage and cost) and the protocol log above, as text. Never what you, your agent or anyone else said."
+        description="Export recent agent events or one action from the log. Per-action events survive unrelated activity; up to 50 flows are retained, with at most 200 events / 256 KiB each. Never bodies, signed URL queries or anything anyone said."
       >
-        <Diagnostics diagnostics={protocol.diagnostics} send={send} />
+        <Diagnostics diagnostics={protocol.diagnostics} send={send} flows={(activity?.log ?? []).filter(entry => entry.kind === "approval").map(entry => ({ id: entry.id.replace(/^approval-/, ""), label: `${entry.company} · ${entry.result} · ${entry.id.replace(/^approval-/, "")}` }))} />
       </Section>
     </div>
   );

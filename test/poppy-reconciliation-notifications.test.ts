@@ -1,15 +1,16 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { resolveApprovalOutcome } from "../src/poppy/operations";
-import { agent, cards, company, requests, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, requests, signInDirect } from "./agent-helpers";
+import { tool } from "./agent-helpers";
 
 async function uncertain() {
   const c = await company();
   const a = await agent();
   await signInDirect(a, c);
   await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-  const parent = (await cards(a)).find(item => item.kind === "approval" && item.open)!;
-  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: parent.approvalId, decision: "approve" });
+  const [{ id: taskId }] = JSON.parse(await a.stub.poppySql("SELECT id FROM poppy_approvals WHERE id GLOB 'req_*'"));
+  const parent = { approvalId: taskId };
   const card = (await cards(a)).find(item => item.kind === "approval" && item.open)!;
   await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: "throw" });
   await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
@@ -54,7 +55,9 @@ describe("durable User reconciliation notifications", () => {
     if (attempted.length) expect(deliveries[0]).toEqual({ text: attempted[0].text, operation_id: attempted[0].id });
     const execution = JSON.parse(await a.stub.poppySql("SELECT json_extract(notification, '$.id') AS id FROM poppy_approvals WHERE id = ?", card.approvalId));
     expect(deliveries[0].operation_id).not.toBe(execution[0].id);
-    for (const receipt of [card, parent]) expect((await cards(a)).find(item => item.approvalId === receipt.approvalId)?.outcomeResolution.outcome).toBe("performed");
+    expect((await cards(a)).find(item => item.approvalId === card.approvalId)?.outcomeResolution.outcome).toBe("performed");
+    const linked = JSON.parse(await a.stub.poppySql("SELECT outcome_resolution FROM poppy_approvals WHERE id IN (?, ?)", card.approvalId, parent.approvalId));
+    expect(linked).toEqual([{ outcome_resolution: "performed" }, { outcome_resolution: "performed" }]);
     await a.stub.poppyRestart();
     expect(JSON.parse(await a.stub.poppySql("SELECT COUNT(*) AS n FROM test_notices WHERE text LIKE '%The User checked%'"))[0].n).toBe(deliveries.length);
     expect((await requests(c)).length).toBe(before);

@@ -120,9 +120,12 @@ describe("durable batch approval notifications", () => {
       const client = instance.poppy.client;
       const C = await client.company(c.domain);
       const api = C.apis.find(item => item.type === "openapi")!;
+      await client.token(C, { label: "main" });
+      const session = client.session(C.issuer, "main")!;
       const ids = [];
       for (const index of [1, 2]) ids.push(await proposeLocal(client, C, "main", `Photo ${index}`, {
         kind: "openapi", method: "POST", url: `${c.hosts.api}/photos`,
+        binding: { account: session.account, sessionId: session.session_id, authorityGeneration: session.authority_generation },
         call: { apiUrl: api.url, operation: "uploadPhoto", params: {}, files: { photo: `unsent_${index}` } },
         attachments: [{ id: `unsent_${index}`, name: `photo${index}.jpg`, type: "image/jpeg", size: 10 }]
       }));

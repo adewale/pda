@@ -68,9 +68,9 @@ Why now:
 - If the approved request fails or gets no answer, Operations 7 has the agent send it again with the same approval, and not ask the person about a new operation for the same action until it knows whether the first was performed. Our agent is stricter about resending: it never resends, and tells the person the action may or may not have happened.
 - Company text is data and never counts as approval.
 
-**Which writes need the person first.** Having the Operations extension doesn't make every write at a Company safe to send. "A Company chooses which actions need approval" (Operations 1), and one that doesn't ask performs the write at once. Operations version 1 let an API description mark the writes that propose an operation; version 2 has no such marker (issue 40). The rules our agent follows:
+**Which actions need confirmation.** Operations 2 lets the Company choose. Our task requests now follow its normal flow ([decision 38](../decisions.md#38-task-requests-use-the-companys-approval-boundary)):
 
-- Every API write, every MCP tool the server doesn't mark `readOnlyHint: true`, and every file upload waits for the person's approval of exactly what will be sent. If the Company then answers `approval_required`, its terms go on a second card, and only that card sends the approval. That is two approvals for one action, until the draft gives agents a marker.
+- Send the task's API request or MCP call first. If the Company returns an operation, show its exact terms and obtain the person's decision, then resend the stored request with that approval. Do not insert a preliminary HTTP-request card or have the model recreate a pending request.
 - Sending a file the person attached always waits for them, at every Company. The Operations extension covers what a Company does, not what the agent sends it.
 - Every website form submission waits for approval. Operations 4 asks for approval only through APIs, MCP and conversations, so the draft gives website actions no approval step.
 

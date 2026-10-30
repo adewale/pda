@@ -25,6 +25,10 @@ import { code, currentEvent, domain, id, inScope, join, LIMITS, literal, modelId
 import type { ModelCall } from "./model-router";
 import { protocolIndex, protocolLog } from "./poppy/protocol-log";
 import type { Issuer } from "./poppy/issuer";
+import { integer, object, tryDecode } from "./decode";
+import { one } from "./rows";
+import { FlowDiagnostics } from "./flow-diagnostics";
+import { clientFrame } from "./poppy/frames";
 
 /** How many of its own events an agent keeps for "Copy diagnostics". */
 export const DIAGNOSTIC_EVENTS = 200;
@@ -69,6 +73,8 @@ type TurnState = {
   model: ModelTally;
   tools: ToolCall[];
   toolCount: number;
+  activeTools: number;
+  ended: boolean;
   readUrl: { count: number; rendered: number; statuses: number[]; errors: Record<Safe, number> } | null;
   compaction: { count: number; reasons: Safe[]; blocking: boolean; summary?: Safe } | null;
   stopReason: Safe | null;
@@ -86,6 +92,7 @@ export type AgentLogOptions = {
 export class AgentLog extends LifecycleCapability implements Units {
   readonly agentId: Safe<"agent">;
   readonly #options: AgentLogOptions;
+  readonly #flows: FlowDiagnostics;
   #turn: TurnState | null = null;
   /** Our own submissions, by operation id: who started them. Bounded. */
   readonly #registered = new Map<string, Registered>();
@@ -100,6 +107,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     this.#options = options;
     this.agentId = options.agentId;
     for (const statement of SCHEMA) options.sql.exec(statement);
+    this.#flows = new FlowDiagnostics(options.sql);
   }
 
   // ---------------------------------------------------------------- Units
@@ -122,7 +130,8 @@ export class AgentLog extends LifecycleCapability implements Units {
   }
 
   #keep(line: string, event: WideEvent): void {
-    this.#options.sql.exec("INSERT INTO agent_log (at, kind, level, line) VALUES (?, ?, ?, ?)", Date.now(), event.kind, event.level, line);
+    const saved = one(this.#options.sql, object({ seq: integer }), "INSERT INTO agent_log (at, kind, level, line) VALUES (?, ?, ?, ?) RETURNING seq", Date.now(), event.kind, event.level, line);
+    if (saved) this.#flows.keep(saved.seq, line, event);
   }
 
   // ---------------------------------------------------------------- Turns
@@ -233,6 +242,8 @@ export class AgentLog extends LifecycleCapability implements Units {
       model: { count: 0, refused: 0, retries: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0, latency_ms: 0, errors: {} },
       tools: [],
       toolCount: 0,
+      activeTools: 0,
+      ended: false,
       readUrl: null,
       compaction: null,
       stopReason: null,
@@ -268,6 +279,13 @@ export class AgentLog extends LifecycleCapability implements Units {
     const turn = this.#turn;
     if (!turn) return;
     this.#turn = null;
+    turn.ended = true;
+    // A queued run_end can arrive while an instrumented call still settles.
+    // Detach the turn so the next run can start, but never emit partial tools.
+    if (turn.activeTools === 0) this.#writeTurn(turn);
+  }
+
+  #writeTurn(turn: TurnState): void {
     const { event, model, last } = turn;
     if (last) {
       event.set({
@@ -333,17 +351,18 @@ export class AgentLog extends LifecycleCapability implements Units {
       ...extension,
       tools: extension.tools.map((tool) => {
         const name = toolName(tool.name) ?? UNNAMED_TOOL;
-        return { ...tool, execute: (args, api, context) => this.tool(name, () => tool.execute(args, api, context)) };
+        return { ...tool, execute: (args, api, context) => this.tool(name, () => tool.execute(args, api, context), api.callId) };
       }) as ToolRegistration[]
     };
   }
 
   /** Run one tool call as part of the turn running now; outside any (a test calling a tool), as a turn of its own. */
-  async tool<R>(name: Safe<"tool">, run: () => Promise<R>): Promise<R> {
+  async tool<R>(name: Safe<"tool">, run: () => Promise<R>, callId?: string): Promise<R> {
     const owned = this.#turn === null;
     const turn = this.#openTurn(owned ? "tool" : "unknown");
-    const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0 };
+    const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0, ...(callId ? { call_id: id(callId) } : {}) };
     const started = Date.now();
+    turn.activeTools++;
     try {
       const result = await inScope(turn.event, run, call);
       this.#classify(turn, call, result);
@@ -356,7 +375,9 @@ export class AgentLog extends LifecycleCapability implements Units {
       call.duration_ms = Date.now() - started;
       turn.toolCount++;
       if (turn.tools.length < LIMITS.toolCalls) turn.tools.push(call);
-      if (owned && this.#turn === turn && !turn.run) this.#endTurn();
+      turn.activeTools--;
+      if (turn.ended && turn.activeTools === 0) this.#writeTurn(turn);
+      else if (owned && this.#turn === turn && !turn.run) this.#endTurn();
     }
   }
 
@@ -386,7 +407,12 @@ export class AgentLog extends LifecycleCapability implements Units {
     if (typeof message !== "string") return false;
     const type = /"type"\s*:\s*"([a-z.]+)"/.exec(message)?.[1];
     if (type === "poppy.diagnostics") {
-      socket.send(JSON.stringify({ type: "poppy.diagnostics", text: this.diagnostics(), at: Date.now() }));
+      let parsed: unknown;
+      try { parsed = JSON.parse(message); } catch { return true; }
+      const decoded = tryDecode(clientFrame, parsed, "diagnostics request");
+      if (!decoded.ok || decoded.value.type !== "poppy.diagnostics") return true;
+      const flowId = decoded.value.flowId;
+      socket.send(JSON.stringify({ type: "poppy.diagnostics", ...(flowId ? { flowId } : {}), text: flowId ? this.flowDiagnostics(flowId) : this.diagnostics(), at: Date.now() }));
       return true;
     }
     if (type === "submit") {
@@ -403,6 +429,11 @@ export class AgentLog extends LifecycleCapability implements Units {
   }
 
   // ---------------------------------------------------------------- Diagnostics
+
+  /** One linked task/approval lifecycle, independent of unrelated newest-200 eviction. */
+  flowDiagnostics(flowId: string, now = Date.now()): string {
+    return this.#flows.export(flowId, this.agentId, now);
+  }
 
   /** The newest events, oldest first, as JSON lines. */
   events(): string[] {
