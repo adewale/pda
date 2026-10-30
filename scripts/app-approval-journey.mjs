@@ -147,11 +147,12 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     const layout = await page.$eval("select", select => {
       const section = select.closest("section");
       const bounds = section.getBoundingClientRect();
-      const controlsFit = [select, ...section.querySelectorAll("p, button")].every(element => {
-        const rect = element.getBoundingClientRect();
-        return rect.left >= 0 && rect.right <= innerWidth;
-      });
-      return { controlsFit, clip: { x: bounds.x + scrollX, y: bounds.y + scrollY, width: bounds.width, height: bounds.height } };
+      const children = [select, ...section.querySelectorAll("p, button")].map(element => element.getBoundingClientRect());
+      const controlsFit = children.every(rect => rect.left >= 0 && rect.right <= innerWidth);
+      // Include painted children that use the section's outer padding; cropping
+      // to only its box can cut a scrollbar-width strip off the mobile capture.
+      const right = Math.max(bounds.right, ...children.map(rect => rect.right));
+      return { controlsFit, clip: { x: bounds.x + scrollX, y: bounds.y + scrollY, width: right - bounds.x, height: bounds.height } };
     });
     assert.ok(layout.controlsFit, `Selected diagnostic controls must fit the ${viewport} viewport`);
     if (output) {
