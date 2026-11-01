@@ -6,6 +6,8 @@ The Company uses the existing strict protocol handlers and dummy jacket/order da
 
 The strict mock keeps Company state in memory. Its instance ID changes after eviction/restart, and its accounts, issued tokens and counters reset. This is an interactive smoke test, not a durable Company. `hosted-check finish` fails if the instance changed. Do not treat a run across an instance change as evidence; begin a fresh Company sign-in and baseline.
 
+This pair does not verify AI Gateway spend rules, Browser Run or real-device push: those services are intentionally absent. The [deployment checklist](../../docs/deployment-tasks.md#2-live-checks) owns that live verification and its current access blockers.
+
 ## Missing inputs
 
 - A Cloudflare account ID, a Workers subdomain, and an authenticated Wrangler session or account-scoped API token with Workers deployment, Durable Objects and asset upload permissions. This workspace currently has no authenticated Cloudflare identity.
@@ -52,13 +54,13 @@ Open the separate PDA origin in Chromium. Sign in through GitHub and confirm an 
 node --use-env-proxy scripts/hosted-check.mjs start "$PDA_TEST_DIR"
 ```
 
-Ask to exchange the Stormline Jacket (order `ord_7Hk2`, item `itm_4Qa`) for `stormline-insulated-m` at the separate Company domain, using OpenAPI. Follow the Company's Direct Sign-In link, enter its generated dummy password, and approve that account access. Click the PDA's local approval, inspect the Company's exact terms, and click its separate terms approval. The original transcript and Activity should settle Done, including after reload. Capture the actual URL, terms and resulting original transcript in screenshots.
+Ask to exchange the Stormline Jacket (order `ord_7Hk2`, item `itm_4Qa`) for `stormline-insulated-m` at the separate Company domain, using OpenAPI. Follow the Company's Direct Sign-In link, enter its generated dummy password, and approve that account access. The task request runs first. If the Company returns `approval_required`, inspect its exact terms and approve on that single Company-terms card; no preliminary API-write approval should appear. The original transcript and Activity should settle Done, including after reload. Capture the actual URL, terms and resulting original transcript in screenshots.
 
 ```sh
 node --use-env-proxy scripts/hosted-check.mjs finish "$PDA_TEST_DIR" 1
 ```
 
-The read-only receipt requires the same Company instance, zero strict protocol violations/warnings, and exactly one action since the baseline. It does not prove the browser steps occurred; screenshots and browser observation provide that evidence. Repeat with MCP in a fresh pair or a different dummy action to avoid reusing an already-exchanged item. Company, API and payment results are dummy data; real GitHub and model-provider services are external. No real payment integration is present.
+Also exercise a decline before an action has been performed: no effect may occur. Reload the page, renew access and sign out, recording the actual outcomes. The read-only receipt requires the same Company instance, zero strict protocol violations/warnings, and exactly one action since the baseline. It does not prove the browser steps occurred; screenshots and browser observation provide that evidence. Repeat with MCP in a fresh pair or a different dummy action to avoid reusing an already-exchanged item. Company, API and payment results are dummy data; real GitHub and model-provider services are external. No real payment integration is present.
 
 ## Teardown
 

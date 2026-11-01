@@ -46,7 +46,29 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
 
 ## 2. Live checks
 
-From the spec's Model access, "Check live", and the parts tested only in fakes or happy-dom. Each is **Owner** to run; any that fails becomes **Code**.
+The checklist below distinguishes observed live behavior from local tests. An unchecked item is not established by serving its static assets or by passing against a fake.
+
+### 1 November 2026: public deployment preflight
+
+Observed from source checkout `c3f6d1e` at approximately 07:32 UTC. The served deployment did not expose a commit through these checks, so this is not proof that the checkout is deployed. Requests were anonymous, redirects were inspected without completing OAuth, and no Company action, model call or payment was made.
+
+| Surface | Observed result | Limit |
+| --- | --- | --- |
+| `https://poppydemoagent.dev/` and `/privacy` | Both HTTP 200 with a Content-Security-Policy header | Browser rendering and authenticated page behavior remain unchecked |
+| `/api/me` | HTTP 401 without a session | Establishes only the anonymous authentication boundary |
+| `/api/sign-in-options`, `/auth/github` | GitHub and Google offered; GitHub start returns 303 to github.com with state and the expected callback | No GitHub login or callback was completed |
+| `/poppy/client.json`, `/poppy/jwks.json` | HTTP 200, expected client/key URLs, Operations 2, two public keys and no private `d` member | Does not exercise signing or a Company account |
+| `/sw.js`, `/manifest.webmanifest` | HTTP 200 with the expected JavaScript/manifest content types | Does not establish notification permission, push delivery or background execution |
+| Print with Poppy production and sandbox discovery | Initial bounded GETs to both `/.well-known/poppy.json` documents returned 200 and declared 0.3 | Version declaration alone does not establish the exact draft, authentication, or simulated payment/fulfillment |
+| Full sandbox document validation | Indeterminate: the CLI's address-pinned transport could not fetch through this environment; later public metadata requests returned 403. The deployed validator API also returned 403 (`error code: 1010`) | No full document-validation pass or Company journey is claimed; do not weaken address checks or access controls to obtain one |
+
+**Blocked protected checks:** `wrangler whoami` reports unauthenticated; the environment has no configured Cloudflare identity, private deployment/test settings, or connected browser. No model key or authenticated test account is available. Gateway spend/retention settings, compaction, reminders/tasks, device push and Browser Run therefore remain open below. Configure access through the environment/browser connection, not by pasting credentials into a report or chat.
+
+**Next bounded run:** use a dedicated test identity on the intended deployment and verify the deployed commit first. Confirm a compatible sandbox explicitly simulates payment and fulfillment before any write. Run one approve/decline/reload/refresh/sign-out journey; one compaction-followed-by-answer; one reminder/task with tabs closed; one notification on each available device; and one Browser Run read whose test page attempts a POST that its server must not receive. Verify the gateway metadata/429 backstop through the account's authenticated settings and a controlled test budget, without draining a production allowance. Record pass/fail, deployed commit and actual limitation here. The stock [isolated hosted pair](../test/hosted/README.md) covers real OAuth/model and dummy operations, but disables the demo gateway and Browser Run; it cannot certify those services or real-device push by itself.
+
+### Remaining live checks
+
+Each requires the configured deployment/account or a real device; local failures become code work.
 
 - [x] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each (12 October: the owner's OpenAI key, and an Anthropic key created inside a workspace; an organisation-wide Anthropic key needs a workspace ID, which Settings now takes).
 - [x] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a refused key shows the vendor's reason (12 October).

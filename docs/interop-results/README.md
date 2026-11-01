@@ -157,7 +157,7 @@ The sections below are the print-with-poppy column rerun at its new pin, then th
 
 ## print-with-poppy at `260dbb4`, 12 October
 
-The store's pin moved from `7ef69be` to `260dbb4` that evening, 26 commits later: it now has accounts (Direct and Mediated Sign-In by an emailed code), and the adapter claims seven sign-in scenarios besides D, S0, CM and OU ([adapter README](../../interop/impls/print-with-poppy-company/README.md)). Its column was rerun on its own, at `2026-10-12T22:03:59Z` on the local lane, every image rebuilt, with the seven honest agents (everruns included) and the 30 scenarios of the run above:
+The store's pin moved from `7ef69be` to `260dbb4` that evening, 26 commits later: it now has accounts (Direct and Mediated Sign-In by an emailed code), and the adapter claims seven sign-in scenarios besides D, S0, CM and OU ([adapter README](https://github.com/adewale/pda/blob/fea1c9f010530aac2c5dc6a50b9c4b0cb07b23d9/interop/impls/print-with-poppy-company/README.md)). Its column was rerun on its own, at `2026-10-12T22:03:59Z` on the local lane, every image rebuilt, with the seven honest agents (everruns included) and the 30 scenarios of the run above:
 
 ```sh
 npm run interop -- --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns \

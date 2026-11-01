@@ -35,6 +35,8 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 ### Changed
 
+- Restore retired-source links at immutable revisions, use a current adapter in the maintainer guide, and record the 1 November public deployment preflight with authenticated checks still blocked on access.
+
 - Contributor guidance routes by subsystem; current verification, deployment state and backlog each have one source. Dated research is frozen at immutable revisions, and plugin proposals no longer carry copied grid statistics.
 - Documentation evidence links use stable files instead of test titles. `check:docs` no longer starts Vitest; `npm test` no longer creates discovery reports. `test:tooling` checks the lightweight scripts.
 - CI keeps full checks on main and selects runtime/specialist PR checks by changed inputs; documentation-only PRs keep lightweight required checks. No runtime safety assertions were removed.
@@ -97,7 +99,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 - Public About and ecosystem pages at `/about` and `/about/ecosystem`. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and has an About breadcrumb. The map is linked only from About; `/ecosystem` has no page or redirect.
 - A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
-- The official Company validator now runs against Datalayer's two 0.2 SDK Companies as well as our mock, and in file mode in the validator cross-check, over 99 documents that declare 0.2. A flawed-Company lane (`npm run interop:flaws`) gives our mock one of ten known flaws at a time and records which checkers notice: the official validator, and our adversarial and strict agents. [`spec/official-checks-0.2.json`](spec/official-checks-0.2.json) maps each of the validator's 74 checks to ours. [The lanes](interop/vectors/official/README.md).
+- The official Company validator now runs against Datalayer's two 0.2 SDK Companies as well as our mock, and in file mode in the validator cross-check, over 99 documents that declare 0.2. A flawed-Company lane (`npm run interop:flaws`) gives our mock one of ten known flaws at a time and records which checkers notice: the official validator, and our adversarial and strict agents. [`spec/official-checks-0.2.json`](https://github.com/adewale/pda/blob/fea1c9f010530aac2c5dc6a50b9c4b0cb07b23d9/spec/official-checks-0.2.json) maps each of the validator's 74 checks to ours. [The lanes](https://github.com/adewale/pda/blob/fea1c9f010530aac2c5dc6a50b9c4b0cb07b23d9/interop/vectors/official/README.md).
 - The interop runner checks that every token response carries `Cache-Control: no-store` (`company.token-no-store`, RFC 6749 5.1), a failure in any cell where it doesn't.
 - The live lane's conversation scenario is now `CL`: its greeting says it is a test needing no action, and it closes the conversation it opens. `C`, which leaves the conversation open, runs only in the local grid, and a new local scenario, `CC`, has the Company close a conversation the agent left open: the agent must see the close, get `conversation_closed` for a later message, and start a new conversation.
 
