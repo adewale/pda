@@ -1,0 +1,29 @@
+{
+  "page": "/about/ecosystem#scorecard",
+  "viewport": {
+    "width": 1280,
+    "height": 900,
+    "deviceScaleFactor": 1
+  },
+  "theme": "light",
+  "browser": "Chromium 154.0.8037.57 built on Debian GNU/Linux 13 (trixie)",
+  "baselineSource": "289c6592c6f6e629b1d525247f3c4e2243662bc2",
+  "headSource": "c45180b4e8f0e5c3571c15a3f28f737920df4fc4",
+  "renderer": "Production Vite build at each source revision, served locally with an index.html fallback; existing public-page component. Fresh anonymous browser contexts.",
+  "observations": {
+    "historyOpen": true,
+    "scorecardHeadingPresent": true,
+    "apiRequests": [],
+    "externalRequests": []
+  },
+  "reproduce": [
+    "At each source revision, install the locked dependencies with npm ci --legacy-peer-deps and run npm run build.",
+    "Serve dist/client locally with SPA fallback to index.html.",
+    "Open /about/ecosystem#scorecard in Chromium at 1280x900, light theme; wait for fonts and the opened history section, then capture the viewport."
+  ],
+  "limitations": "One desktop viewport of the anonymous public page. This does not verify authenticated or deployed behavior.",
+  "artifacts": {
+    "ecosystem-before.png": "6281cc2a8ca2c63257d93e85c0fccfeba35b86b267db35d30ffcc6a9d9097473",
+    "ecosystem-after.png": "55fff27673ad0370266f56dd0848f7b4e39fbd4ba0083083a9fb995bc55fb03b"
+  }
+}

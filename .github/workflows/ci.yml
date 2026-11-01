@@ -1,5 +1,5 @@
-# Types, tests and the docs check on pushes to main and on pull requests
-# (a branch with an open pull request runs once, as the pull request).
+# Docs and tooling on every PR; runtime checks on code/config changes.
+# Main runs all steps. Keep this workflow present for required status checks.
 # The tests need no secrets: the Vitest config generates fresh keys, and
 # Google, GitHub, the model and Companies are all faked. Nothing deploys here.
 # The Docker interop grid is its own workflow, interop.yml.
@@ -23,6 +23,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select checks
+        id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
       - uses: actions/setup-node@v7
         with:
@@ -30,48 +39,58 @@ jobs:
           node-version: 24.x
           cache: npm
 
+      - run: npm run test:tooling
+
+      - run: npm run check:docs
+
       # agents declares many optional peers.
-      - run: npm ci --legacy-peer-deps
+      - if: steps.scope.outputs.runtime == 'true'
+        run: npm ci --legacy-peer-deps
 
       - run: npm run check:spec
 
-      - run: npm run typecheck
+      - if: steps.scope.outputs.runtime == 'true'
+        run: npm run typecheck
 
       # Keep whole-runtime resets in the durability suite as an explicit policy.
       # File workers are currently isolated; this boundary also permits future pooling.
       - name: Whole-runtime resets belong in durability tests
+        if: steps.scope.outputs.runtime == 'true'
         run: "! grep -rnE '(abort|evict|delete)AllDurableObjects\\(' test --exclude-dir=durability"
 
-      # Runs all test projects, then checks documented references using the
-      # names already discovered in this invocation. No second workerd startup.
-      - run: npm test
+      - if: steps.scope.outputs.runtime == 'true'
+        run: npm test
 
       - name: Approval recovery after actual PDA process termination
+        if: steps.scope.outputs.specialist == 'true'
         run: npm run check:approval-crashes -- --output "$RUNNER_TEMP/approval-crashes.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-process-crash-wrangler
 
       - name: Hosted dummy Company requires real consent and fails closed
+        if: steps.scope.outputs.specialist == 'true'
         run: node test/hosted/company-security.node.mjs
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-hosted-wrangler
 
       - name: Pinned upstream Company kit and reviewed findings
+        if: steps.scope.outputs.specialist == 'true'
         run: node scripts/check-company-kit.mjs --reviewed-findings --output "$RUNNER_TEMP/company-kit.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-wrangler
 
       - name: Separate DPoP-capable kit copy and independent proof controls
+        if: steps.scope.outputs.specialist == 'true'
         run: node scripts/check-company-kit.mjs --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-dpop-wrangler
 
       - name: Upload upstream Company-kit results
-        if: always()
+        if: always() && steps.scope.outputs.specialist == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: company-kit-results

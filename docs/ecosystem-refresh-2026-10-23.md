@@ -1,5 +1,7 @@
 # Ecosystem refresh — 23 October 2026
 
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+
 The current map was rechecked against public source revisions, release registries, directories and discovery documents. The largest new observations are Archon's directory entry and test identity, direct confirmation of Print with Poppy's production/sandbox 0.2 declarations, Alpine Retail's 0.2 declaration, and four 0.1 addresses that fail their declared profile's domain rule. The specification remains at `39b35bd`; Datalayer remains at 0.26.0.
 
 This is a source and document refresh. No third-party code, Sessions, conversations, sign-ins, API operations or purchases were run. The 21 October live results and 17 October grid retain their dates and revisions. No adapter pin changed, and no findings were sent to another project.

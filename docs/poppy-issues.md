@@ -167,7 +167,7 @@ A Personal Agent extension for the pi coding agent, with its own mock Company, r
 
 ## print-with-poppy (spenciefy/print-with-poppy)
 
-An agent-first photo-printing store: guest (signed-out) Sessions, an OpenAPI API, and Operations v1 for every order; since 12 October, optional accounts. Our grid pins `246727d` (13 October), in demo mode ([adapter README](../interop/impls/print-with-poppy-company/README.md)). On 17 October we read upstream `6dca0ad` (15 October) without running it. Rows marked "Live:" come from the owner's 12 October run against the real-payment store; "Source:" names its commit; "Grid:" describes pinned isolated tests.
+An agent-first photo-printing store: guest (signed-out) Sessions, an OpenAPI API, and Operations v1 for every order; since 12 October, optional accounts. Our grid pins `246727d` (13 October), in demo mode ([adapter README](https://github.com/adewale/pda/blob/fea1c9f010530aac2c5dc6a50b9c4b0cb07b23d9/interop/impls/print-with-poppy-company/README.md)). On 17 October we read upstream `6dca0ad` (15 October) without running it. Rows marked "Live:" come from the owner's 12 October run against the real-payment store; "Source:" names its commit; "Grid:" describes pinned isolated tests.
 
 | Issue | Section | Severity | Status |
 | --- | --- | --- | --- |

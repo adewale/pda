@@ -1,6 +1,6 @@
 # Deployment tasks
 
-Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. The spec's [Status](../pda-spec.md#status) table holds the current state.
+Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. This file owns deployed state and outstanding live checks; [protocol verification](poppy-0.3-conformance.md#current-verification) owns the recorded protocol evidence.
 
 Back to the [README](../README.md) · Why it's built this way: [decisions.md](decisions.md)
 
@@ -40,11 +40,35 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [ ] Tell Todd (Alpine) that the live lane's conversation scenario is now `CL` in place of `C`: the same message, now labelled as a test, and a "Thanks", then the conversation is closed ([live-0.2-testing.md](live-0.2-testing.md)).
   - [ ] Once nothing links to the `workers.dev` host any more, turn it off for the Worker in the dashboard; `canonicalRedirect` can then go.
 
-- [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Last run 23 October, version `de63f442` (commit `afe8f1e`).
+- [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Recorded deploy: 23 October, version `de63f442` (commit `afe8f1e`). The owner's 29 October diagnostics subsequently identify deployed commit `4c92a2d`; no newer deployment is established here. Later local corrections are not evidence of a deployment.
+
+- [ ] **Owner. Back up `TOKEN_ENC_KEY`** in a password manager or equivalent private store; losing it loses sealed refresh tokens and model keys.
 
 ## 2. Live checks
 
-From the spec's Model access, "Check live", and the parts tested only in fakes or happy-dom. Each is **Owner** to run; any that fails becomes **Code**.
+The checklist below distinguishes observed live behavior from local tests. An unchecked item is not established by serving its static assets or by passing against a fake.
+
+### 1 November 2026: public deployment preflight
+
+Observed from source checkout `c3f6d1e` at approximately 07:32 UTC. The served deployment did not expose a commit through these checks, so this is not proof that the checkout is deployed. Requests were anonymous, redirects were inspected without completing OAuth, and no Company action, model call or payment was made.
+
+| Surface | Observed result | Limit |
+| --- | --- | --- |
+| `https://poppydemoagent.dev/` and `/privacy` | Both HTTP 200 with a Content-Security-Policy header | Browser rendering and authenticated page behavior remain unchecked |
+| `/api/me` | HTTP 401 without a session | Establishes only the anonymous authentication boundary |
+| `/api/sign-in-options`, `/auth/github` | GitHub and Google offered; GitHub start returns 303 to github.com with state and the expected callback | No GitHub login or callback was completed |
+| `/poppy/client.json`, `/poppy/jwks.json` | HTTP 200, expected client/key URLs, Operations 2, two public keys and no private `d` member | Does not exercise signing or a Company account |
+| `/sw.js`, `/manifest.webmanifest` | HTTP 200 with the expected JavaScript/manifest content types | Does not establish notification permission, push delivery or background execution |
+| Print with Poppy production and sandbox discovery | Initial bounded GETs to both `/.well-known/poppy.json` documents returned 200 and declared 0.3 | Version declaration alone does not establish the exact draft, authentication, or simulated payment/fulfillment |
+| Full sandbox document validation | Indeterminate: the CLI's address-pinned transport could not fetch through this environment; later public metadata requests returned 403. The deployed validator API also returned 403 (`error code: 1010`) | No full document-validation pass or Company journey is claimed; do not weaken address checks or access controls to obtain one |
+
+**Blocked protected checks:** `wrangler whoami` reports unauthenticated; the environment has no configured Cloudflare identity, private deployment/test settings, or connected browser. No model key or authenticated test account is available. Gateway spend/retention settings, compaction, reminders/tasks, device push and Browser Run therefore remain open below. Configure access through the environment/browser connection, not by pasting credentials into a report or chat.
+
+**Next bounded run:** use a dedicated test identity on the intended deployment and verify the deployed commit first. Confirm a compatible sandbox explicitly simulates payment and fulfillment before any write. Run one approve/decline/reload/refresh/sign-out journey; one compaction-followed-by-answer; one reminder/task with tabs closed; one notification on each available device; and one Browser Run read whose test page attempts a POST that its server must not receive. Verify the gateway metadata/429 backstop through the account's authenticated settings and a controlled test budget, without draining a production allowance. Record pass/fail, deployed commit and actual limitation here. The stock [isolated hosted pair](../test/hosted/README.md) covers real OAuth/model and dummy operations, but disables the demo gateway and Browser Run; it cannot certify those services or real-device push by itself.
+
+### Remaining live checks
+
+Each requires the configured deployment/account or a real device; local failures become code work.
 
 - [x] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each (12 October: the owner's OpenAI key, and an Anthropic key created inside a workspace; an organisation-wide Anthropic key needs a workspace ID, which Settings now takes).
 - [x] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a refused key shows the vendor's reason (12 October).
@@ -53,7 +77,7 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
 - [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
 - [ ] Memory: "Remember I'm vegetarian" is listed in Settings → Memory as "You said", and the agent still knows it after the next `npm run deploy` (and, for the spec's own test, a week later). Delete it in Settings, and "Forget everything" with two or three notes saved; they leave Settings and `recall` finds none (the conversation itself still holds what was said).
-- [ ] Photo attachments: attach a photo; the agent describes it, and it is still shown after a reload. Paste one and drop one too. The upload card (the photo, the Company's name, Approve and Decline) needs a Company that accepts the agent: it appeared live at printwithpoppy.com on 12 October, for a 3.7 MB PNG, once the store had allowlisted our `client_id` (section 3). Still to check: the description, the reload, paste, drop, and the upload once approved.
+- [ ] Photo attachments: attach a photo; the agent describes it, and it is still shown after a reload. Paste one and drop one too. Check a task-selected photo uploads to the task's Company without a redundant consent click, while an unselected stored photo requires disclosure consent. The 12 October upload card is historical behavior, not the current acceptance criterion.
 - [ ] Reminders and scheduled tasks: one of each. "Remind me in 5 minutes to stretch", then close every tab: the "Reminder: …" card is in Needs you at its time (within a few seconds). "In 10 minutes, tell me the time in Tokyo": it runs on time, says "Your scheduled task ran", and Activity's log has the run. For a person on the demo, the run counts against their daily allowance in Settings → Model; with the allowance used up (or `DEMO_DAILY_USD_PER_USER` set to 0 on a test deploy) the run fails at once with a notice, and three such runs pause the task. Settings → Scheduled lists and cancels both.
 - [ ] Web Push (`WEB_PUSH_VAPID_JWK` is set): turn notifications on in Chrome or Firefox on a desktop (FCM, Mozilla), Chrome on Android (FCM), and on an iPhone from the app added to the Home Screen (Apple); Safari on a Mac and Edge on Windows (WNS) if to hand. A reminder arrives on each with the page closed, and opens the app when clicked. Check each push service answers 201 (the agent keeps the last status per device), and that `/sw.js` and `/manifest.webmanifest` are served with the page's CSP allowing them.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
@@ -65,12 +89,9 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 
 ## 3. Then
 
-- [ ] **Owner. Try the agent against a live Company and a live Company Agent.** Check discovery, a Session, sign-in, a conversation, and the website through the fetch-based browser. Anything it finds is **Code**.
-  - [x] print-with-poppy at printwithpoppy.com, 12 October: discovery (valid: 0 errors, 0 warnings), a signed-out Session (our `client_id` is on its allowlist), the catalogue, and the photo upload's approval card. The first try found the model calling the store's non-Poppy guest session endpoint; fixed in `b678221` ([poppy-issues.md](poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)).
-  - [ ] print-with-poppy, the rest: approve the upload, then the order, its operation card and the confirm. The store takes real payments, so the checkout link charges a real card: stop at Stripe's page, or pay for a real print. Its sign-in too (accounts since 12 October: an emailed code, Direct or Mediated), which the grid passes offline.
-  - [x] A live Company Agent, at Alpine Retail (a colleague's test Company), 13 and 14 October, driven in the owner's browser: discovery, a signed-out Session, two conversations with its agent (message, reply, events, close), API reads (inventory) with a DPoP Session Token, Direct Sign-In through its consent page (the owner pressed Sign in), a refresh with the Account Token, a signed-in read (rewards), and sign-out. Found and fixed: revocation needs the token endpoint as `aud` there (S1); a refused revocation was silent and dropped the token; `poppy_status` gave raw timestamps and couldn't say how to sign out; an unfinished sign-in's card stayed open after it expired. The first sign-in's Account Token, from before the fix, stays live at Alpine until about 12 November unless its developer revokes it.
-  - [ ] A Company website through the fetch-based browser: none run yet; Alpine Retail publishes no `web` section.
-- [x] **Code. Update the OpenClaw and Hermes proposals**: re-researched at each project's `main`, counts and Datalayer facts brought up to 13 October ([proposals/README.md](proposals/README.md)).
-- [ ] **Owner. Submit them**, after the live Company Agent check above ([proposals/README.md](proposals/README.md) lists what to fold in first and what to do before posting). Nothing is posted without the owner.
-- [ ] **Owner. Run the live lane**: `npm run interop -- --lane live` (our agent against `ilmer-live` and `poppyseed-live`, signed-out scenarios only, one request a second).
-- [ ] **Code. The adapters not yet run:** `typo3-dirnbauer-company` needs the private extension first. (`everruns-agent` and `everruns-company` were built, registered and run on 12 October; their builds need about 6 GB of swap; see [interop/README.md](../interop/README.md#resources).)
+- [ ] **Owner. Verify the corrected 0.3 flow on the intended deployment.** The 29 October diagnostics establish authenticated API and conversation use at Cliffside Retail and Print with Poppy on `4c92a2d`, and exposed approval/checkout defects. After deployment, first verify the chosen sandbox supports the pinned protocol and explicitly simulates payment and fulfillment. Then verify discovery, sign-in, one conversation, approve and decline, reload, refresh and sign-out with synthetic accounts and a sandbox operation. Do not use a real checkout to satisfy this check. Record the deployed commit and outcome here. Existing local evidence is in [current verification](poppy-0.3-conformance.md#current-verification).
+- [ ] **Owner. Verify a Company website through the fetch-based browser.** No live result is recorded. Use an authorized test environment.
+- [ ] **Owner. Submit plugin proposals when ready**, after the live Company Agent verification above. [Parked drafts](proposals/README.md) link to dated research; refresh host API details once before submitting. No recurring recount or research refresh is required.
+- [ ] **Owner. Run a live interop lane only against a peer compatible with the current pin**, and only the registry's allowed read-only scenarios. Historical 0.1/0.2 live peers are not a current run instruction.
+
+[Earlier deployment and live-check history](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/deployment-tasks.md#3-then) is frozen at its original revision.

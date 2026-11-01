@@ -1,5 +1,7 @@
 # Ecosystem refresh — 28 October 2026
 
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+
 This refresh reads 23 repository heads and 33 public Company hosts. It adds six source candidates, observes draft 0.3 upstream and in six live documents, and exercises Datalayer's last 0.2 SDK revision in Docker. The map's historical full-grid scores and live customer journeys retain their earlier dates.
 
 The [survey JSON](evidence/ecosystem-2026-10-28/survey.json) records each observation time, source revision, request URL, diagnostics and canonical parsed-document hashes. The [generated report](evidence/ecosystem-2026-10-28/survey.md) makes the data readable. Nine existing heads moved, eight were unchanged, and six repositories were newly inspected. This is a bounded inventory, not an exhaustive census.

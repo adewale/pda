@@ -44,7 +44,7 @@ What we need from your code:
    - that lets private addresses through **only for hostnames ending in `.test`**, not by IP range, since the range changes;
    - and that **refuses to start** when it is set together with your production or public sandbox mode.
 
-   Your production and public sandbox protections stay exactly as they are. Tipping Co's code has a hook for this, and our adapter uses it for `*.interop.test` names only ([its adapter](../interop/impls/tipping-co-company/README.md)).
+   Your production and public sandbox protections stay exactly as they are. The current [Print with Poppy adapter](../interop/impls/print-with-poppy-company/adapter.mjs) declares `ALLOW_INTEROP_TEST_HOSTS=true` and sets it only in local demo mode for `*.interop.test` names; its manifest records the upstream safeguards. Retired adapters are not setup examples for the current grid.
 4. **A way for a test to play the person.** Sign-in usually needs someone to read a one-time code or press Allow. In a test mode, store the code where a test can read it (Print with Poppy's demo mode keeps each code email in its database), or accept a fixed code for a test account. Our adapter does the reading; nothing in your production path changes.
 
 We list everything we turn on in your adapter's manifest as a declared relaxation, and we don't patch your code.
