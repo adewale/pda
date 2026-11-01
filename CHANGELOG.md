@@ -35,6 +35,10 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 ### Changed
 
+- Contributor guidance routes by subsystem; current verification, deployment state and backlog each have one source. Dated research is frozen at immutable revisions, and plugin proposals no longer carry copied grid statistics.
+- Documentation evidence links use stable files instead of test titles. `check:docs` no longer starts Vitest; `npm test` no longer creates discovery reports. `test:tooling` checks the lightweight scripts.
+- CI keeps full checks on main and selects runtime/specialist PR checks by changed inputs; documentation-only PRs keep lightweight required checks. No runtime safety assertions were removed.
+
 - A photo selected for the User's task can upload to that task's Company without another permission click; the print journey asks once for the Company's order terms. Unselected saved photos still need disclosure consent. Company content cannot supply file selection or add recipients through filenames, email domains or URL queries. Uploads retain their first routing decision and durable outcome across replay ([decision 39](docs/decisions.md#39-a-requested-photo-upload-does-not-need-a-second-permission-click)).
 - The privacy policy now describes task-authorized uploads, model image previews, operator access, provider/account-dependent processing, separate diagnostic retention and what local deletion does not erase. [The review](docs/privacy-review.md) records the remaining deletion, memory and retention UX problems without claiming they are fixed.
 - Task API requests and MCP calls now run before the Company asks for approval of its exact terms. The preliminary per-write card is removed; unselected photos still need disclosure consent and website forms still need approval. This replaces decisions 36/37's blanket confirmation policy ([decision 38](docs/decisions.md#38-task-requests-use-the-companys-approval-boundary)).

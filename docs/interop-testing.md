@@ -1,5 +1,7 @@
 # M×N interoperability testing for Poppy
 
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+
 How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This document is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness.
 
 The implementations are surveyed in [implementations.md](implementations.md) and mapped in [ecosystem.md](ecosystem.md). The ones the harness runs are in [`interop/registry.json`](../interop/registry.json), and the newest ones that could join are [below](#candidates-from-the-12-october-survey), with a cross-check of the validators. The spec issues the grid exercises are in [spec-issues.md](spec-issues.md), what it found in each project is in [poppy-issues.md](poppy-issues.md), and a snapshot of the last full grid is in [interop-results/](interop-results/README.md). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md); the step after this one, peers that misbehave on purpose, is [adversarial-interop.md](adversarial-interop.md).
@@ -300,4 +302,3 @@ Our agent against Alpine Retail's live deployment (`alpine-retail-live`), with i
 - **Three runner bugs, fixed:** the lane tried to reset a live Company, which has no adapter (every cell was an error before anything was sent); a trace check made a cell unsupported, though the lane records nothing and section 10 says only steps and expectations decide; and C had no greeting without a fixture hook. Nothing reached Alpine but D's discovery fetches and three token requests.
 
 **14 October, with the public identity.** The live lane now signs as the deployment's interop client (`/poppy/interop/client.json`, its key only on the runner's machine; [interop-spec §10](interop-spec.md#10-lanes)). Against Alpine Retail all four live scenarios pass: D, S0 (a signed-out Session), N (a Session, then an inventory read from the registry entry's `fixture`) and C (a conversation with its agent). A live Company gets a fixture from its registry entry, since it has no adapter.
-

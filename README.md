@@ -80,7 +80,7 @@ Signing in for the first time, with a run-through that checks each part works: [
   ```
 
 - **Our agent as your peer.** Its `client_id` is `https://poppydemoagent.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
-- **The interop harness** (`interop/`) pairs registered agents and Companies in containers with no internet access, through a recording proxy, and attributes failures by named rules. Since 28 October it speaks 0.3. Its first 0.3 run, on 29 October, passed every cell our agent ran against both of our mocks (68, none failed) and against our malicious Company (8), and brought print-with-poppy back at its 0.3 commit, the one other project that implements the 28 October text ([results](docs/interop-results/README.md)). The historical snapshot from **13 October 2026**, at 0.1, covered nine other projects and 2,880 cells over 30 scenarios: 1,000 pass, 273 fail and 1,607 unsupported, with PDA passing 213 of its 214 cells. [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, attribution rules and isolation.
+- **The interop harness** (`interop/`) pairs registered agents and Companies in isolated containers, records exchanges and attributes failures by protocol rule. [interop/README.md](interop/README.md) explains how to add a peer. [Current verification](docs/poppy-0.3-conformance.md#current-verification) owns the evidence and limits; [dated grid reports](docs/interop-results/README.md) preserve historical runs.
 - **Adversarial testing.** A malicious Company attacks our agent: oversized documents, nonce loops, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious agent now exercises the 0.3 wire and actual effect counts. What an attack finds in another project's code goes to its maintainers privately first ([SECURITY.md](SECURITY.md)).
 - **Official Company kit.** The [pinned 0.3 validator and manual checklist review](docs/company-kit-review.md) check our mock and hosted dummy Company's handlers independently. Raw failures, inconclusive results and skipped features remain visible. Earlier community-validator and Datalayer cross-checks remain [dated 0.1/0.2 evidence](docs/interop-testing.md#validator-cross-check).
 - **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
@@ -88,19 +88,22 @@ Signing in for the first time, with a run-through that checks each part works: [
 
 ## For the draft's authors: what we found
 
-- **[Issues in 0.3](docs/poppy-0.3-issues.md):** the current list, written to send to the spec's authors: 39 problems from reading the 28 October text (3 High, 15 Medium, 21 Low), and 4 more found while implementing it. The plan to keep up with weekly versions: [docs/poppy-0.3-plan.md](docs/poppy-0.3-plan.md); the ledger of 0.3's changelog entries: [docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md). An earlier review of the pre-rewrite 0.3 text is [docs/spec-issues-0.3.md](docs/spec-issues-0.3.md).
-- **[Spec issues in Draft 0.1](docs/spec-issues.md):** the October record, 64 problems found by comparing implementations, crawling the site and running the grid, each with a severity (5 Critical, 13 High, 31 Medium, 15 Low), a suggested fix, and what we did meanwhile.
-- **[Readings](docs/readings.md):** where the draft is ambiguous, the reading we chose and why: strict where security depends on it, lenient where it doesn't.
-- **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
-- **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
-- **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid. The detailed survey behind it, with licences, maturity and what we learned from each project, is [implementations.md](docs/implementations.md).
-- **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the public grid snapshot of every agent against every Company, with pass, fail and unsupported counts for each pair, and attribution where the evidence establishes a side.
-- **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
+The [focused feedback batch](docs/proposals/poppy-feedback.md) is prepared for owner review and has not been sent. The [0.3 issue list](docs/poppy-0.3-issues.md) holds the source findings; [readings](docs/readings.md) records our choices where the text is ambiguous. The [requirement ledger](docs/poppy-0.3-upgrade.md) maps upstream changes to implementation and evidence.
 
-- **[Proposals](docs/proposals/README.md):** drafts for adding Poppy to OpenClaw and Hermes Agent, to submit once this agent has worked against a live Company.
-- **[Conformance testing history](docs/conformance-testing-history.md):** the precedents this approach borrows from, such as the Feed Validator, the OpenID Foundation's suite and web-platform-tests.
+The [ecosystem map](docs/ecosystem.md#current-ecosystem) owns dated peer observations. Historical surveys, audits and grid reports remain linked from their respective sources; their counts are not repeated here. [Plugin proposals](docs/proposals/README.md) are parked until submission is scheduled.
 
-None of this has been sent to the draft's authors yet. They take feedback by email, as described on the draft's [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#feedback) page.
+## Documentation sources
+
+| Question | Source to update |
+| --- | --- |
+| Architecture and requirements | [Design](pda-spec.md); [decisions](docs/decisions.md) for rationale |
+| Protocol verification and its limits | [Current verification](docs/poppy-0.3-conformance.md#current-verification) |
+| Deployed state and live checks | [Deployment tasks](docs/deployment-tasks.md) |
+| Remaining product work | [TODO](TODO.md) |
+| Ecosystem observations | [Ecosystem map](docs/ecosystem.md#current-ecosystem) |
+| Contributor commands and invariants | [CLAUDE.md](CLAUDE.md) |
+
+Link to these sources instead of copying status. Dated reports are frozen evidence; parked proposals are refreshed only immediately before submission.
 
 ## How it's built
 
@@ -116,12 +119,7 @@ The design is [pda-spec.md](pda-spec.md); how to use the agent and check it work
 
 ## Status and limitations
 
-- **Live:** https://poppydemoagent.dev. Anyone with a Google or GitHub account can sign in (sign-up has been open since 15 October); the operator pays for the model only for the people on its demo list, and everyone else adds their own Anthropic or OpenAI key in Settings. The validator at `/validator`, open to anyone, and the privacy policy at `/privacy`. Web Push and Browser Run are switched on there. Which parts have been checked live, and which haven't, is [deployment-tasks.md §2](docs/deployment-tasks.md#2-live-checks).
-- **Company coverage is limited.** The [dated ecosystem survey](docs/ecosystem.md#current-ecosystem) and [verification report](docs/poppy-0.3-conformance.md#current-verification) distinguish document checks, isolated demos and live observations. An order-creation response or checkout link is not proof of payment or printing.
-- **Not tried live:** the demo lane has answered through the live gateway, but its gateway-side spend rules, a turn after a compaction, reminders and tasks firing, notifications on real devices, and a Browser Run render are tested only against fakes so far ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)).
-- **JavaScript:** `read_url` renders a page that needs it in Browser Run, signed out and read only. Browsing a Company's site in a Session (`poppy_browse`) still runs no JavaScript, so a site that needs it to show a page or send a form can't be used there.
-- **Not built:** skills, web search, reminders by email, and "delete my agent" (today the operator deletes an agent by hand when asked, as the privacy policy promises).
-- Everything still open is in [TODO.md](TODO.md).
+[Current protocol verification](docs/poppy-0.3-conformance.md#current-verification) distinguishes local, independent-demo and live evidence. [Deployment tasks](docs/deployment-tasks.md) records what is deployed and what remains unverified live, including gateway spend enforcement, compaction, scheduling, notifications and Browser Run. [TODO](TODO.md) owns the product backlog.
 
 Release notes and migration instructions: [CHANGELOG.md](CHANGELOG.md). Exact upstream inputs: [spec/upstream.json](spec/upstream.json). Upgrade procedure: [docs/upgrading.md](docs/upgrading.md).
 
@@ -131,9 +129,9 @@ Node.js 24 or later:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # five suites + documentation references; no external network
+npm test                         # five offline suites
 npm run typecheck
-npm run check:docs               # standalone reference check; already included in npm test
+npm run check:docs               # file/scenario links; no dependencies needed
 npm run validate -- example.com  # the validator CLI
 npm run interop -- --agents pda --companies lenient-company   # the grid, in Docker
 ```
@@ -162,6 +160,6 @@ docs/               The user guide, decisions, capabilities, setup, spec issues,
 ## Security, contributing and licence
 
 - **Security:** report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
-- **Contributing:** keep `npm test` (including its documentation reference check) and `npm run typecheck` passing. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
+- **Contributing:** keep `npm test`, `npm run check:docs` and `npm run typecheck` passing for code changes. Documentation-only changes need `npm run check:docs`. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
 - **Support:** report problems in [GitHub issues](https://github.com/adewale/pda/issues).
 - **Licence:** [Apache License 2.0](LICENSE), the licence of the Poppy draft itself. Files copied from Cloudflare's `agents` examples keep their MIT licence, and the stored copies of the draft in `spec/` keep the draft's Apache 2.0 licence; see [NOTICE.md](NOTICE.md).

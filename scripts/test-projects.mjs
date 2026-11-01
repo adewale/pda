@@ -1,5 +1,4 @@
-// One list for the full local/CI run and standalone documentation discovery.
-// Targeted commands remain independent; only a full run can supply all names.
+// The five offline runtime test projects. Documentation links are checked separately.
 export const testConfigs = [
   "test/vitest.config.ts",
   "test/durability/vitest.config.ts",

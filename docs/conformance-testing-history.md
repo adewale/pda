@@ -1,5 +1,7 @@
 # Conformance and interop testing: a history, and what it means for Poppy
 
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+
 How the ideas behind our [interop harness](interop-testing.md) grew up: writing tests as data, sharing suites across implementations, running every client against every server, tracing tests back to the spec, and newer methods that generate or check tests mechanically. It ends with what we already do for the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) and what to add next. Sources are linked inline and listed at the end. Anything we couldn't confirm is marked *(unverified)*.
 
 ## 1. Pirate testing: tests as data

@@ -1,5 +1,7 @@
 # Focused audit fixes
 
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+
 Base: `d8515e7be4282014c6ebcf21d156ac689f333050`. This local candidate retains concrete correctness, access-control and bounded-resource fixes. It removes the broader consent redesign and self-service privacy features from the earlier audit implementation.
 
 | Retained issue | Fix and evidence |
