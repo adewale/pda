@@ -93,6 +93,7 @@ jobs:
         if: always() && steps.scope.outputs.specialist == 'true'
         uses: actions/upload-artifact@v7
         with:
+          retention-days: 7
           name: company-kit-results
           path: |
             ${{ runner.temp }}/company-kit.json
