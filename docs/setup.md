@@ -42,7 +42,10 @@ openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
 node scripts/poppy-secrets.mjs signing-keys | npx wrangler secret put POPPY_SIGNING_JWKS
 node scripts/poppy-secrets.mjs token-key    | npx wrangler secret put TOKEN_ENC_KEY
 node scripts/poppy-secrets.mjs vapid-key    | npx wrangler secret put WEB_PUSH_VAPID_JWK
+node scripts/poppy-secrets.mjs operator-key | npx wrangler secret put POPPY_OPERATOR_KEY
 ```
+
+`POPPY_OPERATOR_KEY` is optional. It is an Ed25519 private key as a JWK, separate from the signing keys. With it, every request that carries the Poppy Session header also carries a Web Bot Auth HTTP Message Signature, so Companies' bot defenses can recognize your deployment (spec 5.3, a SHOULD). The signature covers the method, authority, path, the `Signature-Agent` member, `Poppy-Session` and `Authorization`. The public key is served at `/.well-known/http-message-signatures-directory`. Without the key, no signatures are sent and the directory is empty; nothing else changes. To rotate it, put a new key: the directory serves only the current one, so verifiers that cached the old key reject signatures until their cache, at most a day, expires.
 
 `WEB_PUSH_VAPID_JWK` is optional: it turns on notifications for reminders and scheduled tasks (Web Push). It is a P-256 private key as a JWK; the Worker derives the public key browsers subscribe with, and the VAPID contact is your `PRIVACY_CONTACT`. Without it, Settings doesn't offer notifications and everything else works. Replacing it ends every device's subscription, so each person turns notifications on again; there is nothing to rotate on a schedule.
 

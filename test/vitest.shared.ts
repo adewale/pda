@@ -19,7 +19,11 @@ async function poppySecrets() {
   // The Web Push VAPID key: a P-256 private JWK, as `poppy-secrets.mjs vapid-key` prints one.
   const { privateKey: vapid } = await generateKeyPair("ES256", { extractable: true });
   const { kty, crv, x, y, d } = await exportJWK(vapid);
+  // The Web Bot Auth operator key, as `poppy-secrets.mjs operator-key` prints one.
+  const { privateKey: operator } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+  const { kty: okty, crv: ocrv, x: ox, d: od } = await exportJWK(operator);
   return {
+    POPPY_OPERATOR_KEY: JSON.stringify({ kty: okty, crv: ocrv, x: ox, d: od }),
     POPPY_SIGNING_JWKS: JSON.stringify(keys),
     TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),
     WEB_PUSH_VAPID_JWK: JSON.stringify({ kty, crv, x, y, d })

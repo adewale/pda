@@ -996,7 +996,67 @@ export class Company {
    * `ath` against the access token, then the Session by `client_id` and
    * `sid`, started when new. Every failure is 400 `invalid_session`.
    */
+  /** Operator key directories by URL, as fetched (5.3; Web Bot Auth 5.5). */
+  readonly #operatorDirectories = new Map<string, Promise<{ keys: Record<string, unknown>[] } | null>>();
+
+  /**
+   * An operator signature, when a request carries one (5.3): an RFC 9421
+   * signature in the Web Bot Auth profile, which this mock checks on its own
+   * (not with the agent's code, so the two stay independent oracles). Its
+   * absence is allowed (a SHOULD; "its absence does not make a Session JWT
+   * invalid"); one that doesn't verify, or doesn't cover `poppy-session`, and
+   * `authorization` when present, is recorded. Neither refuses the request:
+   * the Session JWT is what authenticates it.
+   */
+  async #checkOperatorSignature(inbound: Inbound): Promise<void> {
+    const headers = inbound.request.headers;
+    const input = headers.get("Signature-Input");
+    if (input === null) return;
+    const where = `${inbound.request.method} ${inbound.url.pathname}`;
+    const invalid = (why: string) => this.violation("operator-signature.invalid", `operator signature: ${why} (${where})`);
+    const parsed = /^(\w+)=\(([^)]*)\)(;.*)$/.exec(input);
+    const signature = parsed ? new RegExp(`^${parsed[1]}=:([^:]+):$`).exec(headers.get("Signature") ?? "") : null;
+    const agent = parsed ? new RegExp(`^${parsed[1]}="([^"]+)"`).exec(headers.get("Signature-Agent") ?? "") : null;
+    if (!parsed || !signature || !agent) return invalid("Signature-Input, Signature and Signature-Agent don't share a label");
+    const [, label, list, params] = parsed;
+    const items = list!.split(" ").filter(Boolean);
+    const param = (name: string) => new RegExp(`;${name}=(?:"([^"]*)"|(\\d+))`).exec(params!)?.slice(1).find((v) => v !== undefined);
+    if (param("tag") !== "web-bot-auth") return invalid(`tag is ${param("tag")}, not web-bot-auth`);
+    const now = Math.floor(Date.now() / 1000);
+    if (!(Number(param("created")) <= now + 60 && Number(param("expires")) >= now)) return invalid("outside its created and expires");
+    const covers = (id: string) => items.includes(`"${id}"`);
+    if (!covers("poppy-session") || (headers.has("Authorization") && !covers("authorization"))) {
+      this.violation("operator-signature.components", `operator signature: covers ${list}, without poppy-session${headers.has("Authorization") ? " and authorization" : ""} (${where})`);
+    }
+    if (!items.includes(`"signature-agent";key="${label}"`) || !(covers("@authority") || covers("@target-uri"))) return invalid("doesn't cover @authority and its Signature-Agent member");
+    const directoryUrl = `${new URL(agent[1]!).origin}/.well-known/http-message-signatures-directory`;
+    let directory = this.#operatorDirectories.get(directoryUrl);
+    if (!directory) {
+      directory = this.#fetchAgent(directoryUrl).then(async (response) => (response.status === 200 ? ((await response.json()) as { keys: Record<string, unknown>[] }) : null)).catch(() => null);
+      this.#operatorDirectories.set(directoryUrl, directory);
+    }
+    const jwk = (await directory)?.keys.find((key) => key.kid === param("keyid"));
+    if (!jwk) return invalid(`keyid ${param("keyid")} isn't in ${directoryUrl}`);
+    const lines: string[] = [];
+    for (const item of items) {
+      let value: string | null;
+      if (item === '"@method"') value = inbound.request.method;
+      else if (item === '"@authority"') value = inbound.url.host;
+      else if (item === '"@path"') value = inbound.url.pathname;
+      else if (item === '"@target-uri"') value = inbound.url.href;
+      else if (item === `"signature-agent";key="${label}"`) value = `"${agent[1]}"`;
+      else value = headers.get(item.replace(/^"|"$/g, ""));
+      if (value === null) return invalid(`covers ${item}, which the request lacks`);
+      lines.push(`${item}: ${value}`);
+    }
+    lines.push(`"@signature-params": (${list})${params}`);
+    const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x as string }, { name: "Ed25519" }, false, ["verify"]);
+    const bytes = Uint8Array.from(atob(signature[1]!), (char) => char.charCodeAt(0));
+    if (!(await crypto.subtle.verify({ name: "Ed25519" }, key, bytes, new TextEncoder().encode(lines.join("\n"))))) invalid("the signature doesn't verify");
+  }
+
   async verifySessionHeader(inbound: Inbound, accessToken: string | null): Promise<{ readonly client: ClientInfo; readonly session: Session }> {
+    await this.#checkOperatorSignature(inbound);
     const where = `${inbound.request.method} ${inbound.url.pathname}`;
     const fail = (id: ViolationId, why: string): HttpError => {
       this.violation(id, `Session JWT: ${why} (${where})`);

@@ -33,6 +33,7 @@ import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
 import { FOREIGN_TEXT, literal, reportError, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
+import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
@@ -1375,6 +1376,9 @@ export class PoppyClient {
           })
         );
       }
+      // 5.3: an operator signature for bot defenses, after the Session header, token and proof it covers.
+      const operator = operatorKey(this.host.env);
+      if (operator) await signRequest(await operator, this.identity.origin, { method: request.method, url: url.href, headers });
       const outbound = new Request(url.href, {
         method: request.method,
         headers,

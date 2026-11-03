@@ -181,6 +181,8 @@ export const VIOLATIONS = {
   "session-jwt.not-jwt": "MUST (5.2: the header holds a JWT): The Session header isn't a JWT",
   "session-jwt.typ": "MUST (5.2: \"typ MUST be poppy-session+jwt\"): A Session JWT of another typ",
   "session-jwt.alg": "MUST (5.2: \"alg MUST be ES256\"): A Session JWT not signed with ES256",
+  "operator-signature.invalid": "RFC (RFC 9421 3.2; Web Bot Auth 5.2; 5.3): An operator signature that is malformed, outside its validity, not in the operator's directory, or doesn't verify",
+  "operator-signature.components": "MUST (5.3: \"The Personal Agent's operator signature MUST cover poppy-session, and authorization when present\"): An operator signature that leaves out the Session header or the access token",
   "session-jwt.no-delegation": "MUST (5.2 Delegated keys: the Company MUST reject a Session JWT without a delegation): A Session JWT without poppy_dlg",
   "session-jwt.iss": "MUST (5.2: \"MUST include every claim except agent_id\", and ath without a token): A Session JWT without iss",
   "session-jwt.kid": "MUST (5.2 Delegated keys, step 3: kid is the delegated key's RFC 7638 thumbprint; 5.3: the Company MUST complete these checks): A Session JWT whose kid isn't its key's thumbprint",

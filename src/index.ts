@@ -116,6 +116,7 @@ const EXACT_ROUTES = [
   "/poppy/callback",
   "/poppy/client.json",
   "/poppy/jwks.json",
+  "/.well-known/http-message-signatures-directory",
   "/poppy/interop/client.json",
   "/poppy/interop/jwks.json",
   "/validator",
@@ -525,7 +526,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
     // The interop test client's two documents, only when the deployment sets INTEROP_LIVE_JWKS.
     if (pathname.startsWith("/poppy/interop/")) return await handleInteropClientRoute(request, env);
-    if (pathname.startsWith("/poppy/")) {
+    if (pathname.startsWith("/poppy/") || pathname === "/.well-known/http-message-signatures-directory") {
       return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
     }
     // Only paths `run_worker_first` sends here reach this line: an unknown

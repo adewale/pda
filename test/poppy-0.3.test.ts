@@ -195,6 +195,37 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 });
 
+describe("0.3: operator signatures (5.3, Web Bot Auth)", () => {
+  it("signs every request with the Session header, covering poppy-session and authorization, with a key in our own directory", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await signInDirect(a, c, SCOPES))?.callback.status).toBe(200);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
+    const directoryResponse = await worker.fetch(new Request(`${testEnv.PUBLIC_ORIGIN}/.well-known/http-message-signatures-directory`), testEnv as unknown as Env);
+    expect(directoryResponse.headers.get("Content-Type")).toBe("application/http-message-signatures-directory+json");
+    // The directory proves possession of its key (Web Bot Auth, Appendix B.1).
+    expect(directoryResponse.headers.get("Signature-Input")).toContain('tag="http-message-signatures-directory"');
+    expect(directoryResponse.headers.get("Content-Digest")).toMatch(/^sha-256=:/);
+    const directory = (await directoryResponse.json()) as { keys: { kid: string; kty: string; crv: string; d?: string }[] };
+    expect(directory.keys).toHaveLength(1);
+    expect(directory.keys[0]).toMatchObject({ kty: "OKP", crv: "Ed25519" });
+    expect(directory.keys[0]!.d).toBeUndefined();
+    const resources = resourceRequests(await requests(c), c);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const request of resources) {
+      expect(request.headers["signature-agent"]).toBe(`sig1="${testEnv.PUBLIC_ORIGIN}"`);
+      const input = request.headers["signature-input"]!;
+      expect(input).toContain('"poppy-session"');
+      expect(input).toContain('tag="web-bot-auth"');
+      expect(input).toContain(`keyid="${directory.keys[0]!.kid}"`);
+      if (request.headers.authorization) expect(input).toContain('"authorization"');
+    }
+    // OAuth endpoints carry neither the Session header nor an operator signature.
+    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint).every((request) => !request.headers["signature-input"])).toBe(true);
+    // The mock verified each signature on its own: no operator-signature violation (agent-helpers' strict check).
+  });
+});
+
 describe("0.3: the Company's logo (3.1; Guides, \"Finding a company\")", () => {
   const logoOf = async (a: Awaited<ReturnType<typeof agent>>, domain: string) =>
     worker.fetch(new Request(`${testEnv.PUBLIC_ORIGIN}/api/companies/${domain}/logo`, { headers: { Cookie: a.cookie } }), testEnv as unknown as Env);

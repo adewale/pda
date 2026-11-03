@@ -242,6 +242,32 @@ async function session(sub?: string): Promise<Session> {
   return { key: await delegatedKey(), sid: jti(), ...(sub ? { sub } : {}) };
 }
 
+/**
+ * Web Bot Auth headers signed with the test deployment's operator key, as an
+ * agent sends them (5.3), built here by hand: over @method, @authority, @path,
+ * the Signature-Agent member, and `session`, the Session JWT the request
+ * carries, when given. `corrupt` flips a signature byte.
+ */
+async function operatorHeaders(c: C, method: string, url: string, options: { corrupt?: boolean; session?: string } = {}): Promise<Record<string, string>> {
+  const jwk = JSON.parse(env.POPPY_OPERATOR_KEY!) as JWK;
+  const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x, d: jwk.d }, { name: "Ed25519" }, false, ["sign"]);
+  const keyid = await calculateJwkThumbprint({ kty: "OKP", crv: "Ed25519", x: jwk.x! }, "sha256");
+  const agent = `"${env.PUBLIC_ORIGIN}"`;
+  const target = new URL(url);
+  const created = Math.floor(Date.now() / 1000);
+  const items: [string, string][] = [['"@method"', method], ['"@authority"', target.host], ['"@path"', target.pathname], ['"signature-agent";key="sig1"', agent], ...(options.session ? [['"poppy-session"', options.session] as [string, string]] : [])];
+  const params = `;created=${created};expires=${created + 300};keyid="${keyid}";tag="web-bot-auth"`;
+  const base = [...items.map(([id, value]) => `${id}: ${value}`), `"@signature-params": (${items.map(([id]) => id).join(" ")})${params}`].join("\n");
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(base)));
+  if (options.corrupt) signature[0] = signature[0]! ^ 0xff;
+  void c;
+  return {
+    "Signature-Agent": `sig1=${agent}`,
+    "Signature-Input": `sig1=(${items.map(([id]) => id).join(" ")})${params}`,
+    Signature: `sig1=:${btoa(String.fromCharCode(...signature))}:`
+  };
+}
+
 type CallOptions = {
   readonly body?: unknown;
   /** A body sent as is, with `contentType`. */
@@ -1426,6 +1452,24 @@ const TAMPERS: readonly Tamper[] = [
     what: "a message that still says sender",
     detail: /^\[message\.sender-field\]/,
     run: async (c) => expect((await converse(c, await session(), message({ sender: "agent" }))).status).toBe(201)
+  },
+
+  // ---- Operator signatures (5.3, Web Bot Auth) ----
+  {
+    id: "operator-signature.invalid",
+    what: "an operator signature that doesn't verify",
+    detail: /^\[operator-signature\.invalid\] operator signature: the signature doesn't verify \(GET \/products\)$/,
+    run: async (c) => {
+      const s = await session();
+      const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
+      return call(c, s, "GET", products(c), { jwt, headers: await operatorHeaders(c, "GET", products(c), { session: jwt, corrupt: true }) });
+    }
+  },
+  {
+    id: "operator-signature.components",
+    what: "an operator signature that leaves out poppy-session",
+    detail: /^\[operator-signature\.components\] operator signature: covers/,
+    run: async (c) => call(c, await session(), "GET", products(c), { headers: await operatorHeaders(c, "GET", products(c)) })
   },
 
   // ---- The Session header (5.2, 5.3) ----

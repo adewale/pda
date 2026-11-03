@@ -2,6 +2,7 @@
 //   node scripts/poppy-secrets.mjs signing-keys | npx wrangler secret put POPPY_SIGNING_JWKS
 //   node scripts/poppy-secrets.mjs token-key    | npx wrangler secret put TOKEN_ENC_KEY
 //   node scripts/poppy-secrets.mjs vapid-key    | npx wrangler secret put WEB_PUSH_VAPID_JWK
+//   node scripts/poppy-secrets.mjs operator-key | npx wrangler secret put POPPY_OPERATOR_KEY
 // Signing keys: a current and a next ES256 key, so the next one is published
 // before it signs (Guides, "Rotating keys"). To rotate, move "next" first and
 // add a new "next"; keep a retired key until its signatures have expired.
@@ -25,7 +26,13 @@ if (kind === "signing-keys") {
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const { kty, crv, x, y, d } = await exportJWK(privateKey);
   process.stdout.write(JSON.stringify({ kty, crv, x, y, d }));
+} else if (kind === "operator-key") {
+  // The Web Bot Auth operator key (spec 5.3; src/poppy/operator.ts): Ed25519, separate from the
+  // signing keys and from delegated Session keys. Optional: without it, no operator signatures.
+  const { privateKey } = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true });
+  const { kty, crv, x, d } = await exportJWK(privateKey);
+  process.stdout.write(JSON.stringify({ kty, crv, x, d }));
 } else {
-  console.error("Usage: node scripts/poppy-secrets.mjs signing-keys|token-key|vapid-key");
+  console.error("Usage: node scripts/poppy-secrets.mjs signing-keys|token-key|vapid-key|operator-key");
   process.exit(1);
 }
