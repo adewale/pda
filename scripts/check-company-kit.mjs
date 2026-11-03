@@ -15,7 +15,7 @@ import { localAgent, localFetch } from "../test/company-kit/local-https.mjs";
 import { dpopControls } from "../test/company-kit/dpop-controls.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
-const snapshot = path.join(root, "spec/company-kit-2026-10-29");
+const snapshot = path.join(root, "spec/company-kit-2026-11-03");
 const kit = path.join(snapshot, "kit");
 let cli = path.join(kit, "validate/index.ts");
 const manifest = JSON.parse(readFileSync(path.join(snapshot, "manifest.json"), "utf8"));

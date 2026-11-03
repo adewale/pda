@@ -1,5 +1,5 @@
 {
-  "catalogChecks": 120,
+  "catalogChecks": 121,
   "dpopPrerequisite": {
     "response": "400 Bad Request, error invalid_dpop_proof",
     "warningProfiles": [
@@ -31,6 +31,7 @@
       "discovery.excluded-tasks",
       "discovery.alternative-references",
       "metadata.device-authorization-endpoint",
+      "metadata.same-issuer",
       "metadata.same-auth",
       "metadata.mediated-grant",
       "mediated.unknown-sign-in",
