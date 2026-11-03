@@ -41,21 +41,79 @@ function prose(text) {
 /** GitHub-style heading fragments, including duplicate headings and explicit HTML anchors. */
 function anchors(text) {
   const visible = prose(text);
-  const ids = new Set([...visible.matchAll(/<(?:a|h[1-6])\b[^>]*\bid=["']([^"']+)["']/gi)].map(match => match[1]));
+  const code = codeSpans(visible);
+  const ids = new Set();
+  let span = 0;
+  for (const match of visible.matchAll(/<(?:a|h[1-6])\b[^>]*\bid=["']([^"']+)["']/gi)) {
+    while (span < code.length && code[span][1] <= match.index) span++;
+    if (span < code.length && code[span][0] <= match.index) continue;
+    ids.add(match[1]);
+  }
   const used = new Set();
   const lines = visible.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const heading = /^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(lines[index])?.[1]
       ?? (index + 1 < lines.length && /^ {0,3}(?:=+|-+)\s*$/.test(lines[index + 1]) && lines[index].trim() ? lines[index].trim() : undefined);
     if (heading === undefined) continue;
-    const base = heading.replace(/<[^>]+>/g, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, "").replace(/\s/g, "-");
+    const stripMarkup = text => text.replace(/<[^>]+>/g, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");
+    const parts = [];
+    let at = 0;
+    for (const [start, end] of codeSpans(heading)) {
+      parts.push(stripMarkup(heading.slice(at, start)), heading.slice(start, end));
+      at = end;
+    }
+    parts.push(stripMarkup(heading.slice(at)));
+    const base = parts.join("").toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, "").replace(/\s/g, "-");
     let id = base, suffix = 0;
     while (used.has(id)) id = `${base}-${++suffix}`;
     used.add(id);
     ids.add(id);
   }
   return ids;
+}
+
+/** Code spans close on an equal maximal backtick run; backslashes inside are literal. */
+function codeSpans(text) {
+  const runs = [...text.matchAll(/`+/g)].map(match => ({ start: match.index, size: match[0].length }));
+  let offset = 0, block = 0, runIndex = 0, paragraph = false, list = false;
+  for (const line of text.split("\n")) {
+    // Blank lines and one-line blocks end a paragraph; list markers begin a new item.
+    const blank = /^\s*$/.test(line);
+    const separate = blank || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line)
+      || /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(line)
+      || /^ {0,3}(?:=+|-+)[ \t]*$/.test(line);
+    const marker = /^ {0,3}(?:([-+*])|(\d{1,9})[.)])[ \t]+\S/.exec(line);
+    if (list && !paragraph && !marker && /^\S/.test(line)) list = false;
+    // Any number can begin or continue a list; only 1 interrupts an ordinary paragraph.
+    const item = !separate && marker && (marker[1] || Number(marker[2]) === 1 || !paragraph || list);
+    if (separate || item) block++;
+    const end = offset + line.length + 1;
+    while (runIndex < runs.length && runs[runIndex].start < end) runs[runIndex++].block = block;
+    if (separate) { block++; paragraph = false; if (!blank) list = false; }
+    else { paragraph = true; if (item) list = true; }
+    offset = end;
+  }
+  const next = new Map();
+  for (let index = runs.length - 1; index >= 0; index--) {
+    const run = runs[index];
+    if (runs[index + 1]?.block !== run.block) next.clear();
+    run.close = next.get(run.size);
+    run.escapedClose = next.get(run.size - 1);
+    next.set(run.size, index);
+  }
+  const spans = [];
+  for (let index = 0; index < runs.length; index++) {
+    const run = runs[index];
+    let slashes = 0;
+    for (let at = run.start - 1; at >= 0 && text[at] === "\\"; at--) slashes++;
+    // An escaped first backtick is prose; any remaining backticks can open a span.
+    const escaped = slashes % 2;
+    const close = escaped ? run.escapedClose : run.close;
+    if (run.size <= escaped || close === undefined) continue;
+    spans.push([run.start + escaped, runs[close].start + runs[close].size]);
+    index = close;
+  }
+  return spans;
 }
 
 export function checkReferences(root) {
@@ -83,9 +141,11 @@ export function checkReferences(root) {
     } catch { problems.push(`${from}:${line}: cannot read anchor target: ${target}#${fragment}`); }
   }
   function links(from, text, { firstLine = 1, requireFile = false, count = true } = {}) {
-    const code = [...text.matchAll(/(`+)[\s\S]*?\1(?!`)/g)].map(match => [match.index, match.index + match[0].length]);
+    const code = codeSpans(text);
+    let span = 0;
     for (const match of text.matchAll(/!?\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\)/g)) {
-      if (code.some(([start, end]) => match.index >= start && match.index < end)) continue;
+      while (span < code.length && code[span][1] <= match.index) span++;
+      if (span < code.length && code[span][0] <= match.index) continue;
       const raw = match[1] ?? match[2];
       if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("/")) continue;
       const line = firstLine + text.slice(0, match.index).split("\n").length - 1;

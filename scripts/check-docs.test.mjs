@@ -76,3 +76,83 @@ test("directory links use their README for fragments and project links ignore ex
     "README.md:2: missing file: docs/missing.md"
   ]);
 });
+
+test("mixed backtick runs and escaped openers do not hide real links", (t) => {
+  const root = fixture(t, "Test: [safety](test/safety.test.ts)");
+  const link = "[broken](missing.md)";
+  for (const text of [
+    "`a `` b` " + link + " `c`",
+    "``a ` b`` " + link + " ``c``",
+    "\\` " + link + " `",
+    "`a\\` " + link + " `c`",
+    "``a\\`` " + link + " ``c``"
+  ]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.deepEqual(checkReferences(root).problems, ["README.md:1: missing file: missing.md"], text);
+  }
+});
+
+test("equal delimiter runs still hide examples, including escaped ticks inside a code span", (t) => {
+  const root = fixture(t, "Test: [safety](test/safety.test.ts)");
+  for (const text of [
+    "`[example](missing.md)`",
+    "``a ` [example](missing.md) ``",
+    "`a \\ [example](missing.md)`",
+    "\\\\`[example](missing.md)`",
+    "\\`` a [example](missing.md) `"
+  ]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.deepEqual(checkReferences(root).problems, [], text);
+  }
+});
+
+test("unmatched backticks cannot hide links across paragraph or block boundaries", (t) => {
+  const root = fixture(t, "Test: [safety](test/safety.test.ts)");
+  for (const text of [
+    "An unmatched ` marker.\n\n[broken](missing.md)\n\nAnother ` marker.\n",
+    "An unmatched ` marker.\n## Heading\n[broken](missing.md)\n\nAnother ` marker.\n",
+    "An unmatched ` marker.\n***\n[broken](missing.md)\n`\n",
+    "An unmatched ` marker.\n- [broken](missing.md)\n`\n",
+    "## Unmatched ` heading\n[broken](missing.md)\n`\n"
+  ]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.equal(checkReferences(root).problems.filter(problem => problem.includes("missing file: missing.md")).length, 1, text);
+  }
+  for (const text of ["`code\n[example](missing.md)`", "`code\n2. [example](missing.md)`"]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.deepEqual(checkReferences(root).problems, [], text);
+  }
+});
+
+test("HTML aliases inside inline code supply no anchor, while real aliases and code heading text work", (t) => {
+  const root = fixture(t, "Test: [safety](test/safety.test.ts)");
+  writeFileSync(path.join(root, "README.md"), [
+    'Write `<a id="fake"></a>` to create an alias.', "",
+    "[broken](#fake)", "", '<a id="real"></a>', "[alias](#real)", "",
+    "## `Named code`", "[heading](#named-code)", "",
+    '## `<a id="literal"></a>`', "[literal heading](#a-idliterala)", "[literal alias](#literal)"
+  ].join("\n"));
+  assert.deepEqual(checkReferences(root).problems, [
+    "README.md:3: missing anchor: README.md#fake",
+    "README.md:13: missing anchor: README.md#literal"
+  ]);
+});
+
+test("backticks cannot cross ordered-list items, while a noninterrupting number remains paragraph text", (t) => {
+  const root = fixture(t, "Test: [safety](test/safety.test.ts)");
+  for (const text of [
+    "1. An unmatched ` marker.\n2. [broken](missing.md) another ` marker.\n",
+    "2. An unmatched ` marker.\n3. [broken](missing.md) another ` marker.\n",
+    "- An unmatched ` marker.\n2. [broken](missing.md) another ` marker.\n"
+  ]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.deepEqual(checkReferences(root).problems, ["README.md:2: missing file: missing.md"], text);
+  }
+  for (const text of [
+    "An unmatched ` marker.\n2. [example](missing.md) another ` marker.\n",
+    "1. A completed list item.\n\nAn unmatched ` marker.\n2. [example](missing.md) another ` marker.\n"
+  ]) {
+    writeFileSync(path.join(root, "README.md"), text);
+    assert.deepEqual(checkReferences(root).problems, [], text);
+  }
+});
