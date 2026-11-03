@@ -33,4 +33,4 @@ As a library, `validateCompany`, `validateClient`, `validateText` and `validateT
 
 The shared parser also limits cumulative JSON-pointer strings used for source locations to one million UTF-16 code units (roughly 2 MB of pointer characters). It checks each projected escaped path before allocating it. This prevents a long ancestor member name from being copied into thousands of child locations despite a small document. The allowance is an implementation policy, not a protocol or JSON syntax requirement: library and fetched-document reports use `json-resource-limit`, `indeterminate`, and `refused: true`; pasted HTTP documents return `413`. The allowance bounds location strings, not every allocation made by validation.
 
-How it compares with the two other open validators is in [interop-testing.md](interop-testing.md#validator-cross-check). How its rules are versioned is in [the spec](../pda-spec.md).
+How it compares with the two other open validators is in [interop-testing.md](history/interop-testing.md#validator-cross-check). How its rules are versioned is in [the spec](../pda-spec.md).

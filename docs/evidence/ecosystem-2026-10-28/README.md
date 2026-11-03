@@ -1,6 +1,6 @@
 # Ecosystem evidence — 28 October 2026
 
-The [refresh report](../../ecosystem-refresh-2026-10-28.md) interprets these observations. Source and discovery receipts name their individual observation times and revisions; the local grid receipts name the exact implementation commits. None establishes a live sign-in or purchase.
+The [refresh report](../../history/ecosystem-refresh-2026-10-28.md) interprets these observations. Source and discovery receipts name their individual observation times and revisions; the local grid receipts name the exact implementation commits. None establishes a live sign-in or purchase.
 
 ## Browser evidence
 

@@ -4,7 +4,7 @@
  * other version is refused before its issuer is used. We speak 0.3 alone,
  * as retrieved on 29 October 2026 (spec/draft-0.3-retrieved-2026-10-29),
  * decision 37. The list stays a list so a new version is added as data
- * (docs/poppy-0.3-plan.md).
+ * (docs/upgrading.md).
  */
 export const PROTOCOL_VERSIONS = ["0.3"] as const;
 export type ProtocolVersion = (typeof PROTOCOL_VERSIONS)[number];

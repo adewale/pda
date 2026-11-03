@@ -1,6 +1,6 @@
 # 23 October ecosystem evidence
 
-The [refresh report](../../ecosystem-refresh-2026-10-23.md) explains the source checks, directory observations, all 28 discovery verdicts and their limits.
+The [refresh report](../../history/ecosystem-refresh-2026-10-23.md) explains the source checks, directory observations, all 28 discovery verdicts and their limits.
 
 - `discovery.json`: dated public-document results, profile/revision, diagnostics, public request URLs and parsed-document hashes. No Session or account data was collected.
 - `sources.json`: 17 checked repository heads, three incremental comparisons, Everruns' unchanged Poppy tree hashes and dated public discussions.

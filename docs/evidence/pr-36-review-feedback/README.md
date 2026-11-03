@@ -1,6 +1,6 @@
 # PR 36: three follow-up review corrections
 
-The review identified three remaining defects in the production client. The fixes keep their scope separate from the [remaining interoperability evidence gaps](../../poppy-0.3-conformance.md#is-the-03-verification-sufficient).
+The review identified three remaining defects in the production client. The fixes keep their scope separate from the [remaining interoperability evidence gaps](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md#is-the-03-verification-sufficient).
 
 | Finding | Correction | Regression evidence |
 | --- | --- | --- |

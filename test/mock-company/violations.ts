@@ -24,7 +24,7 @@
  * - `SHOULD (…):` or `SHOULD NOT (…):` a SHOULD in the spec.
  * - `Guides (heading: …):` only a recommendation in the Guides.
  * - `Reading (S2; 4.1):` our answer to an open question in
- *   docs/spec-issues.md, recorded in docs/readings.md.
+ *   docs/history/spec-issues.md, recorded in docs/readings.md.
  *
  * Ids are stable names, so a few keep 0.2's words: `account-token` is the
  * refresh token (4.4).

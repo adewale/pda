@@ -19,7 +19,7 @@
  * - `Guides`: the Guides, which say each item is "a recommendation, in the
  *   sense of SHOULD" and that following them "is not required to comply".
  * - `Reading`: our answer to a question the draft leaves open
- *   (docs/readings.md, docs/spec-issues.md).
+ *   (docs/readings.md, docs/history/spec-issues.md).
  * - `MAY`: optional.
  */
 export const BASES = ["MUST", "RFC", "Rule", "SHOULD", "Guides", "Reading", "MAY"] as const;

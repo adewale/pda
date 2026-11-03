@@ -1,22 +1,22 @@
 # Ecosystem refresh — 28 October 2026
 
-> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](../poppy-0.3-conformance.md#current-verification), [deployment state](../deployment-tasks.md) and the [harness contract](../interop-spec.md) for current decisions.
 
 This refresh reads 23 repository heads and 33 public Company hosts. It adds six source candidates, observes draft 0.3 upstream and in six live documents, and exercises Datalayer's last 0.2 SDK revision in Docker. The map's historical full-grid scores and live customer journeys retain their earlier dates.
 
-The [survey JSON](evidence/ecosystem-2026-10-28/survey.json) records each observation time, source revision, request URL, diagnostics and canonical parsed-document hashes. The [generated report](evidence/ecosystem-2026-10-28/survey.md) makes the data readable. Nine existing heads moved, eight were unchanged, and six repositories were newly inspected. This is a bounded inventory, not an exhaustive census.
+The [survey JSON](../evidence/ecosystem-2026-10-28/survey.json) records each observation time, source revision, request URL, diagnostics and canonical parsed-document hashes. The [generated report](../evidence/ecosystem-2026-10-28/survey.md) makes the data readable. Nine existing heads moved, eight were unchanged, and six repositories were newly inspected. This is a bounded inventory, not an exhaustive census.
 
 ## Specification and package movement
 
 The official source is now [`a95b757`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/a95b757872533a6ef1e1a9bcf29802857d2e5ff4), committed 26 October. Its [changelog](https://github.com/personal-agent-protocol/personal-agent-protocol/blob/a95b757872533a6ef1e1a9bcf29802857d2e5ff4/content/shared/changelog.mdx) describes draft **0.3 in progress**: Session Keys replace `session_id`; scopes become Company-defined; OAuth metadata and protected-resource bindings change; browser joining uses a one-time code and a Session Key proof. Other changes cover Token Exchange, conversation authors and the Company kit.
 
-PDA continues to adopt the exact 19 October 0.2 source at `39b35bd`, with 0.1 compatibility. This refresh changes no runtime protocol profile or official-validator pin. `npm run spec:drift` detects changed and removed kit files; a removed current schema is now reported as drift instead of terminating the comparison with an unhandled 404. [Actual comparison output](evidence/ecosystem-2026-10-28/spec-drift.txt).
+PDA continues to adopt the exact 19 October 0.2 source at `39b35bd`, with 0.1 compatibility. This refresh changes no runtime protocol profile or official-validator pin. `npm run spec:drift` detects changed and removed kit files; a removed current schema is now reported as drift instead of terminating the comparison with an unhandled 404. [Actual comparison output](../evidence/ecosystem-2026-10-28/spec-drift.txt).
 
 npm and PyPI advertise Datalayer **0.27.0**. Its [source changelog](https://github.com/datalayer/personal-agent-protocol/blob/a3713e358dd407080d446c8934250e9cdf684dad/CHANGELOG.md) still labels that heading unreleased, while describing the 0.3-only migration with no 0.2 compatibility. Poppyseed's registry advertises **0.3.1**, whose checked source says it reconciles with 26 October's draft 0.3. These registry/source observations do not establish deployed behavior.
 
 ## New source candidates
 
-The new sources are detailed in [implementations.md](implementations.md#source-additions-and-profile-changes--28-october-2026):
+The new sources are detailed in [implementations.md](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/implementations.md#source-additions-and-profile-changes--28-october-2026):
 
 - **koh/poppy**, with TYPO3 and Sylius integrations: one shared PHP 0.2 Company core and two framework integrations, published as read-only mirrors. All three report MIT licences. They are not counted as three independently exercised protocol engines.
 - **PoppyKit client and server**: TypeScript SDKs for 0.2, MIT. Their READMEs require Node 24.21 or later and describe unreleased repairs with publication pending. No adapter was added and neither was run here.
@@ -51,7 +51,7 @@ npm run interop -- --agents pda,datalayer-ts-v02,datalayer-py-v02 \
   --scenarios D,S0 --build-jobs 1
 ```
 
-**18 pass, none failed or unsupported.** The [smoke receipt](evidence/ecosystem-2026-10-28/grid-smoke-receipt.json) names the checked commits.
+**18 pass, none failed or unsupported.** The [smoke receipt](../evidence/ecosystem-2026-10-28/grid-smoke-receipt.json) names the checked commits.
 
 The same images then ran all thirty honest scenarios:
 
@@ -61,7 +61,7 @@ npm run interop -- --no-build --agents pda,datalayer-ts-v02,datalayer-py-v02 \
   --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM
 ```
 
-**211 pass, 7 fail, 52 unsupported, 0 error; no flaky cells. PDA: 74 pass, 0 fail, 16 unsupported.** [Aggregate receipt](evidence/ecosystem-2026-10-28/grid-receipt.json). The seven failures match the previously [published 0.25 compatibility findings](poppy-0.2-upgrade.md#validation): three TypeScript streaming cells and four SDK handoff/close response-shape cells. They remain unexempted and the command exits **1**. No new known-failure exemption was added.
+**211 pass, 7 fail, 52 unsupported, 0 error; no flaky cells. PDA: 74 pass, 0 fail, 16 unsupported.** [Aggregate receipt](../evidence/ecosystem-2026-10-28/grid-receipt.json). The seven failures match the previously [published 0.25 compatibility findings](poppy-0.2-upgrade.md#validation): three TypeScript streaming cells and four SDK handoff/close response-shape cells. They remain unexempted and the command exits **1**. No new known-failure exemption was added.
 
 Only aggregate counts for previously public compatibility findings are committed. Raw traces stay in the gitignored local results directory.
 

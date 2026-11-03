@@ -1,10 +1,10 @@
 # Poppy 0.2 upgrade: decisions and evidence
 
-> Historical 21 October record. PDA now supports 0.3 alone; use [current upgrade instructions](upgrading.md). Code and test links below are pinned to this report’s implementation revision (`49ddf7a`), not today’s source. The old ledger is frozen; `spec:docs` maintains only the active version.
+> Historical 21 October record. PDA now supports 0.3 alone; use [current upgrade instructions](../upgrading.md). Code and test links below are pinned to this report’s implementation revision (`49ddf7a`), not today’s source. The old ledger is frozen; `spec:docs` maintains only the active version.
 
 This change adds **dual 0.1/0.2 support**, targeting draft 0.2 at upstream commit `39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d` (19 October 2026), Operations v1. Draft 0.2 is still in progress. It is not a stable published release or certification.
 
-The ecosystem survey was completed before implementation. It changed the reuse decision: official schemas and a Company validator now exist, Datalayer has a 0.2 SDK and its own language matrix, and PDA's useful distinction is cross-project interoperability. See the [current map](ecosystem.md), including dated source links and retained historical evidence. We found no equivalent public cross-project M×N harness in the surveyed sources; that is not proof that none exists.
+The ecosystem survey was completed before implementation. It changed the reuse decision: official schemas and a Company validator now exist, Datalayer has a 0.2 SDK and its own language matrix, and PDA's useful distinction is cross-project interoperability. See the [current map](../ecosystem.md), including dated source links and retained historical evidence. We found no equivalent public cross-project M×N harness in the surveyed sources; that is not proof that none exists.
 
 ## Smallest safe steps
 
@@ -13,7 +13,7 @@ The ecosystem survey was completed before implementation. It changed the reuse d
 3. **Change only the affected client decisions.** Select discovery/domain comparison, assertion audience, device-link trust and MCP token mode by the declared version. Reuse crypto, safe transport, identity, token renewal, errors, sign-ins, conversations, approval cards and Operations.
 4. **Protect state and consent.** Add immutable pending-work context; retain issuer-based identities and encryption contexts. Stop changed/ambiguous pending work for reconciliation. Add the model's Company task boundary and privacy disclosure.
 5. **Validate independently.** Extend the existing harness, not a second runner. Keep 0.1 and 0.2 peer entries side by side. Run official Company checks separately from M×N cells; exercise independent SDK Companies and agents. Preserve failures and unsupported results.
-6. **Release with evidence.** Update the changelog and map, run both lanes, then deploy to staging and exercise a test account and sandbox approval. Promote the Unreleased entry only after recording the deployed commit. See [upgrading and rollback](upgrading.md).
+6. **Release with evidence.** Update the changelog and map, run both lanes, then deploy to staging and exercise a test account and sandbox approval. Promote the Unreleased entry only after recording the deployed commit. See [upgrading and rollback](../upgrading.md).
 
 These are review and rollout boundaries, not permission for a new binary to guess a future version's meaning. No runtime rule is downloaded from upstream.
 
@@ -35,7 +35,7 @@ Do not replace PDA's client wholesale with the current Datalayer SDK: it deliber
 
 ## Official changelog ledger
 
-Every entry in the [pinned official changelog](../spec/draft-0.2-2026-10-19/pages/changelog.md) has a disposition below. The [machine-readable ledger](../spec/requirements-0.2.json) owns this generated table. This generated table is historical and no longer regenerated; the active ledger and its checks are described in [upgrading](upgrading.md). This is change accounting, not a claim that every normative sentence has a dedicated automated test. “Company obligation” distinguishes requirements PDA does not implement as a deployed Company.
+Every entry in the [pinned official changelog](../../spec/draft-0.2-2026-10-19/pages/changelog.md) has a disposition below. The [machine-readable ledger](../../spec/requirements-0.2.json) owns this generated table. This generated table is historical and no longer regenerated; the active ledger and its checks are described in [upgrading](../upgrading.md). This is change accounting, not a claim that every normative sentence has a dedicated automated test. “Company obligation” distinguishes requirements PDA does not implement as a deployed Company.
 
 <!-- BEGIN GENERATED REQUIREMENT LEDGER -->
 | Upstream change | Disposition | Implementation / evidence | Scope and limits |
@@ -92,7 +92,7 @@ Every entry in the [pinned official changelog](../spec/draft-0.2-2026-10-19/page
 
 ## Old readings
 
-The [0.1 issue catalogue](spec-issues.md) and [readings](readings.md) are historical, with stable IDs. They remain valid input for the 0.1 lane. In 0.2:
+The [0.1 issue catalogue](spec-issues.md) and [readings](../readings.md) are historical, with stable IDs. They remain valid input for the 0.1 lane. In 0.2:
 
 | Old finding | Treatment |
 | --- | --- |
@@ -109,7 +109,7 @@ Known-failure entries without a version are scoped to 0.1. They cannot exempt a 
 
 Integrated main `93777e3` (PR #12): keep its issuer-scoped conversation handles, durable cancellation/approval checks, paused generic standing approvals, per-login revocation, input provenance, validator limits and durable budget settlement. These are not replaced by the version upgrade.
 
-Results are local and isolated; no production deployment or real purchase is claimed. [Committed result summary](interop-results/2026-10-21-poppy-0.2.json) records each cell and official check without tokens or full traffic. Raw JSON, HAR, HTML and container logs remain in the gitignored artifact directories named there. Runs used the working tree before commit; they are not checks of a deployed release.
+Results are local and isolated; no production deployment or real purchase is claimed. [Committed result summary](../interop-results/2026-10-21-poppy-0.2.json) records each cell and official check without tokens or full traffic. Raw JSON, HAR, HTML and container logs remain in the gitignored artifact directories named there. Runs used the working tree before commit; they are not checks of a deployed release.
 
 | Check | Result |
 | --- | --- |

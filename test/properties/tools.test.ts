@@ -199,7 +199,7 @@ describe("calculate", () => {
         if (built.value === null && /Division by zero/.test((error as Error).message)) return;
         // A bounded eager evaluator may refuse an oversized operand before
         // reaching a zero divisor. Both reference outcomes need the same
-        // independent size witness; see docs/calculator-property-triage.md.
+        // independent size witness; see docs/history/calculator-property-triage.md.
         expect((error as Error).message, built.text).toMatch(/too large/);
         expect(bits, built.text).toBeGreaterThan(3000);
         return;

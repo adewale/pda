@@ -1,6 +1,6 @@
 # Ecosystem refresh — 23 October 2026
 
-> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](../poppy-0.3-conformance.md#current-verification), [deployment state](../deployment-tasks.md) and the [harness contract](../interop-spec.md) for current decisions.
 
 The current map was rechecked against public source revisions, release registries, directories and discovery documents. The largest new observations are Archon's directory entry and test identity, direct confirmation of Print with Poppy's production/sandbox 0.2 declarations, Alpine Retail's 0.2 declaration, and four 0.1 addresses that fail their declared profile's domain rule. The specification remains at `39b35bd`; Datalayer remains at 0.26.0.
 
@@ -8,7 +8,7 @@ This is a source and document refresh. No third-party code, Sessions, conversati
 
 ## Repositories and packages
 
-Seventeen public repository heads were read, including the official repository, implementations, tools, a community list and the new Archon test identity. The [source receipt](evidence/ecosystem-2026-10-23/sources.json) records full revisions, commit dates and incremental comparisons. A commit date is not the date we checked it.
+Seventeen public repository heads were read, including the official repository, implementations, tools, a community list and the new Archon test identity. The [source receipt](../evidence/ecosystem-2026-10-23/sources.json) records full revisions, commit dates and incremental comparisons. A commit date is not the date we checked it.
 
 | Repository | Head read on 23 October | Last commit date |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ GitHub repository searches since 21 October found a specification fork and the n
 
 The official repository still resolves to [`39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d), the revision already pinned in PDA. The live changelog still calls 0.2 a draft in progress.
 
-The snapshot command reports differences against its newest **website** manifest, which is the 12 October 0.1 snapshot retrieved on 13 October. Those differences include the already-known 0.2 page reorganization; they do not mean the official source changed since yesterday. The [comparison output](evidence/ecosystem-2026-10-23/spec-site-comparison.txt) names its baseline. This refresh does not replace the separately imported, hash-verified 19 October 0.2 source or its grounding.
+The snapshot command reports differences against its newest **website** manifest, which is the 12 October 0.1 snapshot retrieved on 13 October. Those differences include the already-known 0.2 page reorganization; they do not mean the official source changed since yesterday. The [comparison output](../evidence/ecosystem-2026-10-23/spec-site-comparison.txt) names its baseline. This refresh does not replace the separately imported, hash-verified 19 October 0.2 source or its grounding.
 
 Newly relevant discussions are [OAuth/AIMS alignment #35](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/35), the [23 October task-grant revision #28](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/28), and device-local [key custody #31](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/31) and [redirect constraints #33](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/33). The OAuth proposal would change names, metadata and authorization flows, including removing Mediated Sign-In; its comments debate device-grant policy. These remain proposals, not adopted rules.
 
@@ -64,7 +64,7 @@ PDA's `validateTarget` library checked **28 addresses sequentially** through Nod
 
 There were **23 valid, 4 invalid and 1 indeterminate** results. Nine documents declare 0.2, eighteen declare 0.1, and Intercom returned no document. Each was checked against its declared profile at PDA source `fc5f7f9bcf664cd71bfdd281ce7e532f869720bc`. “Valid” means no document-validation errors; warnings and informational findings remain recorded. It does not mean a complete protocol implementation works.
 
-The [sanitized result file](evidence/ecosystem-2026-10-23/discovery.json) records the observation time, profile/revision, diagnostic ids and text, final URLs, response metadata, canonical parsed-JSON hashes and requested URLs. It excludes document bodies. Hashes are of parsed JSON serialized with sorted keys, UTF-8, no extra whitespace and unescaped Unicode; they are not response-byte hashes.
+The [sanitized result file](../evidence/ecosystem-2026-10-23/discovery.json) records the observation time, profile/revision, diagnostic ids and text, final URLs, response metadata, canonical parsed-JSON hashes and requested URLs. It excludes document bodies. Hashes are of parsed JSON serialized with sorted keys, UTF-8, no extra whitespace and unescaped Unicode; they are not response-byte hashes.
 
 | Address | Declared profile | Result | Errors / warnings / info |
 | --- | --- | --- | --- |
