@@ -36,7 +36,21 @@ export type OperationV2 = {
 export type ApprovalV2 = { readonly operation_id: string; readonly revision: string; readonly expires_at: string };
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
-const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/;
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+
+/** Check calendar fields before Date.parse, which rolls 30 February into March. */
+function validExpiry(value: string): boolean {
+  const match = RFC3339.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = month === 2 && leap ? 29 : MONTH_DAYS[month - 1];
+  return days !== undefined && day >= 1 && day <= days
+    && Number(match[4]) <= 23 && Number(match[5]) <= 59 && Number(match[6]) <= 59
+    && (match[7] === undefined || (Number(match[7]) <= 23 && Number(match[8]) <= 59))
+    && Number.isFinite(Date.parse(value));
+}
 /** The longest summary we show: the Company's words, which the User reads in full. */
 const SUMMARY_LIMIT = 4_000;
 
@@ -53,7 +67,7 @@ export function parseOperationV2(value: Json | undefined): OperationV2 | { reado
   if (typeof summary !== "string" || summary.trim() === "") return { problem: "it has no summary" };
   if (summary.length > SUMMARY_LIMIT) return { problem: "its summary is too long to show" };
   if (terms !== undefined && !isObject(terms)) return { problem: "its terms aren't an object" };
-  if (typeof expiresAt !== "string" || !RFC3339.test(expiresAt) || Number.isNaN(Date.parse(expiresAt))) return { problem: "its expires_at isn't an RFC 3339 time" };
+  if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: "its expires_at isn't an RFC 3339 time" };
   return { operation_id: id, revision, summary, ...(terms !== undefined ? { terms } : {}), expires_at: expiresAt };
 }
 

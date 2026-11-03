@@ -48,7 +48,7 @@ You can send while the page is still connecting or reconnecting. The message sho
 - Times are in your time zone, at most a year ahead, and nothing repeats more often than daily: once, daily, on weekdays, or weekly on a day. Up to 20 can wait at once.
 - Only you can set or cancel one, by asking in the chat. A company's message, a web page or a task's own run can't.
 
-## Approvals and standing permissions
+## Approvals
 
 Your agent makes requests for the task you asked for. A company may carry out a routine request immediately. When it asks for approval, its exact terms open in the **Needs you** panel above the message box, with **Approve** and **Decline**. You can keep chatting while it is open. Collapse the panel, or press Escape while working in it, without answering; the **Needs you** button keeps the pending count and opens it again. Anything you entered in a sign-in form stays there while the panel is collapsed.
 
@@ -57,7 +57,7 @@ Your agent makes requests for the task you asked for. A company may carry out a 
 - **Sending a selected photo** needs no second permission click. Attach it to your request, name an earlier photo by its unique image filename (quote unusual or extensionless names), or refer to the most recent photo ("print that photo"). The agent can upload it to the Company the task is for; the Company's order terms still need your approval. A Company cannot select another stored photo or add another recipient. If the photo isn't selected or its reference is ambiguous, a disclosure card shows the photo and destination before sending. Several such photos going to the same place share one card; untick any you don't want sent. Stop/reset withdraw previous task grants. After this policy upgrade, restate an older unfinished task in a fresh message rather than assuming its old context permits an automatic upload.
 
 When you've decided, the outcome shows on the line in the chat where your agent asked: "Sent “lake.jpg” to Print Shop", or "Couldn't send “meadow.gif”" with the company's status code and **Ask your agent to try again**. The company's raw answer, and every exchange in order, are behind **Details** and in **Activity → Protocol**; a link from Details opens that company's log. Links in an answer that carry a signature or a token show as "…" after the address, because anyone holding one could use it.
-- **Standing permissions are paused.** Every new operation asks you to approve its exact revision. Older permissions remain visible on the Company's page and can be removed; they no longer authorize new work. The old summary-prefix matcher could not check the full action and every term.
+- **Each operation needs its own decision.** The agent offers no standing permissions. The 0.3 update removed earlier permission records and closed their old operation cards; it did not cancel actions at a Company. If an action's outcome is unknown, check with the Company and record what happened on its receipt before asking for more writes there. That records your answer without sending the uncertain request again.
 
 Signing in to a company, signing out, and talking to a company's staff directly in a Direct Conversation are also yours to do on the page; the agent can only ask.
 

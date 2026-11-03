@@ -160,7 +160,7 @@ The combined own-code lane passes 102 cells; PDA passes all 74 exercised cross-p
 
 ### Rollback
 
-Return to the previous deployment with its original configuration and keys. An older 0.1-only binary cannot safely operate at a 0.2 Company: stop those tasks first. Preserve pending revocations and reconcile uncertain operation outcomes before retrying. Additive task-context records can remain in storage. See [compatibility and rollback](docs/upgrading.md#compatibility-and-rollback).
+Return to the previous deployment with its original configuration and keys. An older 0.1-only binary cannot safely operate at a 0.2 Company: stop those tasks first. Preserve pending revocations and reconcile uncertain operation outcomes before retrying. Additive task-context records can remain in storage. See [compatibility and rollback](docs/upgrading.md#state-and-rollback).
 
 ## Baseline — 18 October 2026
 

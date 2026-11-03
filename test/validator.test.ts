@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
+import { exportJWK, generateKeyPair, importJWK } from "jose";
 import {
   levelOf,
   MESSAGES,
@@ -147,8 +148,8 @@ const SPEC_CLIENT = {
 };
 
 const EC_KEY = { kty: "EC", crv: "P-256", x: "8-v-FQSg6HqFvDLzsN9fEh7NvGi44Yqf-NKynVlZowc", y: "NgMN41ye2FK9tOqb9Ok-UknmdzyXZp5RUrGqivhZjZY", kid: "k1", use: "sig", alg: "ES256" };
-/** A 2048-bit modulus, as far as the key size check is concerned. */
-const RSA_N = "x".repeat(342);
+/** A canonical Base64urlUInt with 2048 bits; signature tests use generated RSA keys. */
+const RSA_N = `${"x".repeat(341)}w`;
 
 const withPoppy = (change: (doc: Record<string, any>) => void) => {
   const doc = structuredClone(SPEC_POPPY) as Record<string, any>;
@@ -760,6 +761,67 @@ const CLIENT: readonly Fixture[] = [
     name: "requires at least one key",
     run: () => text("jwks", { keys: [] }),
     ids: ["jwks-empty"]
+  },
+  {
+    name: "refuses a fetched EC signing key whose public coordinates are missing",
+    run: () => validateClient(network({
+      "https://agent.example/agent.json": jsonResponse(SPEC_CLIENT),
+      "https://agent.example/jwks.json": jsonResponse({ keys: [{ kty: "EC", crv: "P-256", kid: "missing", alg: "ES256" }] })
+    }), "https://agent.example/agent.json"),
+    ids: ["jwks-key-material", "jwks-key-material"],
+    outcome: "invalid",
+    also: async report => {
+      expect(report.refused).toBe(true);
+      expect(report.messages.map(message => message.pointer)).toEqual(["/keys/0/x", "/keys/0/y"]);
+      expect(report.messages.every(message => message.severity === "error" && message.refuses && message.basis === "RFC")).toBe(true);
+      await expect(importJWK({ kty: "EC", crv: "P-256", kid: "missing", alg: "ES256" }, "ES256")).rejects.toThrow();
+    }
+  },
+  {
+    name: "rejects malformed coordinate encodings and points outside P-256",
+    run: () => text("jwks", { keys: [
+      { ...EC_KEY, kid: "short", x: "AQ" },
+      { ...EC_KEY, kid: "padded", x: `${EC_KEY.x}=` },
+      { ...EC_KEY, kid: "spelling", x: `${EC_KEY.x.slice(0, -1)}d` },
+      { ...EC_KEY, kid: "point", x: "A".repeat(43), y: "A".repeat(43) }
+    ] }),
+    ids: Array(4).fill("jwks-key-material"),
+    outcome: "invalid",
+    also: report => expect(report.messages.map(message => message.pointer)).toEqual(["/keys/0/x", "/keys/1/x", "/keys/2/x", "/keys/3"])
+  },
+  {
+    name: "requires RSA key integers and checks their exact bit length",
+    run: () => text("jwks", { keys: [
+      { kty: "RSA", kid: "missing", alg: "PS384" },
+      { kty: "RSA", kid: "malformed", n: `${RSA_N}=`, e: "AQAC", alg: "PS384" },
+      { kty: "RSA", kid: "noncanonical", n: "x".repeat(342), e: "AAEAAQ", alg: "PS384" },
+      { kty: "RSA", kid: "small", n: `AR${"x".repeat(339)}w`, e: "AQAB", alg: "PS384" }
+    ] }),
+    ids: [...Array(6).fill("jwks-key-material"), "jwks-rsa-small"],
+    outcome: "invalid",
+    also: report => expect(report.messages.at(-1)?.text).toContain("2041-bit")
+  },
+  {
+    name: "rejects supported algorithms paired with the wrong key type or curve",
+    run: () => text("jwks", { keys: [
+      { ...EC_KEY, alg: "PS384" },
+      { kty: "RSA", n: RSA_N, e: "AQAB", kid: "rsa", alg: "ES256" }
+    ] }),
+    ids: ["jwks-key-material", "jwks-key-material"],
+    outcome: "invalid"
+  },
+  {
+    name: "accepts generated EC and RSA public signing keys that the cryptographic verifier can import",
+    run: async () => {
+      const keys = await Promise.all(["ES256", "PS384"].map(async alg => ({
+        ...await exportJWK((await generateKeyPair(alg, { extractable: true })).publicKey), alg, kid: alg
+      })));
+      for (const key of keys) await expect(importJWK(key, key.alg)).resolves.toBeDefined();
+      return text("jwks", { keys });
+    },
+    ids: [],
+    outcome: "valid",
+    also: report => expect(report.refused).toBe(false)
   },
   {
     // 5.3: Companies fetch client_id without following redirects, as the CIMD draft requires.

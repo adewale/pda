@@ -1,33 +1,27 @@
 # Operation approval and withdrawal
 
-Every new operation requires the User's approval of its exact revision on the agent's own card. Generic standing permissions are paused. A summary beginning with a word such as "exchange" cannot establish that the permission covers the action and every term, as Operations §5.1 requires. A Company's normal proposal call remains part of the protocol: it proposes an action, and the User then approves that proposal.
+PDA implements Operations 2. It sends requests for the User's task normally; a Company can carry out a routine request immediately. When the Company returns `approval_required` with an operation, the agent shows that revision's exact terms on its own card. Only the User's decision on that card authorizes sending the request again with the approval. The model cannot approve it.
 
-Older permissions remain visible as paused records in Companies and can be removed. The page offers no new automatic grants. Existing records showing a standing permission as the decision maker describe earlier actions; they do not grant future authority. The runtime also refuses new `standing_permission` approvals, including calls from older adapters.
+Website forms and disclosure of files the User did not select for the task still need their own local cards. A task-selected photo needs no second disclosure click. [The design](../pda-spec.md#apis-7) explains these paths and their durable request records.
 
-## Existing approvals after an update
+## What the decision authorizes
 
-Startup recovery and sign-in recovery retire unsent approvals created by the old summary heuristic and show their proposals for explicit approval. An operation whose confirmation may already have been sent is kept in tracking. The agent reads its state and requests cancellation rather than discarding its outcome or confirming it again.
+An approval names the Company's operation ID, revision and expiry. The stored request also binds the issuer, Session, account and authority generation. Before dispatch, the client checks those bindings and checks that the reconstructed method and URL still match the request shown on the card. It repeats the authority checks after asynchronous preparation, including token renewal, rate-limit waits and DPoP nonce challenges.
 
-Existing per-revision User approvals remain valid across ordinary authentication recovery, provided their terms and account still match and the User has not withdrawn them. Removing a separate standing permission does not invalidate an independently recorded User approval.
+A pending decision is claimed once before dispatch. If approval and decline arrive together, the first claim wins. A late click on an earlier receipt cannot approve a new attempt, even if the Company repeats the same terms. New terms require a new decision.
 
-When a definitely unsent approval was made while signed out, signing in identifies an account the original decision did not name. The agent binds the accessible proposal to that account, reopens its card and requires fresh explicit approval. It does not leave the proposal permanently stuck behind the account check or silently carry authority across that change.
+## Withdrawal and uncertain outcomes
 
-## Withdrawing an approval
+Declining a pending card ends that local decision without sending an approval. Signing out or changing the account or Session invalidates the authority bound to an unsent request. Stop and reset withdraw task grants, including permission to upload task-selected photos. These changes do not undo a request already dispatched.
 
-Decline or cancellation first records a durable cancellation request, clears approval, and advances an authorization generation. These writes happen before network work. A refused cancellation, a restart, or a delayed original response cannot restore permission to confirm.
+Operations 2 has no remote confirm, cancel or operation-tracking endpoint. If a dispatched action's outcome is unknown, the agent preserves its receipt and blocks further writes at that Company until the User checks what happened. It does not resend the uncertain request. The User can record that the action happened or did not happen; this assertion is stored separately from the original receipt and sends no business request. A failed receipt update or notification does not turn a committed result into permission to retry.
 
-The agent checks the current generation, revision, account and User approval immediately before every actual confirmation request. This includes attempts after token renewal, rate-limit waits and DPoP nonce challenges. No asynchronous preparation occurs between that final check and starting the request.
+## Earlier protocol and storage forms
 
-Once a request has started, cancelling cannot establish that the Company has not already acted. The agent keeps checking the same operation and retries cancellation. The page reports a cancellation that has not been accepted. A final response or a newer revision already observed cannot be overwritten by a delayed older confirmation response; a contradiction gets a notice asking the User to check with the Company.
+The 0.3 migration removes Operations 1's proposals, operation tracking and standing-permission tables. Old operation cards become closed notices; they do not remain removable grants. Migration performs no remote cancellation or confirmation ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
 
-Pending cancellation and unknown outcomes continue to block a new proposal for the same request until the existing operation is final. The agent does not treat cancellation failure as evidence that nothing happened.
-
-## Reservation accounting
-
-Older in-flight operations can still hold a limited-use reservation. Settlement claims the current operation's reservation once before updating the permission's counters. A late response holding an older row snapshot cannot release the same use again or decrement another operation's reservation. Reservations for possibly sent work remain until its outcome can be reconciled.
+Current stored approvals use version 3 with explicit authority bindings. Earlier pending forms are refused rather than executed or upgraded. Restate unfinished work in a fresh User request. Historical receipts and unknown-outcome holds remain evidence of earlier attempts; an unsupported record is not proof that its request did nothing. [Upgrading](upgrading.md#pre-10-approval-reset) describes the storage boundary and rollback limits.
 
 ## Verification
 
-`test/audit-withdrawal.test.ts` exercises removal and expiry of older permissions, failed cancellation followed by sign-in recovery, unknown confirmations after recovery, cancellation during token preparation and DPoP retry, delayed success after cancellation or a newer revision, compound summaries, concurrent reservation settlement, fresh approval after signed-out recovery, and a newer User decision interleaved with legacy retirement. It uses the Workers runtime and actual Durable Object SQLite; remote responses are controlled to establish each ordering.
-
-`test/poppy.test.ts` keeps ordinary explicit approval, changed terms, authentication recovery, operation tracking and failure behavior covered. `test/ui/poppy-ui.test.tsx` checks that paused grants remain removable and no automatic-grant form is offered.
+[Withdrawal tests](../test/audit-withdrawal.test.ts) exercise sign-out during token preparation and DPoP retry. [Concurrent-decision tests](../test/approval-concurrency.test.ts) check that competing decisions dispatch at most once. [Outcome tests](../test/poppy-outcome-guard.test.ts) cover holds across interfaces and replacement Sessions, reconciliation of linked records, and receipt repair after interruption. These tests use controlled Company responses; they do not establish whether a real Company completed an uncertain action.

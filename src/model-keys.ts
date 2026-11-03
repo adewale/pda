@@ -24,7 +24,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS model_keys (
   source TEXT NOT NULL,
   added_at INTEGER NOT NULL,
   invalid_at INTEGER,
-  workspace TEXT
+  workspace TEXT,
+  generation TEXT
 )`;
 
 /** What the page may know about the key: never the key, nor any part of it. */
@@ -38,6 +39,9 @@ export type KeyInfo = {
   /** An Anthropic workspace ID, for a key that belongs to an organisation rather than one workspace. Not a secret. */
   readonly workspace: string | null;
 };
+
+/** Identifies one saved key internally, across calls and encryption-key rotation. */
+export type KeyVersion = { readonly provider: KeyProvider; readonly generation: string };
 
 export const PROVIDER_LABEL: Record<KeyProvider, string> = {
   anthropic: "Anthropic",
@@ -62,9 +66,10 @@ const keysTable = table("model_keys", {
   source: text,
   added_at: integer,
   invalid_at: nullable(integer),
-  workspace: nullable(text)
+  workspace: nullable(text),
+  generation: nullable(text)
 });
-const keyRow = keysTable.pick("provider", "sealed", "status", "source", "added_at", "workspace");
+const keyRow = keysTable.pick("provider", "sealed", "status", "source", "added_at", "workspace", "generation");
 
 type Row = {
   provider: KeyProvider;
@@ -73,6 +78,7 @@ type Row = {
   source: "pasted";
   added_at: number;
   workspace: string | null;
+  generation: string;
 };
 
 /** The one key slot of one agent. */
@@ -90,10 +96,11 @@ export class ModelKeys {
     // Agents created before workspace IDs: add the column in place.
     const columns = sql.exec("PRAGMA table_info(model_keys)").toArray() as { name: string }[];
     if (!columns.some((column) => column.name === "workspace")) sql.exec("ALTER TABLE model_keys ADD COLUMN workspace TEXT");
+    if (!columns.some((column) => column.name === "generation")) sql.exec("ALTER TABLE model_keys ADD COLUMN generation TEXT");
   }
 
   #row(): Row | undefined {
-    const row = one(this.#sql, keyRow, "SELECT provider, sealed, status, source, added_at, workspace FROM model_keys WHERE slot = 1");
+    const row = one(this.#sql, keyRow, "SELECT provider, sealed, status, source, added_at, workspace, generation FROM model_keys WHERE slot = 1");
     if (!row) return undefined;
     const { provider } = row;
     if (!isKeyProvider(provider)) {
@@ -103,24 +110,40 @@ export class ModelKeys {
       this.#sql.exec("DELETE FROM model_keys WHERE slot = 1 AND provider = ?", provider);
       return undefined;
     }
-    return { ...row, provider, source: literal("pasted")(row.source, "model_keys row.source") };
+    const generation = row.generation ?? crypto.randomUUID();
+    if (row.generation === null) this.#sql.exec("UPDATE model_keys SET generation = ? WHERE slot = 1 AND generation IS NULL", generation);
+    return { ...row, provider, generation, source: literal("pasted")(row.source, "model_keys row.source") };
   }
 
   info(): KeyInfo | null {
+    return this.current()?.info ?? null;
+  }
+
+  /** The public description and private version are read from the same row. */
+  current(): { readonly info: KeyInfo; readonly version: KeyVersion } | null {
     const row = this.#row();
-    return row ? { provider: row.provider, status: row.status, source: row.source, addedAt: row.added_at, workspace: row.workspace ?? null } : null;
+    return row ? {
+      info: { provider: row.provider, status: row.status, source: row.source, addedAt: row.added_at, workspace: row.workspace ?? null },
+      version: { provider: row.provider, generation: row.generation }
+    } : null;
+  }
+
+  isCurrent(version: KeyVersion): boolean {
+    const row = this.#row();
+    return row?.provider === version.provider && row.generation === version.generation;
   }
 
   /** Seal and store a key, with its Anthropic workspace ID if it needs one, replacing any other. */
   async put(provider: KeyProvider, key: string, workspace: string | null = null): Promise<void> {
     const sealed = await this.#sealer().seal(key, keyContext(provider, this.#agent));
     this.#sql.exec(
-      `INSERT OR REPLACE INTO model_keys (slot, provider, sealed, status, source, added_at, invalid_at, workspace)
-       VALUES (1, ?, ?, 'valid', 'pasted', ?, NULL, ?)`,
+      `INSERT OR REPLACE INTO model_keys (slot, provider, sealed, status, source, added_at, invalid_at, workspace, generation)
+       VALUES (1, ?, ?, 'valid', 'pasted', ?, NULL, ?, ?)`,
       provider,
       sealed,
       Date.now(),
-      workspace
+      workspace,
+      crypto.randomUUID()
     );
   }
 
@@ -128,15 +151,15 @@ export class ModelKeys {
     this.#sql.exec("DELETE FROM model_keys");
   }
 
-  /** The provider refused the key: stop using it, keep it so Settings can say which. */
-  markInvalid(): void {
-    this.#sql.exec("UPDATE model_keys SET status = 'invalid', invalid_at = ? WHERE slot = 1", Date.now());
+  /** Invalidate only the saved key that the failed request used. */
+  markInvalid(version: KeyVersion): boolean {
+    return one(this.#sql, keysTable.pick("slot"), "UPDATE model_keys SET status = 'invalid', invalid_at = ? WHERE slot = 1 AND provider = ? AND generation = ? AND status = 'valid' RETURNING slot", Date.now(), version.provider, version.generation) !== undefined;
   }
 
   /** The plaintext key for `provider`, only while it is valid. Re-seals a key sealed under the previous `TOKEN_ENC_KEY`. */
-  async open(provider: string): Promise<string | undefined> {
+  async open(provider: string, version?: KeyVersion): Promise<string | undefined> {
     const row = this.#row();
-    if (!row || row.provider !== provider || row.status !== "valid") return undefined;
+    if (!row || row.provider !== provider || row.status !== "valid" || (version && (row.provider !== version.provider || row.generation !== version.generation))) return undefined;
     const sealer = this.#sealer();
     const context = keyContext(row.provider, this.#agent);
     const { plaintext, current } = await sealer.openChecked(row.sealed, context);
@@ -147,7 +170,8 @@ export class ModelKeys {
         row.sealed
       );
     }
-    return plaintext;
+    const after = this.#row();
+    return after?.generation === row.generation && after.status === "valid" ? plaintext : undefined;
   }
 }
 
@@ -157,17 +181,20 @@ export class ModelKeys {
  */
 export class SealedCredentialStore implements CredentialStore {
   readonly #keys: ModelKeys;
+  readonly #version: KeyVersion | undefined;
 
-  constructor(keys: ModelKeys) {
+  constructor(keys: ModelKeys, version?: KeyVersion) {
     this.#keys = keys;
+    this.#version = version;
   }
 
   async read(providerId: string): Promise<Credential | undefined> {
-    const key = await this.#keys.open(providerId);
+    const key = await this.#keys.open(providerId, this.#version);
     return key === undefined ? undefined : { type: "api_key", key };
   }
 
   async list(): Promise<readonly CredentialInfo[]> {
+    if (this.#version && !this.#keys.isCurrent(this.#version)) return [];
     const info = this.#keys.info();
     return info?.status === "valid" ? [{ providerId: info.provider, type: "api_key" }] : [];
   }

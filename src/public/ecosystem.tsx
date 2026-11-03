@@ -38,6 +38,7 @@ const introduction = summaryAt < 0 ? "" : body.slice(0, summaryAt);
 const current = body.slice(Math.max(0, summaryAt), historyAt < 0 ? undefined : historyAt);
 const historical = historyAt < 0 ? "" : `## Survey method and related research\n\n${introduction}\n${body.slice(historyAt)}`;
 const currentHeading = /^## (Current ecosystem[^\n]*)/m.exec(current)?.[1];
+const upstreamHeading = /^### (Who implements[^\n]*)/m.exec(current)?.[1];
 const updated = /updated \*\*([^*]+)\*\*/.exec(source)?.[1];
 const historicalIds = new Set([...historical.matchAll(/^#{2,3} (.+)$/gm)].map(match => headingId(match[1]!)));
 
@@ -72,7 +73,7 @@ export default function Ecosystem() {
     <a className="public-link mt-3 inline-flex min-h-11 items-center gap-2 text-sm" href={ECOSYSTEM_SOURCE}>Read the source on GitHub <ArrowUpRightIcon size={16} aria-hidden /></a>
     <nav aria-label="On this page" className="my-8 flex flex-wrap gap-x-6 gap-y-3 border-y border-kumo-line py-4 text-sm">
       {currentHeading ? <a className="public-link" href={`#${headingId(currentHeading)}`}>Current ecosystem</a> : null}
-      <a className="public-link" href="#upstream-heads-versus-retained-grid-pins">Upstream revisions</a>
+      {upstreamHeading ? <a className="public-link" href={`#${headingId(upstreamHeading)}`}>Upstream revisions</a> : null}
       <a className="public-link" href="#scorecard">Historical scorecard</a>
     </nav>
     <p className="mb-5 text-sm text-kumo-subtle sm:hidden">Scroll tables sideways to read all columns.</p>
