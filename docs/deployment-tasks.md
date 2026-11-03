@@ -82,7 +82,7 @@ Each requires the configured deployment/account or a real device; local failures
 - [ ] Web Push (`WEB_PUSH_VAPID_JWK` is set): turn notifications on in Chrome or Firefox on a desktop (FCM, Mozilla), Chrome on Android (FCM), and on an iPhone from the app added to the Home Screen (Apple); Safari on a Mac and Edge on Windows (WNS) if to hand. A reminder arrives on each with the page closed, and opens the app when clicked. Check each push service answers 201 (the agent keeps the last status per device), and that `/sw.js` and `/manifest.webmanifest` are served with the page's CSP allowing them.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
 - [ ] The 3 November protocol refresh, after deploying it:
-  - The deployed validator reports a signed-out Company with no OAuth issuer, whose `/.well-known/oauth-protected-resource` is a 404, as valid with the `prm-no-issuer` note. The T-Mobile report is such a case.
+  - The deployed validator reports a signed-out Company with no OAuth issuer, whose `/.well-known/oauth-protected-resource` is a 404, as valid with the `prm-no-issuer` note, as in the reported case.
   - The agent calls that Company's MCP API signed out.
   - A Company still on the 29 October text (`pap_dlg`) refuses PDA's Session JWTs until it updates. Record which live Companies have moved.
 - [ ] Operator signatures (`POPPY_OPERATOR_KEY` is set):
