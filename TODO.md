@@ -20,9 +20,8 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 - [ ] **Sign-in recovery**: completing sign-in through recovery should run the saved after-sign-in step, without replaying an uncertain action.
 - [ ] **Protocol log gaps**: OpenAPI and MCP protected-resource fetches, ordinary website pages, and the Direct Sign-In callback's issuer check. Keep the existing secret filtering.
 - [ ] **HEIC photos**: convert where the browser supports decoding; otherwise ask for a JPEG.
-- [ ] **Operator signatures (5.3, a SHOULD since the 3 November text)**: sign requests that carry the Session header with a Web Bot Auth HTTP Message Signature covering `poppy-session` and `authorization`, from an operator key separate from the delegated Session keys. The guides describe the privacy limits.
-- [ ] **Company logos**: show `organization.logo_uri` with the Company's name and domain (Guides, "Finding a company"), fetched like any Company image.
-- [ ] **Narrower than 0.3 requires**: an MCP server at a Company with an issuer must publish metadata even for signed-out calls, an OpenAPI server off the Company's hosts is refused, and web alternatives off its hosts are dropped. Relax each only with a test that tokens and Session JWTs still go only where 5.2 allows.
+- [ ] **MCP 2026-07-28**: support MCP's stateless lifecycle (per-request metadata, no `initialize` or `Mcp-Session-Id`), which 0.3's section 7 now lists beside 2025-06-18. The client speaks 2025-06-18 only; a server that offers only 2026-07-28 can't be used yet.
+- [ ] **Operator signatures, live**: set `POPPY_OPERATOR_KEY` on the deployment and check one Company edge that verifies Web Bot Auth accepts its signatures (the draft revision, components and directory caching). The guides warn products differ.
 
 ## Maintenance
 

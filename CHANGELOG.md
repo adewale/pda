@@ -19,8 +19,18 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - Validator support for `organization.logo_uri`, `skill_index`, the `access` hint and the `links`, `disclosures` and `ucp` extension names.
 - Mock checks and fixtures: `message.extension-unlisted`; `issuerless`, `authDisabled` and `omitScopesSupported` configurations.
 
+- Web Bot Auth operator signatures (5.3) with the optional `POPPY_OPERATOR_KEY`, and a key directory at `/.well-known/http-message-signatures-directory`.
+- Company-first Direct Conversations: accepting an invitation names its `user_requested` event, and the User can let the Company speak first.
+- Company logos on the Companies page, fetched by the agent and served from `/api/companies/<domain>/logo`.
+- A sign-in type a Company refuses with `unauthorized_client` is remembered for an hour, and the Session continues signed out.
+- When a domain's Company identifier changes, accounts held under the old one are signed out and the User is told.
+- The official Company kit is re-pinned to the 3 November download, matching upstream `7205250`.
+
 ### Changed
 
+- Three rules where PDA had been stricter than 0.3 are relaxed. A server that a listed OpenAPI description names is a Session destination on any public HTTPS host. An MCP server's metadata is required only before requesting a token for it. Web alternatives keep HTTPS links on any host.
+- The mock keeps idempotency records for the agent, the User and any account rather than the Session.
+- An approval message stored by an earlier build with the top-level `approval` field is refused before sending.
 - `scopes_supported` is recommended, not required (`scopes-supported-missing`, a warning). Direct and Device Sign-In may request scopes the Company documents in `auth.scopes` or an OpenAPI description, even when they're absent from it.
 - Signing in again for more access requests the account's existing scopes along with the new ones.
 - Domains sharing an issuer are no longer refused when their `auth` objects differ.
@@ -30,6 +40,7 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 ### Migration and rollback
 
 - Nothing to migrate in storage. A Company without an issuer is keyed by `https://{domain}`, a new identifier with its own User IDs and Sessions. Discovery caches refresh on their own.
+- Optional: set `POPPY_OPERATOR_KEY` (`node scripts/poppy-secrets.mjs operator-key`) to send operator signatures. `wrangler.jsonc` routes the key directory to the Worker.
 - Rolling back to a build from before this change speaks the 29 October names, which Companies on the current text refuse. Reconcile any in-flight conversation approvals first.
 
 ### Validation

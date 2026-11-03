@@ -9,7 +9,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "A 404 for the domain's protected resource metadata, or metadata without authorization servers, means no issuer: the Company's identifier is https://{organization.domain}, which is the Session JWT aud and keys its User IDs, Sessions and records. The client uses its APIs, conversations, feedback and browser join signed out, needs no MCP server metadata, and refuses sign-in (no_sign_in) before sending anything. Timeouts, other statuses and invalid metadata settle nothing. Our reading: a 404 alone never replaces an issuer the client already knew; metadata that explicitly lists no authorization server does. The validator reports no issuer as information (prm-no-issuer) and sign-in offered without one as an error (issuer-required)."
+      "notes": "A 404 for the domain's protected resource metadata, or metadata without authorization servers, means no issuer: the Company's identifier is https://{organization.domain}, which is the Session JWT aud and keys its User IDs, Sessions and records. The client uses its APIs, conversations, feedback and browser join signed out, needs no MCP server metadata, and refuses sign-in (no_sign_in) before sending anything. Timeouts, other statuses and invalid metadata settle nothing. Our reading: a 404 alone never replaces an issuer the client already knew; metadata that explicitly lists no authorization server does. The validator reports no issuer as information (prm-no-issuer) and sign-in offered without one as an error (issuer-required). When a domain's identifier changes, accounts held under the old one are signed out through the usual revocation (kept old record, retried revoke job) and the User is told."
     },
     {
       "change": "Shared issuer with per-domain descriptions",
@@ -76,10 +76,10 @@
     },
     {
       "change": "Recommended operator signatures for edge compatibility",
-      "disposition": "Not done",
-      "implementation": "src/poppy/client.ts",
+      "disposition": "Done",
+      "implementation": "src/poppy/operator.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "SHOULD: requests don't carry a Web Bot Auth HTTP Message Signature yet. Session JWTs still verify on their own, and their absence doesn't invalidate a request. Tracked in TODO.md."
+      "notes": "With the optional POPPY_OPERATOR_KEY (an Ed25519 key of its own), every request carrying the Session header gets an RFC 9421 signature in the Web Bot Auth profile (draft-ietf-webbotauth-httpsig-protocol-00): @method, @authority, @path, the Signature-Agent member, poppy-session and authorization when present, keyid the JWK thumbprint, tag web-bot-auth. The key is published at /.well-known/http-message-signatures-directory with a possession proof. No Content-Digest is covered. The mock verifies signatures with its own verifier (operator-signature.invalid, operator-signature.components). Not checked against a live edge."
     },
     {
       "change": "Refused account changes",
@@ -135,21 +135,21 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "With auth.disabled, discovery offers no sign-in type and startSignIn refuses before any request; the issuer stays the identifier and stored refresh tokens keep working until revoked. unauthorized_client from a sign-in is reported and the Session continues signed out. The validator refuses auth.disabled with Mediated Sign-In or signed_in access (auth-disabled-sign-in)."
+      "notes": "With auth.disabled, discovery offers no sign-in type and startSignIn refuses before any request; the issuer stays the identifier and stored refresh tokens keep working until revoked. An unauthorized_client from the device endpoint, the Direct Sign-In callback or a token exchange continues signed out, tells the User, and is remembered for an hour, so that sign-in type isn't offered again meanwhile. The validator refuses auth.disabled with Mediated Sign-In or signed_in access (auth-disabled-sign-in)."
     },
     {
       "change": "Extension content in messages",
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Operations 2's approval goes in extensions.operations.approval, only to a Company that lists Operations 2, and a Company Agent's operation is read from extensions.operations.operation. A message needs text, data, context or extensions. The mock records extension content for an extension it doesn't list (message.extension-unlisted). Links and Disclosures content is ignored as unsupported extension content. A message intent stored by an earlier build with the old approval field is not rewritten."
+      "notes": "Operations 2's approval goes in extensions.operations.approval, only to a Company that lists Operations 2, and a Company Agent's operation is read from extensions.operations.operation. A message needs text, data, context or extensions. The mock records extension content for an extension it doesn't list (message.extension-unlisted). Links and Disclosures content is ignored as unsupported extension content. An approval message an earlier build stored with the old top-level field is refused before sending, and the User asks again."
     },
     {
       "change": "Company-first Direct Conversations",
-      "disposition": "Not used",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "The client starts a Direct Conversation with the User's own first message and doesn't send user_requested_event_id, which the text allows. The mock doesn't implement Company-first acceptance."
+      "evidence": "test/poppy.test.ts",
+      "notes": "Accepting a user_requested event names it in user_requested_event_id beside the parent's id; the User may write a first message or let the Company start (\"Let <Company> start\"), and a repeated acceptance reuses its intent and gets the same Direct Conversation. The mock validates the event id (invalid_request otherwise), speaks first without a message, and answers a retry with the same conversation."
     },
     {
       "change": "Operations version 2: retry with approval",
@@ -247,7 +247,7 @@
       "disposition": "Company obligation",
       "implementation": "test/mock-company/operations.ts",
       "evidence": "test/poppy-outcome-guard.test.ts",
-      "notes": "A Company obligation. The mock's approval checks weren't re-audited against the listed order in this refresh."
+      "notes": "Audited: the mock checks authority, then whether the operation was performed, then the revision and request, and answers as the first failing check says (test/mock-company/operations.ts)."
     },
     {
       "change": "Conversation ownership",
@@ -258,10 +258,10 @@
     },
     {
       "change": "Company logo",
-      "disposition": "Validator only",
-      "implementation": "src/validator/profiles/draft-0.3.ts",
-      "evidence": "test/validator.test.ts",
-      "notes": "The validator accepts organization.logo_uri as an HTTPS URL. The Companies page doesn't show logos yet (TODO.md)."
+      "disposition": "Done",
+      "implementation": "src/poppy/logo.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "The agent fetches organization.logo_uri itself (HTTPS, public host, at most 256 KB, PNG/JPEG/GIF/WebP recognized from its bytes, never SVG) and GET /api/companies/<domain>/logo serves it to that person, sandboxed. The Companies list and page show it beside the name and domain, never instead of the domain. The validator checks it is HTTPS."
     },
     {
       "change": "OAuth terms for Poppy names",
@@ -429,7 +429,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-model-policy.test.ts",
-      "notes": "Session JWTs and tokens go only to endpoints poppy.json lists and requests built from listed API descriptions, never to a link's target. This is stricter than the text: an OpenAPI server outside organization.domain and the issuer's protected_resources hosts is refused (untrusted_server). Web alternatives are still filtered to the Company's own hosts, which the text no longer requires."
+      "notes": "Session JWTs and tokens go only to endpoints poppy.json lists and to request URLs its listed API descriptions describe, including an OpenAPI server on another public host (whose own resource metadata is read for it); never to a link's target. Non-public hosts and plain HTTP stay refused. Web alternatives keep HTTPS links on any host, shown with their destination domain, never given credentials."
     },
     {
       "change": "Only the Personal Agent's browser joins a Session",
@@ -457,7 +457,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/apis.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Every access token is sent as its token_type names. A Company without an issuer has its MCP server used signed out without resource metadata. Stricter than the text: with an issuer, the MCP server must still publish metadata naming the issuer before even a signed-out call. The client speaks MCP 2025-06-18 with its own MCP session, separate from the Poppy Session."
+      "notes": "Every access token is sent as its token_type names. The MCP server's metadata must name the issuer only before a token is requested for it; signed-out calls, and every call at a Company without an issuer, go as poppy.json lists the server. The client speaks MCP 2025-06-18 with its own MCP session, separate from the Poppy Session; MCP 2026-07-28's stateless lifecycle isn't supported yet (TODO.md)."
     },
     {
       "change": "`author` replaces `sender`",
@@ -503,10 +503,10 @@
     },
     {
       "change": "Guides match the spec",
-      "disposition": "Shared",
-      "implementation": "src/poppy/client.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "No client change: PDA sends no RS256 assertions and requests a service token only when the service's resource isn't the Company's domain."
+      "disposition": "Done",
+      "implementation": "test/mock-company/apis.ts",
+      "evidence": "test/mock-company.test.ts",
+      "notes": "The mock keeps Idempotency-Key records for the agent, the User and any account rather than the Session, so a retry in a new Session repeats nothing. PDA sends no RS256 assertions and requests a service token only when the service's resource isn't the Company's domain."
     },
     {
       "change": "Explicit replies and crossed approvals",
