@@ -401,6 +401,10 @@ function DirectInvite({ card, send: sendFrame }: { card: Extract<Card, { kind: "
           <Action type="button" variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.direct.decline", conversationId: card.conversationId })}>
             Not now
           </Action>
+          {/* 8.10: accept without a first message, and the Company speaks first. */}
+          <Action type="button" variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.direct.start", conversationId: card.conversationId, text: "" })}>
+            Let {card.company} start
+          </Action>
           <Action type="submit" form={formId} variant="primary" disabled={empty || disabled} aria-describedby={hintId}>
             Talk to {card.company}
           </Action>
@@ -417,7 +421,7 @@ function DirectInvite({ card, send: sendFrame }: { card: Extract<Card, { kind: "
       >
         <InputArea value={text} onValueChange={setText} rows={2} placeholder="Hi, I'd like to explain this myself." aria-label="Your message" className="text-base" />
         <p id={hintId} className="mt-1 text-[13px] text-kumo-subtle">
-          {empty ? "Write your first message to start." : `Your words go to ${card.company} as written, from you.`}
+          {empty ? `Write your first message, or let ${card.company} start.` : `Your words go to ${card.company} as written, from you.`}
         </p>
       </form>
     </CardFrame>

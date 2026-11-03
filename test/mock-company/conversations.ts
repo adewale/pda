@@ -98,6 +98,8 @@ export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
   /** Message idempotency per User: id → content hash and conversation (8.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
+  /** Accepted `user_requested` events, by parent and event: the Direct Conversation each opened (8.10). */
+  readonly #acceptances = new Map<string, string>();
   /** Long polls waiting for the next event in any conversation. */
   #waiters: (() => void)[] = [];
   operations: Operations | undefined;
@@ -423,11 +425,63 @@ export class Conversations {
     throw new HttpError(json({ error: "invalid_request", error_description: "expected a JSON object" }, 400));
   }
 
+  /**
+   * Accept a `user_requested` event (8.10): the parent and event ids name the
+   * invitation, which MUST be a user_requested event in that parent
+   * (`invalid_request` otherwise). Without `message`, the Company speaks
+   * first. Repeating the same ids returns the same Direct Conversation without
+   * another message, even after it closes, once ownership is checked.
+   */
+  async #acceptInvitation(inbound: Inbound, context: ResourceContext, parentId: string | null, eventId: string, incoming: IncomingMessage | undefined): Promise<Response> {
+    const invalid = (why: string) => new HttpError(json({ error: "invalid_request", error_description: why }, 400));
+    if (parentId === null) throw invalid("user_requested_event_id needs parent_conversation_id");
+    const parent = this.#owned(context, parentId);
+    const key = `${parent.id}|${eventId}`;
+    const accepted = this.#acceptances.get(key);
+    if (accepted) return this.#answer(inbound, this.#owned(context, accepted), 201);
+    if (!parent.events.some((event) => event.id === eventId && event.type === "user_requested")) throw invalid("user_requested_event_id doesn't name a user_requested event in the parent");
+    const message = incoming === undefined ? null : this.#validate(incoming);
+    if (parent.direct) throw invalid("the parent is a Direct Conversation");
+    if (parent.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
+    if (parent.directChild) throw new HttpError(json({ error: "direct_conversation_open", conversation_id: parent.directChild }, 409));
+    if (message && this.#writer(message) !== "human" && message.text !== undefined) {
+      this.company.violation("direct.agent-words", "Direct Conversation opened with words not marked as the User's (sender agent)");
+    }
+    const conversation: Conversation = {
+      id: randomId("cnv_", 8),
+      owner: { clientId: context.session.clientId, userId: context.session.userId, account: parent.owner.account },
+      parentId: parent.id,
+      direct: true,
+      directChild: null,
+      status: "idle",
+      responder: "agent",
+      events: [],
+      expired: new Set(),
+      sent: [],
+      context: {}
+    };
+    this.#conversations.set(conversation.id, conversation);
+    this.#acceptances.set(key, conversation.id);
+    parent.directChild = conversation.id;
+    this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
+    if (message) {
+      this.#remember(context, message, parent.id, conversation);
+      this.#accept(context, conversation, message);
+    } else {
+      // The Company's first message, recorded as a message event (8.10).
+      this.#say(conversation, "Hello, this is a specialist. I can confirm the exchange with you here.");
+    }
+    return this.#answer(inbound, conversation, 201);
+  }
+
   /** `POST {endpoint}`: a new conversation, or a Direct Conversation (8.3, 8.10). */
   async start(inbound: Inbound, context: ResourceContext): Promise<Response> {
     const body = this.#body(inbound);
-    const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
+    const eventId = typeof body.user_requested_event_id === "string" ? body.user_requested_event_id : null;
+    // 8.10: accepting a user_requested event, with or without the User's first message.
+    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, body.message as IncomingMessage | undefined);
+    const message = this.#validate(body.message as IncomingMessage | undefined);
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
     const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message, parentId);
     // A retry gets the original response only if it may still read the

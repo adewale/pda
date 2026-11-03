@@ -2221,6 +2221,24 @@ describe("8 conversations", () => {
     await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
   });
 
+  it("accepts the Company's invitation by its event id, letting the Company speak first, and a retry opens nothing more (8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "" });
+    const accept = (await requests(c)).filter((request) => request.method === "POST" && request.url === c.hosts.conversationsEndpoint).at(-1)!;
+    expect(accept.bodyKeys).toEqual(expect.arrayContaining(["parent_conversation_id", "user_requested_event_id"]));
+    expect(accept.bodyKeys).not.toContain("message");
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    expect(direct.parent).toBe(first.conversationId);
+    expect(direct.sent).toEqual([]);
+    // The same acceptance again returns the same Direct Conversation.
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "" });
+    expect((await c.stub.state()).conversations.filter((conv) => conv.direct)).toHaveLength(1);
+  });
+
   it("keeps the model's own words out of the User's Direct Conversation (8.10)", async () => {
     const c = await company();
     const a = await agent();

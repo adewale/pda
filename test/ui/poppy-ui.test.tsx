@@ -422,15 +422,17 @@ describe("local approval card", () => {
 });
 
 describe("Direct Conversation invitation", () => {
-  it("starts only with the User's own words, and Not now declines", () => {
+  it("starts with the User's own words or lets the Company start (8.10), and Not now declines", () => {
     const { sent } = renderCards(inviteCard);
     const start = screen.getByRole("button", { name: "Talk to Acme" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Your message"), { target: { value: "  Hello, I'd like a refund  " } });
     fireEvent.click(screen.getByRole("button", { name: "Talk to Acme" }));
+    fireEvent.click(screen.getByRole("button", { name: "Let Acme start" }));
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(sent).toEqual([
       { type: "poppy.direct.start", conversationId: "conv_9", text: "Hello, I'd like a refund" },
+      { type: "poppy.direct.start", conversationId: "conv_9", text: "" },
       { type: "poppy.direct.decline", conversationId: "conv_9" }
     ]);
   });
