@@ -1663,19 +1663,17 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(logged.result).toBe("waiting");
   });
 
-  it("checks a write's server before its card: one on another host, or over plain HTTP, is refused and no card is shown", async () => {
+  it("checks a write's server before its card: one on a non-public host, or over plain HTTP, is refused and no card is shown", async () => {
     // Before one constructor checked every request, a write's server was checked only when the approved write was sent.
-    for (const server of ["another host", "plain HTTP"] as const) {
-      const elsewhere = await company();
+    for (const server of ["non-public host", "plain HTTP"] as const) {
       const c = await company({ operations: false });
-      await c.stub.configure({ openapiServerOverride: server === "another host" ? elsewhere.hosts.api : c.hosts.api.replace(/^https:/, "http:") });
+      await c.stub.configure({ openapiServerOverride: server === "non-public host" ? "https://printer.internal/api" : c.hosts.api.replace(/^https:/, "http:") });
       const a = await agent();
       await signInDirect(a, c);
       const result = await tool(a, "poppy_api_call", exchangeWrite(c));
       expect(result.isError, server).toBe(true);
-      expect(JSON.parse(result.details)).toEqual({ error: server === "another host" ? "untrusted_server" : "invalid_request" });
+      expect(JSON.parse(result.details)).toEqual({ error: server === "non-public host" ? "untrusted_server" : "invalid_request" });
       expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
-      expect(await requests(elsewhere)).toEqual([]);
     }
   });
 
@@ -1996,7 +1994,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     for (const request of seen.filter((request) => request.url.startsWith(c.hosts.api))) expect(request.headers.authorization).toBeUndefined();
   });
 
-  it("refuses an MCP server whose metadata doesn't name the issuer, sending it neither the Session header nor a token", async () => {
+  it("refuses a token to an MCP server whose metadata doesn't name the issuer, sending it neither the Session header nor a token", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const a = await agent();
     await signInDirect(a, c);
@@ -2006,16 +2004,31 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
-  it("never sends the Session header or a token to a server on another host that an OpenAPI description names (N10)", async () => {
+  it("calls the same MCP server signed out, as poppy.json lists it: 7 asks for the issuer only of a server offering account access", async () => {
+    const c = await company({ mcpPrmOmitIssuer: true });
+    const a = await agent();
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError, result.text).toBe(false);
+    const sent = (await requests(c)).filter((request) => request.url === c.hosts.mcpUrl);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((request) => request.headers["poppy-session"] && !request.headers.authorization)).toBe(true);
+  });
+
+  it("sends the Session header and token to a server on another host that a listed OpenAPI description names, addressed to the Company (5.2, 7)", async () => {
+    // The other host acts as the Company's API provider. Being a mock Company itself, it expects its own identifier as aud.
     const elsewhere = await company();
+    elsewhere.expectViolations(/^\[session-jwt\.aud\]/);
     const c = await company({ openapiServerOverride: elsewhere.hosts.api });
     const a = await agent();
-    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain(`names the server ${elsewhere.hosts.api}, which isn't one of Mock Shop ${c.id}'s hosts`);
-    expect(JSON.parse(result.details)).toMatchObject({ error: "untrusted_server" });
-    expect(await requests(elsewhere)).toEqual([]);
-    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    const sent = (await requests(elsewhere)).filter((request) => new URL(request.url).pathname === "/products");
+    expect(sent.length).toBeGreaterThan(0);
+    // The Session JWT names the Company whose description listed the server, never the server's host.
+    for (const request of sent) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(c.hosts.issuer);
+    expect(sent.every((request) => request.headers.authorization !== undefined)).toBe(true);
+    // Nothing else of the Company's reached the other host: no OAuth request, no conversation.
+    expect((await requests(elsewhere)).filter((request) => !["/products", "/openapi.json"].includes(new URL(request.url).pathname) && !new URL(request.url).pathname.startsWith("/.well-known/"))).toEqual([]);
   });
 
   it("never calls an OpenAPI server over plain HTTP, even on the Company's own host, before any request (3)", async () => {

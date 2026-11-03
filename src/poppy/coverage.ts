@@ -6,7 +6,7 @@
  * content for the model, never instructions (9.2, 10.1).
  */
 import { PoppyClient, PoppyError } from "./client";
-import { boundedCacheSeconds, tokenHostAllowed, type Company } from "./discovery";
+import { boundedCacheSeconds, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, type Json } from "./json";
 import { companyErrorCode } from "./error-codes";
@@ -83,8 +83,10 @@ export function readAlternative(company: Company, value: unknown): Alternative |
     } else if (entry.type === "mcp" && typeof entry.tool === "string" && listed("mcp")) {
       references.push({ type: "mcp", url: entry.url, tool: entry.tool.slice(0, 200) });
     } else if (entry.type === "web" && URL.canParse(entry.url)) {
+      // 9.2: a web alternative can point to any HTTPS website or app. It is a link for the User, and never a
+      // destination for the Session header or a token (5.2).
       const url = new URL(entry.url);
-      if (url.protocol === "https:" && !url.username && !url.password && tokenHostAllowed(company, url)) references.push({ type: "web", url: url.href });
+      if (url.protocol === "https:" && !url.username && !url.password) references.push({ type: "web", url: url.href });
     }
   }
   if (!instructions && references.length === 0) return null;

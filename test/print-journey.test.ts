@@ -707,15 +707,13 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(await photoRequests(c)).toEqual([]);
   });
 
-  it("never asks to send a photo to a server that isn't the Company's (N10)", async () => {
-    const elsewhere = await company({ printShop: true });
-    const c = await company({ printShop: true, openapiServerOverride: elsewhere.hosts.api });
+  it("never asks to send a photo to a server on a non-public host, whatever the Company's description names (3)", async () => {
+    const c = await company({ printShop: true, openapiServerOverride: "https://photos.internal/api" });
     const a = await poppyAgent();
     const info = await attached(a);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
     expect(JSON.parse(result.details)).toMatchObject({ error: "untrusted_server" });
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
-    expect(await requests(elsewhere)).toEqual([]);
   });
 
   it("describes an upload's file fields to the model", async () => {

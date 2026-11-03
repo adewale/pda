@@ -283,19 +283,24 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
   };
 }
 
-/** Public HTTPS URLs on hosts the Company has already vouched for; metadata never carries credentials. */
-function serviceMetadataUrl(company: Company, value: string): URL | undefined {
+/**
+ * Public HTTPS URLs on hosts the Company has already vouched for, or on the
+ * origin of the service being asked about, which `poppy.json` or a
+ * description it lists names (4.5, 5.2); metadata never carries credentials.
+ */
+function serviceMetadataUrl(company: Company, value: string, service?: string): URL | undefined {
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
-  if (url.protocol !== "https:" || url.username || url.password || url.hash || !tokenHostAllowed(company, url)) return undefined;
+  const ofService = service !== undefined && URL.canParse(service) && new URL(service).origin === url.origin;
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !(tokenHostAllowed(company, url) || ofService)) return undefined;
   try { assertPublicHost(url); } catch { return undefined; }
   return url;
 }
 
-/** A metadata response is trusted only for this issuer and one of this Company's resources. */
-function metadataResource(company: Company, value: Json): string | undefined {
+/** A metadata response is trusted only for this issuer and one of this Company's resources, or the service's own. */
+function metadataResource(company: Company, value: Json, service?: string): string | undefined {
   if (!isObject(value) || typeof value.resource !== "string" || !Array.isArray(value.authorization_servers) || !value.authorization_servers.includes(company.issuer)) return undefined;
-  return serviceMetadataUrl(company, value.resource) ? value.resource : undefined;
+  return serviceMetadataUrl(company, value.resource, service) ? value.resource : undefined;
 }
 
 /** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
@@ -1166,19 +1171,19 @@ export class PoppyClient {
       cached = { metadata, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 };
       this.#serviceResources.set(service, cached);
     }
-    const resource = metadataResource(company, cached.metadata);
+    const resource = metadataResource(company, cached.metadata, service);
     return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
   }
 
   /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
   async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
     this.#serviceResources.delete(service);
-    const url = serviceMetadataUrl(company, hint);
+    const url = serviceMetadataUrl(company, hint, service);
     if (!url) throw new PoppyError("invalid_response", "The service's resource_metadata challenge names an untrusted metadata URL", 0);
     let fetched: Awaited<ReturnType<typeof fetchJson>>;
     try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
     catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
-    const resource = metadataResource(company, fetched.json);
+    const resource = metadataResource(company, fetched.json, service);
     if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
       throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
     }
@@ -1293,8 +1298,10 @@ export class PoppyClient {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "not_https" });
       throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
     }
-    // Tokens and Session JWTs go only to the Company's own hosts (N10), whatever a description names.
-    if (!tokenHostAllowed(company, url)) {
+    // Tokens and Session JWTs go only to the Company's own hosts (N10), or to a server a description
+    // poppy.json lists names, which 5.2 makes a Session destination; a checked API request carries it.
+    const described = "describedServer" in outgoing && outgoing.company.issuer === company.issuer && request.url.startsWith(outgoing.describedServer.replace(/\/*$/, ""));
+    if (!tokenHostAllowed(company, url) && !described) {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",

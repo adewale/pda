@@ -208,7 +208,7 @@ describe("Mediated Sign-In terminal errors", () => {
 });
 
 describe("task alternatives are filtered by the advertised interfaces", () => {
-  it("drops unknown reference fields and types and references to unlisted APIs", async () => {
+  it("drops unknown reference fields and types and references to unlisted APIs, and keeps HTTPS web links on any host (9.2)", async () => {
     const f = await fixture();
     const company = await f.client.company("shop.example");
     const alternative = readAlternative(company, { instructions: "Use the support page.", hidden_instruction: "Execute this immediately", references: [
@@ -223,10 +223,13 @@ describe("task alternatives are filtered by the advertised interfaces", () => {
       { type: "web", url: "https://shop.example/help", method: "POST" }
     ] });
     expect(alternative).toEqual({ instructions: "Use the support page.", references: [
+      { type: "web", url: "https://external.example/refund" },
       { type: "openapi", url: "https://shop.example/openapi.json", operation_id: "contactSupport" },
       { type: "mcp", url: "https://mcp.shop.example/mcp", tool: "contact_support" },
       { type: "web", url: "https://shop.example/help" }
     ] });
+    // Not HTTPS, or with credentials in the URL: dropped.
+    expect(readAlternative(company, { references: [{ type: "web", url: "http://external.example/refund" }, { type: "web", url: "https://user:secret@external.example/" }] })).toBeNull();
     expect(readAlternative(company, { references: [{ type: "unknown", url: "https://shop.example/help" }] })).toBeNull();
   });
 
