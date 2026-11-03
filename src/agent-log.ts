@@ -472,7 +472,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     const out: string[] = [];
     for (const company of protocolIndex(sql, names).companies) {
       const log = protocolLog(sql, company.key, names);
-      out.push(`Poppy protocol log: ${company.company}${company.domain && company.domain !== company.company ? ` (${company.domain})` : ""}`, ...(log.issuer ? [`Issuer: ${log.issuer}`] : []));
+      out.push(`Poppy protocol log: ${company.company}${company.domain && company.domain !== company.company ? ` (${company.domain})` : ""}`, ...(log.issuer ? [`Company identifier: ${log.issuer}`] : []));
       for (const entry of log.entries) {
         out.push(
           [

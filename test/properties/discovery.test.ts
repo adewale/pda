@@ -117,6 +117,70 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
   );
 });
 
+/**
+ * A generated Company without an OAuth issuer (3.2): no `auth.issuer`, no
+ * Mediated Sign-In, and protected resource metadata that is a 404, lists
+ * no authorization servers, or has an empty list.
+ */
+const issuerless = gs.composite((tc) => {
+  const company = tc.draw(companies);
+  const poppy = structuredClone(company.poppy);
+  delete poppy.auth.issuer;
+  if (poppy.extensions) {
+    delete poppy.extensions["mediated-sign-in"];
+    if (Object.keys(poppy.extensions).length === 0) delete poppy.extensions;
+  }
+  const how = tc.draw(gs.sampledFrom(["404", "absent", "empty"] as const));
+  const resource = how === "404" ? undefined : how === "absent" ? { resource: company.resource.resource } : { resource: company.resource.resource, authorization_servers: [] };
+  return { ...company, poppy, resource, how };
+});
+
+describe("discovery of a Company without an OAuth issuer (3.2)", () => {
+  it(
+    "is valid, refuses nothing, and is identified by https://{organization.domain}",
+    propertyAsync(async (tc) => {
+      const company = tc.draw(issuerless);
+      const report = await validateCompany(serving(company).fetcher, company.requested);
+      expect(report.messages.filter((message) => message.severity === "error" || message.refuses)).toEqual([]);
+      expect(report.messages.map((message) => message.id)).toContain("prm-no-issuer");
+      expect(report.issuerless).toBe(true);
+      expect(report.issuer).toBeUndefined();
+      expect(report.identifier).toBe(`https://${company.domain.toLowerCase()}`);
+    })
+  );
+
+  it(
+    "discovers it signed-out only: its services, no sign-in, no OAuth endpoints, and Session hosts as poppy.json lists them",
+    propertyAsync(async (tc) => {
+      const company = tc.draw(issuerless);
+      const { requests, fetcher } = serving(company);
+      const { result } = await discover(fetcher, company.requested);
+      if (!isCompany(result)) throw new Error("discovered as website only");
+      expect(result.issuer).toBe(`https://${company.domain.toLowerCase()}`);
+      expect(result.issuerless).toBe(true);
+      expect(result.signIn).toEqual({});
+      expect(result.endpoints).toBeUndefined();
+      expect(requests.some((url) => url.includes("/.well-known/oauth-authorization-server"))).toBe(false);
+      const services = [result.conversations?.endpoint, result.feedback?.endpoint, result.web?.browserSessionEndpoint, ...result.apis.map((api) => api.url)];
+      for (const service of services.filter((value): value is string => !!value)) expect(tokenHostAllowed(result, new URL(service))).toBe(true);
+    })
+  );
+
+  it(
+    "refuses it when poppy.json still offers sign-in: auth.issuer or Mediated Sign-In",
+    propertyAsync(async (tc) => {
+      const company = tc.draw(issuerless);
+      const poppy = structuredClone(company.poppy);
+      if (tc.draw(gs.booleans())) poppy.auth.issuer = company.issuer;
+      else poppy.extensions = { ...(poppy.extensions ?? {}), "mediated-sign-in": { version: "1", fields: [{ name: "email", label: "Email", secret: false }], scopes: Object.keys(poppy.auth.scopes).slice(0, 1) } };
+      const report = await validateCompany(serving({ ...company, poppy }).fetcher, company.requested);
+      expect(report.messages.map((message) => message.id)).toContain("issuer-required");
+      expect(report.refused).toBe(true);
+      await expect(discover(serving({ ...company, poppy }).fetcher, company.requested)).rejects.toBeInstanceOf(DiscoveryError);
+    })
+  );
+});
+
 /** The validator's errors for a Company's documents, by id: why discovery refuses it. */
 async function errors(company: Documents): Promise<string[]> {
   const report = await validateCompany(serving(company).fetcher, company.requested);

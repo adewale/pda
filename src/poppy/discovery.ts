@@ -170,12 +170,10 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
   const name = str(organization.name) ?? orgDomain;
   const cacheSeconds = boundedCacheSeconds(checked.maxAgeSeconds);
   // 3.2: a Company without an issuer offers signed-out Sessions, identified by its domain.
+  // The validator settles an identifier only for a document that lists something using Sessions, as for one with an issuer.
   if (checked.issuerless && checked.identifier) {
     const identifier = parseIssuer(checked.identifier);
-    const offered = services(doc);
-    if (identifier && (offered.conversations || offered.apis.length || offered.web?.browserSessionEndpoint || isObj(doc.feedback))) {
-      return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, null, { issuer: identifier, name, domain: orgDomain, version }), cacheSeconds, report: checked };
-    }
+    if (identifier) return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, null, { issuer: identifier, name, domain: orgDomain, version }), cacheSeconds, report: checked };
   }
   // The issuer is the one the domain's protected resource metadata names (3.2); `auth` is optional.
   if (!isObj(checked.metadata) || !checked.issuer) {

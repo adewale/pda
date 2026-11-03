@@ -101,7 +101,7 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
         <Action variant="ghost" icon={<ArrowLeftIcon size={16} aria-hidden />} onClick={onBack} className="-ml-2 pl-2">
           All Companies
         </Action>
-        <PageHeader title={company.name} description={<code className="font-mono text-[13px] break-all">{company.issuer}</code>} />
+        <PageHeader title={company.name} description={<code className="font-mono text-[13px] break-all" title="Company identifier: its OAuth issuer, or its domain when it has none">{company.issuer}</code>} />
       </div>
 
       <Section title="Accounts" description="Accounts your agent is signed in to. Signing out stops your agent using the account at once, and asks the Company to revoke the access it granted.">
