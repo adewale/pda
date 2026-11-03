@@ -45,7 +45,14 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 
 ### Validation
 
-- Offline, on 3 November: `npm run typecheck`, `npm run check:spec`, `npm run check:docs`, `npm run test:tooling`, the five Vitest projects (1,434, 3, 271, 430 and 193 tests passing), and `npm run test:hypothesis` (21 passing, its client and oracle updated for the new names, `session_ended`, extension content and 8.2's ownership). Not rerun: the Docker interop grid, the official Company kit (still pinned to 29 October), `npm run check:approval-crashes`, the browser journeys and any live Company.
+- Offline, on 3 November:
+  - Passing: `npm run typecheck`, `check:spec`, `check:docs` and `test:tooling`.
+  - The five Vitest projects: 1,447, 3, 272, 430 and 196 tests passing, after one interop expectation was updated for 9.2's web alternatives.
+  - `npm run test:hypothesis`: 21 passing.
+  - `npm run check:approval-crashes`: every process-kill case passing.
+  - The hosted dummy Company security check: no strict violations or warnings.
+  - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips.
+- Not run: the Docker interop grid, the browser journeys and any live Company. Operator signatures haven't been checked against a real edge.
 
 ## Unreleased — Poppy 0.3 alone
 
