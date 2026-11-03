@@ -268,6 +268,8 @@ export type MockConfig = {
   readonly omitScopesSupported: boolean;
   /** Refuse this agent these sign-in types with `unauthorized_client`, while accepting it for signed-out Sessions (4.1). */
   readonly refuseSignInTypes: readonly ("device")[];
+  /** `organization.logo_uri` (3.1): a PNG, an SVG (which agents must not show), or none. */
+  readonly logo: "png" | "svg" | null;
   /** The issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
   readonly protectedResourcesOverride: readonly string[] | null;
   /** List `excluded_tasks` (9.1). */
@@ -370,6 +372,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   authDisabled: false,
   omitScopesSupported: false,
   refuseSignInTypes: [],
+  logo: null,
   protectedResourcesOverride: null,
   excludedTasks: true,
   feedback: false,

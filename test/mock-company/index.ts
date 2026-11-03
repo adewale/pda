@@ -159,6 +159,14 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/poppy/browser-session/authorize" && method === "POST") return web.authorizeBrowserJoin(inbound);
       if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
       if (path === "/poppy/excluded-tasks.json" && method === "GET") return web.excludedTasks();
+      if (path === "/logo.png" && method === "GET") {
+        // A 1×1 PNG.
+        const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+        return new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "max-age=3600" } });
+      }
+      if (path === "/logo.svg" && method === "GET") {
+        return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { headers: { "Content-Type": "image/svg+xml" } });
+      }
       if (path === "/account/address" && method === "POST") {
         company.rateLimit("page", inbound);
         return web.saveAddress(inbound);

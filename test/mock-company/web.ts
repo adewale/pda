@@ -56,7 +56,11 @@ export class Web {
     };
     const document: Record<string, unknown> = {
       protocol_version: config.protocolVersion,
-      organization: { name: config.organizationName ?? `Mock Shop ${co.id}`, domain: config.organizationDomain ?? requestedDomain },
+      organization: {
+        name: config.organizationName ?? `Mock Shop ${co.id}`,
+        domain: config.organizationDomain ?? requestedDomain,
+        ...(config.logo ? { logo_uri: `${hosts.web}/logo.${config.logo}` } : {})
+      },
       // 3.2: without an issuer there is no sign-in, so nothing to describe.
       ...(config.issuerless ? {} : { auth })
     };

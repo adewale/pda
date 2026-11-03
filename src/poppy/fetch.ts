@@ -137,3 +137,43 @@ export async function fetchJson(
     };
   }
 }
+
+/**
+ * `fetchJson`'s rules for a small binary document, such as a Company's logo:
+ * HTTPS on a public host at every hop, a deadline, a size cap, and no
+ * credentials sent. Returns the bytes and how long they may be cached.
+ */
+export async function fetchBytes(
+  fetcher: Fetcher,
+  url: string,
+  options: SafeFetchOptions = {}
+): Promise<{ readonly bytes: Uint8Array; readonly maxAgeSeconds: number | null }> {
+  const { maxBytes, timeoutMs, maxRedirects } = { ...DEFAULTS, ...options };
+  let current = new URL(url);
+  for (let hop = 0; ; hop++) {
+    if (current.protocol !== "https:" || current.username || current.password) throw new PoppyFetchError(`Refusing ${current.href}`);
+    assertPublicHost(current);
+    const at = current;
+    const answer = await withDeadline(timeoutMs, async (signal) => {
+      const response = await raceAbort(fetcher(new Request(at.href, { method: "GET", headers: { Accept: "image/png, image/jpeg, image/gif, image/webp" }, redirect: "manual", signal })), signal);
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        return { redirect: response.headers.get("Location") } as const;
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new PoppyFetchError(`${at.href} returned HTTP ${response.status}`);
+      }
+      return { bytes: await readLimitedBytes(response, maxBytes, signal), maxAgeSeconds: cacheSeconds(response) } as const;
+    }).catch((error: unknown) => {
+      throw timeoutError(error, at.href);
+    });
+    if ("redirect" in answer) {
+      if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
+      if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
+      current = new URL(answer.redirect, current);
+      continue;
+    }
+    return answer;
+  }
+}

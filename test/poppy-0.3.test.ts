@@ -10,6 +10,7 @@ import { decodeJwt, decodeProtectedHeader } from "jose";
 import { runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { agent, cards, company, requests, signInDirect, testEnv, tool, until, type Company } from "./agent-helpers";
+import worker from "./worker";
 import type { MockConfig, MockRequest } from "./mock-company";
 
 const V3: Partial<MockConfig> = { protocolVersion: "0.3" };
@@ -191,6 +192,34 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     expect(listed.isError, listed.text).toBe(false);
     const resources = resourceRequests(await requests(c), c);
     for (const request of resources) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+  });
+});
+
+describe("0.3: the Company's logo (3.1; Guides, \"Finding a company\")", () => {
+  const logoOf = async (a: Awaited<ReturnType<typeof agent>>, domain: string) =>
+    worker.fetch(new Request(`${testEnv.PUBLIC_ORIGIN}/api/companies/${domain}/logo`, { headers: { Cookie: a.cookie } }), testEnv as unknown as Env);
+
+  it("is fetched by the agent and served from our origin, sandboxed, so the User's device never loads it from the Company", async () => {
+    const c = await company({ ...V3, logo: "png" });
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    const response = await logoOf(a, c.domain);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("Content-Security-Policy")).toBe("default-src 'none'; sandbox");
+    expect(new Uint8Array(await response.arrayBuffer()).slice(0, 4)).toEqual(Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
+    const fetched = (await requests(c)).filter((request) => new URL(request.url).pathname === "/logo.png");
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]!.headers["poppy-session"]).toBeUndefined();
+    expect(fetched[0]!.headers.authorization).toBeUndefined();
+  });
+
+  it("serves nothing for an SVG, which can carry script, or for a Company that names no logo", async () => {
+    for (const logo of ["svg", null] as const) {
+      const c = await company({ ...V3, logo });
+      const a = await agent();
+      expect((await logoOf(a, c.domain)).status).toBe(404);
+    }
   });
 });
 

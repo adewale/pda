@@ -588,6 +588,22 @@ describe("Companies page", () => {
     expect(screen.queryByRole("button", { name: /permission/i })).toBeNull();
   });
 
+  it("shows a Company's logo, from our origin, beside its name and domain, never in place of them", () => {
+    const issuer = toIssuer("https://shop.example");
+    const { container } = renderCompanies({ protocol: { companies: [{ key: issuer, company: "Shop", domain: "shop.example", issuer, count: 1, lastSeq: 1, lastAt: Date.now() }], logs: {} } });
+    const table = screen.getByRole("table");
+    const button = within(table).getByRole("button", { name: "Shop" });
+    const image = button.querySelector("img")!;
+    expect(image.getAttribute("src")).toBe("/api/companies/shop.example/logo");
+    expect(image.getAttribute("alt")).toBe("");
+    fireEvent.click(button);
+    expect(screen.getByText("shop.example")).toBeTruthy();
+    // A Company without a logo shows its name and domain alone.
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("shop.example")).toBeTruthy();
+  });
+
   it("shows an empty page before any Company is used", () => {
     renderCompanies({});
     expect(screen.getByText("No Companies yet")).toBeTruthy();

@@ -199,6 +199,37 @@ const MAX_ATTACH_BODY = MAX_ATTACHMENT_BYTES + MAX_PREVIEW_BYTES + 64 * 1024;
 const ATTACHMENT_ID = /^att_[A-Za-z0-9_-]{22}$/;
 
 /**
+ * `GET /api/companies/<domain>/logo`: a Company's logo, which the person's
+ * agent fetched (src/poppy/logo.ts), so the page never loads it from the
+ * Company. Only to that person, sandboxed and never sniffed.
+ */
+async function handleCompanyLogo(request: Request, env: Env): Promise<Response> {
+  const match = /^\/api\/companies\/([^/]+)\/logo$/.exec(new URL(request.url).pathname);
+  if (!match) return text(404, "Not found");
+  if (request.method !== "GET") return text(405, "Method not allowed");
+  let domain: string;
+  try {
+    domain = decodeURIComponent(match[1]!).toLowerCase();
+  } catch {
+    return text(404, "Not found");
+  }
+  if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/.test(domain)) return text(404, "Not found");
+  const identity = await signedIn(request, env);
+  const logo = await (await agentFor(identity, env)).companyLogo(identity, domain);
+  if (!logo) return text(404, "Not found");
+  return new Response(logo.bytes, {
+    headers: {
+      "Content-Type": logo.type,
+      "Content-Length": String(logo.bytes.byteLength),
+      "Cache-Control": "private, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Content-Disposition": "inline"
+    }
+  });
+}
+
+/**
  * The User's photos (src/attachments.ts). `POST /api/attachments`, same
  * origin only: a `multipart/form-data` body with `file` and, optionally, the
  * smaller `preview` the page made for the model; the answer is the
@@ -486,6 +517,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
+    if (pathname.startsWith("/api/companies/")) return await handleCompanyLogo(request, env);
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
     if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
     if (pathname.startsWith("/api/push/")) return await handlePush(request, env);

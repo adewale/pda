@@ -39,6 +39,8 @@ export type Company = {
   readonly name: string;
   /** `organization.domain` of the document this came from. */
   readonly domain: string;
+  /** `organization.logo_uri` (3.1): an HTTPS URL the agent fetches itself (logo.ts), never the User's device. */
+  readonly logoUri?: string;
   /**
    * The hosts of the issuer's `protected_resources`, lowercased (3.2): where
    * tokens and Session JWTs may go beside `organization.domain`, and where a
@@ -250,9 +252,12 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
   );
   const protectedResources = metadata ? strings(metadata.protected_resources) : [];
   const operations = extensions.operations;
+  const organization = isObj(doc.organization) ? doc.organization : {};
+  const logo = str(organization.logo_uri);
   return {
     issuer: known.issuer,
     ...(metadata ? {} : { issuerless: true as const }),
+    ...(logo && URL.canParse(logo) && new URL(logo).protocol === "https:" ? { logoUri: logo } : {}),
     name: known.name,
     domain: known.domain,
     // Hosts that may receive Session JWTs and show a device link (4.3): the issuer's protected resources.
