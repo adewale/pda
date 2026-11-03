@@ -262,6 +262,8 @@ export type MockConfig = {
    * to `https://{domain}`, the Company's identifier.
    */
   readonly issuerless: boolean;
+  /** The issuer is exactly `https://{domain}`, its metadata served on the domain; its endpoints stay on the auth host. */
+  readonly issuerOnDomain: boolean;
   /** `auth.disabled` (3.2): an issuer that serves other clients, but no sign-in for Personal Agents, and no Mediated Sign-In. */
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
@@ -369,6 +371,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   domainResourceOverride: null,
   listIssuer: false,
   issuerless: false,
+  issuerOnDomain: false,
   authDisabled: false,
   omitScopesSupported: false,
   refuseSignInTypes: [],
@@ -497,7 +500,7 @@ export function placeCompanies(next: Placement): void {
 }
 
 /** Where an issuer's metadata lives, and the issuer: `/.well-known/oauth-authorization-server` before its path. */
-export type IssuerOptions = { readonly issuerTrailingSlash?: boolean; readonly issuerPath?: string | null };
+export type IssuerOptions = { readonly issuerTrailingSlash?: boolean; readonly issuerPath?: string | null; readonly issuerOnDomain?: boolean };
 
 export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
   const domain = placement.domain(id);
@@ -511,7 +514,8 @@ export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
     id,
     domain,
     altDomain: placement.altDomain(id),
-    issuer: `${auth}${path}${options.issuerTrailingSlash ? "/" : ""}`,
+    // `issuerOnDomain`: the issuer is exactly https://{domain}, so its identifier is the one the domain would have without it (3.2).
+    issuer: options.issuerOnDomain ? `https://${domain}` : `${auth}${path}${options.issuerTrailingSlash ? "/" : ""}`,
     metadataPath: `/.well-known/oauth-authorization-server${path}`,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,

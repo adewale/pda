@@ -288,7 +288,7 @@ export class Company {
 
   set config(config: MockConfig) {
     this.#config = config;
-    this.hosts = hostsFor(this.id, { issuerTrailingSlash: config.issuerTrailingSlash, issuerPath: config.issuerPath });
+    this.hosts = hostsFor(this.id, { issuerTrailingSlash: config.issuerTrailingSlash, issuerPath: config.issuerPath, issuerOnDomain: config.issuerOnDomain });
   }
 
   /**

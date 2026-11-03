@@ -172,6 +172,29 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
   });
 
+  it("ends account access when an issuer of exactly https://{domain} is removed, though the identifier stays the same", async () => {
+    const c = await company({ ...V3, mcp: true, issuerOnDomain: true });
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
+    const signedIn = resourceRequests(await requests(c), c).at(-1)!;
+    expect(decodeJwt(signedIn.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+    expect(signedIn.headers.authorization).toBeDefined();
+    // The domain's metadata now lists no authorization server: the same identifier, no issuer.
+    await c.stub.configure({ authorizationServersOverride: [], signIn: { direct: null, device: null, mediated: null } });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const before = (await requests(c)).length;
+    expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
+    const after = resourceRequests((await requests(c)).slice(before), c);
+    expect(after.length).toBeGreaterThan(0);
+    for (const request of after) expect(request.headers.authorization).toBeUndefined();
+    // The refresh token is revoked at the removed issuer's own revocation endpoint.
+    await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
+    await runDurableObjectAlarm(a.stub);
+    await until(async () => (await c.stub.state()).accountTokens === 0);
+    expect((await requests(c)).slice(before).some((request) => request.url === c.hosts.revocationEndpoint)).toBe(true);
+  });
+
   it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
     const c = await company({ ...V3, authDisabled: true, mcp: true });
     const a = await agent();

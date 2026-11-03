@@ -180,7 +180,8 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
   try {
     const row = signOutById(client, id);
     if (!row || row.token === null) return null;
-    const company = client.companyByIssuer(row.issuer);
+    // The issuer's own endpoints, even after the domain moved to a Company without one (3.2).
+    const company = client.revocationCompany(row.issuer);
     // Expired by itself: the Company no longer honours it, so there's nothing to send.
     if (row.expires_at !== null && row.expires_at <= Date.now()) {
       if (row.attempts === 0) leaveSessions(client, row);

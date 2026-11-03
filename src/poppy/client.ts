@@ -487,7 +487,9 @@ export class PoppyClient {
     }
     if (isCompany(result) && cached) {
       const known = JSON.parse(cached.company) as Company | WebsiteOnly;
-      if (isCompany(known) && known.issuer !== result.issuer) await this.#identifierChanged(key, known, result);
+      // A removed issuer ends account access even when the identifier stays the same: an issuer of exactly
+      // https://{domain} gives way to the same domain identifier, with nothing left to sign in with or refresh at.
+      if (isCompany(known) && (known.issuer !== result.issuer || (!known.issuerless && result.issuerless))) await this.#identifierChanged(key, known, result);
     }
     // 3.2: domains sharing an issuer are one Company. They SHOULD publish the same scope descriptions and
     // hints, and MAY expose different scopes and capabilities, so differing `auth` objects aren't refused;
@@ -523,8 +525,25 @@ export class PoppyClient {
   }
 
   /**
+   * The Company to revoke an issuer's refresh tokens at: the newest record
+   * for it that still has OAuth endpoints. After an issuer is removed, the
+   * domain's record is the issuerless one, which may share its identifier
+   * (an issuer of exactly https://{domain}), so the record kept when the
+   * change was seen supplies the revocation endpoint.
+   */
+  revocationCompany(issuer: Issuer): Company {
+    const current = this.companyByIssuer(issuer);
+    if (current.endpoints) return current;
+    const kept = rows(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE issuer = ? ORDER BY rowid DESC", issuer)
+      .map((row) => JSON.parse(row.company) as Company)
+      .find((company) => company.endpoints !== undefined);
+    return kept ?? current;
+  }
+
+  /**
    * A domain's Company identifier changed (3.2): an issuer was added, changed
-   * or explicitly removed. The new identifier gets new User IDs and Sessions,
+   * or explicitly removed. A removed issuer counts even when the identifier
+   * stays the same. The new identifier gets new User IDs and Sessions,
    * and nothing transfers. Accounts held under the old one can't be used from
    * this domain any more, so they are signed out: the usual sign-out record,
    * whose revoke job sends the revocation to the old issuer, retries, and
