@@ -1,10 +1,12 @@
-# Problems in Personal Agent Protocol draft 0.3
+# Problems in the earlier Personal Agent Protocol 0.3 draft — 25–26 October 2026
 
-A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown. The draft changed while we read it, so there are three snapshots: [01:47 UTC](../spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md) on 25 October, and [18:34 UTC on 26 October](../spec/draft-0.3-retrieved-2026-10-26/README.md), when upstream's repository also had the 0.3 text, at commit `a95b757`. Line numbers for T1 to T33 are in the 01:47 snapshot's `pages/`; T34 to T38 and every "06:13" note in the 06:13 snapshot's; T39 and every "26 October" note in the 26 October snapshot's. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published": between the two snapshots it gained five entries, a new section 8 and a renamed error, and fixed T4. Check the live text before citing a finding.
+> Historical review of the text before the 28 October rewrite. The [28 October issue list](../poppy-0.3-issues.md) covers the rewritten protocol; [current verification](../poppy-0.3-conformance.md#current-verification) records PDA's implementation evidence.
 
-The 0.1 catalogue is [spec-issues.md](spec-issues.md), with S- and N-numbered IDs. 0.3 findings take **T-numbers**, so the three catalogues never collide. Kinds and severities are the 0.1 catalogue's: Interop, Security, Clarity, Editorial; Critical, High, Medium, Low. What has to change in our code is in [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md), not here.
+A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown. The draft changed while we read it, so there are three snapshots: [01:47 UTC](../../spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](../../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md) on 25 October, and [18:34 UTC on 26 October](../../spec/draft-0.3-retrieved-2026-10-26/README.md), when upstream's repository also had the 0.3 text, at commit `a95b757`. Line numbers for T1 to T33 are in the 01:47 snapshot's `pages/`; T34 to T38 and every "06:13" note in the 06:13 snapshot's; T39 and every "26 October" note in the 26 October snapshot's. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published": between the two snapshots it gained five entries, a new section 8 and a renamed error, and fixed T4. Check the live text before citing a finding.
 
-None of this has been sent to the draft's authors. The project now has a public [repository and issue tracker](https://github.com/personal-agent-protocol/personal-agent-protocol/issues) as well as the feedback address; sending anything needs the owner's approval ([SECURITY.md](../SECURITY.md)).
+The 0.1 catalogue is [spec-issues.md](spec-issues.md), with S- and N-numbered IDs. 0.3 findings take **T-numbers**, so the three catalogues never collide. Kinds and severities are the 0.1 catalogue's: Interop, Security, Clarity, Editorial; Critical, High, Medium, Low. What has to change in our code is in [poppy-0.3-upgrade.md](../poppy-0.3-upgrade.md), not here.
+
+None of this has been sent to the draft's authors. The project now has a public [repository and issue tracker](https://github.com/personal-agent-protocol/personal-agent-protocol/issues) as well as the feedback address; sending anything needs the owner's approval ([SECURITY.md](../../SECURITY.md)).
 
 ## How we read it
 
@@ -256,7 +258,7 @@ Guides line 239: "Check on each request whether the session is still signed in, 
 
 ## Found in the 06:13 text
 
-Line numbers in this section are in the [06:13 snapshot](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md).
+Line numbers in this section are in the [06:13 snapshot](../../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md).
 
 <a id="t34"></a>**T34. A disconnection made at the Company now looks like a request for more scopes.** Interop, Medium.
 
@@ -300,7 +302,7 @@ Operations is still "version 1" (Operations line 20), but its 3.2 (line 109) now
 
 ## Found in the 26 October text
 
-Line numbers in this section are in the [26 October snapshot](../spec/draft-0.3-retrieved-2026-10-26/README.md).
+Line numbers in this section are in the [26 October snapshot](../../spec/draft-0.3-retrieved-2026-10-26/README.md).
 
 <a id="t39"></a>**T39. A Company message's author picture can be on any host.** Security, Low.
 

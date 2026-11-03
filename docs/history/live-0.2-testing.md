@@ -1,6 +1,6 @@
 # Live Poppy 0.2 tests — 21 October 2026
 
-> Historical record. Do not refresh its counts or implementation status. Use [current verification](poppy-0.3-conformance.md#current-verification), [deployment state](deployment-tasks.md) and the [harness contract](interop-spec.md) for current decisions.
+> Historical record. Do not refresh its counts or implementation status. Use [current verification](../poppy-0.3-conformance.md#current-verification), [deployment state](../deployment-tasks.md) and the [harness contract](../interop-spec.md) for current decisions.
 
 PDA's actual client accepted discovery and opened reusable signed-out Sessions at Crosswalk, Stacktree, PlanMyVisit and Safe Rate. Stacktree and Safe Rate allowed MCP tool listing. Crosswalk and PlanMyVisit required sign-in for listing; those checks are unsupported, not passes or protocol failures. The final matrix has **10 pass, 0 fail, 2 unsupported, 0 error**.
 
@@ -13,7 +13,7 @@ PDA's actual client accepted discovery and opened reusable signed-out Sessions a
 
 PlanMyVisit also passed the existing C conversation scenario. A separate clearly identified test conversation passed send, read and close; it asked only for a brief acknowledgement, with no bookings, plans or account changes. The original C scenario does not close its conversation; no close is claimed for that first run. Since 24 October the live lane runs `CL` instead of `C`: its greeting says it is an interoperability test needing no reply or action, and it closes the conversation it opened. `C`, which leaves the conversation open, runs only in the local grid, where each cell's Company is reset; what happens to a conversation left open, closed later by the Company, is the local scenario `CC`. Alpine Retail's agreed four are now D, S0, N and CL, by the owner's decision; its developer is to be told. `CL` has passed locally against both of our mocks, not yet against a live Company.
 
-[Sanitized per-cell evidence](interop-results/2026-10-21-live-0.2.json) retains each attempt and the paths to gitignored raw results. Session IDs, token bodies, private keys and account data are not copied into this report. The live lane does not record network traffic: these are real endpoint/step outcomes, not packet-level verification of every assertion or DPoP field.
+[Sanitized per-cell evidence](../interop-results/2026-10-21-live-0.2.json) retains each attempt and the paths to gitignored raw results. Session IDs, token bodies, private keys and account data are not copied into this report. The live lane does not record network traffic: these are real endpoint/step outcomes, not packet-level verification of every assertion or DPoP field.
 
 ## Test setup and corrected assumptions
 
@@ -29,7 +29,7 @@ The proxy-only execution environment mounted its configured CA read-only and ena
 
 ## Reproduce the signed-out run
 
-Use Node 24 and Docker. Configure a public test identity as described in [the live-lane setup](../interop/README.md#the-live-lanes-identity). Keep the matching private key in gitignored `interop/.live-identity.json`; the public key on the test branch cannot sign requests by itself.
+Use Node 24 and Docker. Configure a public test identity as described in [the live-lane setup](../../interop/README.md#the-live-lanes-identity). Keep the matching private key in gitignored `interop/.live-identity.json`; the public key on the test branch cannot sign requests by itself.
 
 ```sh
 npm run interop -- --lane live --agents pda \
@@ -92,5 +92,5 @@ The live lane signed as the deployed Worker's own interop test client, `https://
 
 - **The sandbox opens a Session for our agent's domain.** It had refused two identities with `invalid_client` ("This agent must register its HTTPS metadata URL before opening a session."). One was 23 October's test key on jsDelivr; the other, in this day's first run, was the interop client on the old `workers.dev` host, whose `/poppy/*` has answered 404 since 15 October. Because Alpine accepted the jsDelivr identity's metadata on 23 October, the sandbox's refusal wasn't about fetching it: it admits agents by `client_id` or by host, and we can't see which. The production client, `/poppy/client.json`, wasn't tried. Nothing past a signed-out Session was sent; the sandbox's payments are simulated in any case.
 - **Alpine accepts the interop identity on the new domain**, with all four of the scenarios its developer agreed to (`liveScenarios`). Its earlier runs used the `workers.dev` identity (13 and 14 October) and a jsDelivr one (23 October).
-- **Why the first run failed.** `interop/.live-identity.json` was made on 13 October and still named the `workers.dev` `client_id`. The runner reads that name without comparing it with `PUBLIC_ORIGIN`, and `scripts/interop-live-identity.mjs`, which would have warned, wasn't run after the move. The key was already the one the Worker serves, so only the file's `client_id` changed. After a domain move, check that the runner's `live identity:` line names `PUBLIC_ORIGIN`. Since then the runner fetches the identity before a live run and stops when its `client_id` doesn't answer, or its key set doesn't hold the runner's key ([interop-spec §10](interop-spec.md#10-lanes)).
+- **Why the first run failed.** `interop/.live-identity.json` was made on 13 October and still named the `workers.dev` `client_id`. The runner reads that name without comparing it with `PUBLIC_ORIGIN`, and `scripts/interop-live-identity.mjs`, which would have warned, wasn't run after the move. The key was already the one the Worker serves, so only the file's `client_id` changed. After a domain move, check that the runner's `live identity:` line names `PUBLIC_ORIGIN`. Since then the runner fetches the identity before a live run and stops when its `client_id` doesn't answer, or its key set doesn't hold the runner's key ([interop-spec §10](../interop-spec.md#10-lanes)).
 - Results are in the gitignored `interop/results/` runs of 24 October (`c7aa1c`, `ac6137`, `fa4be4`, `3e86d5`); no tokens or traffic are copied here. No findings were posted to another project.

@@ -183,7 +183,7 @@
       "change": "Sessions from plain MCP clients.",
       "disposition": "Not a plain MCP client",
       "implementation": "src/poppy/apis.ts",
-      "evidence": "docs/poppy-0.2-upgrade.md",
+      "evidence": "docs/history/poppy-0.2-upgrade.md",
       "notes": "PDA uses Poppy User IDs and Sessions. Plain MCP client lifecycle is a Company obligation outside PDA role."
     },
     {
@@ -302,7 +302,7 @@
       "change": "Guides: key refetches, rate limits, and running work.",
       "disposition": "Company guidance",
       "implementation": "test/mock-company/core.ts",
-      "evidence": "docs/poppy-0.2-upgrade.md",
+      "evidence": "docs/history/poppy-0.2-upgrade.md",
       "notes": "Company key refetch/rate-limit/running-work rules are not a Personal Agent feature. Mock checks do not certify deployed Companies."
     },
     {

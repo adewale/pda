@@ -313,7 +313,7 @@ export function sessionHeaderAtListedHost(all: readonly Exchange[], x: Exchange)
 /**
  * An access token or Session JWT sent to a host its Company's documents don't list. Our
  * reading, not a MUST: 4.3 and 6 don't say which hosts may receive Session
- * Tokens (spec-issues N10). Still an error here; see docs/spec-issues.md N10.
+ * Tokens (spec-issues N10). Still an error here; see docs/history/spec-issues.md N10.
  */
 export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);

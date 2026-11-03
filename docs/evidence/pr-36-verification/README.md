@@ -1,6 +1,6 @@
 # PR 36: sufficiency review of 0.3 verification
 
-The [assessment](../../poppy-0.3-conformance.md#is-the-03-verification-sufficient) separates current local checks from independent and live evidence. It lists six remaining priorities; it does not mark them completed.
+The [assessment](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md#is-the-03-verification-sufficient) separates current local checks from independent and live evidence. It lists six remaining priorities; it does not mark them completed.
 
 The fresh independent Python run found a shared assumption in the existing message oracle. It removed `context`, as the mock did before the official kit corrected that behavior. The oracle now compares the entire sent message, with the Company-assigned role. Empty context, availability and locale/time-zone cases pass; dropped or changed context fails. Generators, default example/step counts and other invariants are preserved.
 

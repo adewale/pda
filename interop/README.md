@@ -1,6 +1,6 @@
 # Poppy interop harness
 
-Runs every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, in containers, over HTTPS through a recording proxy, and blames each failure on a side by a named rule. The contract an implementation meets is [`docs/interop-spec.md`](../docs/interop-spec.md); the design and its sources are in [`docs/interop-testing.md`](../docs/interop-testing.md).
+Runs every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, in containers, over HTTPS through a recording proxy, and blames each failure on a side by a named rule. The contract an implementation meets is [`docs/interop-spec.md`](../docs/interop-spec.md); the design and its sources are in [`docs/history/interop-testing.md`](../docs/history/interop-testing.md).
 
 ## Run it
 
@@ -79,7 +79,7 @@ Then `npm run interop -- --lane live` prints `live identity: <origin>/poppy/inte
 
 Before any live run, the runner fetches the identity as a Company would and stops if the `client_id` document doesn't answer 200 as JSON naming itself, or its key set doesn't hold your key; nothing is sent to a Company then ([interop spec §10](../docs/interop-spec.md#10-lanes)). After a domain move, run `scripts/interop-live-identity.mjs` again so the file names the new origin.
 
-Static hosting can add a path prefix before `/poppy/interop/client.json`. The matching `jwks.json` must be beside that document. Set the full public `client_id` in the local identity file and metadata. Serve both as `application/json`; raw GitHub responses are `text/plain` and some Companies refuse them. See [the live 0.2 results](../docs/live-0.2-testing.md) for the tested setup.
+Static hosting can add a path prefix before `/poppy/interop/client.json`. The matching `jwks.json` must be beside that document. Set the full public `client_id` in the local identity file and metadata. Serve both as `application/json`; raw GitHub responses are `text/plain` and some Companies refuse them. See [the live 0.2 results](../docs/history/live-0.2-testing.md) for the tested setup.
 
 ### Docker hygiene
 

@@ -2,7 +2,7 @@
 
 **Current: the 28 October text of 0.3, alone** ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)). Our readings of 0.1 and 0.2 are in this file's history; the ones 0.3 settled are listed [below](#settled-or-retired-by-03).
 
-Where Poppy 0.3 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions prepared for upstream feedback are in [poppy-0.3-issues.md](poppy-0.3-issues.md); the older ids (S1, N19 and the rest) are from [spec-issues.md](spec-issues.md), the 0.1 list.
+Where Poppy 0.3 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions prepared for upstream feedback are in [poppy-0.3-issues.md](poppy-0.3-issues.md); the older ids (S1, N19 and the rest) are from [spec-issues.md](history/spec-issues.md), the 0.1 list.
 
 Back to [poppy-0.3-issues.md](poppy-0.3-issues.md) · [interop-spec.md §7](interop-spec.md#7-readings)
 

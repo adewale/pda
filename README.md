@@ -2,7 +2,7 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness, and written-up spec issues for each draft.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 29 October 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)) ([changelog](CHANGELOG.md), [plan and status](docs/poppy-0.3-plan.md#then-03-as-rewritten-on-28-october)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page when the Company returns an operation for approval. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
+Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 29 October 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)) ([changelog](CHANGELOG.md), [upgrade procedure](docs/upgrading.md)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page when the Company returns an operation for approval. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/history/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
 
 ## Components and supported Poppy versions
 
@@ -35,7 +35,7 @@ PDA uses the document validator during discovery, and the fake agents wrap PDA's
 
 Every step's exchanges also appear in Activity's protocol log, with their spec sections, and can be copied as text for an interop report.
 
-At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printwithpoppy.com, which takes real payments: it started a signed-out Session, read the catalogue and asked to send a 3.7 MB photo ([what happened](docs/poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)).
+At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printwithpoppy.com, which takes real payments: it started a signed-out Session, read the catalogue and asked to send a 3.7 MB photo ([what happened](docs/history/poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)).
 
 ## What you can do with it
 
@@ -82,7 +82,7 @@ Signing in for the first time, with a run-through that checks each part works: [
 - **Our agent as your peer.** Its `client_id` is `https://poppydemoagent.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
 - **The interop harness** (`interop/`) pairs registered agents and Companies in isolated containers, records exchanges and attributes failures by protocol rule. [interop/README.md](interop/README.md) explains how to add a peer. [Current verification](docs/poppy-0.3-conformance.md#current-verification) owns the evidence and limits; [dated grid reports](docs/interop-results/README.md) preserve historical runs.
 - **Adversarial testing.** A malicious Company attacks our agent: oversized documents, nonce loops, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious agent now exercises the 0.3 wire and actual effect counts. What an attack finds in another project's code goes to its maintainers privately first ([SECURITY.md](SECURITY.md)).
-- **Official Company kit.** The [pinned 0.3 validator and manual checklist review](docs/company-kit-review.md) check our mock and hosted dummy Company's handlers independently. Raw failures, inconclusive results and skipped features remain visible. Earlier community-validator and Datalayer cross-checks remain [dated 0.1/0.2 evidence](docs/interop-testing.md#validator-cross-check).
+- **Official Company kit.** The [pinned 0.3 validator and manual checklist review](docs/company-kit-review.md) check our mock and hosted dummy Company's handlers independently. Raw failures, inconclusive results and skipped features remain visible. Earlier community-validator and Datalayer cross-checks remain [dated 0.1/0.2 evidence](docs/history/interop-testing.md#validator-cross-check).
 - **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
 - **What we need from you, and what we never do:** [docs/testing-with-us.md](docs/testing-with-us.md), the page to send a maintainer whose Company or agent we test: the identities to register, what the offline grid needs from your code, test accounts for signed-in tests.
 
@@ -94,16 +94,7 @@ The [ecosystem map](docs/ecosystem.md#current-ecosystem) owns dated peer observa
 
 ## Documentation sources
 
-| Question | Source to update |
-| --- | --- |
-| Architecture and requirements | [Design](pda-spec.md); [decisions](docs/decisions.md) for rationale |
-| Protocol verification and its limits | [Current verification](docs/poppy-0.3-conformance.md#current-verification) |
-| Deployed state and live checks | [Deployment tasks](docs/deployment-tasks.md) |
-| Remaining product work | [TODO](TODO.md) |
-| Ecosystem observations | [Ecosystem map](docs/ecosystem.md#current-ecosystem) |
-| Contributor commands and invariants | [CLAUDE.md](CLAUDE.md) |
-
-Link to these sources instead of copying status. Dated reports are frozen evidence; parked proposals are refreshed only immediately before submission.
+The [documentation index](docs/README.md) maps each guide and reference to the question it owns, and separates current guidance from [historical reports](docs/history/README.md). Link to the owning source instead of copying its status. Dated reports are frozen evidence; parked proposals are refreshed only immediately before submission.
 
 ## How it's built
 

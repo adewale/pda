@@ -106,7 +106,7 @@ export type MockConfig = {
    * Check client assertions the way the strictest live Companies
    * do (poppy-demo, Ilmer): header `typ` "JWT", a `kid` naming a published
    * key, and a lifetime of at most 60 seconds. The draft doesn't require
-   * these (docs/spec-issues.md, S2), but agents that skip them can't sign in
+   * these (docs/history/spec-issues.md, S2), but agents that skip them can't sign in
    * at those Companies, so breaches are recorded as violations.
    */
   readonly strictAssertions: boolean;

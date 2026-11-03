@@ -19,31 +19,3 @@ PDA implements the pinned 29 October 2026 text of Poppy 0.3 alone. This is the c
 Deployment state and remaining live checks are maintained only in [deployment-tasks](deployment-tasks.md#2-live-checks). This table reports recorded protocol evidence, not a claim that the current source is deployed.
 
 The detailed PR 36/38 review is [frozen at its recorded revision](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md). Its original counts and limitations describe those runs.
-
-## Live follow-up: 29 October
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Final adversarial audit
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Is the 0.3 verification sufficient?
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Local problems and their fixes
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Separate hosted test pair
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Limits that remain explicit
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).
-
-## Disposition of the existing upstream audit
-
-See the [dated review](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/poppy-0.3-conformance.md).

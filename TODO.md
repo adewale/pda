@@ -5,7 +5,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 ## Owner actions
 
 - [ ] Review the [focused spec-feedback batch](docs/proposals/poppy-feedback.md). Recheck only those passages before sending; the historical audit is supporting material, not a send prerequisite.
-- [ ] Review pending implementation reports in [poppy-issues.md](docs/poppy-issues.md) one at a time against their recorded revisions. Drop fixed or obsolete findings; the old everruns duplicate migration is already fixed. Potential vulnerabilities require private disclosure under [SECURITY.md](SECURITY.md). Nothing is posted without owner approval.
+- [ ] Review pending implementation reports in [poppy-issues.md](docs/history/poppy-issues.md) one at a time against their recorded revisions. Drop fixed or obsolete findings; the old everruns duplicate migration is already fixed. Potential vulnerabilities require private disclosure under [SECURITY.md](SECURITY.md). Nothing is posted without owner approval.
 - [ ] Read the monthly dependency report. It reports audit findings and opens no automatic PRs.
 - [ ] Decide whether to submit the [parked plugin proposals](docs/proposals/README.md) after the deployment checklist's live verification. Do not refresh their statistics while parked.
 

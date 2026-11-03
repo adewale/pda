@@ -34,7 +34,7 @@ import worker from "./worker";
 const ORIGIN = "https://agent.test";
 
 /**
- * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,
+ * Readings of questions the draft leaves open (docs/history/spec-issues.md). Sign-in,
  * Sessions and DPoP, and signing out run under each. This exercises our
  * declared readings; independent Python and third-party clients provide
  * additional checks on assumptions our client and mock could share. (0.3's

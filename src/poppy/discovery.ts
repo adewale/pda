@@ -256,7 +256,7 @@ function canonicalAuth(value: unknown): string {
 
 /**
  * Whether a host may receive this Company's access tokens, Session JWTs
- * and DPoP proofs. The draft doesn't say (docs/spec-issues.md, N10), and an
+ * and DPoP proofs. The draft doesn't say (docs/history/spec-issues.md, N10), and an
  * OpenAPI description can name any server, so only these do: a host
  * `poppy.json` lists for a service, or a host equal to or under
  * `organization.domain` or a URL in the issuer's `protected_resources`.

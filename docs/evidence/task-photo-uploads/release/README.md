@@ -32,4 +32,4 @@ Node 24; Chromium set through `PDA_ACCEPTANCE_CHROMIUM`; Docker for interop. Use
 
 ## Limits
 
-No live OAuth, model-provider account or Gateway settings were verified. No checkout, charge, print or email service was exercised. File/recipient selection bounds availability; it does not prove semantic intent or universal prompt-injection immunity. [Privacy controls still missing](../../../privacy-review.md) remain missing: wording is not deletion/export/retention implementation. Local deletion cannot erase downstream copies.
+No live OAuth, model-provider account or Gateway settings were verified. No checkout, charge, print or email service was exercised. File/recipient selection bounds availability; it does not prove semantic intent or universal prompt-injection immunity. [Privacy controls still missing](../../../history/privacy-review.md) remain missing: wording is not deletion/export/retention implementation. Local deletion cannot erase downstream copies.
