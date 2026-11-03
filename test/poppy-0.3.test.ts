@@ -156,6 +156,21 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     expect((await requests(c)).some((request) => request.url === c.hosts.revocationEndpoint)).toBe(true);
   });
 
+  it("continues signed out when the Company refuses this agent a sign-in type, and doesn't offer it again for a while (4.1)", async () => {
+    const c = await company({ ...V3, mcp: true, signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null }, refuseSignInTypes: ["device"] });
+    const a = await agent();
+    const first = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    expect(first.isError).toBe(true);
+    expect(first.text).toContain("continues signed out");
+    const deviceRequests = async () => (await requests(c)).filter((request) => request.url === c.hosts.deviceEndpoint).length;
+    expect(await deviceRequests()).toBe(1);
+    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    expect(again.isError).toBe(true);
+    expect(again.text).toContain("recently");
+    expect(await deviceRequests()).toBe(1);
+    expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
+  });
+
   it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
     const c = await company({ ...V3, authDisabled: true, mcp: true });
     const a = await agent();

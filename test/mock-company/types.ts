@@ -266,6 +266,8 @@ export type MockConfig = {
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
   readonly omitScopesSupported: boolean;
+  /** Refuse this agent these sign-in types with `unauthorized_client`, while accepting it for signed-out Sessions (4.1). */
+  readonly refuseSignInTypes: readonly ("device")[];
   /** The issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
   readonly protectedResourcesOverride: readonly string[] | null;
   /** List `excluded_tasks` (9.1). */
@@ -367,6 +369,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   issuerless: false,
   authDisabled: false,
   omitScopesSupported: false,
+  refuseSignInTypes: [],
   protectedResourcesOverride: null,
   excludedTasks: true,
   feedback: false,

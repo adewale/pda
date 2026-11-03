@@ -514,6 +514,8 @@ export class AuthServer {
     if (!co.config.signIn.device) throw oauthError(400, "unsupported_grant_type");
     const form = this.#form(inbound);
     const client = await co.authenticateClient(form, co.hosts.deviceEndpoint);
+    // 4.1: a Company can refuse one sign-in type to a Personal Agent it accepts for signed-out Sessions.
+    if (co.config.refuseSignInTypes.includes("device")) throw oauthError(400, "unauthorized_client");
     const { requested, scope } = this.#checkScopes("device", form.get("scope"));
     const letters = "BCDFGHJKLMNPQRSTVWXZ";
     const pick = () =>
