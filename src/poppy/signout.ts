@@ -230,6 +230,19 @@ function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "ac
 /** The `poppy-revoke` job's id for a sign-out. */
 const jobId = (id: string) => `signout-${id}`;
 
+/**
+ * Stop using an account now and leave its revocation to the `poppy-revoke`
+ * job, due at once: for a caller that may already hold another lock, such as
+ * discovery noticing a Company's identifier changed (3.2). Returns whether
+ * there was an account to sign out.
+ */
+export async function queueSignOut(client: PoppyClient, issuer: Issuer, account: string): Promise<boolean> {
+  const id = stopUsing(client, issuer, account);
+  if (!id) return false;
+  await client.host.schedule("poppy-revoke", Date.now(), { id, issuer }, jobId(id));
+  return true;
+}
+
 /** Try each now, under `client.exclusive` for their Company, and schedule the next try for each the Company refused. */
 async function tryNow(client: PoppyClient, ids: readonly string[]): Promise<SignOutOutcome | null> {
   let outcome: SignOutOutcome | null = null;

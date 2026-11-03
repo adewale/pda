@@ -31,7 +31,7 @@ import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
-import { FOREIGN_TEXT, type ForeignText } from "../log";
+import { FOREIGN_TEXT, literal, reportError, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 
@@ -479,6 +479,10 @@ export class PoppyClient {
         throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
       }
     }
+    if (isCompany(result) && cached) {
+      const known = JSON.parse(cached.company) as Company | WebsiteOnly;
+      if (isCompany(known) && known.issuer !== result.issuer) await this.#identifierChanged(key, known, result);
+    }
     // 3.2: domains sharing an issuer are one Company. They SHOULD publish the same scope descriptions and
     // hints, and MAY expose different scopes and capabilities, so differing `auth` objects aren't refused;
     // each domain's own document is used for that domain.
@@ -496,16 +500,53 @@ export class PoppyClient {
     return result;
   }
 
-  /** The most recently discovered document for an issuer. */
+  /**
+   * The most recently discovered document for an issuer, or, once no domain
+   * names it any more (its identifier changed, 3.2), the last one recorded
+   * for it, so its accounts can still be revoked at its own endpoints.
+   */
   companyByIssuer(issuer: Issuer): Company {
     const row = one(
       this.sql,
       domainsTable.pick("company"),
       "SELECT company FROM poppy_domains WHERE issuer = ? ORDER BY expires_at DESC LIMIT 1",
       issuer
-    );
+    ) ?? one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE issuer = ? ORDER BY rowid DESC LIMIT 1", issuer);
     if (!row) throw new DiscoveryError(`No company known for issuer ${issuer}`);
     return JSON.parse(row.company) as Company;
+  }
+
+  /**
+   * A domain's Company identifier changed (3.2): an issuer was added, changed
+   * or explicitly removed. The new identifier gets new User IDs and Sessions,
+   * and nothing transfers. Accounts held under the old one can't be used from
+   * this domain any more, so they are signed out: the usual sign-out record,
+   * whose revoke job sends the revocation to the old issuer, retries, and
+   * shows the User what is still pending. The User is told.
+   */
+  async #identifierChanged(domain: string, known: Company, current: Company): Promise<void> {
+    this.rememberCompany("identifier-change", `${domain}|${known.issuer}`, known);
+    const accounts = this.accounts(known.issuer);
+    if (accounts.length === 0) return;
+    await this.host.showCard({
+      id: `identifier-change-${domain}-${known.issuer}`,
+      kind: "notice",
+      company: current.name,
+      domain: current.domain,
+      open: true,
+      text: current.issuerless
+        ? `${current.name} no longer has a sign-in service for personal agents, so your agent uses ${domain} signed out only. It is signing out of the account it held there before; nothing from that sign-in carries over.`
+        : `${current.name} moved to a different sign-in service. Your agent is signing out of the account it held through the old one, and you can sign in again when a task needs your account; nothing from the old sign-in carries over.`
+    });
+    // Queued, not awaited: discovery may run under another lock, and the revoke job retries on its own.
+    const { queueSignOut } = await import("./signout");
+    for (const account of accounts) {
+      try {
+        await queueSignOut(this, known.issuer, account.account);
+      } catch (error) {
+        reportError(error, { source: literal("poppy.identifier-change"), severe: false });
+      }
+    }
   }
 
   /** Bind pending work to the interface where it began; never overwrite it. */

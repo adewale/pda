@@ -7,6 +7,7 @@
  * strict check in agent-helpers: the mock recorded no violation or warning.
  */
 import { decodeJwt, decodeProtectedHeader } from "jose";
+import { runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { agent, cards, company, requests, signInDirect, testEnv, tool, until, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
@@ -136,6 +137,23 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     const resources = resourceRequests((await requests(c)).slice(before), c);
     expect(resources.length).toBeGreaterThan(0);
     for (const request of resources) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+  });
+
+  it("signs out of accounts held under an issuer the Company explicitly removed, revoking them at the old issuer", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    expect((await c.stub.state()).accountTokens).toBe(1);
+    await c.stub.configure({ authorizationServersOverride: [], signIn: { direct: null, device: null, mediated: null } });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
+    const notice = (await cards(a)).find((card) => card.id.startsWith("identifier-change-"));
+    expect(notice?.text).toContain("signing out of the account it held there before");
+    // The revoke job runs now, at the old issuer's revocation endpoint.
+    await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
+    await runDurableObjectAlarm(a.stub);
+    await until(async () => (await c.stub.state()).accountTokens === 0);
+    expect((await requests(c)).some((request) => request.url === c.hosts.revocationEndpoint)).toBe(true);
   });
 
   it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
