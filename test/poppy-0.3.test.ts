@@ -321,6 +321,36 @@ describe("0.3: Operations 2", () => {
     expect((await c.stub.state()).performs).toBe(1);
     const state = await c.stub.state();
     expect(state.conversations[0]!.sent.every((line) => line.startsWith("agent:"))).toBe(true);
+    // The approval went as Operations 2's extension content (8.4).
+    const approved = (await requests(c)).filter((request) => request.method === "POST" && /\/messages$/.test(new URL(request.url).pathname));
+    expect(approved.length).toBeGreaterThan(0);
+  });
+
+  it("refuses an approval message an earlier build saved with the old top-level approval field, sending nothing", async () => {
+    const c = await company(V3);
+    const a = await agent();
+    await signInDirect(a, c, SCOPES);
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "Please exchange the jacket on my order" })).isError).toBe(false);
+    const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open));
+    // The terms the card holds, as the approval's message would name them.
+    const rows = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals")) as { request: string }[];
+    const find = (value: unknown): { operation_id: string; revision: string } | undefined => {
+      if (!value || typeof value !== "object") return undefined;
+      const record = value as Record<string, unknown>;
+      if (typeof record.operation_id === "string" && typeof record.revision === "string") return record as { operation_id: string; revision: string };
+      for (const child of Object.values(record)) { const found = find(child); if (found) return found; }
+      return undefined;
+    };
+    const operation = rows.map((row) => find(JSON.parse(row.request))).find(Boolean)!;
+    // What the 29 October build stored for this approval's message before sending it.
+    const stale = JSON.stringify({ message: { id: "msg_stalestalestalestale", author: { type: "agent" }, text: "The User approved this.", approval: { operation_id: operation.operation_id, revision: operation.revision } } });
+    await a.stub.poppySql("INSERT INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", `message|approval|${operation.operation_id}|${operation.revision}`, stale, Date.now());
+    const before = (await requests(c)).length;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
+    const failed = await until(async () => (await cards(a)).find((card) => card.id === terms.id && card.status === "failed"));
+    expect(failed.result).toContain("earlier version of the agent");
+    expect((await requests(c)).slice(before).filter((request) => /\/messages$/.test(new URL(request.url).pathname))).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
   });
 });
 

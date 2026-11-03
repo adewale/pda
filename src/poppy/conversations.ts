@@ -193,6 +193,12 @@ export async function sendMessage(
       });
     })
   ) as { parent_conversation_id?: string; message: Message };
+  // A message intent an earlier build stored with Operations 2's approval at the top level, which the
+  // 3 November text moved to `extensions.operations` (8.4). Resending it under its id with a new shape
+  // would conflict, and in the old shape a current Company ignores it, so it is refused: the User asks again.
+  if (Object.hasOwn(body.message, "approval")) {
+    throw new PoppyError("approval_changed", `This approval was saved by an earlier version of the agent in a form ${company.name} no longer reads. Nothing was sent; ask ${company.name} for current terms and approve them again.`, 0);
+  }
   client.sql.exec(
     "INSERT OR IGNORE INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
     body.message.id,

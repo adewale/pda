@@ -1875,6 +1875,23 @@ describe("the mock Company", () => {
     expect(header).not.toContain("error=");
   });
 
+  it("keeps an Idempotency-Key's record for the agent and User, so a retry in a new Session repeats nothing (Guides, \"Retries\")", async () => {
+    const c = company();
+    await c.stub.configure({ printShop: true });
+    const s = await session();
+    const photo = await uploaded(c, s);
+    const { operation } = (await (await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_first_request_1" })).json()) as { operation: Operation };
+    const placed = await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_approved_order_1", ...approval(operation) });
+    expect(placed.status).toBe(201);
+    const order = await placed.json();
+    // The Company ends the Session; the agent retries the approved order, unchanged, in a new one.
+    await c.stub.endAllSessions();
+    const retried = await orderPrints(c, { ...s, sid: jti() }, printOrder(photo), { "Idempotency-Key": "key_approved_order_1", ...approval(operation) });
+    expect(retried.status).toBe(201);
+    expect(await retried.json()).toEqual(order);
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+
   it("answers an ended Session with session_ended, and a new sid starts a new one (5.5)", async () => {
     const c = company();
     const s = await session();

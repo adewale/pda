@@ -375,7 +375,7 @@ export class Apis {
     }
     const header = inbound.request.headers.get("Poppy-Approval");
     const approval = header === null ? null : parseApprovalHeader(header);
-    const scoped = `${context.session.id}|${key}`;
+    const scoped = `${idempotencyScope(context)}|${key}`;
     const seen = this.#idempotency.get(scoped);
     if (seen) {
       if (seen.hash !== inbound.bodyText) {
@@ -474,9 +474,9 @@ export class Apis {
       co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
     }
     const key = inbound.request.headers.get("Idempotency-Key");
-    const scoped = key ? `${context.session.id}|${key}|${header ?? ""}` : null;
-    if (key && header === null) this.#unapprovedKeys.add(`${context.session.id}|${key}`);
-    else if (key && this.#unapprovedKeys.has(`${context.session.id}|${key}`)) {
+    const scoped = key ? `${idempotencyScope(context)}|${key}|${header ?? ""}` : null;
+    if (key && header === null) this.#unapprovedKeys.add(`${idempotencyScope(context)}|${key}`);
+    else if (key && this.#unapprovedKeys.has(`${idempotencyScope(context)}|${key}`)) {
       co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
     }
     const seen = scoped ? this.#idempotency.get(scoped) : undefined;
@@ -666,4 +666,13 @@ export class Apis {
     }
     return rpcError(-32601, `unknown method ${String(rpc.method)}`);
   }
+}
+
+/**
+ * Whose `Idempotency-Key`s a record belongs to: the Personal Agent, the User
+ * and any account, not the Session (Guides, "Retries"), so a retry that a
+ * new Session carries after `session_ended` still matches.
+ */
+function idempotencyScope(context: ResourceContext): string {
+  return `${context.session.clientId}|${context.session.userId}|${context.account ?? ""}`;
 }
