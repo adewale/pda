@@ -48,10 +48,10 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - Offline, on 3 November:
   - Passing: `npm run typecheck`, `check:spec`, `check:docs` and `test:tooling`.
   - The five Vitest projects: 1,447, 3, 272, 430 and 196 tests passing, after one interop expectation was updated for 9.2's web alternatives.
-  - `npm run test:hypothesis`: 21 passing.
+  - `npm run test:hypothesis`: 22 passing. A new machine covers a Company with no issuer, and the Python client signs with its own operator key.
   - `npm run check:approval-crashes`: every process-kill case passing.
   - The hosted dummy Company security check: no strict violations or warnings.
-  - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips.
+  - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips. That includes a new profile with no issuer: 91 checks passing, none failing or warning, 30 OAuth checks skipped.
 - Not run: the Docker interop grid, the browser journeys and any live Company. Operator signatures haven't been checked against a real edge.
 
 ## Unreleased — Poppy 0.3 alone

@@ -16,6 +16,6 @@ Run the upstream CLI against our local Companies:
 node scripts/check-company-kit.mjs --output /tmp/company-kit.json
 ```
 
-The command retains the upstream exit verdicts and exits nonzero for a MUST failure. The [review](../../docs/company-kit-review.md) explains the reviewed findings and the accepted controls. CI adds `--reviewed-findings`: it requires exactly the documented findings/skips and passing controls, while preserving every raw upstream result. A new or disappeared finding fails that review check.
+It runs five profiles: the lenient and strict mock, a strict Bearer mock, the hosted dummy Company, and the mock with no OAuth issuer (3.2), so upstream's validator also judges a signed-out Company whose protected resource metadata is a 404. The command retains the upstream exit verdicts and exits nonzero for a MUST failure. The [review](../../docs/company-kit-review.md) explains the reviewed findings and the accepted controls. CI adds `--reviewed-findings`: it requires exactly the documented findings/skips and passing controls, while preserving every raw upstream result. A new or disappeared finding fails that review check.
 
 Updates are manual. Download a new artifact only after a request, review its changes, and pin its archive and file hashes together. Neither this command nor CI fetches a newer kit.

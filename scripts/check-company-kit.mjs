@@ -113,9 +113,11 @@ try {
   const mock = (await runtime.getDurableObjectNamespace("MOCK_COMPANY")).getByName("kit");
   const runs = [];
   const proofControls = [];
-  for (const profile of ["lenient", "strict", "bearer", "hosted"]) {
+  // "issuerless": the mock with no OAuth issuer (3.2, upstream 850a46d), signed-out only, so upstream's own
+  // validator, not ours, judges the case of a 404 for the domain's protected resource metadata.
+  for (const profile of ["lenient", "strict", "bearer", "hosted", "issuerless"]) {
     if (profile !== "hosted") {
-      await mock.configure({ protocolVersion: "0.3", strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true });
+      await mock.configure({ protocolVersion: "0.3", strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, issuerless: profile === "issuerless" });
     }
     const target = profile === "hosted" ? companyOrigin : "https://kit.shop.test";
     const run = await command(["--import", path.join(root, "test/company-kit/local-https.mjs"), cli, "check", target, "--allow-private-addresses", "--json", ...(profile === "hosted" ? ["--probe", `${companyOrigin}/products`] : [])], { PDA_COMPANY_KIT_NETWORK: networkFile });
@@ -123,7 +125,7 @@ try {
     const report = JSON.parse(run.stdout);
     runs.push({ profile, target, exitCode: run.code, ...report });
     process.stdout.write(`${profile}: ${JSON.stringify(report.summary.total)}\n`);
-    if (withDpop && profile !== "bearer") proofControls.push({ profile, results: await dpopControls({ kit, directory, target, fetcher: (url, init) => localFetch(agent, url, init) }) });
+    if (withDpop && profile !== "bearer" && profile !== "issuerless") proofControls.push({ profile, results: await dpopControls({ kit, directory, target, fetcher: (url, init) => localFetch(agent, url, init) }) });
   }
   const limits = JSON.parse(readFileSync(path.join(root, "test/company-kit/reviewed-findings.json"), "utf8"));
   let review, reviewError;
@@ -136,7 +138,7 @@ try {
         assert.equal(new Set(run.results.map(item => item.id)).size, limits.catalogChecks);
         const expectedFail = !withDpop && dpop.failureProfiles.includes(run.profile) ? [dpop.failureId] : [];
         const expectedWarn = !withDpop && dpop.warningProfiles.includes(run.profile) ? dpop.warningIds : [];
-        const expectedSkip = limits.skips[run.profile === "hosted" ? "hosted" : "mock"];
+        const expectedSkip = limits.skips[run.profile] ?? limits.skips[run.profile === "hosted" ? "hosted" : "mock"];
         for (const [status, expected] of [["fail", expectedFail], ["warn", expectedWarn], ["skip", expectedSkip]]) {
           const actual = run.results.filter(item => item.status === status);
           assert.deepEqual(sorted(actual.map(item => item.id)), sorted(expected), `Review changed ${status} findings for ${run.profile}`);
@@ -149,7 +151,7 @@ try {
       const control = runs.find(run => run.profile === limits.positiveControlProfile);
       for (const id of [...dpop.warningIds, dpop.failureId]) assert.equal(control.results.find(item => item.id === id)?.status, "pass", `Missing accepted control for ${id}`);
       if (withDpop) for (const run of runs) for (const id of [...dpop.warningIds, dpop.failureId]) {
-        if (!limits.skips[run.profile === "hosted" ? "hosted" : "mock"].includes(id)) assert.equal(run.results.find(item => item.id === id)?.status, "pass", `Missing DPoP-capable control for ${run.profile}/${id}`);
+        if (!(limits.skips[run.profile] ?? limits.skips[run.profile === "hosted" ? "hosted" : "mock"]).includes(id)) assert.equal(run.results.find(item => item.id === id)?.status, "pass", `Missing DPoP-capable control for ${run.profile}/${id}`);
       }
       review = withDpop ? "The separately patched CLI supplies ES256 DPoP proofs. All applicable checks pass; only documented absent-feature skips remain. The pinned upstream source is unchanged." : "All upstream verdicts retained; only the documented DPoP prerequisite findings and explicit absent-feature skips remain. Accepted controls pass on the bearer profile.";
     } catch (error) { reviewError = error; }

@@ -711,7 +711,7 @@ class Base(RuleBasedStateMachine):
         """
         if self.company is None:
             return
-        oauth = {self.co.token_endpoint, self.co.revocation_endpoint, self.co.metadata.get("device_authorization_endpoint")}
+        oauth = {self.co.token_endpoint, self.co.revocation_endpoint, self.co.metadata.get("device_authorization_endpoint")} - {None}
         misplaced = 0
         for x in self.transport.log:
             bare = x.url.split("?", 1)[0]
@@ -870,6 +870,53 @@ class ApiRules:
                 assert isinstance(reply.body, dict) and isinstance(reply.body.get("products"), list), reply.body
             elif path == "/addresses":
                 assert isinstance(reply.body, dict) and isinstance(reply.body.get("addresses"), list), reply.body
+
+
+class OperatorRules:
+    """
+    Operator signatures (5.3, Web Bot Auth). Every honest resource request
+    carries one, made by this client's own signer (poppy_client.operator_headers)
+    and checked by the mock's own verifier, so a misreading of RFC 9421's
+    signature base on either side shows as a recorded violation. The reject
+    rules break one on purpose; the Company records it and still serves the
+    request, which its Session JWT authenticates.
+    """
+
+    def public_paths(self) -> list[str]:
+        return [path for path, needed in self.api_ops if not needed]
+
+    def signed_out(self) -> list[MSession]:
+        """Signed-out Sessions: no DPoP proof to retry on `use_dpop_nonce`, so a broken signature is sent, and recorded, once."""
+        return [s for s in self.live() if s.token is None]
+
+    @precondition(lambda self: self.signed_out() and self.public_paths())
+    @rule(data=st.data())
+    def operator_signature_corrupted(self, data: st.DataObject) -> None:
+        """A signature that doesn't verify against the key in our directory: recorded (`operator-signature.invalid`)."""
+        ms = data.draw(st.sampled_from(self.signed_out()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator_corrupt=True)
+        self.touch(ms, reply)
+        expect(reply, 200)
+        self.violation("operator-signature.invalid")
+
+    @precondition(lambda self: self.signed_out() and self.public_paths())
+    @rule(data=st.data())
+    def operator_signature_without_session(self, data: st.DataObject) -> None:
+        """5.3's MUST: a signature that leaves out `poppy-session`: recorded (`operator-signature.components`)."""
+        ms = data.draw(st.sampled_from(self.signed_out()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator_omit=("poppy-session", "authorization"))
+        self.touch(ms, reply)
+        expect(reply, 200)
+        self.violation("operator-signature.components")
+
+    @precondition(lambda self: self.live() and self.public_paths())
+    @rule(data=st.data())
+    def no_operator_signature(self, data: st.DataObject) -> None:
+        """A SHOULD: a request with no operator signature is served, and nothing is recorded ("its absence does not make a Session JWT invalid")."""
+        ms = data.draw(st.sampled_from(self.live()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator=False)
+        self.touch(ms, reply)
+        expect(reply, 200)
 
 
 class WarmUp:

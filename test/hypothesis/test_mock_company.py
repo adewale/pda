@@ -11,7 +11,7 @@ from hypothesis import assume
 from hypothesis import strategies as st
 from hypothesis.stateful import precondition, rule, run_state_machine_as_test
 
-from machine import COVERAGE, MAX_SESSIONS, ApiRules, Base, ConversationRules, MSession, SessionRules, expect
+from machine import COVERAGE, MAX_SESSIONS, ApiRules, Base, ConversationRules, MSession, OperatorRules, SessionRules, expect
 from mock_server import DOMAIN, MockServer
 from poppy_client import Es256Key, Poppy, Session, User, ath, random_id
 
@@ -293,7 +293,7 @@ class CoreRules:
             self.violation("signin.no-scope")
 
 
-class MockCompanyMachine(Base, SessionRules, ApiRules, ConversationRules, CoreRules):
+class MockCompanyMachine(Base, SessionRules, ApiRules, ConversationRules, OperatorRules, CoreRules):
     pass
 
 
