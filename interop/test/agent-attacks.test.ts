@@ -121,9 +121,9 @@ describe("Poppy 0.3 raw adversarial adapter and independent trace oracles", () =
     const pair = agentAttackEvidence(f.trace(), "YA")!;
     const jwt = pair[1].requestHeaders.get("poppy-session")!;
     const header = decodeJwt(jwt)!.header;
-    const delegation = await jwtVerify(String(header.pap_dlg), f.publicKey);
+    const delegation = await jwtVerify(String(header.poppy_dlg), f.publicKey);
     expect(delegation.payload.iss).toBe(CLIENT_ID);
-    expect(delegation.protectedHeader.typ).toBe("pap-delegation+jwt");
+    expect(delegation.protectedHeader.typ).toBe("poppy-delegation+jwt");
     const delegatedKey = (delegation.payload.cnf as { jwk: JWK }).jwk;
     const verified = await jwtVerify(jwt, await importJWK(delegatedKey, "ES256"));
     expect(verified.protectedHeader.typ).toBe("poppy-session+jwt");

@@ -515,14 +515,16 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (at !== -1) events = events.slice(at + 1);
     return {
       messages: events.map((entry) => {
-        const event = JSON.parse(entry.event) as { id: string; message: { role?: string; author?: Json; text?: string; data?: Json; operation?: { operation_id?: string } } };
+        const event = JSON.parse(entry.event) as { id: string; message: { role?: string; author?: Json; text?: string; data?: Json; extensions?: { operations?: { operation?: { operation_id?: string } } } } };
+        // Operations 2's operation, in the message's extension content (8.4, Ops 4).
+        const operation = event.message.extensions?.operations?.operation;
         return {
           event: event.id,
           role: event.message.role ?? null,
           // `author.type` (8.4); the field keeps the harness's name for it.
           sender: writtenBy(event.message) ?? null,
           text: event.message.text ?? null,
-          ...(event.message.operation?.operation_id ? { operation: event.message.operation.operation_id } : {})
+          ...(operation?.operation_id ? { operation: operation.operation_id } : {})
         };
       }),
       cursor: row.cursor,

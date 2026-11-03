@@ -171,6 +171,7 @@ export class MockCompany extends DurableObject<Env> {
     }
 
     if (sub === "auth") {
+      if (company.config.issuerless) return json({ error: "not_found" }, 404);
       // Only where RFC 8414 puts it: the appended form of an issuer with a path is 404 (S3).
       if (path === company.hosts.metadataPath) return web.authorizationServerMetadata();
       if (path === "/oauth/token" && method === "POST") return auth.token(inbound);
@@ -183,6 +184,8 @@ export class MockCompany extends DurableObject<Env> {
 
     if (sub === "mcp") {
       if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
+        // 7: an MCP server that offers no account access needs no issuer discovery.
+        if (company.config.issuerless) return json({ error: "not_found" }, 404);
         return json(apis.protectedResourceMetadata());
       }
       if (path === "/mcp") {

@@ -68,10 +68,10 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
       expect(found.signIn.mediated?.scopes).toEqual(poppy.extensions?.["mediated-sign-in"]?.scopes);
       // Mediated Sign-In's credentials go to the token endpoint and nowhere else (Mediated Sign-In 3).
       expect(found.signIn.mediated?.endpoint).toBe(found.signIn.mediated ? metadata.token_endpoint : undefined);
-      expect(found.endpoints.token).toBe(metadata.token_endpoint);
-      expect(found.endpoints.revocation).toBe(metadata.revocation_endpoint);
-      expect(found.endpoints.authorization).toBe(found.signIn.direct ? metadata.authorization_endpoint : undefined);
-      expect(found.endpoints.deviceAuthorization).toBe(found.signIn.device ? metadata.device_authorization_endpoint : undefined);
+      expect(found.endpoints!.token).toBe(metadata.token_endpoint);
+      expect(found.endpoints!.revocation).toBe(metadata.revocation_endpoint);
+      expect(found.endpoints!.authorization).toBe(found.signIn.direct ? metadata.authorization_endpoint : undefined);
+      expect(found.endpoints!.deviceAuthorization).toBe(found.signIn.device ? metadata.device_authorization_endpoint : undefined);
       expect(found.dpop).toBe("dpop_signing_alg_values_supported" in metadata);
       expect(found.apis.map((api) => [api.type, api.url])).toEqual(
         (poppy.apis ?? []).filter((api: { type: string }) => api.type === "openapi" || api.type === "mcp").map((api: { type: string; url: string }) => [api.type, api.url])
@@ -101,10 +101,10 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
     propertyAsync(async (tc) => {
       const found = await discovered(tc.draw(companies));
       const poppyEndpoints = [
-        found.endpoints.token,
-        found.endpoints.revocation,
-        found.endpoints.authorization,
-        found.endpoints.deviceAuthorization,
+        found.endpoints!.token,
+        found.endpoints!.revocation,
+        found.endpoints!.authorization,
+        found.endpoints!.deviceAuthorization,
         found.conversations?.endpoint,
         found.web?.browserSessionEndpoint,
         found.feedback?.endpoint

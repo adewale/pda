@@ -283,26 +283,26 @@ class Base(RuleBasedStateMachine):
     def can_read(self, ms: MSession, conversation: MConversation) -> bool:
         """
         8.2: a conversation belongs to the agent and the User that started
-        it; once it uses the User's account, it belongs to that account
-        instead, so any Session of this agent signed in to it may continue
-        it, whichever User (our reading of S17, docs/readings.md).
+        it, and, once it uses the User's account, to that account too: only
+        a Session of the same User signed in to it continues it (the 3
+        November text settles S17).
         """
-        if conversation.account is not None:
-            return ms.account == conversation.account
-        return ms.user is conversation.user
+        if ms.user is not conversation.user:
+            return False
+        return conversation.account is None or ms.account == conversation.account
 
     def refusal(self, ms: MSession, conversation: MConversation) -> tuple[int, str | None] | None:
         """
-        What a Session that may not use the conversation gets: the same
-        User not signed in to its account, a challenge for the account
-        (8.11, 7: 401 with no error code); anyone else
-        `conversation_not_found` (8.13), which the mock records as a
-        cross-User reach (S17).
+        What a Session that may not use the conversation gets (8.2's table):
+        the same User signed out, a challenge for the account (8.11, 7: 401
+        with no error code); the same User signed in to another account
+        `conversation_not_found`; another User `conversation_not_found`
+        too, which the mock records as a cross-User reach.
         """
         if self.can_read(ms, conversation):
             return None
         if ms.user is conversation.user:
-            return 401, None
+            return (401, None) if ms.account is None else (404, "conversation_not_found")
         self.violation("conversation.cross-user")
         return 404, "conversation_not_found"
 
@@ -400,7 +400,7 @@ class Base(RuleBasedStateMachine):
         order, exchange or return, asked signed in with read and write, uses
         the account (8.2). Returns whether it handed off.
         """
-        if ("text" not in message and "data" not in message) or "approval" in message or not self.config["agentReplies"]:
+        if ("text" not in message and "data" not in message) or "approval" in (message.get("extensions") or {}).get("operations", {}) or not self.config["agentReplies"]:
             return False
         if conversation.status == "queued" or conversation.responder == "human":
             return False
@@ -832,11 +832,11 @@ class SessionRules:
     @precondition(lambda self: any(s.ended and s.seen for s in self.all_sessions()))
     @rule(data=st.data())
     def ended_session(self, data: st.DataObject) -> None:
-        """5.5, 7: a Session the Company ended gets `invalid_session`; the agent starts a new one (once)."""
+        """5.5, 7: a Session the Company ended gets `session_ended`; the agent starts a new one (once)."""
         ms = data.draw(st.sampled_from([s for s in self.all_sessions() if s.ended and s.seen]))
         path, _ = data.draw(st.sampled_from(self.api_ops))
         reply = self.poppy.resource(ms.session, "GET", self.api_base + path, self.co)
-        expect(reply, 400, "invalid_session")
+        expect(reply, 400, "session_ended")
         assume(len(ms.user.sessions) < MAX_SESSIONS)
         fresh = self.new_session(ms.user)
         if ms.token is not None:

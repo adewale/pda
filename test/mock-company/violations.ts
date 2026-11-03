@@ -11,8 +11,8 @@
  * Each description starts with what the check rests on, then where: spec
  * sections bare (`5.2`), `Ops n` for the Operations extension,
  * `Mediated Sign-In n` for that extension, and a Guides heading by name,
- * checked against the 0.3 text of 28 October 2026 in
- * `spec/draft-0.3-retrieved-2026-10-28/pages/`:
+ * checked against the 0.3 text of 3 November 2026 in
+ * `spec/draft-0.3-retrieved-2026-11-03/pages/`:
  *
  * - `MUST (5.2: …):` or `MUST NOT (…):` a MUST, MUST NOT or required field
  *   in the spec or one of its extensions.
@@ -157,7 +157,8 @@ export const VIOLATIONS = {
   // ---- Conversations (8) ----
   "message.missing": "Rule (8.3: a request carries its message): Conversation request without a message",
   "message.id": "MUST (8.4: id is required; 8.2: 1 to 256 URL-safe base64 characters): Message id isn't 1-256 base64url characters",
-  "message.empty": "MUST (8.4: \"MUST have at least one of text, data, or context\"): Message has none of text, data or context",
+  "message.empty": "MUST (8.4: \"MUST have at least one of text, data, context, or extensions\"): Message has none of text, data, context or extensions",
+  "message.extension-unlisted": "MUST NOT (8.4: \"A side MUST NOT send an extension's content unless the other side lists that extension with the same version\"): Extension content for an extension the Company doesn't list",
   "message.text-type": "Rule (8.4: text is the message in natural language): Message text isn't a string",
   "message.json-in-text": "Guides (Conversations: put structured details in data, not JSON or other markup in text; 8.4 says the same without a keyword): JSON in a message's text",
   "message.data-type": "Rule (8.4: data is a JSON object): Message data isn't a JSON object",
@@ -180,7 +181,7 @@ export const VIOLATIONS = {
   "session-jwt.not-jwt": "MUST (5.2: the header holds a JWT): The Session header isn't a JWT",
   "session-jwt.typ": "MUST (5.2: \"typ MUST be poppy-session+jwt\"): A Session JWT of another typ",
   "session-jwt.alg": "MUST (5.2: \"alg MUST be ES256\"): A Session JWT not signed with ES256",
-  "session-jwt.no-delegation": "MUST (5.2 Delegated keys: the Company MUST reject a Session JWT without a delegation): A Session JWT without pap_dlg",
+  "session-jwt.no-delegation": "MUST (5.2 Delegated keys: the Company MUST reject a Session JWT without a delegation): A Session JWT without poppy_dlg",
   "session-jwt.iss": "MUST (5.2: \"MUST include every claim except agent_id\", and ath without a token): A Session JWT without iss",
   "session-jwt.kid": "MUST (5.2 Delegated keys, step 3: kid is the delegated key's RFC 7638 thumbprint; 5.3: the Company MUST complete these checks): A Session JWT whose kid isn't its key's thumbprint",
   "session-jwt.signature": "MUST (5.2 Delegated keys, step 3: verified with the key in cnf.jwk; 5.3): A Session JWT that doesn't verify with the delegated key",
@@ -201,8 +202,8 @@ export const VIOLATIONS = {
   "session-jwt.jti-reused": "Rule (5.2: \"jti is unique and unguessable\"; 5.3: a Company MAY reject a reused jti): A Session JWT jti used twice",
 
   // ---- Delegations (5.2 Delegated keys) ----
-  "delegation.not-jwt": "MUST (5.2 Delegated keys: pap_dlg is the delegation in compact form, and the Company MUST reject one that fails its checks): pap_dlg isn't a JWT",
-  "delegation.typ": "MUST (5.2 Delegated keys: \"typ MUST be pap-delegation+jwt\"): A delegation of another typ",
+  "delegation.not-jwt": "MUST (5.2 Delegated keys: poppy_dlg is the delegation in compact form, and the Company MUST reject one that fails its checks): poppy_dlg isn't a JWT",
+  "delegation.typ": "MUST (5.2 Delegated keys: \"typ MUST be poppy-delegation+jwt\"): A delegation of another typ",
   "delegation.alg": "Rule (5.2 Delegated keys: \"alg is ES256 or PS384\"): A delegation signed with another algorithm",
   "delegation.kid": "MUST (5.2 Delegated keys, step 1: kid names the key in jwks_uri; the Company MUST reject a delegation that fails a check): A delegation whose kid names no published key",
   "delegation.signature": "MUST (5.2 Delegated keys, step 1): A delegation that doesn't verify with the key its kid names",

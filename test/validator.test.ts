@@ -564,10 +564,68 @@ const DISCOVERY: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    name: "refuses protected resource metadata with no authorization server",
+    // 3.2: no authorization server means no issuer, which is invalid only for a Company that offers sign-in.
+    name: "refuses protected resource metadata with no authorization server when poppy.json offers sign-in",
     run: () => company({ prm: { ...SPEC_PRM, authorization_servers: [] } }),
+    ids: ["prm-no-issuer", "issuer-required"],
+    outcome: "invalid",
+    also: (report) => {
+      expect((report as CompanyReport).issuerless).toBe(true);
+      expect(report.messages[1]!.text).toContain("the Mediated Sign-In extension");
+    }
+  },
+  {
+    // The reported case: an MCP catalog, signed out only, with no OAuth issuer yet.
+    name: "accepts a signed-out Company whose protected resource metadata is a 404, identified by its domain",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": jsonResponse({
+            protocol_version: "0.3",
+            organization: { name: "Example Company", domain: "example.com" },
+            apis: [{ type: "mcp", url: "https://mcp.example.com/mcp", description: "Plans, phones, promotions and accessories" }]
+          }),
+          "https://example.com/.well-known/oauth-protected-resource": () => new Response(JSON.stringify({ error: "not_found" }), { status: 404, headers: { "Content-Type": "application/json" } })
+        }),
+        "example.com"
+      ),
     ids: ["prm-no-issuer"],
-    outcome: "invalid"
+    outcome: "valid",
+    also: (report) => {
+      const company = report as CompanyReport;
+      expect(company.refused).toBe(false);
+      expect(company.issuerless).toBe(true);
+      expect(company.identifier).toBe("https://example.com");
+      expect(company.issuer).toBeUndefined();
+      expect(company.documents.map((d) => [d.kind, d.status])).toEqual([["poppy", 200], ["protected-resource", 404]]);
+    }
+  },
+  {
+    // 3.2: no fallback to the domain after another error status.
+    name: "doesn't treat another error status for the protected resource metadata as no issuer",
+    run: () =>
+      company({
+        poppy: (doc) => { delete doc.auth; delete doc.extensions; },
+        routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 503 }) }
+      }),
+    ids: ["http-status"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect((report as CompanyReport).issuerless).toBeUndefined();
+      expect((report as CompanyReport).identifier).toBeUndefined();
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "refuses sign-in without an issuer: auth.issuer or signed_in access with a 404",
+    run: () =>
+      company({
+        poppy: (doc) => { delete doc.extensions; doc.auth.issuer = "https://auth.example.com"; doc.agent.protocols[0].access = "signed_in"; },
+        routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 404 }) }
+      }),
+    ids: ["prm-no-issuer", "issuer-required"],
+    outcome: "invalid",
+    also: (report) => expect(report.messages[1]!.text).toContain("auth.issuer and signed_in access")
   },
   {
     name: "refuses an auth.issuer the domain doesn't list",
@@ -587,10 +645,48 @@ const DISCOVERY: readonly Fixture[] = [
     }
   },
   {
-    name: "checks pasted protected resource metadata",
+    name: "checks pasted protected resource metadata, where no authorization server means no issuer",
     run: () => text("protected-resource", { resource: "https://example.com", authorization_servers: [] }),
     ids: ["prm-no-issuer"],
+    outcome: "valid",
+    also: (report) => {
+      expect(report.skipped.map((s) => s.check)).toContain("Nothing in poppy.json offers sign-in, as a Company without an issuer must not");
+      expect(text("protected-resource", { resource: "https://example.com" }).messages.map((m) => m.id)).toEqual(["prm-no-issuer"]);
+    }
+  },
+  {
+    name: "refuses auth.disabled with Mediated Sign-In or signed_in access",
+    run: () => text("poppy", withPoppy((d) => { d.auth.disabled = true; d.agent.protocols[0].access = "signed_in"; }), { domain: "example.com" }),
+    ids: ["auth-disabled-sign-in", "auth-disabled-sign-in"],
     outcome: "invalid"
+  },
+  {
+    name: "notes a conversation access hint agents ignore, and accepts session and signed_in",
+    run: () => text("poppy", withPoppy((d) => { d.agent.protocols[0].access = "always"; }), { domain: "example.com" }),
+    ids: ["access-unknown"],
+    outcome: "valid",
+    also: () => {
+      for (const access of ["session", "signed_in"]) expect(text("poppy", withPoppy((d) => { d.agent.protocols[0].access = access; }), { domain: "example.com" }).messages).toEqual([]);
+    }
+  },
+  {
+    name: "warns about a skill_index without the 0.2.0 schema, which agents ignore",
+    run: () => text("poppy", withPoppy((d) => { d.skill_index = { skills: [] }; }), { domain: "example.com" }),
+    ids: ["skill-index-schema"],
+    outcome: "valid"
+  },
+  {
+    name: "accepts the specification's skill_index and organization.logo_uri, and checks the index's schema and digests",
+    run: () => text("poppy", withPoppy((d) => {
+      d.organization.logo_uri = "https://example.com/logo.png";
+      d.skill_index = { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: [{ name: "manage-bookings", description: "Manage the User's bookings with this Company.", type: "skill-md", url: "https://cdn.example.com/skills/manage-bookings/SKILL.md", digest: "sha256:ABC" }] };
+    }), { domain: "example.com" }),
+    ids: ["skill-digest"],
+    outcome: "invalid",
+    also: () => {
+      const digest = `sha256:${"1b2a8cde934e632f7e14fa080a627ad7191e29d412d2b8a7aa07d9c9ab2f475e"}`;
+      expect(text("poppy", withPoppy((d) => { d.skill_index = { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: [{ name: "a", description: "b", type: "archive", url: "skills/a.zip", digest }] }; }), { domain: "example.com" }).messages).toEqual([]);
+    }
   }
 ];
 
@@ -624,11 +720,19 @@ const METADATA: readonly Fixture[] = [
     also: (report) => expect(report.messages.map((m) => m.pointer)).toEqual(["/authorization_endpoint", "/device_authorization_endpoint"])
   },
   {
-    name: "requires scopes_supported when the Company offers sign-in",
+    // 3.2: SHOULD since 850a46d; RFC 8414 makes it optional.
+    name: "recommends scopes_supported when the Company offers sign-in, and doesn't ask for it with auth.disabled",
     run: () => company({ metadata: (doc) => { delete doc.scopes_supported; } }),
-    ids: ["missing-member"],
-    outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.pointer).toBe("/scopes_supported")
+    ids: ["scopes-supported-missing"],
+    outcome: "valid",
+    also: async (report) => {
+      expect(report.messages[0]!.pointer).toBe("/scopes_supported");
+      const disabled = await company({
+        poppy: (doc) => { doc.auth.disabled = true; delete doc.extensions["mediated-sign-in"]; },
+        metadata: (doc) => { delete doc.scopes_supported; }
+      });
+      expect(disabled.messages).toEqual([]);
+    }
   },
   {
     name: "refuses Mediated Sign-In without its grant, or with scopes the issuer doesn't support",

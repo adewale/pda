@@ -435,10 +435,9 @@ describe.each(PROFILES)("4.5, 5 Sessions, access tokens and DPoP ($name)", ({ co
     const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/invalid_session/);
-    // A new Session once, then no more: the Company refuses the agent, not the Session.
+    // No new Session: the Company refuses the agent, not the Session, and a new one would fail the same way (7).
     const sids = (await requests(c)).filter((request) => request.error === "invalid_session").map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
-    expect(sids).toHaveLength(2);
-    expect(new Set(sids).size).toBe(2);
+    expect(sids).toHaveLength(1);
     expect((await c.stub.state()).conversations).toEqual([]);
     const signIn = await signInDirect(a, c);
     expect(signIn!.callback.status).toBe(400);
@@ -1583,7 +1582,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
-  it("starts a new Session when the Company says the old one ended (invalid_session), and sends the call again in it", async () => {
+  it("starts a new Session when the Company says the old one ended (session_ended), and sends the call again in it", async () => {
     for (const signedIn of [false, true]) {
       const c = await company();
       const a = await agent();
@@ -1595,7 +1594,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       const again = await call();
       expect(again.isError, again.text).toBe(false);
       const sent = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/${signedIn ? "orders" : "products"}`));
-      expect(sent.map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`)).toEqual(["200", "400 invalid_session", "200"]);
+      expect(sent.map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`)).toEqual(["200", "400 session_ended", "200"]);
       const [first, refused, retried] = sent.map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
       expect(refused).toBe(first);
       expect(retried).not.toBe(first);
@@ -2513,7 +2512,7 @@ describe("Operations 2", () => {
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
-    await c.stub.say(first.conversationId, "Shall I go ahead?", { operation });
+    await c.stub.say(first.conversationId, "Shall I go ahead?", { extensions: { operations: { operation } } });
     const notice = await until(async () => (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-")));
     expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used (${problem}), so nothing was done.`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);

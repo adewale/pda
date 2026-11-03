@@ -422,7 +422,14 @@ export class Company {
 
   /** Scopes a sign-in type can grant, or null when it isn't offered. */
   offeredScopes(type: "direct" | "device" | "mediated"): readonly string[] | null {
+    if (this.config.issuerless || (type === "mediated" && this.config.authDisabled)) return null;
     return this.config.signIn[type];
+  }
+
+  /** The Company's identifier (3.2): its issuer, or `https://{domain}` without one. Session JWTs' audience. */
+  get identifier(): string {
+    const none = this.config.issuerless || this.config.authorizationServersOverride?.length === 0;
+    return none ? `https://${this.hosts.domain.toLowerCase()}` : this.hosts.issuer;
   }
 
   // ---- Rate limits (4.3) ----
@@ -690,7 +697,7 @@ export class Company {
       throw oauthError(401, "invalid_client", "client assertion is not a JWT");
     }
     // Explicit typing (RFC 8725 3.11, 5.2): a DPoP proof, Session JWT or delegation is never a client assertion.
-    if (header.typ === "dpop+jwt" || header.typ === "poppy-session+jwt" || header.typ === "pap-delegation+jwt") {
+    if (header.typ === "dpop+jwt" || header.typ === "poppy-session+jwt" || header.typ === "poppy-delegation+jwt") {
       this.violation("client-assertion.wrong-typ", `client assertion has typ ${header.typ}`);
       throw oauthError(401, "invalid_client");
     }
@@ -923,9 +930,14 @@ export class Company {
   /** Sessions by `client_id` and `sid` (5.3, step 4). */
   readonly sessionsBySid = new Map<string, Session>();
 
-  /** 400 `invalid_session` (5.3). */
+  /** 400 `invalid_session` (5.3): a failed Session check or a refused client. A new Session doesn't fix it. */
   invalidSession(description?: string): HttpError {
     return new HttpError(json({ error: "invalid_session", ...(description ? { error_description: description } : {}) }, 400, { "Cache-Control": "no-store" }));
+  }
+
+  /** 400 `session_ended` (5.4, 5.5): an ended Session, or a refused account change. The agent starts a new Session once. */
+  sessionEnded(description?: string): HttpError {
+    return new HttpError(json({ error: "session_ended", ...(description ? { error_description: description } : {}) }, 400, { "Cache-Control": "no-store" }));
   }
 
   /**
@@ -948,9 +960,9 @@ export class Company {
       header = decodeProtectedHeader(delegation);
       claims = decodeJwt(delegation);
     } catch {
-      throw fail("delegation.not-jwt", "pap_dlg is not a JWT");
+      throw fail("delegation.not-jwt", "poppy_dlg is not a JWT");
     }
-    if (header.typ !== "pap-delegation+jwt") throw fail("delegation.typ", `typ is ${JSON.stringify(header.typ)}, not pap-delegation+jwt`);
+    if (header.typ !== "poppy-delegation+jwt") throw fail("delegation.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-delegation+jwt`);
     if (!header.alg || !DELEGATION_ALGS.includes(header.alg)) throw fail("delegation.alg", `alg ${String(header.alg)} is not ES256 or PS384`);
     const signer = client.jwks.keys.find((key) => key.kid === header.kid);
     if (!signer) throw fail("delegation.kid", `kid ${JSON.stringify(header.kid)} names no key in jwks_uri`);
@@ -1006,7 +1018,7 @@ export class Company {
     }
     if (header.typ !== "poppy-session+jwt") throw fail("session-jwt.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-session+jwt`);
     if (header.alg !== "ES256") throw fail("session-jwt.alg", `alg ${String(header.alg)} is not ES256`);
-    if (typeof header.pap_dlg !== "string") throw fail("session-jwt.no-delegation", "no pap_dlg delegation in the header");
+    if (typeof header.poppy_dlg !== "string") throw fail("session-jwt.no-delegation", "no poppy_dlg delegation in the header");
     if (typeof claims.iss !== "string") throw fail("session-jwt.iss", "iss is missing");
     // 4.1: a refused Personal Agent gets `invalid_session` at a resource, as `invalid_client` at the authorization server.
     const registered = this.config.requireRegistration;
@@ -1018,17 +1030,17 @@ export class Company {
       if (error instanceof HttpError) throw this.invalidSession("the client metadata couldn't be used");
       throw error;
     }
-    const jwk = await this.#verifyDelegation(client, header.pap_dlg);
+    const jwk = await this.#verifyDelegation(client, header.poppy_dlg);
     if (header.kid !== (await calculateJwkThumbprint(jwk))) throw fail("session-jwt.kid", "kid isn't the delegated key's JWK thumbprint");
     try {
       await jwtVerify(value, await importJWK(jwk, "ES256"), { algorithms: ["ES256"], typ: "poppy-session+jwt" });
     } catch (cause) {
       throw fail("session-jwt.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
-    const delegation = this.#delegations.get(header.pap_dlg)!;
+    const delegation = this.#delegations.get(header.poppy_dlg)!;
     if (typeof claims.iat !== "number") throw fail("session-jwt.iat", "iat is missing");
     if (claims.iat > delegation.exp) throw fail("session-jwt.after-delegation", "signed after its delegation expired");
-    if (Array.isArray(claims.aud) || claims.aud !== this.hosts.issuer) throw fail("session-jwt.aud", `aud ${JSON.stringify(claims.aud)} isn't the issuer as a single string`);
+    if (Array.isArray(claims.aud) || claims.aud !== this.identifier) throw fail("session-jwt.aud", `aud ${JSON.stringify(claims.aud)} isn't the Company's identifier ${this.identifier} as a single string`);
     if (claims.htm !== inbound.request.method) throw fail("session-jwt.htm", `htm ${String(claims.htm)} isn't ${inbound.request.method}`);
     if (claims.htu !== `${inbound.url.origin}${inbound.url.pathname}`) throw fail("session-jwt.htu", `htu ${String(claims.htu)} isn't this URL without its query`);
     // Session JWTs carry the agent's real time; the fake clock moves only request timing.
@@ -1060,7 +1072,7 @@ export class Company {
     } else if (session.userId !== claims.sub || (session.agentId ?? null) !== agentId) {
       throw fail("session-jwt.sub-changed", "a known sid with another User ID or Agent ID");
     }
-    if (session.ended) throw this.invalidSession("the Session has ended");
+    if (session.ended) throw this.sessionEnded("the Session has ended");
     return { client, session };
   }
 
@@ -1127,7 +1139,7 @@ export class Company {
       if (session.boundAccount && session.boundAccount !== token.account) {
         // 5.4: "SHOULD start a new Session rather than use a second account in one Session"; the Company MAY refuse.
         this.violation("session.second-account", `Session ${session.id} used with a second account`);
-        throw this.invalidSession("this Session is for another account");
+        throw this.sessionEnded("this Session is for another account");
       }
       session.account = token.account;
       session.boundAccount = token.account;

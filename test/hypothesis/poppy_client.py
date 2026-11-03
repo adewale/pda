@@ -280,7 +280,7 @@ class PersonalAgent:
         claims = {"iss": self.client_id, "sub": self.client_id, "aud": aud, "iat": now, "exp": now + lifetime, "jti": jti or random_id()}
         return self.signing_key.sign(claims, {"typ": typ, "kid": self.signing_key.kid})
 
-    def delegation(self, key: Es256Key, *, hours: float = DELEGATION_HOURS, extra: dict[str, Any] | None = None, typ: str = "pap-delegation+jwt") -> str:
+    def delegation(self, key: Es256Key, *, hours: float = DELEGATION_HOURS, extra: dict[str, Any] | None = None, typ: str = "poppy-delegation+jwt") -> str:
         """
         5.2: a delegation for `key`, signed by our `jwks_uri` key: `iss`, the
         key in `cnf.jwk`, `iat` rounded down to the hour, at most 24 hours,
@@ -549,7 +549,7 @@ class Poppy:
     ) -> str:
         """
         5.2: the Session JWT for one request: `typ` poppy-session+jwt, ES256,
-        `kid` the delegated key's thumbprint, the delegation in `pap_dlg`;
+        `kid` the delegated key's thumbprint, the delegation in `poppy_dlg`;
         `iss`, `aud` (the issuer), `sid`, `sub`, `htm`, `htu`, `iat`, `jti`,
         and `ath` only with an access token. `claims`, `header`, `key` and
         `drop` are only for the reject rules.
@@ -570,7 +570,7 @@ class Poppy:
         body.update(claims or {})
         for name in drop:
             body.pop(name, None)
-        head: dict[str, Any] = {"typ": "poppy-session+jwt", "kid": session.user.session_key.thumbprint(), "pap_dlg": self.delegation_for(session.user)}
+        head: dict[str, Any] = {"typ": "poppy-session+jwt", "kid": session.user.session_key.thumbprint(), "poppy_dlg": self.delegation_for(session.user)}
         head.update(header or {})
         return signing.sign(body, head)
 

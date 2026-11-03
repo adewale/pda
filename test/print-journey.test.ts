@@ -842,7 +842,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     // The approval went once on the ended Session and is never sent on a new one (approval_changed).
     expect(failed.result).toBe("The account or Session changed. Review a fresh request before sending it. [approval_changed]");
     expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("[approval_changed]");
-    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "invalid_session"]]);
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "session_ended"]]);
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
     await expectFinalElsewhere(a, failed, "failed");
     // The new Session has no copy of the old Session's photo. A premature local

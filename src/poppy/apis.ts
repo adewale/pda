@@ -38,7 +38,7 @@ type AuthorityGuard = DispatchGuard & { readonly binding: () => ApprovalBinding 
 
 /** Capture authority before asynchronous preparation, and retain the last
  * transport's binding for returned terms. Only an unapproved request may follow
- * a known invalid_session refusal; account and withdrawal generation stay fixed. */
+ * a known session_ended refusal; account and withdrawal generation stay fixed. */
 function requestGuard(client: PoppyClient, company: Company, label: string, binding: ApprovalBinding, allowRestart: boolean, beforeDispatch?: () => void): AuthorityGuard {
   let expected = binding;
   const check = () => { beforeDispatch?.(); checkApprovalBinding(client, company, label, expected); };
@@ -1171,7 +1171,7 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
   const sessions = mcpState(client).sessions;
   const session = sessions.get(sessionKey);
   const id = Math.floor(Math.random() * 1e9);
-  // The protected-resource metadata selects DPoP or Bearer; each token names this URL.
+  // Each token is sent as its token_type names, DPoP or Bearer (4.5, 7); each names this URL.
   const response = await client.resource(
     company,
     EndpointRequest.mcp(company, {
@@ -1207,7 +1207,9 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   let loading = metadata.get(resourceKey);
   if (loading && (await loading).expiresAt <= Date.now()) loading = undefined;
   if (!loading) {
-    loading = checkResourceMetadata(client, company, api);
+    // 7: an MCP server needs issuer discovery only when it offers account access. A Company without an
+    // issuer (3.2) offers none, so its server is used signed out, as poppy.json lists it.
+    loading = company.issuerless ? Promise.resolve({ expiresAt: Date.now() + 60_000 }) : checkResourceMetadata(client, company, api);
     metadata.set(resourceKey, loading);
     void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
   }

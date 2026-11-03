@@ -7,11 +7,19 @@ export type PoppyFacts = {
   issuer?: string;
   signIn: { direct: boolean; device: boolean; mediated: boolean };
   /**
-   * The issuer comes from the domain's protected resource metadata (3.2),
-   * and `auth.issuer` only picks one of several. Set when poppy.json lists
-   * something that needs an issuer, so the metadata must exist.
+   * poppy.json lists something that uses Sessions (an API, the Company
+   * Agent, feedback, browser join or an extension), so the Company's
+   * identifier matters: its issuer, from the domain's protected resource
+   * metadata (3.2), or `https://{organization.domain}` when it has none.
    */
-  needsIssuer?: boolean;
+  usesSessions?: boolean;
+  /**
+   * What in poppy.json offers sign-in, so the Company MUST have an issuer
+   * (3.2): `auth.issuer`, Mediated Sign-In or `signed_in` access.
+   */
+  needsIssuer?: readonly string[];
+  /** `auth.disabled` (3.2): no sign-in for Personal Agents, though there is an issuer. */
+  disabled?: boolean;
   /** The Mediated Sign-In extension's `scopes`, when it is listed. */
   mediatedScopes?: readonly string[];
   /**
@@ -33,9 +41,17 @@ export type Profile = {
   poppy(c: Checker, doc: unknown, context: { requestedDomain?: string }): PoppyFacts;
   /**
    * The domain's protected resource metadata (RFC 9728), which names the
-   * issuer (3.2). Returns the issuer it settles on, if any.
+   * issuer (3.2). Returns the issuer it settles on; null when it says the
+   * Company has none (authorization_servers absent or empty); undefined
+   * when an error leaves it unsettled.
    */
-  protectedResource(c: Checker, doc: unknown, poppy: PoppyFacts): string | undefined;
+  protectedResource(c: Checker, doc: unknown, poppy: PoppyFacts): string | null | undefined;
+  /**
+   * The Company has no issuer (3.2): its protected resource metadata is a
+   * 404, or lists no authorization server. Valid only when nothing in
+   * poppy.json offers sign-in.
+   */
+  noIssuer(c: Checker, poppy: PoppyFacts, how: "not-found" | "empty"): void;
   oauthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts | undefined): void;
   clientMetadata(c: Checker, doc: unknown, context: { fetchedFrom?: string }): ClientFacts;
   jwks(c: Checker, doc: unknown): void;

@@ -134,7 +134,7 @@ function onCompanyDomain(company: Company, url: URL): boolean {
  * own origin (`https://example.com`) keeps its website browsable.
  */
 export function isSignInPage(company: Company, url: URL): boolean {
-  const endpoints = [company.endpoints.authorization, company.endpoints.deviceAuthorization, company.signIn.mediated?.endpoint]
+  const endpoints = [company.endpoints?.authorization, company.endpoints?.deviceAuthorization, company.signIn.mediated?.endpoint]
     .filter((value): value is string => !!value)
     .map((value) => new URL(value));
   const under = (endpoint: URL) => {
@@ -272,7 +272,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
         || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
         throw new PoppyError("approval_changed", "The account or browser changed while joining. Open a fresh page.", 0);
       }
-      // resource() may have retried invalid_session with a fresh SID. Its
+      // resource() may have retried session_ended with a fresh SID. Its
       // dispatch guard makes this the binding actually sent on that attempt.
       authorized = { sessionId: session.session_id, account: session.account, authorityGeneration: session.authority_generation, scope: entry.scope, accountGeneration: entry.accountGeneration };
       entry.sessionId = authorized.sessionId;

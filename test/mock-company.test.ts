@@ -203,7 +203,7 @@ async function delegation(key: Delegated, tamper: JwtTamper = {}) {
   const { kid, key: signing } = await agentKey();
   const iat = seconds();
   return signJwt(
-    { alg: "ES256", typ: "pap-delegation+jwt", kid, ...tamper.header },
+    { alg: "ES256", typ: "poppy-delegation+jwt", kid, ...tamper.header },
     { iss: CLIENT_ID, cnf: { jwk: key.jwk }, iat, exp: iat + 3600, jti: jti(), ...tamper.claims },
     tamper.key ?? signing
   );
@@ -215,7 +215,7 @@ type SessionJwtTamper = JwtTamper & { readonly delegation?: JwtTamper | string }
 async function sessionJwt(c: C, key: Delegated, request: { method: string; url: string; token?: string; sid: string; sub?: string }, tamper: SessionJwtTamper = {}) {
   const dlg = typeof tamper.delegation === "string" ? tamper.delegation : await delegation(key, tamper.delegation);
   return signJwt(
-    { typ: "poppy-session+jwt", alg: "ES256", kid: key.kid, pap_dlg: dlg, ...tamper.header },
+    { typ: "poppy-session+jwt", alg: "ES256", kid: key.kid, poppy_dlg: dlg, ...tamper.header },
     {
       iss: CLIENT_ID,
       aud: c.hosts.issuer,
@@ -719,8 +719,8 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "client-assertion.wrong-typ",
     what: "a delegation as the client assertion",
-    detail: "[client-assertion.wrong-typ] client assertion has typ pap-delegation+jwt",
-    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "pap-delegation+jwt" } }) })
+    detail: "[client-assertion.wrong-typ] client assertion has typ poppy-delegation+jwt",
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "poppy-delegation+jwt" } }) })
   },
   {
     id: "client-assertion.wrong-typ",
@@ -1305,8 +1305,8 @@ const TAMPERS: readonly Tamper[] = [
   { id: "message.id", what: "a message id with a space", detail: "[message.id] conversation message: id must be 1-256 base64url characters", run: async (c) => converse(c, await session(), message({ id: "msg 1" })) },
   {
     id: "message.empty",
-    what: "a message with no text, data or context",
-    detail: "[message.empty] conversation message: needs at least one of text, data or context",
+    what: "a message with no text, data, context or extensions",
+    detail: "[message.empty] conversation message: needs at least one of text, data, context or extensions",
     run: async (c) => converse(c, await session(), message({ text: undefined }))
   },
   { id: "message.text-type", what: "a number as text", detail: "[message.text-type] conversation message: text must be a string", run: async (c) => converse(c, await session(), message({ text: 1042 })) },
@@ -1415,6 +1415,13 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => expect((await converse(c, await session(), message({ author: { type: "agent", name: "Helper" } }))).status).toBe(201)
   },
   {
+    id: "message.extension-unlisted",
+    what: "an approval in extensions.operations to a Company that doesn't list Operations",
+    config: { operations: false },
+    detail: "[message.extension-unlisted] conversation message: extensions.operations, which this Company doesn't list (8.4)",
+    run: async (c) => converse(c, await session(), message({ extensions: { operations: { approval: { operation_id: "op_1", revision: "r1" } } } }))
+  },
+  {
     id: "message.sender-field",
     what: "a message that still says sender",
     detail: /^\[message\.sender-field\]/,
@@ -1432,7 +1439,7 @@ const TAMPERS: readonly Tamper[] = [
   { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", detail: /^\[session-jwt\.not-jwt\]/, run: (c) => getProducts(c, "not.a.jwt") },
   { id: "session-jwt.typ", what: "a Session JWT with typ JWT", detail: /^\[session-jwt\.typ\] Session JWT: typ is "JWT"/, run: (c) => getProducts(c, { header: { typ: "JWT" } }) },
   { id: "session-jwt.alg", what: "a Session JWT signed with HS256", detail: /^\[session-jwt\.alg\]/, run: async (c) => getProducts(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
-  { id: "session-jwt.no-delegation", what: "a Session JWT without pap_dlg", detail: /^\[session-jwt\.no-delegation\]/, run: (c) => getProducts(c, { header: { pap_dlg: undefined } }) },
+  { id: "session-jwt.no-delegation", what: "a Session JWT without poppy_dlg", detail: /^\[session-jwt\.no-delegation\]/, run: (c) => getProducts(c, { header: { poppy_dlg: undefined } }) },
   { id: "session-jwt.iss", what: "a Session JWT without iss", detail: /^\[session-jwt\.iss\]/, run: (c) => getProducts(c, { claims: { iss: undefined } }) },
   { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", detail: /^\[session-jwt\.kid\]/, run: (c) => getProducts(c, { header: { kid: "someone-else" } }) },
   { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", detail: /^\[session-jwt\.signature\]/, run: async (c) => getProducts(c, { key: await strangerKey() }) },
@@ -1471,7 +1478,7 @@ const TAMPERS: readonly Tamper[] = [
   },
 
   // ---- Delegations (5.2 Delegated keys) ----
-  { id: "delegation.not-jwt", what: "a pap_dlg that isn't a JWT", detail: /^\[delegation\.not-jwt\]/, run: (c) => getProducts(c, { delegation: "not-a-delegation" }) },
+  { id: "delegation.not-jwt", what: "a poppy_dlg that isn't a JWT", detail: /^\[delegation\.not-jwt\]/, run: (c) => getProducts(c, { delegation: "not-a-delegation" }) },
   { id: "delegation.typ", what: "a delegation with typ JWT", detail: /^\[delegation\.typ\]/, run: (c) => getProducts(c, { delegation: { header: { typ: "JWT" } } }) },
   { id: "delegation.alg", what: "a delegation signed with HS256", detail: /^\[delegation\.alg\]/, run: async (c) => getProducts(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
   { id: "delegation.kid", what: "a delegation whose kid names no published key", detail: /^\[delegation\.kid\]/, run: (c) => getProducts(c, { delegation: { header: { kid: "unpublished" } } }) },
@@ -1622,9 +1629,9 @@ const TAMPERS: readonly Tamper[] = [
   },
   {
     id: "approval.message",
-    what: "a message whose approval isn't an object",
+    what: "a message whose extensions.operations.approval isn't an object",
     detail: /^\[approval\.message\]/,
-    run: async (c) => converse(c, await signedIn(c), message({ text: undefined, approval: "yes" }))
+    run: async (c) => converse(c, await signedIn(c), message({ text: undefined, extensions: { operations: { approval: "yes" } } }))
   },
 
   // ---- Feedback (9.3) ----
@@ -1868,14 +1875,14 @@ describe("the mock Company", () => {
     expect(header).not.toContain("error=");
   });
 
-  it("answers an ended Session with invalid_session, and a new sid starts a new one (5.5)", async () => {
+  it("answers an ended Session with session_ended, and a new sid starts a new one (5.5)", async () => {
     const c = company();
     const s = await session();
     expect((await call(c, s, "GET", products(c))).status).toBe(200);
     expect(await c.stub.endAllSessions()).toBe(1);
     const ended = await call(c, s, "GET", products(c));
     expect(ended.status).toBe(400);
-    expect(await ended.json()).toMatchObject({ error: "invalid_session" });
+    expect(await ended.json()).toMatchObject({ error: "session_ended" });
     expect((await call(c, { ...s, sid: jti() }, "GET", products(c))).status).toBe(200);
     expect((await c.stub.state()).recorded).toEqual([]);
   });
@@ -2051,17 +2058,19 @@ describe("the mock Company", () => {
 
     const now = { ...s, ...(await signIn(c)) };
     const send = (fields: Record<string, unknown>) => call(c, now, "POST", `${conversations}/${read.conversation_id}/messages?wait=1`, { body: { message: message(fields) } });
-    type Events = { events: { type: string; message?: { role: string; text?: string; operation?: Operation } }[] };
+    type Events = { events: { type: string; message?: { role: string; text?: string; extensions?: { operations?: { operation?: Operation } } } }[] };
     const asked = (await (await send({ text: "Signed in. Please exchange the jacket." })).json()) as Events;
-    const operation = asked.events.find((event) => event.message?.operation)?.message?.operation;
+    // The operation is Operations 2's content in the message (8.4, Ops 4).
+    const operation = asked.events.find((event) => event.message?.extensions?.operations?.operation)?.message?.extensions?.operations?.operation;
     expect(operation?.operation_id).toMatch(/^exc_/);
     expect((await c.stub.state()).performs).toBe(0);
 
-    // Only the approval field approves, and the Company Agent says how it went in a later message.
-    const approved = (await (await send({ text: "The user approved the exchange.", approval: { operation_id: operation!.operation_id, revision: operation!.revision } })).json()) as Events;
+    // Only extensions.operations.approval approves, and the Company Agent says how it went in a later message.
+    const approval = { operations: { approval: { operation_id: operation!.operation_id, revision: operation!.revision } } };
+    const approved = (await (await send({ text: "The user approved the exchange.", extensions: approval })).json()) as Events;
     expect(approved.events.at(-1)?.message).toMatchObject({ role: "company", text: expect.stringContaining("Done") });
     // A new message with the same approval performs nothing more (Ops 7).
-    expect((await send({ text: undefined, approval: { operation_id: operation!.operation_id, revision: operation!.revision } })).status).toBe(202);
+    expect((await send({ text: undefined, extensions: approval })).status).toBe(202);
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.recorded).toEqual([]);

@@ -1,11 +1,11 @@
 {
-  "snapshot": "spec/draft-0.3-retrieved-2026-10-29",
+  "snapshot": "spec/draft-0.3-retrieved-2026-11-03",
   "protocolVersion": "0.3",
-  "revision": "2026-10-29",
-  "commit": null,
+  "revision": "2026-11-03",
+  "commit": "7205250c6fb7d4a181707898fa418911ccbcb163",
   "operationsVersion": "2",
   "mediatedSignInVersion": "1",
   "source": "https://personalagentprotocol.org/docs/0.3/spec",
   "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol",
-  "note": "Manually reviewed 29 October site snapshot. Since the 28 October pin, section 6 restores the agent-controlled-browser MUST; no wire format changed. Upstream head 3e9bada9ec8f66777b43e429d49574131dc2f67e contains the rewrite but not this sentence, so no exact matching commit is recorded. Snapshot hashes are the exact pin."
+  "note": "Manually reviewed 3 November site snapshot. Its specification, extension, guides and changelog text matches upstream commit 7205250 (2 November) apart from site formatting: code-block titles, heading anchors and link prefixes. Since the 29 October pin: Companies without an OAuth issuer (850a46d), auth.disabled, extension content in messages, session_ended, poppy_dlg and poppy-delegation+jwt, and the Links, Disclosures and UCP extensions. Snapshot hashes are the exact pin."
 }

@@ -113,7 +113,7 @@ export async function delegate(signing: SigningKey, clientId: string, key: DpopK
   const issuedAt = Math.floor(now() / 3600) * 3600;
   const expiresAt = issuedAt + DELEGATION_HOURS * 3600;
   const delegation = await new SignJWT({ cnf: { jwk: key.publicJwk } })
-    .setProtectedHeader({ alg: "ES256", typ: "pap-delegation+jwt", kid: signing.kid })
+    .setProtectedHeader({ alg: "ES256", typ: "poppy-delegation+jwt", kid: signing.kid })
     .setIssuer(clientId)
     .setIssuedAt(issuedAt)
     .setExpirationTime(expiresAt)
@@ -129,7 +129,7 @@ export function delegationUsable(delegated: Delegated): boolean {
 
 /**
  * 0.3: the Session JWT for one request (5.2): `typ` poppy-session+jwt,
- * signed with the delegated key, its delegation in `pap_dlg`, and claims
+ * signed with the delegated key, its delegation in `poppy_dlg`, and claims
  * naming the Session, the User and the request. `ath` only with an access
  * token. A fresh one for every request and retry.
  */
@@ -161,6 +161,6 @@ export async function sessionJwt(
   if (claims.agentId !== undefined) payload.agent_id = claims.agentId;
   if (claims.accessToken !== undefined) payload.ath = await sha256(claims.accessToken);
   return new SignJWT(payload)
-    .setProtectedHeader({ typ: "poppy-session+jwt", alg: "ES256", kid: delegated.key.thumbprint, pap_dlg: delegated.delegation })
+    .setProtectedHeader({ typ: "poppy-session+jwt", alg: "ES256", kid: delegated.key.thumbprint, poppy_dlg: delegated.delegation })
     .sign(delegated.key.privateKey);
 }

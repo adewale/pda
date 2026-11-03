@@ -155,6 +155,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             company: found.name,
             domain: found.domain,
             signIn: Object.keys(found.signIn),
+            // 3.2: no issuer, or auth.disabled: signed-out use only.
+            ...(found.issuerless ? { account: "No OAuth issuer: this company offers signed-out use only, with no sign-in." } : {}),
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
             agent: found.conversations ? "available (poppy_message)" : "none",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),

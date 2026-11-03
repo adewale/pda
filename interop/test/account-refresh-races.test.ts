@@ -93,7 +93,7 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it("does not resurrect an account when sign-out wins during sign-in token sealing", async () => {
     const f = await fixture(async (request) => {
-      expect(request.url).toBe(f.company.endpoints.revocation);
+      expect(request.url).toBe(f.company.endpoints!.revocation);
       return new Response(null, { status: 200 });
     });
     const ready = deferred(), release = deferred();
@@ -116,7 +116,7 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it("does not rebind a Session when sign-out wins after sign-in token storage", async () => {
     const f = await fixture(async (request) => {
-      expect(request.url).toBe(f.company.endpoints.revocation);
+      expect(request.url).toBe(f.company.endpoints!.revocation);
       expect(new URLSearchParams(await request.text()).get("token")).toBe("new-signin-refresh");
       return new Response(null, { status: 200 });
     });
@@ -240,12 +240,12 @@ describe("refresh responses cannot replace a newer account family", () => {
     expect(await f.refreshToken()).toBe("rotation-2");
   });
 
-  it("does not restart a new account's Session because an older request returned invalid_session", async () => {
+  it("does not restart a new account's Session because an older request returned session_ended", async () => {
     const ready = deferred(), release = deferred();
     let resources = 0;
     const f = await fixture(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600 });
-      if (++resources === 1) { ready.resolve(); await release.promise; return Response.json({ error: "invalid_session" }, { status: 400 }); }
+      if (++resources === 1) { ready.resolve(); await release.promise; return Response.json({ error: "session_ended" }, { status: 400 }); }
       return Response.json({ ok: true });
     });
     const pending = f.client.resource(f.company, f.outgoing);

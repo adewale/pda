@@ -148,7 +148,7 @@ async function delegationWith(alg: string, kid: string, key: CryptoKey, claims: 
   const issuedAt = Math.floor(Date.now() / 3_600_000) * 3600;
   const expiresAt = issuedAt + 4 * 3600;
   const delegation = await new SignJWT({ cnf: { jwk: delegated.publicJwk }, ...claims })
-    .setProtectedHeader({ alg, typ: "pap-delegation+jwt", kid })
+    .setProtectedHeader({ alg, typ: "poppy-delegation+jwt", kid })
     .setIssuer(identity.clientId).setIssuedAt(issuedAt).setExpirationTime(expiresAt).setJti(randomId()).sign(key);
   return { key: delegated, delegation, expiresAt };
 }
@@ -328,7 +328,7 @@ type Wrong = {
 };
 
 /** The protocol's other JWTs, by their `typ` (4.5, 5.2). */
-const OTHER_JWT_TYPS = ["dpop+jwt", "poppy-session+jwt", "pap-delegation+jwt"];
+const OTHER_JWT_TYPS = ["dpop+jwt", "poppy-session+jwt", "poppy-delegation+jwt"];
 
 /**
  * One thing wrong with a client assertion (4.1): header, signature, key,
@@ -414,9 +414,9 @@ function sessionMutations(company: Company, delegated: Delegated, method: string
     gs.just({ name: "missing", mutation: { header: "missing" as const }, violation: token === undefined ? "session-jwt.missing" : "session-jwt.missing-with-token" }),
     // Header values can't hold control characters and lose surrounding spaces, so the junk is visible ASCII.
     gs.text({ alphabet: VISIBLE.replace(/\./g, ""), minSize: 1, maxSize: 30 }).map((raw) => ({ name: "not a JWT", mutation: { raw }, violation: "session-jwt.not-jwt" })),
-    gs.oneOf(gs.text({ maxSize: 20 }), gs.sampledFrom(["dpop+jwt", "pap-delegation+jwt", "JWT"])).filter((typ) => typ !== "poppy-session+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "session-jwt.typ" })),
+    gs.oneOf(gs.text({ maxSize: 20 }), gs.sampledFrom(["dpop+jwt", "poppy-delegation+jwt", "JWT"])).filter((typ) => typ !== "poppy-session+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "session-jwt.typ" })),
     ...algMutations(["ES256"], (name, mutation) => ({ name, mutation, violation: "session-jwt.alg" })),
-    gs.oneOf<unknown>(gs.just(undefined), gs.integers()).map((pap_dlg) => ({ name: "no delegation", mutation: { header: { pap_dlg } }, violation: "session-jwt.no-delegation" })),
+    gs.oneOf<unknown>(gs.just(undefined), gs.integers()).map((poppy_dlg) => ({ name: "no delegation", mutation: { header: { poppy_dlg } }, violation: "session-jwt.no-delegation" })),
     gs.just({ name: "no iss", mutation: { claims: { iss: undefined } }, violation: "session-jwt.iss" }),
     gs.oneOf(gs.just(undefined), gs.text({ maxSize: 43 })).filter((kid) => kid !== delegated.key.thumbprint).map((kid) => ({ name: "kid", mutation: { header: { kid } }, violation: "session-jwt.kid" })),
     gs.just({ name: "another key", mutation: { key: strangerKey }, violation: "session-jwt.signature" }),
@@ -453,7 +453,7 @@ function delegationMutations() {
   const hour = Math.floor(seconds() / 3600) * 3600;
   return gs.oneOf<Wrong>(
     gs.text({ alphabet: VISIBLE.replace(/\./g, ""), minSize: 1, maxSize: 30 }).map((raw) => ({ name: "not a JWT", mutation: { raw }, violation: "delegation.not-jwt" })),
-    gs.oneOf(gs.just(undefined), gs.text({ maxSize: 20 }), gs.sampledFrom(["JWT", "poppy-session+jwt", "dpop+jwt"])).filter((typ) => typ !== "pap-delegation+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "delegation.typ" })),
+    gs.oneOf(gs.just(undefined), gs.text({ maxSize: 20 }), gs.sampledFrom(["JWT", "poppy-session+jwt", "dpop+jwt"])).filter((typ) => typ !== "poppy-delegation+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "delegation.typ" })),
     ...algMutations(["ES256", "PS384"], (name, mutation) => ({ name, mutation, violation: "delegation.alg" })),
     gs.oneOf(gs.just(undefined), gs.text({ maxSize: 10 })).filter((kid) => kid === undefined || !realKids.includes(kid)).map((kid) => ({ name: "kid", mutation: { header: { kid } }, violation: "delegation.kid" })),
     gs.just({ name: "another key", mutation: { key: strangerKey }, violation: "delegation.signature" }),
@@ -496,7 +496,7 @@ describe("the mock Company refuses each thing wrong with a Session JWT or its de
       const wrong = tc.draw(sessionMutations(company, delegated, method, url, token));
       tc.note(wrong.name);
       const claims: Claims = { iss: identity.clientId, aud: company.hosts.issuer, sid: randomId(), sub: randomId("usr_"), htm: method, htu: htu(url), iat: seconds(), jti: jtis(), ...(token !== undefined ? { ath: await sha256(token) } : {}) };
-      const header: Header = { typ: "poppy-session+jwt", alg: "ES256", kid: delegated.key.thumbprint, pap_dlg: delegated.delegation };
+      const header: Header = { typ: "poppy-session+jwt", alg: "ES256", kid: delegated.key.thumbprint, poppy_dlg: delegated.delegation };
       const headers: Record<string, string> = "header" in wrong.mutation && wrong.mutation.header === "missing" ? {} : { "Poppy-Session": await mutated(header, claims, delegated.key.privateKey, wrong.mutation as Mutation) };
       const result = await attempt(() => company.verifySessionHeader(inbound(method, url, headers), token ?? null));
       expect(result.ok ? result : result.error).toEqual(wrong.recordedOnly ? expect.objectContaining({ ok: true }) : "invalid_session");
@@ -515,7 +515,7 @@ describe("the mock Company refuses each thing wrong with a Session JWT or its de
       const hour = Math.floor(seconds() / 3600) * 3600;
       const claims: Claims = { iss: identity.clientId, cnf: { jwk: key.publicJwk }, iat: hour, exp: hour + 4 * 3600, jti: jtis() };
       const mutation: Mutation = wrong.mutation.claims?.cnf === "private" ? { claims: { cnf: { jwk: privateJwk } } } : wrong.mutation;
-      const delegation = await mutated({ alg: "ES256", typ: "pap-delegation+jwt", kid: signing.kid }, claims, signing.privateKey, mutation);
+      const delegation = await mutated({ alg: "ES256", typ: "poppy-delegation+jwt", kid: signing.kid }, claims, signing.privateKey, mutation);
       const method = tc.draw(methods);
       const url = tc.draw(resourceUrl(company));
       const jwt = await sessionHeaderFor({ key, delegation, expiresAt: hour + 4 * 3600 }, company, method, url);

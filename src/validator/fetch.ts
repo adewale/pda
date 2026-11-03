@@ -161,7 +161,7 @@ export async function fetchDocument(
   fetcher: Fetcher,
   url: string,
   c: Checker,
-  options: { followRedirects?: boolean } = {}
+  options: { followRedirects?: boolean; notFoundIsAnswer?: boolean } = {}
 ): Promise<Fetched> {
   const follow = options.followRedirects ?? true;
   let current: URL;
@@ -237,6 +237,8 @@ export async function fetchDocument(
     const base = { url, finalUrl: at, status: response.status, ...(contentType ? { contentType } : {}) };
     if (response.status !== 200) {
       void response.body?.cancel().catch(() => undefined);
+      // A 404 is an answer where the protocol gives it a meaning, such as no issuer (3.2); the caller reports it.
+      if (response.status === 404 && options.notFoundIsAnswer) return { ...base, maxAgeSeconds: null };
       c.report("http-status", "", `${at} answered HTTP ${response.status}.`);
       return { ...base, maxAgeSeconds: null };
     }

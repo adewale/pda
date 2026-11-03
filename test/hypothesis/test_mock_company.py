@@ -128,7 +128,7 @@ class CoreRules:
         options: dict[str, object] = {}
         violation = f"session-jwt.{kind}"
         if kind == "typ":
-            options["header"] = {"typ": data.draw(st.sampled_from(["JWT", "dpop+jwt", "pap-delegation+jwt", "session+jwt"]))}
+            options["header"] = {"typ": data.draw(st.sampled_from(["JWT", "dpop+jwt", "poppy-delegation+jwt", "session+jwt"]))}
         elif kind == "signature":
             options["key"] = Es256Key()
         elif kind == "kid":
@@ -148,7 +148,7 @@ class CoreRules:
             violation = "session-jwt.ath" if token else "session-jwt.ath-without-token"
         else:
             hours, extra = (48, None) if kind == "delegation-lifetime" else (4, {data.draw(st.sampled_from(["sub", "aud", "user_id"])): user.user_id})
-            options["header"] = {"pap_dlg": self.agent.delegation(user.session_key, hours=hours, extra=extra)}
+            options["header"] = {"poppy_dlg": self.agent.delegation(user.session_key, hours=hours, extra=extra)}
             violation = "delegation.lifetime" if kind == "delegation-lifetime" else "delegation.names-user"
 
         def tampered(method: str, at: str, sent: str | None) -> str:
@@ -170,7 +170,7 @@ class CoreRules:
         mu = data.draw(st.sampled_from(self.users[1:]))
         assume(len(mu.sessions) < MAX_SESSIONS)
         ms = self.new_session(mu)
-        header = {"kid": first.session_key.thumbprint(), "pap_dlg": self.poppy.delegation_for(first)}
+        header = {"kid": first.session_key.thumbprint(), "poppy_dlg": self.poppy.delegation_for(first)}
 
         def borrowed(method: str, at: str, sent: str | None) -> str:
             return self.poppy.session_jwt(self.co, ms.session, method, at, sent, header=header, key=first.session_key)
@@ -250,7 +250,7 @@ class CoreRules:
     def second_account(self, data: st.DataObject) -> None:
         """
         Reject: one Session, two accounts (5.4: SHOULD start a new Session;
-        the mock refuses with `invalid_session`, as a Company MAY). The token
+        the mock refuses with `session_ended`, as a Company MAY). The token
         is a real one, from a refresh of another sign-in.
         """
         ms = data.draw(st.sampled_from([s for s in self.live() if s.bound and any(g.account != s.bound for g in self.live_grants())]))
@@ -260,7 +260,7 @@ class CoreRules:
         self.rotate(grant, body)
         token = self.token_from(body, grant, grant.scope, key)
         reply = self.poppy.resource(ms.session, "GET", self.api_base + "/orders", self.co, token=token.value, scheme=token.token_type, key=token.key)
-        expect(reply, 400, "invalid_session")
+        expect(reply, 400, "session_ended")
         self.violation("session.second-account")
 
     @precondition(lambda self: self.company is not None)

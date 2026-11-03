@@ -181,9 +181,9 @@ describe("the protocol log", () => {
     ]);
 
     // The Company ended the Session: a new Session, then the call again, once (5.5).
-    const restart = retries.find((entry) => entry.error === "invalid_session")!;
+    const restart = retries.find((entry) => entry.error === "session_ended")!;
     expect(restart).toMatchObject({ step: "api.call", section: "§7" });
-    expect(restart.result).toBe("400 invalid_session: starting a new Session, then sending again once");
+    expect(restart.result).toBe("400 session_ended: starting a new Session, then sending again once");
     expect(log.slice(log.indexOf(restart) + 1).find((entry) => entry.step === "api.call")).toMatchObject({ status: 200, outcome: "ok" });
   });
 

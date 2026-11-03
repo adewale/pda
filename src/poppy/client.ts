@@ -101,6 +101,16 @@ export class PoppyError extends Error implements ForeignText {
   }
 }
 
+/**
+ * The Company's OAuth endpoints. A Company without an issuer has none, and
+ * offers only signed-out Sessions (3.2), so anything that needs one is
+ * refused before a request is built.
+ */
+export function issuerEndpoints(company: Company): NonNullable<Company["endpoints"]> {
+  if (!company.endpoints) throw new PoppyError("no_sign_in", `${company.name} has no OAuth issuer, so it offers no sign-in: only signed-out use`, 0);
+  return company.endpoints;
+}
+
 /** Whether `error` is a `PoppyError` with one of these codes. */
 export function hasCode(error: unknown, ...codes: readonly KnownErrorCode[]): error is PoppyError {
   return error instanceof PoppyError && error.is(...codes);
@@ -212,7 +222,7 @@ export type TokenOptions = {
   readonly scope?: string;
   /** Internal authority check, after every asynchronous preparation and before each transport attempt. */
   readonly beforeDispatch?: () => void;
-  /** Only a known `invalid_session` refusal may advance an unapproved task's guard to its replacement Session. */
+  /** Only a known `session_ended` refusal may advance an unapproved task's guard to its replacement Session. */
   readonly onSessionRestart?: (previousSessionId: string, nextSessionId: string) => void;
   /**
    * The service a signed-in request goes to (an OpenAPI description's
@@ -459,13 +469,19 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
-    if (isCompany(result)) {
-      const aliases = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ? AND domain != ? AND expires_at > ?", result.issuer, key, this.host.now());
-      if (aliases.some((row) => {
-        const alias = JSON.parse(row.company) as Company;
-        return alias.authFingerprint && alias.authFingerprint !== result.authFingerprint;
-      })) throw new DiscoveryError("Domains sharing an issuer have different auth declarations");
+    // 3.2: never fall back to the domain for a Company whose issuer we know unless discovery explicitly
+    // establishes the issuer was removed. Our reading (docs/readings.md): protected resource metadata
+    // that lists no authorization server does; a 404 alone, which a misconfiguration can produce, doesn't.
+    if (isCompany(result) && result.issuerless && cached && discovered.report.protectedResource === undefined) {
+      const known = JSON.parse(cached.company) as Company | WebsiteOnly;
+      if (isCompany(known) && !known.issuerless) {
+        recordDiscovery(this.sql, key, discovered.report, null);
+        throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
+      }
     }
+    // 3.2: domains sharing an issuer are one Company. They SHOULD publish the same scope descriptions and
+    // hints, and MAY expose different scopes and capabilities, so differing `auth` objects aren't refused;
+    // each domain's own document is used for that domain.
     if (isCompany(result) && result.domain.toLowerCase() !== key) {
       await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
     }
@@ -690,7 +706,7 @@ export class PoppyClient {
     params: () => Promise<Record<string, string>>,
     options: { dpop: boolean; beforeDispatch?: () => void } = { dpop: true }
   ): Promise<TokenResponse> {
-    const { status, body } = await this.oauthRequest(company, company.endpoints.token, params, options);
+    const { status, body } = await this.oauthRequest(company, issuerEndpoints(company).token, params, options);
     if (status === 200 && isObject(body) && typeof body.access_token === "string") {
       const decoded = tryDecode(tokenResponse, body, "token response");
       if (!decoded.ok || !(decoded.value.expires_in > 0)) {
@@ -745,7 +761,7 @@ export class PoppyClient {
     if (pending) await signInRecovery(this, issuer);
   }
 
-  /** A new `sid` for the Session `label`, keeping its account (7, `invalid_session`). */
+  /** A new `sid` for the Session `label`, keeping its account (5.5, `session_ended`). */
   #restartSession(issuer: Issuer, label: string): void {
     const session = this.session(issuer, label);
     this.#forgetTokens(issuer, label);
@@ -1224,7 +1240,7 @@ export class PoppyClient {
    * the protocol defines: the Session header, signed for this request (5.2),
    * and the access token when signed in (4.5), with a DPoP proof when it is
    * DPoP-bound. Nonces, `invalid_token` refreshes, one new Session after
-   * `invalid_session`, and short `Retry-After` waits are handled; other auth
+   * `session_ended`, and short `Retry-After` waits are handled; other auth
    * errors come back as `PoppyError`s. It takes only a request one of the
    * checking constructors made: an `EndpointRequest` to an endpoint
    * `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
@@ -1382,11 +1398,12 @@ export class PoppyClient {
         response.status >= 400 && !(response.headers.get("Content-Type") ?? "").includes("text/event-stream")
           ? ((await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null)
           : null;
-      // `invalid_session` (7: 400, in a JSON body; a 401 is read the same): start a
-      // new Session once; an account it was signed in to stays with the new one.
-      if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "invalid_session") {
+      // `session_ended` (5.5, 7: 400, in a JSON body; a 401 is read the same): start a new
+      // Session once; an account it was signed in to stays with the new one. `invalid_session`
+      // isn't retried: a new Session would fail the same way (7), so it reaches the caller.
+      if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "session_ended") {
         await response.body?.cancel();
-        log({ status: response.status, error: "invalid_session" }, { kind: "restart" });
+        log({ status: response.status, error: "session_ended" }, { kind: "restart" });
         checkRetry();
         this.#restartSession(company.issuer, label);
         options.onSessionRestart?.(sid, this.sessionFor(company, label).session_id);

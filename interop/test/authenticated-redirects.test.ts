@@ -56,7 +56,7 @@ async function fixture(redirect: boolean) {
         const jwt = seen.headers["poppy-session"];
         expect(typeof jwt).toBe("string");
         const header = decodeProtectedHeader(jwt as string);
-        const delegation = await jwtVerify(header.pap_dlg as string, signing.publicKey, { issuer: CLIENT_ID, typ: "pap-delegation+jwt", algorithms: ["ES256"] });
+        const delegation = await jwtVerify(header.poppy_dlg as string, signing.publicKey, { issuer: CLIENT_ID, typ: "poppy-delegation+jwt", algorithms: ["ES256"] });
         const jwk = (delegation.payload.cnf as { jwk: JWK }).jwk;
         const session = await jwtVerify(jwt as string, await importJWK(jwk, "ES256"), { issuer: CLIENT_ID, audience: ISSUER, typ: "poppy-session+jwt", algorithms: ["ES256"] });
         expect(session.payload.htm).toBe(seen.method);
@@ -114,9 +114,9 @@ async function fixture(redirect: boolean) {
 
 async function exercise(f: Awaited<ReturnType<typeof fixture>>, kind: Kind) {
   const { client, company } = f;
-  if (kind === "token") return client.oauthRequest(company, company.endpoints.token, async () => ({ grant_type: "refresh_token", refresh_token: "held-refresh" }), { dpop: false });
-  if (kind === "device") return client.oauthRequest(company, company.endpoints.deviceAuthorization!, async () => ({ scope: "orders:write" }), { dpop: false });
-  if (kind === "revocation") return client.oauthRequest(company, company.endpoints.revocation, async () => ({ token: "held-refresh", token_type_hint: "refresh_token" }), { dpop: false });
+  if (kind === "token") return client.oauthRequest(company, company.endpoints!.token, async () => ({ grant_type: "refresh_token", refresh_token: "held-refresh" }), { dpop: false });
+  if (kind === "device") return client.oauthRequest(company, company.endpoints!.deviceAuthorization!, async () => ({ scope: "orders:write" }), { dpop: false });
+  if (kind === "revocation") return client.oauthRequest(company, company.endpoints!.revocation, async () => ({ token: "held-refresh", token_type_hint: "refresh_token" }), { dpop: false });
   const body = { text: "Private source request", code: "browser-one-time-code" };
   const outgoing = kind === "api" ? await CheckedApiRequest.check(client, company, { operation: "createOrder", body: { note: "Private source request" } })
     : kind === "mcp" ? EndpointRequest.mcp(company, { method: "POST", url: `${ORIGIN}/mcp`, body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: body } })

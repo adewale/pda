@@ -1,8 +1,9 @@
 /**
- * Rules for Draft 0.3 (spec/draft-0.3-retrieved-2026-10-29), the only
+ * Rules for Draft 0.3 (spec/draft-0.3-retrieved-2026-11-03), the only
  * version this validator checks. For discovery: the issuer comes from the
  * domain's protected resource metadata (3.2), and `auth.issuer` only chooses
- * among several; the issuer's metadata lists the domain in
+ * among several; a 404 there, or no authorization server, means the Company
+ * has no issuer and offers signed-out Sessions only; the issuer's metadata lists the domain in
  * `protected_resources` and the sign-in types in `grant_types_supported`;
  * `auth` describes scopes and hints at them instead of listing sign-in types;
  * Operations is version 2, with no endpoint, and Mediated Sign-In is an
@@ -37,7 +38,9 @@ const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
 export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
 const API_TYPES = ["openapi", "mcp"];
 /** Extensions defined with the protocol at 0.3, and the versions this validator knows. */
-const EXTENSIONS: Readonly<Record<string, readonly string[]>> = { operations: ["2"], "mediated-sign-in": ["1"] };
+const EXTENSIONS: Readonly<Record<string, readonly string[]>> = { operations: ["2"], "mediated-sign-in": ["1"], links: ["1"], disclosures: ["1"], ucp: ["1"] };
+/** `access` values a `poppy` conversation entry may declare (3.2). */
+const ACCESS = ["session", "signed_in"];
 /** Names a Mediated Sign-In field can't take (Mediated Sign-In 2). */
 const RESERVED_FIELDS = ["grant_type", "scope", "resource", "client_id", "client_assertion", "client_assertion_type", "sign_in_id", "one_time_code"];
 const LOOKS_SECRET = /pass(word|code|phrase)?|\bpin\b|otp|one.?time|secret|security.?(code|answer)|cvv|cvc/i;
@@ -58,7 +61,8 @@ export function checkOrganization(c: Checker, doc: Obj): string | undefined {
     c.report("organization-name-missing", "/organization/name", "organization.name is blank, so there is no display name to show.");
   }
   const domain = member<string>(c, organization, "/organization", "domain", "string", true);
-  unknownMembers(c, organization, "/organization", ["name", "domain"]);
+  httpsMember(c, organization, "/organization", "logo_uri", false, spec("3.1", "fields"));
+  unknownMembers(c, organization, "/organization", ["name", "domain", "logo_uri"]);
   if (domain === undefined) return undefined;
   if (!isHostname(domain)) {
     c.report("domain-invalid", "/organization/domain", `organization.domain must be a bare host name, not ${JSON.stringify(domain)}.`);
@@ -110,13 +114,14 @@ export function checkMediatedFields(c: Checker, mediated: Obj, at: string): void
   });
 }
 
-/** `agent` (3.1, 8.1): its conversation protocols, one of them poppy. */
-export function checkAgent(c: Checker, agent: Obj): void {
+/** `agent` (3.1, 8.1): its conversation protocols, one of them poppy. Returns whether a poppy entry declares `signed_in` access (3.2). */
+export function checkAgent(c: Checker, agent: Obj): boolean {
   const ref = spec("8.1", "conversation-protocols");
   const protocols = member<unknown[]>(c, agent, "/agent", "protocols", "array", true, ref);
   unknownMembers(c, agent, "/agent", ["protocols"]);
-  if (!protocols) return;
+  if (!protocols) return false;
   let poppy = false;
+  let signedIn = false;
   protocols.forEach((entry, index) => {
     const at = `/agent/protocols/${index}`;
     if (!isObject(entry)) {
@@ -125,12 +130,18 @@ export function checkAgent(c: Checker, agent: Obj): void {
     }
     const type = member<string>(c, entry, at, "type", "string", true, ref);
     httpsMember(c, entry, at, "endpoint", true, ref, OURS);
-    if (type === "poppy") poppy = true;
-    else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, `Agents that don't know ${JSON.stringify(type)} skip this entry.`);
+    if (type === "poppy") {
+      poppy = true;
+      // 3.2: an advance hint, session (the default) or signed_in; agents ignore other values.
+      const access = member<string>(c, entry, at, "access", "string", false, spec("3.2", "oauth-server"));
+      if (access === "signed_in") signedIn = true;
+      else if (access !== undefined && !ACCESS.includes(access)) c.report("access-unknown", `${at}/access`, `access is ${JSON.stringify(access)}, which agents ignore, as if there were no hint.`);
+    } else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, `Agents that don't know ${JSON.stringify(type)} skip this entry.`);
     // 0.3 removed `resource` (4.5): a service that takes only its own tokens says so in its protected resource metadata.
-    unknownMembers(c, entry, at, ["type", "endpoint"]);
+    unknownMembers(c, entry, at, type === "poppy" ? ["type", "endpoint", "access"] : ["type", "endpoint"]);
   });
   if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
+  return signedIn;
 }
 
 /** `apis` (3.1, 7): each with a type, an HTTPS url and a description. */
@@ -156,16 +167,17 @@ export function checkApis(c: Checker, apis: unknown[]): void {
   });
 }
 
-/** `web` (3.1, 6). Returns whether it lists a browser-session endpoint, which needs an issuer (3.2). */
+/** `web` (3.1, 6). Returns whether it lists a browser-session endpoint, which uses Sessions (6). */
 export function checkWeb(c: Checker, web: Obj): boolean {
   const endpoint = httpsMember(c, web, "/web", "browser_session_endpoint", false, spec("6", "web-browsing"), OURS);
   unknownMembers(c, web, "/web", ["browser_session_endpoint"]);
   return endpoint !== undefined || "browser_session_endpoint" in web;
 }
 
-/** `auth` (3.1, 4.7): an optional issuer, scope descriptions and hints. Returns the issuer and the scopes `auth.scopes` describes. */
-export function checkAuth(c: Checker, auth: Obj): { issuer?: string; described: string[] } {
+/** `auth` (3.1, 4.7): an optional issuer, `disabled`, scope descriptions and hints. Returns the issuer, `disabled` and the scopes `auth.scopes` describes. */
+export function checkAuth(c: Checker, auth: Obj): { issuer?: string; disabled: boolean; described: string[] } {
   const issuerUrl = httpsMember(c, auth, "/auth", "issuer", false, spec("3.1", "fields"));
+  const disabled = member<boolean>(c, auth, "/auth", "disabled", "boolean", false, spec("3.2", "oauth-server")) === true;
   if (issuerUrl?.search) c.report("issuer-query", "/auth/issuer", `auth.issuer can't have a query: ${issuerUrl.href}.`);
   const described: string[] = [];
   const scopes = member<Obj>(c, auth, "/auth", "scopes", "object", false, spec("4.7", "scopes"));
@@ -190,8 +202,8 @@ export function checkAuth(c: Checker, auth: Obj): { issuer?: string; described: 
     }
     unknownMembers(c, hint, at, ["changes", "personal_data"]);
   }
-  unknownMembers(c, auth, "/auth", ["issuer", "scopes", "scope_hints"]);
-  return { ...(typeof auth.issuer === "string" && issuerUrl ? { issuer: auth.issuer } : {}), described };
+  unknownMembers(c, auth, "/auth", ["issuer", "disabled", "scopes", "scope_hints"]);
+  return { ...(typeof auth.issuer === "string" && issuerUrl ? { issuer: auth.issuer } : {}), disabled, described };
 }
 
 /** `extensions` (3.3) with 0.3's: Operations 2 and Mediated Sign-In 1. Returns Mediated Sign-In's scopes when listed. */
@@ -247,7 +259,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const agent = member<Obj>(c, doc, "", "agent", "object", false);
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
   const web = member<Obj>(c, doc, "", "web", "object", false);
-  if (agent) checkAgent(c, agent);
+  const signedInAccess = agent ? checkAgent(c, agent) : false;
   if (apis) checkApis(c, apis);
   const browserSession = web ? checkWeb(c, web) : false;
   if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");
@@ -264,6 +276,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const auth = member<Obj>(c, doc, "", "auth", "object", false);
   const checkedAuth = auth ? checkAuth(c, auth) : undefined;
   if (checkedAuth?.issuer) facts.issuer = checkedAuth.issuer;
+  if (checkedAuth?.disabled) facts.disabled = true;
   // An OpenAPI description may describe scopes too (4.7); the validator doesn't read one, so it can't tell which.
   const openapi = apis?.some((entry) => isObject(entry) && entry.type === "openapi") ?? false;
   if (!openapi) facts.describedScopes = checkedAuth?.described ?? [];
@@ -273,15 +286,29 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
     facts.mediatedScopes = mediated;
     facts.signIn.mediated = true;
   }
-  // 3.2: a Company that lists any of these MUST have an issuer, found from its domain.
-  facts.needsIssuer = !!(agent || apis || feedback || browserSession || mediated || (extensions && "operations" in extensions));
-  if (!facts.needsIssuer && !auth) c.report("website-only", "", "Nothing here needs an issuer: agents can only browse this Company's website, signed out.");
-  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions"]);
+  // 3.2: these use Sessions, so the Company's identifier matters: its issuer, or its domain when it has none.
+  facts.usesSessions = !!(agent || apis || feedback || browserSession || mediated || (extensions && Object.keys(extensions).length > 0));
+  // 3.2: a Company that offers sign-in MUST have an issuer.
+  const needsIssuer = [
+    ...(checkedAuth?.issuer ? ["auth.issuer"] : []),
+    ...(mediated ? ["the Mediated Sign-In extension"] : []),
+    ...(signedInAccess ? ["signed_in access"] : [])
+  ];
+  if (needsIssuer.length) facts.needsIssuer = needsIssuer;
+  // 3.2: auth.disabled offers no sign-in, so nothing may promise one.
+  if (checkedAuth?.disabled) {
+    if (mediated) c.report("auth-disabled-sign-in", "/extensions/mediated-sign-in", "auth.disabled is true, but poppy.json lists the Mediated Sign-In extension.");
+    if (signedInAccess) c.report("auth-disabled-sign-in", "/agent/protocols", "auth.disabled is true, but a poppy conversation entry declares signed_in access.");
+  }
+  if (!facts.usesSessions && !auth) c.report("website-only", "", "Nothing here uses Sessions: agents can only browse this Company's website, signed out.");
+  const skills = member<Obj>(c, doc, "", "skill_index", "object", false, spec("9.4", "agent-context"));
+  if (skills) checkSkillIndex(c, skills);
+  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions", "skill_index"]);
   return facts;
 }
 
 /** The domain's protected resource metadata (3.2, RFC 9728): `resource` is the domain; `authorization_servers` names the issuer. */
-export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFacts): string | undefined {
+export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFacts): string | null | undefined {
   const ref = spec("3.2", "oauth-server");
   if (!isObject(doc)) {
     c.report("wrong-type", "", "The protected resource metadata must be a JSON object.", ref);
@@ -291,14 +318,19 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
   if (resource !== undefined && poppy.domain !== undefined && resource !== `https://${poppy.domain}` && resource.toLowerCase() !== `https://${poppy.domain.toLowerCase()}`) {
     c.report("prm-resource-mismatch", "/resource", `resource is ${JSON.stringify(resource)}, not https://${poppy.domain}.`);
   }
-  const servers = member<unknown[]>(c, doc, "", "authorization_servers", "array", true, ref);
+  // 3.2: absent or empty, the Company has no issuer; a value of the wrong type settles nothing.
+  if (!("authorization_servers" in doc)) {
+    noIssuer(c, poppy, "empty");
+    return resource === undefined ? undefined : null;
+  }
+  const servers = member<unknown[]>(c, doc, "", "authorization_servers", "array", false, ref);
   if (!servers) return undefined;
   const list = stringList(c, servers, "/authorization_servers", ref);
   // A diagnostic does not make a malformed issuer usable for metadata discovery.
   const usable = new Set(list.filter((server, index) => httpsUrl(c, server, `/authorization_servers/${index}`, ref) !== undefined));
-  if (list.length === 0) {
-    c.report("prm-no-issuer", "/authorization_servers", "authorization_servers is empty, so there is no issuer.");
-    return undefined;
+  if (servers.length === 0) {
+    noIssuer(c, poppy, "empty");
+    return resource === undefined ? undefined : null;
   }
   if (poppy.issuer !== undefined) {
     if (!list.includes(poppy.issuer)) {
@@ -312,6 +344,43 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
     return undefined;
   }
   return usable.has(list[0]!) ? list[0] : undefined;
+}
+
+/**
+ * No issuer (3.2): the protected resource metadata is a 404, or names no
+ * authorization server. The Company offers signed-out Sessions only, and
+ * its identifier is `https://{organization.domain}`. Valid only when
+ * nothing in poppy.json offers sign-in.
+ */
+export function noIssuer(c: Checker, poppy: PoppyFacts, how: "not-found" | "empty"): void {
+  const where = how === "not-found" ? "The domain publishes no protected resource metadata (HTTP 404)" : "The domain's protected resource metadata lists no authorization server";
+  const at = how === "not-found" ? "" : "/authorization_servers";
+  const identifier = poppy.domain === undefined ? "https://{organization.domain}" : `https://${poppy.domain.toLowerCase()}`;
+  c.report("prm-no-issuer", at, `${where}, so the Company has no issuer: it offers signed-out Sessions only, and its identifier is ${identifier}.`);
+  if (poppy.needsIssuer?.length) {
+    c.report("issuer-required", at, `poppy.json offers sign-in through ${poppy.needsIssuer.join(" and ")}, which needs an issuer, but ${where.charAt(0).toLowerCase()}${where.slice(1)}.`);
+  }
+}
+
+/** `skill_index` (9.4): an embedded Agent Skills discovery index. The shape only; we don't fetch or use skills. */
+export function checkSkillIndex(c: Checker, index: Obj): void {
+  const ref = spec("9.4", "agent-context");
+  const schema = member<string>(c, index, "/skill_index", "$schema", "string", false, ref);
+  if (schema !== "https://schemas.agentskills.io/discovery/0.2.0/schema.json") {
+    c.report("skill-index-schema", "/skill_index/$schema", `$schema is ${schema === undefined ? "missing" : JSON.stringify(schema)}, so agents ignore the index.`);
+    return;
+  }
+  const skills = member<unknown[]>(c, index, "/skill_index", "skills", "array", true, ref);
+  skills?.forEach((entry, i) => {
+    const at = `/skill_index/skills/${i}`;
+    if (!isObject(entry)) {
+      c.report("wrong-type", at, `${label(at)} must be an object with name, description, type, url and digest.`, ref);
+      return;
+    }
+    for (const key of ["name", "description", "type", "url"]) member<string>(c, entry, at, key, "string", true, ref);
+    const digest = member<string>(c, entry, at, "digest", "string", true, ref);
+    if (digest !== undefined && !/^sha256:[0-9a-f]{64}$/.test(digest)) c.report("skill-digest", `${at}/digest`, `digest must be sha256: and 64 lowercase hex characters, not ${JSON.stringify(digest)}.`);
+  });
 }
 
 /** The issuer's metadata (3.2, RFC 8414): `protected_resources`, `grant_types_supported`, and the endpoints and scopes the sign-in types need. */
@@ -355,8 +424,10 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
   if (poppy?.signIn.mediated && grants && !list.includes(MEDIATED_GRANT)) {
     c.report("mediated-grant-missing", "/grant_types_supported", `poppy.json lists Mediated Sign-In, but grant_types_supported doesn't include ${MEDIATED_GRANT}.`);
   }
-  const signsIn = direct || device || !!poppy?.signIn.mediated;
-  const scopes = member<unknown[]>(c, doc, "", "scopes_supported", "array", signsIn ? "because the Company offers sign-in" : false, ref);
+  const signsIn = (direct || device || !!poppy?.signIn.mediated) && !poppy?.disabled;
+  // 3.2: a Company that offers sign-in SHOULD publish scopes_supported (RFC 8414 §2 makes it optional).
+  const scopes = member<unknown[]>(c, doc, "", "scopes_supported", "array", false, ref);
+  if (signsIn && !("scopes_supported" in doc)) c.report("scopes-supported-missing", "/scopes_supported", "The issuer's metadata has no scopes_supported, so agents learn the scopes only from the Company's API descriptions and auth.scopes.");
   const supported = scopes ? stringList(c, scopes, "/scopes_supported", ref) : [];
   for (const scope of poppy?.mediatedScopes ?? []) {
     if (scopes && !supported.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", `Mediated Sign-In offers ${scope}, which isn't in scopes_supported.`);
@@ -452,7 +523,7 @@ export function checkClientMetadata(c: Checker, doc: unknown, context: { fetched
 }
 
 const PRIVATE_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "k"];
-/** What Companies MUST accept for client assertions and delegations (4.1, 5.2). RS256 can't sign a delegation, so it's left out. */
+/** What Companies MUST (ES256) and SHOULD (PS384) accept for client assertions and delegations (4.1, 5.2). RS256 can't sign a delegation, so it's left out. */
 const KEY_ALGS = ["ES256", "PS384"];
 
 /** JOSE key members use unpadded base64url, with no alternative spelling of their bytes. */
@@ -536,6 +607,7 @@ export const draft03: Profile = {
   name: "Draft 0.3",
   poppy: checkPoppy,
   protectedResource: checkProtectedResource,
+  noIssuer,
   oauthMetadata: checkOAuthMetadata,
   clientMetadata: checkClientMetadata,
   jwks: checkJwks

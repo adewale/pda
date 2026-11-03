@@ -25,9 +25,22 @@ type Message = {
   text?: string;
   data?: Json;
   context?: Json;
-  /** The User's approval of an operation the Company Agent returned (Ops 6). */
-  approval?: { operation_id: string; revision: string };
+  /**
+   * Content defined by extensions, keyed by name (8.4). Ours is Operations
+   * 2's: the User's approval of an operation the Company Agent returned, in
+   * `extensions.operations.approval` (Ops 6), sent only to a Company that
+   * lists Operations 2.
+   */
+  extensions?: { operations: { approval: { operation_id: string; revision: string } } };
 };
+
+/** An extension's content in a message (8.4): the object under its name in `extensions`, if any. */
+function extensionContent(message: { readonly [key: string]: Json }, name: string): { readonly [key: string]: Json } | undefined {
+  const extensions = message.extensions;
+  if (!isObject(extensions)) return undefined;
+  const content = extensions[name];
+  return isObject(content) ? content : undefined;
+}
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
@@ -166,9 +179,13 @@ export async function sendMessage(
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
       if (context) message.context = context;
-      if (request.approval) message.approval = request.approval;
-      if (message.text === undefined && message.data === undefined && message.context === undefined && message.approval === undefined) {
-        throw new PoppyError("invalid_request", "A message needs text, data or context", 0);
+      // 8.4: extension content only to a Company that lists the extension with the same version.
+      if (request.approval) {
+        if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list Operations 2, so an approval can't be sent there`, 0);
+        message.extensions = { operations: { approval: request.approval } };
+      }
+      if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
+        throw new PoppyError("invalid_request", "A message needs text, data, context or extensions", 0);
       }
       return JSON.stringify({
         ...(parent ? { parent_conversation_id: parent.remote_id } : {}),
@@ -361,7 +378,7 @@ async function sendRefused(
 /**
  * The User's card for an operation a Company Agent returned in a
  * conversation (Ops 4, 5). Approved, it goes back in a message of that
- * conversation, with `approval`; nothing else, and no text, approves it.
+ * conversation, in `extensions.operations.approval`; nothing else, and no text, approves it.
  */
 async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
   const operation = parseOperationV2(value);
@@ -538,10 +555,12 @@ async function handleEvent(
         ...(typeof message.text === "string" ? { text: message.text } : {}),
         ...(message.data !== undefined ? { data: message.data } : {})
       });
-      if (isObject(message.operation)) {
-        // An operation to approve, which goes back in a message's `approval` (Ops 4, 6). A Company
-        // that doesn't list Operations 2 can't be approved through it, so its operation is only content.
-        if (company.extensions.operations) await proposeMessageApproval(client, company, row, message.operation);
+      const offered = extensionContent(message, "operations")?.operation;
+      if (isObject(offered)) {
+        // An operation to approve, in `extensions.operations.operation`, which goes back in a message's
+        // `extensions.operations.approval` (8.4; Ops 4, 6). A Company that doesn't list Operations 2
+        // can't be approved through it, so its operation is only content.
+        if (company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
       }
       if (!options.quietModel) await client.host.notifyModel(describe(company, row, message), operationId);
       return;
@@ -1009,7 +1028,8 @@ export function recentMessages(client: PoppyClient, id: string, limit = 20): Jso
     limit
   ).map(({ event }) => {
     const parsed = JSON.parse(event) as { id: string; message: { [key: string]: Json } };
-    const { role, text, data, operation } = parsed.message;
+    const { role, text, data } = parsed.message;
+    const operation = extensionContent(parsed.message, "operations")?.operation;
     const name = authorName(parsed.message);
     return {
       eventId: parsed.id,

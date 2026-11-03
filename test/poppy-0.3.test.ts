@@ -48,7 +48,7 @@ describe("0.3: discovery and the Session header", () => {
     expect(claims).toMatchObject({ iss: `${testEnv.PUBLIC_ORIGIN}/poppy/client.json`, aud: c.hosts.issuer });
     expect(claims.ath).toBeUndefined();
     // The delegation names no User and no Company (5.2).
-    const delegation = decodeJwt(header.pap_dlg as string);
+    const delegation = decodeJwt(header.poppy_dlg as string);
     expect(Object.keys(delegation).sort()).toEqual(["cnf", "exp", "iat", "iss", "jti"]);
     expect((delegation.exp as number) - (delegation.iat as number)).toBeLessThanOrEqual(24 * 3600);
     // One Session: every request names the same sid and User ID.
@@ -83,7 +83,102 @@ describe("0.3: discovery and the Session header", () => {
   });
 });
 
+describe("0.3: a Company without an OAuth issuer (3.2)", () => {
+  const ISSUERLESS: Partial<MockConfig> = { ...V3, issuerless: true, agent: false, openapi: true, mcp: true, operations: false, web: false };
+
+  it("uses a signed-out MCP API after a 404 for the domain's protected resource metadata, addressing Session JWTs to the domain", async () => {
+    const c = await company(ISSUERLESS);
+    const a = await agent();
+    const called = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(called.isError, called.text).toBe(false);
+    const all = await requests(c);
+    // Discovery stops at the 404: there is no issuer to fetch metadata from.
+    expect(all.slice(0, 2).map((request) => new URL(request.url).pathname)).toEqual(["/.well-known/poppy.json", "/.well-known/oauth-protected-resource"]);
+    expect(all.some((request) => new URL(request.url).hostname === `auth.${c.domain}`)).toBe(false);
+    const resources = resourceRequests(all, c);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const request of resources) {
+      expect(request.headers.authorization).toBeUndefined();
+      expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+    }
+  });
+
+  it("describes the Company as signed-out only, and refuses sign-in before sending anything", async () => {
+    const c = await company(ISSUERLESS);
+    const a = await agent();
+    const found = await tool(a, "poppy_discover", { domain: c.domain });
+    expect(found.isError, found.text).toBe(false);
+    expect(found.text).toContain("No OAuth issuer");
+    expect(found.text).not.toContain("Website only");
+    const before = (await requests(c)).length;
+    const signIn = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    expect(signIn.isError).toBe(true);
+    const after = await requests(c);
+    expect(after.slice(before).filter((request) => !new URL(request.url).pathname.startsWith("/.well-known/"))).toEqual([]);
+  });
+
+  it("won't drop a known issuer over a 404, but follows metadata that explicitly lists no authorization server", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    // The protected resource metadata disappears: a 404 doesn't show the issuer was removed.
+    await c.stub.configure({ issuerless: true });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const refused = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("doesn't show the issuer was removed");
+    // Metadata that names no authorization server does (3.2), and the identifier becomes the domain.
+    await c.stub.configure({ issuerless: false, authorizationServersOverride: [], signIn: { direct: null, device: null, mediated: null } });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const before = (await requests(c)).length;
+    const called = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(called.isError, called.text).toBe(false);
+    const resources = resourceRequests((await requests(c)).slice(before), c);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const request of resources) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+  });
+
+  it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
+    const c = await company({ ...V3, authDisabled: true, mcp: true });
+    const a = await agent();
+    const signIn = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    expect(signIn.isError).toBe(true);
+    expect(signIn.text).toContain("offers personal agents no sign-in");
+    expect((await requests(c)).filter((request) => new URL(request.url).hostname === `auth.${c.domain}` && !new URL(request.url).pathname.startsWith("/.well-known/"))).toEqual([]);
+    expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
+    // The identifier is still the issuer (3.2).
+    const resources = resourceRequests(await requests(c), c);
+    expect(decodeJwt(resources.at(-1)!.headers["poppy-session"]!).aud).toBe(c.hosts.issuer);
+  });
+
+  it("calls a signed-out OpenAPI operation with the Session header alone", async () => {
+    const c = await company(ISSUERLESS);
+    const a = await agent();
+    const listed = await tool(a, "poppy_api_describe", { domain: c.domain });
+    expect(listed.isError, listed.text).toBe(false);
+    const resources = resourceRequests(await requests(c), c);
+    for (const request of resources) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
+  });
+});
+
 describe("0.3: plain OAuth for accounts", () => {
+  it("asks for every scope it still needs when it signs in again for more access, not only the missing one (4.7)", async () => {
+    const c = await company(V3);
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    const more = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:write"], reason: "To exchange the jacket" });
+    expect(more.isError, more.text).toBe(false);
+    const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
+    expect(new URL(card.url).searchParams.get("scope")!.split(" ").sort()).toEqual(["orders:read", "orders:write"]);
+  });
+
+  it("requests a scope the Company documents when its issuer publishes no scopes_supported (3.2, 4.7)", async () => {
+    const c = await company({ ...V3, omitScopesSupported: true });
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
+  });
+
   it.each([true, false])("signs in directly and calls the API with the access token and ath (DPoP=%s)", async (dpopTokens) => {
     const c = await company({ ...V3, dpopTokens });
     const a = await agent();

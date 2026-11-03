@@ -1,5 +1,5 @@
 import { literal, reportError } from "../log";
-import { PoppyError, type AccountRow, type PoppyClient } from "./client";
+import { issuerEndpoints, PoppyError, type AccountRow, type PoppyClient } from "./client";
 import type { Company } from "./discovery";
 import { companyErrorCode } from "./error-codes";
 import type { Issuer } from "./issuer";
@@ -149,7 +149,7 @@ async function revoke(client: PoppyClient, company: Company, row: SignOutRow & {
   try {
     const { status, body } = await client.oauthRequest(
       company,
-      company.endpoints.revocation,
+      issuerEndpoints(company).revocation,
       async () => ({ token, token_type_hint: "refresh_token" }),
       { dpop: false }
     );

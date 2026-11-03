@@ -1,10 +1,12 @@
 # Poppy 0.3 conformance review
 
-This review targets the [29 October 2026 snapshot](../spec/draft-0.3-retrieved-2026-10-29/README.md). It separates PDA's implementation and verification problems from the [43 issues in the upstream text](poppy-0.3-issues.md). A changelog disposition of **Done** records an implemented change; it does not certify every normative requirement or every deployment path.
+This review targets the [3 November 2026 snapshot](../spec/draft-0.3-retrieved-2026-11-03/README.md), upstream commit `7205250`. It separates PDA's implementation and verification problems from the [43 issues in the upstream text](poppy-0.3-issues.md). A changelog disposition of **Done** records an implemented change; it does not certify every normative requirement or every deployment path.
 
 ## Current verification
 
-PDA implements the pinned 29 October 2026 text of Poppy 0.3 alone. This is the current verification summary; dated evidence packages retain the results of their own runs.
+PDA implements the pinned 3 November 2026 text of Poppy 0.3 alone. This is the current verification summary; dated evidence packages retain the results of their own runs.
+
+The 3 November refresh changed the wire: delegations are now `poppy-delegation+jwt` in `poppy_dlg`, there is a new `session_ended`, and conversation approvals moved to `extensions.operations`. Its evidence is the offline suite: the client against the strict mock, the validator, and the property tests. The independent-Company, official-kit, browser, crash and live rows below were recorded against the 29 October text. A Company still on that text expects `pap_dlg` and refuses PDA's Session JWTs, so those rows need rerunning once the peer moves to the current text.
 
 | Area | Evidence and limit |
 | --- | --- |

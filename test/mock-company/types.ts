@@ -255,6 +255,17 @@ export type MockConfig = {
   readonly domainResourceOverride: string | null;
   /** `auth.issuer` in poppy.json, which is optional with one authorization server (3.1). */
   readonly listIssuer: boolean;
+  /**
+   * No OAuth issuer (3.2): poppy.json has no `auth` and no Mediated
+   * Sign-In, the domain's and MCP server's protected resource metadata
+   * are 404, the auth host serves nothing, and Session JWTs are addressed
+   * to `https://{domain}`, the Company's identifier.
+   */
+  readonly issuerless: boolean;
+  /** `auth.disabled` (3.2): an issuer that serves other clients, but no sign-in for Personal Agents, and no Mediated Sign-In. */
+  readonly authDisabled: boolean;
+  /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
+  readonly omitScopesSupported: boolean;
   /** The issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
   readonly protectedResourcesOverride: readonly string[] | null;
   /** List `excluded_tasks` (9.1). */
@@ -353,6 +364,9 @@ export const DEFAULT_CONFIG: MockConfig = {
   authorizationServersOverride: null,
   domainResourceOverride: null,
   listIssuer: false,
+  issuerless: false,
+  authDisabled: false,
+  omitScopesSupported: false,
   protectedResourcesOverride: null,
   excludedTasks: true,
   feedback: false,
