@@ -20,7 +20,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 - [ ] **Sign-in recovery**: completing sign-in through recovery should run the saved after-sign-in step, without replaying an uncertain action.
 - [ ] **Protocol log gaps**: OpenAPI and MCP protected-resource fetches, ordinary website pages, and the Direct Sign-In callback's issuer check. Keep the existing secret filtering.
 - [ ] **HEIC photos**: convert where the browser supports decoding; otherwise ask for a JPEG.
-- [ ] **MCP 2026-07-28**: support MCP's stateless lifecycle (per-request metadata, no `initialize` or `Mcp-Session-Id`), which 0.3's section 7 now lists beside 2025-06-18. The client speaks 2025-06-18 only; a server that offers only 2026-07-28 can't be used yet.
+- [ ] **MCP 2026-07-28** ([#47](https://github.com/adewale/pda/issues/47)): support MCP's stateless lifecycle (per-request metadata, no `initialize` or `Mcp-Session-Id`), which 0.3's section 7 now lists beside 2025-06-18. The client speaks 2025-06-18 only; a server that offers only 2026-07-28 can't be used yet.
 - [ ] **Operator signatures, live**: set `POPPY_OPERATOR_KEY` on the deployment and check one Company edge that verifies Web Bot Auth accepts its signatures (the draft revision, components and directory caching). The guides warn products differ.
 
 ## Maintenance
