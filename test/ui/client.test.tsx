@@ -130,6 +130,19 @@ describe("public information pages", () => {
     expect(meRequests).toEqual([]);
   });
 
+  it.each(["Current ecosystem", "Upstream revisions", "Historical scorecard"])("resolves the ecosystem navigation target for %s", async name => {
+    window.history.replaceState(null, "", "/about/ecosystem");
+    render(<App />);
+    const link = await screen.findByRole("link", { name });
+    const hash = link.getAttribute("href")!;
+    expect(hash.startsWith("#")).toBe(true);
+    act(() => {
+      window.history.replaceState(null, "", `/about/ecosystem${hash}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(document.getElementById(hash.slice(1))).not.toBeNull());
+  });
+
   it("treats the retired /ecosystem path as an unknown app path without redirecting", async () => {
     window.history.replaceState(null, "", "/ecosystem");
     render(<App />);

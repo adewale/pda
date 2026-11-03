@@ -1,0 +1,45 @@
+{
+  "viewport": {
+    "width": 1080,
+    "height": 800
+  },
+  "fixture": "/about/ecosystem after clicking Upstream revisions",
+  "results": [
+    {
+      "name": "before",
+      "link": "#upstream-heads-versus-retained-grid-pins",
+      "hash": "#upstream-heads-versus-retained-grid-pins",
+      "scrollY": 0,
+      "targetExists": false,
+      "targetTop": null,
+      "errors": []
+    },
+    {
+      "name": "after",
+      "link": "#who-implements-the-28-october-text--29-october-2026",
+      "hash": "#who-implements-the-28-october-text--29-october-2026",
+      "scrollY": 687,
+      "targetExists": true,
+      "targetTop": 24.03125,
+      "errors": []
+    }
+  ],
+  "baselineCommit": "1b2e76e585a9e4cbfca12233e9836b1d82238aed",
+  "node": "v24.19.0",
+  "browser": "Chromium 154.0.8037.57 built on Debian GNU/Linux 13 (trixie)",
+  "renderedInputs": {
+    "src/public/ecosystem.tsx": {
+      "beforeSha256": "4f36a6bdb1668be1b07b28f510ed0cbf74451eba66496ac505b31cfaa03fa2b5",
+      "afterSha256": "7ed7057cdcd49dd6fe7a6ed97be42fec033e059271def044ea6b0767597a2184"
+    },
+    "docs/ecosystem.md": {
+      "beforeSha256": "fd3ad0a8a659a6e857b888ac0b2c540f44b53e99e9d531021f80637e4069f5c5",
+      "afterSha256": "fd3ad0a8a659a6e857b888ac0b2c540f44b53e99e9d531021f80637e4069f5c5"
+    }
+  },
+  "images": {
+    "before.png": "c84f8409d58fffc938b34d11935eda48ef03b99e2cbc8c57440dc20d119f7ce4",
+    "after.png": "815b59ac3f8ecede9f08f81a0b977be2100f88c1d940de439eab1ad8bbd96d2a"
+  },
+  "limits": "Public page served from production dist/client assets on localhost; one desktop viewport; no authenticated or live Company checks."
+}

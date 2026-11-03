@@ -665,6 +665,13 @@ export const MESSAGES = define({
     fix: "Generate a 2048-bit or larger key, or use EC P-256.",
     ref: rfc(7518, "3.3")
   },
+  "jwks-key-material": {
+    basis: "RFC",
+    title: "Invalid public key",
+    explain: "A public EC key needs coordinates of the curve's required size that identify a point on that curve. An RSA key needs a positive odd modulus and an odd public exponent of at least 3. JOSE key members use unpadded base64url, and RSA integers omit leading zero bytes. An alg member must agree with the key type and curve.",
+    fix: "Export the complete public JWK from the signing key, keeping its required members and matching algorithm.",
+    ref: rfc(7518, "6")
+  },
   "jwks-alg": {
     basis: "Guides",
     title: "Key algorithm isn't ES256 or PS384",

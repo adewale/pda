@@ -47,6 +47,9 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 ### Fixed
 
+- A late model-provider 401 no longer invalidates a replacement key. Calls bind the credential and workspace to a private saved-key generation; existing keys acquire a generation through an additive SQLite column.
+- The validator refuses missing or malformed EC/RSA public key material and algorithm-family mismatches. Operation expiries reject impossible calendar dates and clock values instead of accepting JavaScript's date rollover.
+- The ecosystem's revisions link targets the rendered implementation table. Documentation checks cover local files and anchors, and the current guides describe Operations 2, soft demo spending limits and the active specification snapshot.
 - Pending Company terms no longer wake the model to recreate the request. Fresh calls reuse matching pending terms, and tool replay returns the recorded outcome without another write. Internal dispatch records stay out of approval cards, including after reconciliation and receipt expiry.
 - Approved API/MCP results are kept whole instead of cut at 2,000 characters. Successful result URL/link fields are delivered directly as HTTPS links with their destinations labelled, including signed query strings. Links in operation summaries remain inert. The reported live checkout link's exact failure is not established by diagnostics that omit bodies and URLs.
 - Every coalesced task call retains its durable identity after settlement, decline and revisions. Fresh attempts get immutable decision IDs; late clicks cannot approve them. Returned terms keep the transport's authority, and committed pending terms are republished after interrupted card delivery. A changed MCP read-only annotation cannot bypass a stored result.
@@ -160,7 +163,7 @@ The combined own-code lane passes 102 cells; PDA passes all 74 exercised cross-p
 
 ### Rollback
 
-Return to the previous deployment with its original configuration and keys. An older 0.1-only binary cannot safely operate at a 0.2 Company: stop those tasks first. Preserve pending revocations and reconcile uncertain operation outcomes before retrying. Additive task-context records can remain in storage. See [compatibility and rollback](docs/upgrading.md#compatibility-and-rollback).
+Return to the previous deployment with its original configuration and keys. An older 0.1-only binary cannot safely operate at a 0.2 Company: stop those tasks first. Preserve pending revocations and reconcile uncertain operation outcomes before retrying. Additive task-context records can remain in storage. See [compatibility and rollback](docs/upgrading.md#state-and-rollback).
 
 ## Baseline — 18 October 2026
 

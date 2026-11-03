@@ -14,6 +14,7 @@
  * changed.
  */
 import { pointer } from "../json.ts";
+import { base64url, fromBase64url } from "../../base64url.ts";
 import { mediatedExt, rfc, spec } from "../messages.ts";
 import {
   httpsMember,
@@ -454,8 +455,30 @@ const PRIVATE_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "k"];
 /** What Companies MUST accept for client assertions and delegations (4.1, 5.2). RS256 can't sign a delegation, so it's left out. */
 const KEY_ALGS = ["ES256", "PS384"];
 
-function base64urlBytes(value: unknown): number {
-  return typeof value === "string" ? Math.floor((value.replace(/=+$/, "").length * 3) / 4) : 0;
+/** JOSE key members use unpadded base64url, with no alternative spelling of their bytes. */
+function keyBytes(value: unknown): Uint8Array | undefined {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return;
+  const bytes = fromBase64url(value);
+  return base64url(bytes) === value ? bytes : undefined;
+}
+
+const P256_FIELD = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
+const P256_B = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
+function coordinate(bytes: Uint8Array): bigint {
+  return bytes.reduce((value, byte) => (value << 8n) | BigInt(byte), 0n);
+}
+
+/** RFC 7518 6.2.1: both coordinates identify a point on the named curve. */
+function p256Point(xBytes: Uint8Array, yBytes: Uint8Array): boolean {
+  const x = coordinate(xBytes), y = coordinate(yBytes);
+  return x < P256_FIELD && y < P256_FIELD
+    && (y * y - x * x * x + 3n * x - P256_B) % P256_FIELD === 0n;
+}
+
+/** Base64urlUInt omits leading zero octets (RFC 7518 2). RSA n and e are positive and odd. */
+function rsaInteger(value: unknown): Uint8Array | undefined {
+  const bytes = keyBytes(value);
+  return bytes && bytes[0] !== 0 && (bytes.at(-1)! & 1) === 1 ? bytes : undefined;
 }
 
 export function checkJwks(c: Checker, doc: unknown): void {
@@ -478,13 +501,27 @@ export function checkJwks(c: Checker, doc: unknown): void {
     if (leaked.length > 0) c.report("jwks-private-key", at, `Key ${index} publishes private members: ${leaked.join(", ")}.`);
     if (key.kty === "EC") {
       if (key.crv !== "P-256") c.report("jwks-key-type", at, `Key ${index} is EC on ${String(key.crv)}; only P-256 (ES256) is supported.`);
+      else {
+        const x = keyBytes(key.x), y = keyBytes(key.y);
+        if (x?.length !== 32) c.report("jwks-key-material", `${at}/x`, `Key ${index} needs an x coordinate of exactly 32 bytes, encoded as unpadded base64url.`, rfc(7518, "6.2.1.2"));
+        if (y?.length !== 32) c.report("jwks-key-material", `${at}/y`, `Key ${index} needs a y coordinate of exactly 32 bytes, encoded as unpadded base64url.`, rfc(7518, "6.2.1.3"));
+        if (x?.length === 32 && y?.length === 32 && !p256Point(x, y)) c.report("jwks-key-material", at, `Key ${index}'s coordinates do not identify a point on P-256.`, rfc(7518, "6.2.1"));
+      }
     } else if (key.kty === "RSA") {
-      const bits = base64urlBytes(key.n) * 8;
-      if (bits < 2048) c.report("jwks-rsa-small", at, `Key ${index} is a ${bits}-bit RSA key.`);
+      const n = rsaInteger(key.n), e = rsaInteger(key.e);
+      if (!n) c.report("jwks-key-material", `${at}/n`, `Key ${index} needs a positive odd modulus, encoded as Base64urlUInt without leading zero bytes.`, rfc(7518, "6.3.1.1"));
+      else {
+        const bits = (n.length - 1) * 8 + 32 - Math.clz32(n[0]!);
+        if (bits < 2048) c.report("jwks-rsa-small", at, `Key ${index} is a ${bits}-bit RSA key.`);
+      }
+      if (!e || (e.length === 1 && e[0]! < 3)) c.report("jwks-key-material", `${at}/e`, `Key ${index} needs an odd public exponent of at least 3, encoded as Base64urlUInt without leading zero bytes.`, rfc(7518, "6.3.1.2"));
     } else {
       c.report("jwks-key-type", at, `Key ${index} has kty ${JSON.stringify(key.kty)}; use EC (P-256) or RSA.`);
     }
     if ("alg" in key && (typeof key.alg !== "string" || !KEY_ALGS.includes(key.alg))) c.report("jwks-alg", `${at}/alg`, `Key ${index} has alg ${JSON.stringify(key.alg)}, not ES256 or PS384.`);
+    if ((key.alg === "ES256" && (key.kty !== "EC" || key.crv !== "P-256")) || (key.alg === "PS384" && key.kty !== "RSA")) {
+      c.report("jwks-key-material", `${at}/alg`, `Key ${index}'s ${String(key.alg)} algorithm does not match its key type or curve.`, rfc(7518, key.alg === "ES256" ? "3.4" : "3.5"));
+    }
     if ("use" in key && key.use !== "sig") c.report("jwks-use", `${at}/use`, `Key ${index} has use ${JSON.stringify(key.use)}.`);
     if (typeof key.kid !== "string" || key.kid === "") c.report("jwks-no-kid", at, `Key ${index} has no kid.`);
     else {

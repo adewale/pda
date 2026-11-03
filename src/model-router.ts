@@ -28,6 +28,7 @@ import {
   redactKeys,
   SealedCredentialStore,
   type KeyInfo,
+  type KeyVersion,
   type ModelKeys
 } from "./model-keys";
 import type { Identity } from "./session";
@@ -91,7 +92,7 @@ export type LaneModel = { readonly provider: Provider; readonly model: Model<Api
 
 /** Where the router sends one call. */
 type Lane =
-  | { readonly kind: "own_key"; readonly provider: KeyProvider; readonly models: Models; readonly model: Model<Api> }
+  | { readonly kind: "own_key"; readonly provider: KeyProvider; readonly version: KeyVersion; readonly models: Models; readonly model: Model<Api> }
   | { readonly kind: "demo"; readonly models: Models; readonly model: Model<Api>; readonly domain: string };
 
 export type AccessOptions = {
@@ -234,16 +235,21 @@ export class ModelAccess {
     return (this.#options.now ?? Date.now)();
   }
 
-  #models(): Models {
+  #models(version?: KeyVersion): Models {
+    if (version) return this.#newModels(version);
     if (!this.#ownKeyModels) {
-      const models = createModels({
-        credentials: new SealedCredentialStore(this.#options.keys),
-        authContext: NO_AMBIENT_AUTH
-      });
-      for (const provider of this.#options.ownKeyProviders()) models.setProvider(provider);
-      this.#ownKeyModels = models;
+      this.#ownKeyModels = this.#newModels();
     }
     return this.#ownKeyModels;
+  }
+
+  #newModels(version?: KeyVersion): Models {
+    const models = createModels({
+      credentials: new SealedCredentialStore(this.#options.keys, version),
+      authContext: NO_AMBIENT_AUTH
+    });
+    for (const provider of this.#options.ownKeyProviders()) models.setProvider(provider);
+    return models;
   }
 
   /**
@@ -254,14 +260,14 @@ export class ModelAccess {
   contextWindow(): number | undefined {
     try {
       const key = this.#options.keys.info();
-      if (key?.status === "valid") return this.#ownKeyModel(key.provider).contextWindow;
+      if (key?.status === "valid") return this.#ownKeyModel(key.provider, key.workspace).contextWindow;
       return demoCatalogModel(this.#options.env).contextWindow;
     } catch {
       return undefined;
     }
   }
 
-  #ownKeyModel(provider: KeyProvider): Model<Api> {
+  #ownKeyModel(provider: KeyProvider, workspace: string | null): Model<Api> {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
@@ -269,15 +275,15 @@ export class ModelAccess {
       throw new ConfigError(`${name} ${JSON.stringify(id)} isn't in pi-ai's ${PROVIDER_LABEL[provider]} catalog`);
     }
     // A key that belongs to a whole Anthropic organisation names its workspace on every request.
-    const workspace = provider === "anthropic" ? this.#options.keys.info()?.workspace : null;
-    return workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;
+    return provider === "anthropic" && workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;
   }
 
   /** The lane now, and what Settings shows. */
   async decide(options: { forQueue?: boolean } = {}): Promise<{ entitlement: Entitlement; lane: Lane | null }> {
     const { env, keys, ledger } = this.#options;
     const now = this.#now();
-    const key = keys.info();
+    const selected = keys.current();
+    const key = selected?.info ?? null;
     const profile = this.#options.profile();
     const lists = this.#options.lists();
     // Nobody's agent calls a model for someone who can't sign in now; an agent that was never told who it belongs to fails closed.
@@ -317,9 +323,9 @@ export class ModelAccess {
     });
 
     if (!allowed) return result("none", "signed_out", null, null);
-    if (key?.status === "valid") {
-      const model = this.#ownKeyModel(key.provider);
-      return result("own_key", null, model, { kind: "own_key", provider: key.provider, models: this.#models(), model });
+    if (selected && key?.status === "valid") {
+      const model = this.#ownKeyModel(key.provider, key.workspace);
+      return result("own_key", null, model, { kind: "own_key", provider: key.provider, version: selected.version, models: this.#models(selected.version), model });
     }
     if (key?.status === "invalid") return result("none", "key_invalid", null, null);
     if (demo && profile) {
@@ -483,12 +489,14 @@ export class ModelAccess {
 
   /** An own-key call's error: keys redacted from the message; a 401 marks the key invalid. */
   async #keyError(lane: Extract<Lane, { kind: "own_key" }>, message: AssistantMessage): Promise<AssistantMessage> {
-    if (message.stopReason === "error" && isKeyRefused(message.errorMessage) && this.#options.keys.info()?.status === "valid") {
-      this.#options.keys.markInvalid();
+    if (message.stopReason === "error" && isKeyRefused(message.errorMessage) && this.#options.keys.markInvalid(lane.version)) {
       await this.#options.onKeyRefused(lane.provider);
     }
     if (isKeyRefused(message.errorMessage)) {
-      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key (401). Model calls are stopped until you add a working key in Settings.` };
+      const explanation = this.#options.keys.isCurrent(lane.version)
+        ? "Model calls are stopped until you add a working key in Settings."
+        : "This call used an earlier key. Your current key has not been changed.";
+      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key (401). ${explanation}` };
     }
     return message.errorMessage === undefined ? message : { ...message, errorMessage: redactKeys(message.errorMessage) };
   }
