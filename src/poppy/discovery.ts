@@ -23,11 +23,24 @@ export type MediatedField = {
 
 /** Everything a Personal Agent needs about one Company, verified (3). */
 export type Company = {
-  /** The issuer the domain's protected resource metadata names: what identifies the Company (3.2). */
+  /**
+   * The Company's identifier (3.2), which keys everything we hold for it
+   * (User IDs, Sessions, accounts) and is the `aud` of its Session JWTs:
+   * the issuer the domain's protected resource metadata names, or, for a
+   * Company without one (`issuerless`), `https://{organization.domain}`
+   * with the host in lowercase.
+   */
   readonly issuer: Issuer;
+  /**
+   * The domain's protected resource metadata says the Company has no OAuth
+   * issuer (3.2): signed-out Sessions only, no sign-in and no endpoints.
+   */
+  readonly issuerless?: true;
   readonly name: string;
   /** `organization.domain` of the document this came from. */
   readonly domain: string;
+  /** `organization.logo_uri` (3.1): an HTTPS URL the agent fetches itself (logo.ts), never the User's device. */
+  readonly logoUri?: string;
   /**
    * The hosts of the issuer's `protected_resources`, lowercased (3.2): where
    * tokens and Session JWTs may go beside `organization.domain`, and where a
@@ -36,16 +49,22 @@ export type Company = {
   readonly poppyDomains?: readonly string[];
   readonly protocolVersion: string;
   readonly specificationRevision?: string;
-  /** Canonical `auth`, for comparing domains that share an issuer: they MUST have the same (3.2). */
+  /** Canonical `auth`, so cached state keyed by Company notices when the document's `auth` changes. */
   readonly authFingerprint?: string;
   readonly feedback?: { readonly endpoint: string };
-  readonly endpoints: {
+  /** The issuer's endpoints; absent for a Company without an issuer (3.2). */
+  readonly endpoints?: {
     readonly token: string;
     readonly revocation: string;
     readonly authorization?: string;
     readonly deviceAuthorization?: string;
   };
   readonly signIn: {
+    /**
+     * `scopes` is the issuer's `scopes_supported`, or, when it publishes
+     * none (a SHOULD, 3.2), the scopes `auth.scopes` describes. Scopes the
+     * Company documents may be requested beyond this list (4.7; signin.ts).
+     */
     readonly direct?: { readonly scopes: readonly string[] };
     readonly device?: { readonly scopes: readonly string[] };
     /** Mediated Sign-In, an extension grant at the token endpoint (Mediated Sign-In 3). */
@@ -152,6 +171,12 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
   const orgDomain = (organization.domain as string).toLowerCase();
   const name = str(organization.name) ?? orgDomain;
   const cacheSeconds = boundedCacheSeconds(checked.maxAgeSeconds);
+  // 3.2: a Company without an issuer offers signed-out Sessions, identified by its domain.
+  // The validator settles an identifier only for a document that lists something using Sessions, as for one with an issuer.
+  if (checked.issuerless && checked.identifier) {
+    const identifier = parseIssuer(checked.identifier);
+    if (identifier) return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, null, { issuer: identifier, name, domain: orgDomain, version }), cacheSeconds, report: checked };
+  }
   // The issuer is the one the domain's protected resource metadata names (3.2); `auth` is optional.
   if (!isObj(checked.metadata) || !checked.issuer) {
     return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds, report: checked };
@@ -186,25 +211,31 @@ function services(doc: Obj): Pick<Company, "conversations" | "apis" | "web"> {
 
 /**
  * A Company (3, 3.2): sign-in types from the issuer's
- * `grant_types_supported`, every one able to request any of
- * `scopes_supported` (4.7); scopes described in `auth.scopes`, with
+ * `grant_types_supported`, none when `auth.disabled` is set or there is no
+ * issuer (`metadata` null); scopes described in `auth.scopes`, with
  * `auth.scope_hints`; Mediated Sign-In and Operations 2 from `extensions`.
  * Services name no `resource`: a service's own protected resource metadata
  * says whether it takes only its own tokens (4.5), which the client reads.
  */
-function company(doc: Obj, auth: Obj, metadata: Obj, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
-  const grants = strings(metadata.grant_types_supported);
-  const supported = strings(metadata.scopes_supported);
+function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
+  const grants = metadata ? strings(metadata.grant_types_supported) : [];
+  const supported = metadata ? strings(metadata.scopes_supported) : [];
+  // 3.2: scopes_supported is a SHOULD; without it, the Company's documented scopes may be requested (4.7).
+  const listed = !!metadata && Array.isArray(metadata.scopes_supported);
+  const documented = isObj(auth.scopes) ? Object.keys(auth.scopes) : [];
+  const offer = { scopes: listed ? supported : documented };
+  // 3.2: with auth.disabled, a Personal Agent MUST NOT start Direct, Device or Mediated Sign-In.
+  const disabled = auth.disabled === true;
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
-  if (grants.includes("authorization_code")) signIn.direct = { scopes: supported };
-  if (grants.includes(DEVICE_GRANT)) signIn.device = { scopes: supported };
+  if (!disabled && grants.includes("authorization_code")) signIn.direct = offer;
+  if (!disabled && grants.includes(DEVICE_GRANT)) signIn.device = offer;
   const extensions = isObj(doc.extensions) ? doc.extensions : {};
   const mediated = extensions["mediated-sign-in"];
-  if (isObj(mediated) && mediated.version === SUPPORTED_EXTENSIONS["mediated-sign-in"] && grants.includes(MEDIATED_GRANT)) {
+  if (metadata && !disabled && isObj(mediated) && mediated.version === SUPPORTED_EXTENSIONS["mediated-sign-in"] && grants.includes(MEDIATED_GRANT)) {
     signIn.mediated = {
       endpoint: metadata.token_endpoint as string,
       fields: (Array.isArray(mediated.fields) ? mediated.fields.filter(isObj) : []).map((field) => ({ name: field.name as string, label: field.label as string, secret: field.secret === true })),
-      scopes: strings(mediated.scopes).filter((scope) => supported.includes(scope))
+      scopes: strings(mediated.scopes).filter((scope) => !listed || supported.includes(scope))
     };
   }
   // Built from entries, so a scope named like an inherited member (`__proto__`) is a member like any other.
@@ -219,10 +250,14 @@ function company(doc: Obj, auth: Obj, metadata: Obj, known: { issuer: Issuer; na
       return [[scope, { changes, personalData: hint.personal_data }]];
     })
   );
-  const protectedResources = strings(metadata.protected_resources);
+  const protectedResources = metadata ? strings(metadata.protected_resources) : [];
   const operations = extensions.operations;
+  const organization = isObj(doc.organization) ? doc.organization : {};
+  const logo = str(organization.logo_uri);
   return {
     issuer: known.issuer,
+    ...(metadata ? {} : { issuerless: true as const }),
+    ...(logo && URL.canParse(logo) && new URL(logo).protocol === "https:" ? { logoUri: logo } : {}),
     name: known.name,
     domain: known.domain,
     // Hosts that may receive Session JWTs and show a device link (4.3): the issuer's protected resources.
@@ -231,16 +266,18 @@ function company(doc: Obj, auth: Obj, metadata: Obj, known: { issuer: Issuer; na
     specificationRevision: protocolRevision(known.version),
     authFingerprint: canonicalAuth(doc.auth ?? null),
     ...(isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
-    endpoints: {
-      token: metadata.token_endpoint as string,
-      revocation: metadata.revocation_endpoint as string,
-      ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
-      ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
-    },
+    ...(metadata ? {
+      endpoints: {
+        token: metadata.token_endpoint as string,
+        revocation: metadata.revocation_endpoint as string,
+        ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
+        ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
+      }
+    } : {}),
     signIn,
     customScopes,
     scopeHints,
-    dpop: Array.isArray(metadata.dpop_signing_alg_values_supported) && metadata.dpop_signing_alg_values_supported.includes("ES256"),
+    dpop: !!metadata && Array.isArray(metadata.dpop_signing_alg_values_supported) && metadata.dpop_signing_alg_values_supported.includes("ES256"),
     protectedResources,
     ...(isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
     ...services(doc),
@@ -295,10 +332,10 @@ export function protocolEndpoint(company: Company, url: URL): string | null {
   };
   const target = path(url);
   const endpoints = [
-    company.endpoints.token,
-    company.endpoints.revocation,
-    company.endpoints.authorization,
-    company.endpoints.deviceAuthorization,
+    company.endpoints?.token,
+    company.endpoints?.revocation,
+    company.endpoints?.authorization,
+    company.endpoints?.deviceAuthorization,
     company.signIn.mediated?.endpoint,
     company.conversations?.endpoint,
     company.web?.browserSessionEndpoint,

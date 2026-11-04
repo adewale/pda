@@ -1,6 +1,7 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { TaskCompanyScope } from "./task-scope";
+import { recipient } from "./task-text";
 import { TaskFiles } from "./task-files";
 import { TASK_SCOPE_MEMO, type TurnReader, type UserTaskReader } from "../tools/turn-authority";
 import type { Context } from "@earendil-works/chord/context";
@@ -111,13 +112,33 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     return candidate === undefined ? one(client().sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", held)?.value : intent(client().sql, held, () => candidate);
   };
   const scope = new TaskCompanyScope(firstCompany);
+  /**
+   * The Company a tool call reaches. A call naming a conversation reaches the
+   * Company that conversation belongs to, whatever else it says: a `domain`
+   * naming another Company, even one sharing its issuer, is refused rather
+   * than checked in its place. Otherwise, its `domain`.
+   */
+  const targetOf = (args: unknown): string | null | undefined => {
+    const { domain, conversation: id } = args as { domain?: unknown; conversation?: unknown };
+    const row = typeof id === "string" ? conversation(client(), id) : undefined;
+    if (!row) return typeof domain === "string" ? domain : undefined;
+    // One whose Company can't be told is refused.
+    const owner = client().taskDomain(row.issuer, "conversation", row.id);
+    if (owner === undefined) return null;
+    if (domain !== undefined && (typeof domain !== "string" || recipient(domain) !== recipient(owner))) {
+      // As for a conversation of another issuer (requireCompany): it isn't this Company's.
+      throw new PoppyError("conversation_not_found", `Conversation ${row.id} is with ${owner}, not ${String(domain)}. Name the conversation's own Company, or start a new conversation.`, 404);
+    }
+    return owner;
+  };
   const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key, signal, invocation) => {
-    const domain = (args as { domain?: unknown }).domain;
-    if (typeof domain === "string" && definition.name !== "poppy_api_call") {
-      if (!scope.allow(domain)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
+    const target = targetOf(args);
+    // poppy_api_call checks its own recipients; poppy_read sends nothing, but what it returns is the Company's.
+    if (target !== undefined && definition.name !== "poppy_api_call" && definition.name !== "poppy_read") {
+      if (target === null || !scope.allow(target)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
     }
     const answer = await run(args, key, signal, invocation);
-    if (typeof domain === "string") scope.receivedCompanyContent();
+    if (target !== undefined) scope.receivedCompanyContent();
     return answer;
   });
   const company = (domain: string) => client().company(domain);
@@ -155,6 +176,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             company: found.name,
             domain: found.domain,
             signIn: Object.keys(found.signIn),
+            // 3.2: no issuer, or auth.disabled: signed-out use only.
+            ...(found.issuerless ? { account: "No OAuth issuer: this company offers signed-out use only, with no sign-in." } : {}),
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
             agent: found.conversations ? "available (poppy_message)" : "none",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),

@@ -165,7 +165,7 @@ describe("the prepared resource request's Session binding", () => {
     let sent = 0;
     const { client, target, outgoing } = await resourceFixture(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "renewed-access", token_type: "Bearer", expires_in: 3600 });
-      return ++sent === 1 ? Response.json({ error: "invalid_session" }, { status: 400 }) : Response.json({});
+      return ++sent === 1 ? Response.json({ error: "session_ended" }, { status: 400 }) : Response.json({});
     });
     await client.completeSignIn(target, "main", "default", { access_token: "old-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-refresh", scope: "orders:read" });
     const before = client.session(target.issuer, "main")!;

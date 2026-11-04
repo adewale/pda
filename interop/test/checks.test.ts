@@ -100,6 +100,14 @@ describe("trace checks", () => {
     ]);
   });
 
+  it("counts a server a listed OpenAPI description names as listed (5.2)", () => {
+    const send = (url: string) => ({ url, headers: { authorization: "DPoP at_token_1", dpop: proof("GET", url, { token: "at_token_1" }) } });
+    const description = { url: `${API}/openapi.json`, response: { openapi: "3.1.0", info: { title: "Acme", version: "1" }, servers: [{ url: "https://orders.partner.company.interop.test/v1" }], paths: {} } };
+    const unlisted = { url: "https://other.company.interop.test/openapi.json", response: { openapi: "3.1.0", info: { title: "Other", version: "1" }, servers: [{ url: "https://evil.company.interop.test" }], paths: {} } };
+    const checks = unlistedHostChecks(recording(...DISCOVERY, description, unlisted, sessionStart(), send("https://orders.partner.company.interop.test/v1/orders"), send("https://evil.company.interop.test/x")));
+    expect(checks.map((check) => check.detail)).toEqual(["a token from acme sent to evil.company.interop.test"]);
+  });
+
   it("finds a redirect followed with credentials", () => {
     const url = `${API}/orders`;
     const checks = redirectChecks(

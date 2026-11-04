@@ -41,6 +41,13 @@ from mock_server import MockServer
 from poppy_client import approval_header, random_id
 from strategies import CONFIGS
 
+
+def ops_content(message: dict[str, Any]) -> dict[str, Any]:
+    """Operations 2's content in a message's `extensions` (8.4; Ops 4, 6), or an empty dict."""
+    extensions = message.get("extensions")
+    content = extensions.get("operations") if isinstance(extensions, dict) else None
+    return content if isinstance(content, dict) else {}
+
 APPROVAL_META = "personalagentprotocol.org/approval"
 EXCHANGE = {"item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m"}
 EXCHANGE_ARGS = {"order_id": "ord_7Hk2"} | EXCHANGE
@@ -75,7 +82,7 @@ class MOperation:
     conversation: MConversation | None = None
     order: dict[str, Any] | None = None  # a print order, as sent
     keys: list[tuple[MSession, str]] = field(default_factory=list)  # Idempotency-Keys of requests without an approval that returned it
-    performed_keys: list[str] = field(default_factory=list)  # a print order's keys that got the performed response
+    performed_keys: list[tuple[str, str | None]] = field(default_factory=list)  # a print order's keys that got the performed response, each with the account it was sent under
 
 
 class OperationsRules:
@@ -277,7 +284,7 @@ class OperationsRules:
             return
         before = len(conversation.log)
         self.read_as(conversation, ms, stream=False, from_start=False)
-        carried = [e["message"]["operation"] for e in conversation.log[before:] if e.get("type") == "message" and "operation" in e["message"]]
+        carried = [ops_content(e["message"])["operation"] for e in conversation.log[before:] if e.get("type") == "message" and "operation" in ops_content(e["message"])]
         assert len(carried) == 1, f"the Company Agent used the account and returned {len(carried)} operations"
         self.returned(carried[0], kind="exchange", channel="conversation", request=conversation.id, ms=ms, account=ms.account, conversation=conversation)
 
@@ -317,12 +324,12 @@ class OperationsRules:
             assert op.order is not None
             reply, used = self.prints_request(ms, op.order, key=key, approval=header)
             if reply.status == 201:
-                op.performed_keys.append(used)
+                op.performed_keys.append((used, ms.account))
             return reply
         if op.channel == "mcp":
             return self.mcp_exchange(ms, meta={APPROVAL_META: {"operation_id": operation_id, "revision": revision}})
         assert op.conversation is not None
-        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "approval": {"operation_id": operation_id, "revision": revision}}
+        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "extensions": {"operations": {"approval": {"operation_id": operation_id, "revision": revision}}}}
         reply = self.poppy.post_message(ms.session, self.co, json.dumps(message), op.conversation.id)
         self.touch(ms, reply)
         expect(reply, 202)
@@ -352,8 +359,8 @@ class OperationsRules:
         self.read_as(op.conversation, ms, stream=False, from_start=False)
         said = [e["message"] for e in op.conversation.log[before:] if e.get("type") == "message" and e["message"].get("role") == "company"]
         assert said, "the Company Agent said nothing about the approval (Ops 6)"
-        if "operation" in said[-1]:
-            return "operation", said[-1]["operation"]
+        if "operation" in ops_content(said[-1]):
+            return "operation", ops_content(said[-1])["operation"]
         assert said[-1]["text"].startswith("Done."), said[-1]
         return "performed", "done"
 
@@ -488,7 +495,7 @@ class OperationsRules:
         op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable() if o.channel == "conversation" and o.performed is None]))
         assert op.conversation is not None
         given = data.draw(st.sampled_from([op.id, [op.id, op.latest], {"operation_id": op.id}, {"revision": op.latest}]))
-        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "approval": given}
+        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "extensions": {"operations": {"approval": given}}}
         reply = self.poppy.post_message(ms.session, self.co, json.dumps(message), op.conversation.id)
         self.touch(ms, reply)
         expect(reply, 202)
@@ -515,17 +522,26 @@ class OperationsRules:
         expect(reply, 400, "idempotency_key_required")
         self.violation("idempotency.key-missing")
 
-    @precondition(lambda self: [op for op in self.operations if op.performed_keys and op.session in self.live()])
+    def performed_retries(self) -> list[tuple[MOperation, str]]:
+        """
+        A performed order's keys that its Session can send again within the
+        record's scope: the agent, the User, and the account the key was sent
+        under (Guides, "Retries"). Signing in to an account, or out of one,
+        leaves that scope.
+        """
+        return [(o, key) for o in self.operations if o.session in self.live() for key, account in o.performed_keys if o.session.account == account]
+
+    @precondition(lambda self: self.performed_retries())
     @rule(data=st.data())
     def prints_key_reused(self, data: st.DataObject) -> None:
         """
-        A performed order's key, sent again: the same body gets the same
-        response (Guides: retries); a different body is `idempotency_conflict`,
-        and recorded.
+        A performed order's key, sent again in the record's scope: the same
+        body gets the same response (Guides: retries); a different body is
+        `idempotency_conflict`, and recorded.
         """
-        op = data.draw(st.sampled_from([o for o in self.operations if o.performed_keys and o.session in self.live()]))
+        op, key = data.draw(st.sampled_from(self.performed_retries()))
         assert op.order is not None
-        ms, key = op.session, data.draw(st.sampled_from(op.performed_keys))
+        ms = op.session
         changed = data.draw(st.booleans(), label="a different body")
         order = op.order | {"email": "grace@example.com"} if changed else op.order
         reply, _ = self.prints_request(ms, order, key=key, approval=approval_header(op.id, op.latest))

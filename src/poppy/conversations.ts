@@ -9,7 +9,7 @@ import { approvable, approvalCardId, approvalJson, approvalSummary, parseOperati
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
-import { conversationsTable, inboxTable, intent } from "./store";
+import { conversationsTable, inboxTable, intent, intentsTable } from "./store";
 import type { DirectMessage } from "./wire";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
@@ -25,9 +25,22 @@ type Message = {
   text?: string;
   data?: Json;
   context?: Json;
-  /** The User's approval of an operation the Company Agent returned (Ops 6). */
-  approval?: { operation_id: string; revision: string };
+  /**
+   * Content defined by extensions, keyed by name (8.4). Ours is Operations
+   * 2's: the User's approval of an operation the Company Agent returned, in
+   * `extensions.operations.approval` (Ops 6), sent only to a Company that
+   * lists Operations 2.
+   */
+  extensions?: { operations: { approval: { operation_id: string; revision: string } } };
 };
+
+/** An extension's content in a message (8.4): the object under its name in `extensions`, if any. */
+function extensionContent(message: { readonly [key: string]: Json }, name: string): { readonly [key: string]: Json } | undefined {
+  const extensions = message.extensions;
+  if (!isObject(extensions)) return undefined;
+  const content = extensions[name];
+  return isObject(content) ? content : undefined;
+}
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
@@ -130,6 +143,11 @@ export async function sendMessage(
     wait?: number;
     /** An approval the User gave on our card, never one the model chose (Ops 5, 6). */
     approval?: { operation_id: string; revision: string };
+    /**
+     * Accepting the parent's `user_requested` event (8.10). With it, the
+     * message is optional: without text, the Company speaks first.
+     */
+    userRequestedEventId?: string;
     /** Recheck approval authority immediately before every dispatch, including retries. */
     beforeDispatch?: () => void;
   }
@@ -159,31 +177,50 @@ export async function sendMessage(
       0
     );
   }
+  if (request.userRequestedEventId !== undefined && !parent) throw new PoppyError("invalid_request", "Accepting a Company's invitation needs its parent conversation", 0);
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
+      const accepting = request.userRequestedEventId !== undefined ? { user_requested_event_id: request.userRequestedEventId } : {};
+      // 8.10: a request without `message` is valid only when accepting an invitation with both ids.
+      if (request.userRequestedEventId !== undefined && request.text === undefined && request.data === undefined) {
+        return JSON.stringify({ parent_conversation_id: parent!.remote_id, ...accepting });
+      }
       const message: Message = { id: randomId("msg_"), author: { type: request.sender } };
       if (request.text !== undefined && !request.contextOnly) message.text = request.text;
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
       if (context) message.context = context;
-      if (request.approval) message.approval = request.approval;
-      if (message.text === undefined && message.data === undefined && message.context === undefined && message.approval === undefined) {
-        throw new PoppyError("invalid_request", "A message needs text, data or context", 0);
+      // 8.4: extension content only to a Company that lists the extension with the same version.
+      if (request.approval) {
+        if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list Operations 2, so an approval can't be sent there`, 0);
+        message.extensions = { operations: { approval: request.approval } };
+      }
+      if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
+        throw new PoppyError("invalid_request", "A message needs text, data, context or extensions", 0);
       }
       return JSON.stringify({
         ...(parent ? { parent_conversation_id: parent.remote_id } : {}),
+        ...accepting,
         message
       });
     })
-  ) as { parent_conversation_id?: string; message: Message };
-  client.sql.exec(
-    "INSERT OR IGNORE INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
-    body.message.id,
-    company.issuer,
-    request.conversationId ?? null,
-    JSON.stringify(body),
-    Date.now()
-  );
+  ) as { parent_conversation_id?: string; user_requested_event_id?: string; message?: Message };
+  // A message intent an earlier build stored with Operations 2's approval at the top level, which the
+  // 3 November text moved to `extensions.operations` (8.4). Resending it under its id with a new shape
+  // would conflict, and in the old shape a current Company ignores it, so it is refused: the User asks again.
+  if (body.message && Object.hasOwn(body.message, "approval")) {
+    throw new PoppyError("approval_changed", `This approval was saved by an earlier version of the agent in a form ${company.name} no longer reads. Nothing was sent; ask ${company.name} for current terms and approve them again.`, 0);
+  }
+  if (body.message) {
+    client.sql.exec(
+      "INSERT OR IGNORE INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
+      body.message.id,
+      company.issuer,
+      request.conversationId ?? null,
+      JSON.stringify(body),
+      Date.now()
+    );
+  }
 
   /** The POST, with the saved cursor when it waits for a reply (8.3): a read of the events after it. */
   const post = () => {
@@ -213,7 +250,7 @@ export async function sendMessage(
       ({ body: response } = await post());
     }
   } catch (error) {
-    if (existing && error instanceof PoppyError) throw await sendRefused(client, company, existing, body.message.id, error);
+    if (existing && body.message && error instanceof PoppyError) throw await sendRefused(client, company, existing, body.message.id, error);
     throw error;
   }
   if (!isObject(response) || typeof response.conversation_id !== "string" || !ID.test(response.conversation_id)) {
@@ -255,7 +292,7 @@ export async function sendMessage(
   if (!bound || bound.issuer !== company.issuer || bound.remote_id !== remoteId) {
     throw new PoppyError("invalid_response", "The conversation identity could not be bound", 0);
   }
-  if (body.message.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
+  if (body.message?.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
   updateState(client, id, response, true);
 
   // The background read is scheduled first, so events a failure below leaves unhandled are read again.
@@ -332,6 +369,7 @@ async function sendRefused(
     case "conversation_not_found": {
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
       if (row.direct) pushDirect(client, company, row.id);
+      await endInvitations(client, company, row);
       const what = error.is("conversation_closed") ? "has closed" : "no longer has";
       return new PoppyError(
         error.code,
@@ -361,7 +399,7 @@ async function sendRefused(
 /**
  * The User's card for an operation a Company Agent returned in a
  * conversation (Ops 4, 5). Approved, it goes back in a message of that
- * conversation, with `approval`; nothing else, and no text, approves it.
+ * conversation, in `extensions.operations.approval`; nothing else, and no text, approves it.
  */
 async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
   const operation = parseOperationV2(value);
@@ -417,7 +455,8 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     callKey: `approval|${approval.approval.operation_id}|${approval.approval.revision}`,
     conversationId: row.id,
     sender: "agent",
-    text: "The User approved this.",
+    // In a Direct Conversation only the User's own words are text (8.10), so the approval goes alone.
+    ...(row.direct ? {} : { text: "The User approved this." }),
     approval: approvalJson(approval.approval),
     beforeDispatch
   });
@@ -530,6 +569,10 @@ async function handleEvent(
       }
       if (row.direct) {
         pushDirect(client, company, row.id);
+        // The Company may ask for approval here too (Ops 4, 6): the User approves on a card, as anywhere else.
+        // The Direct Conversation is the User's, so the model isn't told.
+        const offered = message.role === "company" ? extensionContent(message, "operations")?.operation : undefined;
+        if (isObject(offered) && company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
         return;
       }
       if (message.role !== "company") return;
@@ -538,10 +581,12 @@ async function handleEvent(
         ...(typeof message.text === "string" ? { text: message.text } : {}),
         ...(message.data !== undefined ? { data: message.data } : {})
       });
-      if (isObject(message.operation)) {
-        // An operation to approve, which goes back in a message's `approval` (Ops 4, 6). A Company
-        // that doesn't list Operations 2 can't be approved through it, so its operation is only content.
-        if (company.extensions.operations) await proposeMessageApproval(client, company, row, message.operation);
+      const offered = extensionContent(message, "operations")?.operation;
+      if (isObject(offered)) {
+        // An operation to approve, in `extensions.operations.operation`, which goes back in a message's
+        // `extensions.operations.approval` (8.4; Ops 4, 6). A Company that doesn't list Operations 2
+        // can't be approved through it, so its operation is only content.
+        if (company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
       }
       if (!options.quietModel) await client.host.notifyModel(describe(company, row, message), operationId);
       return;
@@ -558,6 +603,7 @@ async function handleEvent(
         );
       } else if (!row.direct && status === "closed") {
         await client.host.notifyModel(`[system] ${company.name} closed conversation ${row.id}.`, operationId);
+        await endInvitations(client, company, row);
       }
       updateState(client, row.id, event);
       if (row.direct) pushDirect(client, company, row.id);
@@ -584,6 +630,14 @@ async function handleEvent(
     }
     case "user_requested": {
       const reason = typeof event.reason === "string" ? event.reason : "The company would like to talk with you.";
+      // The invitation the User may accept, named by its event id when they do (8.10). Each pending invitation
+      // is its own record, consumed when accepted, so a later invitation never reuses an earlier one's id.
+      // Only an open conversation that isn't itself a Direct Conversation can be a parent (8.10), and an
+      // invitation the User already accepted is never offered again.
+      if (row.direct || row.status === "closed") return;
+      const eventId = typeof event.id === "string" && ID.test(event.id) ? event.id : undefined;
+      if (eventId && one(client.sql, found, "SELECT 1 AS found FROM poppy_intents WHERE call_key = ?", acceptedKey(row.id, eventId))) return;
+      if (eventId) client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", invitationKey(row.id, eventId), eventId, Date.now());
       await client.host.showCard({
         id: `direct-invite-${row.id}`,
         kind: "direct_invite",
@@ -591,7 +645,8 @@ async function handleEvent(
         domain: company.domain,
         open: true,
         conversationId: row.id,
-        reason
+        reason,
+        ...(eventId ? { eventId } : {})
       });
       await client.host.notifyModel(
         `[system] ${company.name} asks to talk with the User directly in conversation ${row.id}: "${reason}". The User has been offered a Direct Conversation; only they can start it.`,
@@ -631,9 +686,13 @@ export async function readConversation(
   idleMinMs = 30_000
 ): Promise<number | null> {
   const row = conversation(client, id);
-  if (!row || row.status === "closed") return null;
+  // A closed conversation is read again only while the Company said it has more events (8.5).
+  const moreKey = `read-more|${id}`;
+  const more = () => one(client.sql, found, "SELECT 1 AS found FROM poppy_intents WHERE call_key = ?", moreKey);
+  if (!row || (row.status === "closed" && !more())) return null;
   const company = await client.resumeCompany(row.issuer, "conversation", row.id);
   const endpoint = endpointOf(company);
+  let hasMore = false;
   for (let round = 0; round < 10; round++) {
     const current = conversation(client, id)!;
     const url = new URL(`${endpoint}/${encodeURIComponent(row.remote_id)}/events`);
@@ -685,13 +744,14 @@ export async function readConversation(
         `poppy-read-gone-${id}`
       );
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
+      await endInvitations(client, company, row);
       return null;
     }
     if (!response.ok) {
       throw new PoppyError(`http_${response.status}`, `${company.name} refused the read`, response.status);
     }
     const type = response.headers.get("Content-Type") ?? "";
-    let hasMore = false;
+    hasMore = false;
     if (type.includes("text/event-stream")) {
       await readStream(client, company, id, response, waitSeconds);
     } else {
@@ -707,6 +767,12 @@ export async function readConversation(
     }
     if (!hasMore) break;
   }
+  // Ten pages a read; the rest come in the next one, soon, even once the conversation is closed.
+  if (hasMore) {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", moreKey, id, Date.now());
+    return Date.now() + 1_000;
+  }
+  client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", moreKey);
   const after = conversation(client, id);
   if (!after || after.status === "closed") return null;
   return nextRead(after, Date.now(), idleMinMs);
@@ -895,27 +961,73 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   }
   client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
   if (row.direct) pushDirect(client, company, id);
+  await endInvitations(client, company, row);
 }
 
 /**
  * The User agreed to talk with the Company themselves: open a Direct
  * Conversation with their own first words, `author.type` `human` (8.10).
  */
+/** A pending `user_requested` invitation in a parent conversation, by its event id (8.10). */
+const invitationKey = (parentId: string, eventId: string) => `direct-invite|${parentId}|${eventId}`;
+/** An invitation the User accepted, so the same event handled again offers nothing. */
+const acceptedKey = (parentId: string, eventId: string) => `direct-accepted|${parentId}|${eventId}`;
+
+/**
+ * The parent closed: a Direct Conversation can no longer start from it
+ * (8.10, `conversation_closed`), so its pending invitations end and an open
+ * invitation card becomes a notice.
+ */
+async function endInvitations(client: PoppyClient, company: Company, row: ConversationRow): Promise<void> {
+  if (row.direct) return;
+  const prefix = `direct-invite|${row.id}|`;
+  client.sql.exec("DELETE FROM poppy_intents WHERE substr(call_key, 1, ?) = ?", prefix.length, prefix);
+  const open = one(
+    client.sql,
+    found,
+    "SELECT 1 AS found FROM poppy_cards WHERE id = ? AND open = 1 AND json_valid(card) AND json_extract(card, '$.kind') = 'direct_invite'",
+    `direct-invite-${row.id}`
+  );
+  if (!open) return;
+  await client.host.showCard({
+    id: `direct-invite-${row.id}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: false,
+    text: `${company.name} closed the conversation, so its invitation to talk directly has ended.`
+  });
+}
+
 export async function startDirectConversation(
   client: PoppyClient,
   parentId: string,
-  text: string
+  text: string,
+  eventId?: string
 ): Promise<string> {
   const parent = conversation(client, parentId);
   if (!parent) throw new PoppyError("conversation_not_found", `No conversation ${parentId}`, 404);
   const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
+  // 8.10: accepting the Company's invitation names its user_requested event, so a retry returns the same
+  // Direct Conversation; with no words from the User, the Company speaks first. The invitation is the one
+  // the User's card answers, and only while it is still pending: an agent's own offer, or a card for an
+  // invitation already accepted, opens a new Direct Conversation with the User's words.
+  const invitation = eventId === undefined ? undefined : one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, eventId))?.value;
+  const words = text.trim() ? text : undefined;
+  if (!invitation && !words) throw new PoppyError("invalid_request", "Write a first message to start talking with the company", 0);
   const result = await sendMessage(client, company, {
     label: parent.label,
-    callKey: `direct|${randomId()}`,
+    callKey: invitation ? `direct-accept|${parentId}|${invitation}|${words === undefined ? "" : randomId()}` : `direct|${randomId()}`,
     parentConversationId: parentId,
     sender: "human",
-    text
+    ...(words !== undefined ? { text: words } : {}),
+    ...(invitation ? { userRequestedEventId: invitation } : {})
   });
+  // Accepted: the invitation is spent, and remembered so the same event never offers it again.
+  if (invitation) {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", acceptedKey(parentId, invitation), invitation, Date.now());
+    client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, invitation));
+  }
   await client.host.showCard({
     id: `direct-invite-${parentId}`,
     kind: "notice",
@@ -1009,7 +1121,8 @@ export function recentMessages(client: PoppyClient, id: string, limit = 20): Jso
     limit
   ).map(({ event }) => {
     const parsed = JSON.parse(event) as { id: string; message: { [key: string]: Json } };
-    const { role, text, data, operation } = parsed.message;
+    const { role, text, data } = parsed.message;
+    const operation = extensionContent(parsed.message, "operations")?.operation;
     const name = authorName(parsed.message);
     return {
       eventId: parsed.id,

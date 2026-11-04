@@ -2,7 +2,7 @@ import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
 import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer, withUnreadableAnswer, type TokenOptions } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
-import { fetchJson } from "./fetch";
+import { assertPublicHost, fetchJson } from "./fetch";
 import { canonicalJson, isObject, parseStrictJson, toJson, type Json } from "./json";
 import { approvalTerms, dispatchTaskRequest, OperationOutcomeUnknown, proposeLocal, registerExecutor, resumeRecordedTask, taskProjection, TermsRequested, type ApprovalExecution } from "./operations";
 import { TaskFiles } from "./task-files";
@@ -38,7 +38,7 @@ type AuthorityGuard = DispatchGuard & { readonly binding: () => ApprovalBinding 
 
 /** Capture authority before asynchronous preparation, and retain the last
  * transport's binding for returned terms. Only an unapproved request may follow
- * a known invalid_session refusal; account and withdrawal generation stay fixed. */
+ * a known session_ended refusal; account and withdrawal generation stay fixed. */
 function requestGuard(client: PoppyClient, company: Company, label: string, binding: ApprovalBinding, allowRestart: boolean, beforeDispatch?: () => void): AuthorityGuard {
   let expected = binding;
   const check = () => { beforeDispatch?.(); checkApprovalBinding(client, company, label, expected); };
@@ -645,20 +645,20 @@ export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): st
 }
 
 /**
- * The description's server must be one the agent may send its Session
- * header and tokens: one of the Company's hosts, since `servers` can name any
- * host and they (and the User's files) go only to the Company's (N10), over
- * HTTPS (5.6).
+ * The server of a description `poppy.json` lists is a Session destination:
+ * 5.2 names "the request URLs its listed APIs describe", and every listed
+ * API MUST accept the Session header and access tokens (7), wherever it is
+ * hosted. Over HTTPS (3), and, off the Company's own hosts, never a
+ * loopback, private or link-local address (3).
  */
 function refuseServer(company: Company, api: Api, url: URL): void {
-  if (!tokenHostAllowed(company, url)) {
-    throw new PoppyError(
-      "untrusted_server",
-      `${api.url} names the server ${url.origin}, which isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its protected resources), so the agent won't send it its Session header or tokens`,
-      0
-    );
-  }
   if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+  if (tokenHostAllowed(company, url)) return;
+  try {
+    assertPublicHost(url);
+  } catch {
+    throw new PoppyError("untrusted_server", `${api.url} names the server ${url.origin}, which isn't a public host, so the agent won't send it its Session header or tokens`, 0);
+  }
 }
 
 /**
@@ -729,6 +729,8 @@ export class CheckedApiRequest {
     readonly call: OpenApiCall,
     /** The full URL: server, filled path and query. */
     readonly url: string,
+    /** The server the listed description names, which makes `url` a Session destination (5.2). */
+    readonly describedServer: string,
     /** The User's files an upload sends: names, types and sizes, never the bytes. */
     readonly attachments: readonly AttachmentInfo[],
     readonly identifiers: readonly string[]
@@ -837,7 +839,7 @@ export class CheckedApiRequest {
       ...(request.approval ? { approval: request.approval } : {})
     };
     const identifiers = [...new Set([request.operation, op.operationId, `${op.method} ${op.path}`])].filter(name => findOperation(document, name) === op);
-    const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : [], identifiers);
+    const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, document.base, files ? uploadedFiles(client, company, op, files) : [], identifiers);
     // A JSON body (not a form's fields) is checked against the operation's schema.
     if (!checked.multipart) checkBody(company, op, call.body);
     return checked;
@@ -1171,7 +1173,7 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
   const sessions = mcpState(client).sessions;
   const session = sessions.get(sessionKey);
   const id = Math.floor(Math.random() * 1e9);
-  // The protected-resource metadata selects DPoP or Bearer; each token names this URL.
+  // Each token is sent as its token_type names, DPoP or Bearer (4.5, 7); each names this URL.
   const response = await client.resource(
     company,
     EndpointRequest.mcp(company, {
@@ -1206,15 +1208,26 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   const resourceKey = JSON.stringify([company.issuer, api.url, company.protocolVersion, company.specificationRevision, company.authFingerprint]);
   let loading = metadata.get(resourceKey);
   if (loading && (await loading).expiresAt <= Date.now()) loading = undefined;
-  if (!loading) {
-    loading = checkResourceMetadata(client, company, api);
-    metadata.set(resourceKey, loading);
-    void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
-  }
-  const mode = await loading;
+  // 7: an MCP server's metadata must name the Company's issuer when it offers account access. It is
+  // checked before a token is requested for it; a signed-out call, which carries the Session header
+  // alone, goes to the server as poppy.json lists it, metadata or not. An interrupted sign-in is
+  // recovered first, since recovery can sign the Session in.
+  const validate = () => {
+    if (!loading) {
+      loading = checkResourceMetadata(client, company, api);
+      metadata.set(resourceKey, loading);
+      void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
+    }
+    return loading;
+  };
+  if (!company.issuerless) await client.recoverSignIns(company.issuer);
+  const signedIn = !company.issuerless && !!client.session(company.issuer, label)?.signed_in;
+  let mode = signedIn ? await validate() : loading ? await loading : { expiresAt: Date.now() + 60_000 };
   // Refresh credentials before choosing a cache entry: sign-in/account changes
   // must never reuse the previous account's MCP session or tool catalogue.
-  await client.token(company, { label, resource: api.url });
+  const held = await client.token(company, { label, resource: api.url });
+  // A sign-in that completed while this was waiting: the metadata is checked before the token is used.
+  if (held && !signedIn) mode = await validate();
   const bound = client.session(company.issuer, label);
   const slot = JSON.stringify([resourceKey, label]);
   const fingerprint = JSON.stringify([bound?.session_id, bound?.account, bound?.signed_in, bound?.authority_generation, bound?.scope]);

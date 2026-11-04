@@ -16,7 +16,8 @@ export class ApprovalAcknowledgements {
     if (!match || request.method !== "POST" || !response.ok || !(response.headers.get("content-type") ?? "").includes("json")) return;
     try {
       const sent = record(await request.clone().json()), answer = record(await response.clone().json());
-      const message = record(sent?.message), approval = record(message?.approval);
+      // Operations 2's approval is extension content in the message (8.4, Ops 6).
+      const message = record(sent?.message), approval = record(record(record(message?.extensions)?.operations)?.approval);
       const conversation = decodeURIComponent(match[1]!);
       if (!ID.test(conversation) || !answer || answer.conversation_id !== conversation || typeof answer.status !== "string" || typeof answer.responder !== "string" || Object.hasOwn(answer, "error") || typeof message?.id !== "string" || !ID.test(message.id) || typeof approval?.operation_id !== "string" || typeof approval.revision !== "string") return;
       this.#accepted.add(key(`${url.origin}${url.pathname}`, approval.operation_id, approval.revision));

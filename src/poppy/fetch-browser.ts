@@ -652,13 +652,13 @@ class FetchContext implements BrowserContextHandle {
     return this.#load(await this.#navigate(new URL(url), { method: "GET" }));
   }
 
-  async joinCode(endpoint: string): Promise<{ status: number; code?: string; action?: string }> {
+  async joinCode(endpoint: string): Promise<{ status: number; code?: string; action?: string; retryAfter?: string }> {
     // A top-level GET of the browser-session page, keeping the cookie it sets (0.3 6, step 1).
     const fetched = await this.#navigate(new URL(endpoint), { method: "GET" });
     await this.#load(fetched);
     const page = this.#current();
-    // Its own page, and nowhere a redirect took us.
-    if (page.url.href !== new URL(endpoint).href || fetched.status !== 200) return { status: fetched.status };
+    // Its own page, and nowhere a redirect took us; a 429 or 503 keeps its Retry-After for the caller to wait out.
+    if (page.url.href !== new URL(endpoint).href || fetched.status !== 200) return { status: fetched.status, ...(fetched.retryAfter ? { retryAfter: fetched.retryAfter } : {}) };
     for (const form of page.parsed.forms) {
       const action = this.#resolve(page, form.action) ?? page.url;
       if (form.method !== "post" || `${action.origin}${action.pathname}` !== `${page.url.origin}${page.url.pathname}`) continue;

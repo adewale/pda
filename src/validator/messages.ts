@@ -18,7 +18,7 @@
  * without a description). Each says so in `explain`, so a report never
  * presents our policy as the draft's requirement.
  *
- * The draft is 0.3 (spec/draft-0.3-retrieved-2026-10-29), and the links go
+ * The draft is 0.3 (spec/draft-0.3-retrieved-2026-11-03), and the links go
  * to its pages. Where 0.3 changed a rule a Company may still follow, the
  * explanation says what replaced it.
  */
@@ -337,8 +337,8 @@ export const MESSAGES = define({
     basis: "Rule",
     note: true,
     title: "Website only",
-    explain: "poppy.json lists nothing that needs an issuer (agent, apis, feedback, web.browser_session_endpoint or an extension that uses one), so agents browse the site as ordinary signed-out visitors (3.2).",
-    fix: "To offer Sessions, APIs or conversations, list them and publish the domain's protected resource metadata naming an issuer.",
+    explain: "poppy.json lists nothing that uses Sessions (agent, apis, feedback, web.browser_session_endpoint or an extension), so agents browse the site as ordinary signed-out visitors (3.1, 6).",
+    fix: "To offer Sessions, list the APIs, Company Agent or browser-session endpoint. Signed-out Sessions need no issuer (3.2); sign-in does.",
     ref: spec("3.2", "oauth-server")
   },
   "issuer-query": {
@@ -509,7 +509,7 @@ export const MESSAGES = define({
     fix: "Add S256.",
     ref: spec("4.2", "direct-sign-in")
   },
-  // 0.3 (spec/draft-0.3-retrieved-2026-10-29)
+  // 0.3 (spec/draft-0.3-retrieved-2026-11-03)
   "poppy-redirect-path": {
     basis: "MUST",
     title: "Redirected away from the well-known path",
@@ -525,11 +525,55 @@ export const MESSAGES = define({
     ref: spec("3.2", "oauth-server")
   },
   "prm-no-issuer": {
-    basis: "MUST",
-    title: "No authorization server",
-    explain: "authorization_servers in the domain's protected resource metadata names the Company's issuer. Empty, there is none, and agents can only browse the website.",
-    fix: "List the Company's issuer in authorization_servers.",
+    basis: "Rule",
+    note: true,
+    title: "No OAuth issuer: signed-out Sessions only",
+    explain: "A 404 for the domain's protected resource metadata, or metadata whose authorization_servers is absent or empty, means the Company has no OAuth issuer (3.2). That is valid for a Company that offers no sign-in: agents use its APIs, conversations, feedback and browser join signed out, and its identifier, the audience of Session JWTs and the scope of User IDs, is https:// and organization.domain. Agents don't fall back to this after a timeout, another error status or invalid metadata. Adding an issuer later changes the identifier when it differs from the domain, so agents then start new User IDs and Sessions.",
+    fix: "Nothing to do for signed-out access. To offer sign-in, publish protected resource metadata whose authorization_servers names the issuer.",
     ref: spec("3.2", "oauth-server")
+  },
+  "issuer-required": {
+    basis: "MUST",
+    title: "Sign-in offered without an issuer",
+    explain: "A Company that offers sign-in MUST have an OAuth issuer (3.2). auth.issuer, the Mediated Sign-In extension and signed_in access each offer sign-in, but the domain's protected resource metadata says there is no issuer.",
+    fix: "Publish protected resource metadata whose authorization_servers names the issuer, or remove what offers sign-in.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "auth-disabled-sign-in": {
+    basis: "MUST",
+    title: "auth.disabled, but sign-in is still offered",
+    explain: "A Company that sets auth.disabled offers Personal Agents no sign-in, so it MUST NOT list the Mediated Sign-In extension or signed_in access (3.2).",
+    fix: "Remove the Mediated Sign-In extension and signed_in access, or stop setting auth.disabled.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "access-unknown": {
+    basis: "Rule",
+    note: true,
+    title: "Conversation access hint agents don't know",
+    explain: "A poppy conversation entry's access is session (the default) or signed_in (3.2). Agents ignore any other value and treat the entry as if it had no hint.",
+    fix: "Use session or signed_in, or leave access out.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "scopes-supported-missing": {
+    basis: "SHOULD",
+    title: "No scopes_supported",
+    explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata and include every scope a Personal Agent can request (3.2, 4.7). Without it, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it.)",
+    fix: "Add scopes_supported, listing the scopes Personal Agents may request.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "skill-index-schema": {
+    basis: "SHOULD",
+    title: "Skill index with an unknown $schema",
+    explain: "skill_index embeds an Agent Skills discovery index with the 0.2.0 schema identifier (9.4). Agents SHOULD ignore an index whose $schema is absent or unknown; the rest of poppy.json stays usable.",
+    fix: "Set $schema to https://schemas.agentskills.io/discovery/0.2.0/schema.json.",
+    ref: spec("9.4", "agent-context")
+  },
+  "skill-digest": {
+    basis: "MUST",
+    title: "Skill digest malformed",
+    explain: "Each skill entry's digest is the SHA-256 of the artifact's raw bytes, written sha256: and 64 lowercase hex characters (9.4). Agents verify it before using a skill.",
+    fix: "Write the digest as sha256: followed by 64 lowercase hex characters.",
+    ref: spec("9.4", "agent-context")
   },
   "issuer-not-listed": {
     basis: "MUST",
@@ -654,7 +698,7 @@ export const MESSAGES = define({
     basis: "Guides",
     title: "Unsupported key",
     explain:
-      "Companies MUST accept client assertions and delegations signed with ES256 and with PS384 (4.1, 5.2), and the Guides say to sign with one of them, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
+      "Companies MUST accept client assertions and delegations signed with ES256, and SHOULD accept PS384 (4.1, 5.2), and the Guides say to sign with one of them, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
     fix: "Use an EC P-256 key, or an RSA key of at least 2048 bits for PS384.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
@@ -676,7 +720,7 @@ export const MESSAGES = define({
     basis: "Guides",
     title: "Key algorithm isn't ES256 or PS384",
     explain:
-      "The keys in jwks_uri sign client assertions and delegations. Companies MUST accept both signed with ES256 and with PS384 (4.1), a delegation's alg is one of the two (5.2), and the Guides say to sign with ES256, or PS384 when signing blindly. A key marked with another alg may be ignored. One marked RS256 can sign client assertions only, which the Guides ask Companies to accept too, and never delegations, so it can't make Session JWTs.",
+      "The keys in jwks_uri sign client assertions and delegations. Companies MUST accept both signed with ES256, and SHOULD accept PS384 (4.1, 5.2), a delegation's alg is one of the two (5.2), and the Guides say to sign with ES256, or PS384 when signing blindly; a Company without PS384 can't verify a blind signature. A key marked with another alg may be ignored, and one marked RS256 can't sign delegations, so it can't make Session JWTs.",
     fix: "Use ES256, or PS384 for blind signing.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },

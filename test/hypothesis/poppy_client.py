@@ -1,10 +1,14 @@
 """
 A minimal Personal Agent Protocol (Poppy) 0.3 client, written from the
-28 October text (spec/draft-0.3-retrieved-2026-10-28/pages/) and our spec's
-readings (pda-spec.md, "Poppy client"), not ported from src/poppy.
+28 October text (spec/draft-0.3-retrieved-2026-10-28/pages/), brought to
+the 3 November text (spec/draft-0.3-retrieved-2026-11-03/pages/), and our
+spec's readings (pda-spec.md, "Poppy client"), not ported from src/poppy.
 
 It is deliberately small: discovery through the domain's protected
-resource metadata (3, 3.2), client assertions naming the issuer (4.1),
+resource metadata (3, 3.2), including a Company with no issuer (a 404 or
+no authorization servers: signed out only, identified by
+https://{domain}), Web Bot Auth operator signatures on resource requests
+(5.3), client assertions naming the issuer (4.1),
 delegated keys and a Session JWT on every resource request (5.2), plain
 OAuth refresh and access tokens with DPoP only when the issuer lists it
 (4.4, 4.5), Direct, Device and Mediated Sign-In, conversations with handoff
@@ -33,7 +37,9 @@ from typing import Any, Callable
 
 import httpx
 import jwt
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from jwt.algorithms import ECAlgorithm
 
 DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code"
@@ -241,6 +247,81 @@ class Reply:
 # ---------------------------------------------------------------- the agent
 
 
+class OperatorKey:
+    """
+    An Ed25519 operator key for Web Bot Auth (5.3;
+    draft-ietf-webbotauth-httpsig-protocol-00), separate from the
+    `jwks_uri` key and the delegated keys: its `kid` is its RFC 7638
+    thumbprint (RFC 8037 A.3), as the draft's `keyid` must be.
+    """
+
+    def __init__(self) -> None:
+        self.private = Ed25519PrivateKey.generate()
+        raw = self.private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        self.x = b64url(raw)
+        members = json.dumps({"crv": "Ed25519", "kty": "OKP", "x": self.x}, separators=(",", ":"), sort_keys=True)
+        self.kid = b64url(hashlib.sha256(members.encode("ascii")).digest())
+
+    def public_jwk(self) -> dict[str, Any]:
+        return {"kty": "OKP", "crv": "Ed25519", "x": self.x, "kid": self.kid, "use": "sig"}
+
+
+DIRECTORY_PATH = "/.well-known/http-message-signatures-directory"
+
+
+def sf_string(value: str) -> str:
+    """An RFC 8941 String."""
+    if not re.fullmatch(r"[\x20-\x7e]*", value):
+        raise ValueError("not an RFC 8941 String")
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def operator_headers(
+    key: OperatorKey,
+    agent_origin: str,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    *,
+    omit: tuple[str, ...] = (),
+    corrupt: bool = False,
+) -> dict[str, str]:
+    """
+    5.3: an RFC 9421 signature in the Web Bot Auth profile over `@method`,
+    `@authority`, `@path`, the `Signature-Agent` member for its label, and
+    `poppy-session` and `authorization` when the request carries them, as
+    5.3 requires; `created`, `expires`, `keyid` and `tag="web-bot-auth"`.
+    The signature base is RFC 9421 2.5's: one `"<id>": <value>` line per
+    component, then `"@signature-params"`, joined by LF. `omit` (component
+    names) and `corrupt` are only for the reject rules.
+    """
+    parts = urllib.parse.urlsplit(url)
+    agent = sf_string(agent_origin)
+    lower = {name.lower(): value for name, value in headers.items()}
+    components: list[tuple[str, str]] = [
+        ('"@method"', method.upper()),
+        ('"@authority"', (parts.netloc or "").lower()),
+        ('"@path"', parts.path or "/"),
+        ('"signature-agent";key="sig1"', agent),
+    ]
+    for name in ("poppy-session", "authorization"):
+        if name in lower:
+            components.append((f'"{name}"', lower[name]))
+    components = [(cid, value) for cid, value in components if cid.split(";")[0].strip('"') not in omit]
+    created = int(time.time())
+    inner = "(" + " ".join(cid for cid, _ in components) + ")"
+    params = f';created={created};expires={created + 300};keyid={sf_string(key.kid)};tag="web-bot-auth"'
+    base = "\n".join([f"{cid}: {value}" for cid, value in components] + [f'"@signature-params": {inner}{params}'])
+    signature = bytearray(key.private.sign(base.encode("utf-8")))
+    if corrupt:
+        signature[0] ^= 0xFF
+    return {
+        "Signature-Agent": f"sig1={agent}",
+        "Signature-Input": f"sig1={inner}{params}",
+        "Signature": f"sig1=:{base64.b64encode(bytes(signature)).decode('ascii')}:",
+    }
+
+
 @dataclass
 class PersonalAgent:
     """Our identity (4.1): a client metadata document at `client_id`, and the keys `jwks_uri` publishes."""
@@ -248,6 +329,8 @@ class PersonalAgent:
     origin: str = "https://agent.hypothesis.test"
     signing_key: Es256Key = field(default_factory=lambda: Es256Key(kid=random_id("k_", 8)))
     lists_operations: bool = False
+    # 5.3 (a SHOULD): an operator key whose directory is at `origin` + DIRECTORY_PATH; None sends no operator signature.
+    operator_key: OperatorKey | None = field(default_factory=OperatorKey)
 
     @property
     def client_id(self) -> str:
@@ -272,7 +355,10 @@ class PersonalAgent:
         if self.lists_operations:
             # 3.3: one major version per extension; Operations 2 counts only when both sides list "2".
             metadata["extensions"] = {"operations": {"version": "2"}}
-        return {self.client_id: metadata, self.jwks_uri: {"keys": [self.signing_key.public_jwk()]}}
+        documents: dict[str, Any] = {self.client_id: metadata, self.jwks_uri: {"keys": [self.signing_key.public_jwk()]}}
+        if self.operator_key is not None:
+            documents[self.origin + DIRECTORY_PATH] = {"keys": [self.operator_key.public_jwk()]}
+        return documents
 
     def client_assertion(self, aud: Any, *, lifetime: int = ASSERTION_LIFETIME, jti: str | None = None, typ: str = "JWT") -> str:
         """4.1: `iss` and `sub` the `client_id`, `aud` the Company's issuer as a single string, short-lived, a fresh `jti`."""
@@ -280,7 +366,7 @@ class PersonalAgent:
         claims = {"iss": self.client_id, "sub": self.client_id, "aud": aud, "iat": now, "exp": now + lifetime, "jti": jti or random_id()}
         return self.signing_key.sign(claims, {"typ": typ, "kid": self.signing_key.kid})
 
-    def delegation(self, key: Es256Key, *, hours: float = DELEGATION_HOURS, extra: dict[str, Any] | None = None, typ: str = "pap-delegation+jwt") -> str:
+    def delegation(self, key: Es256Key, *, hours: float = DELEGATION_HOURS, extra: dict[str, Any] | None = None, typ: str = "poppy-delegation+jwt") -> str:
         """
         5.2: a delegation for `key`, signed by our `jwks_uri` key: `iss`, the
         key in `cnf.jwk`, `iat` rounded down to the hour, at most 24 hours,
@@ -309,18 +395,21 @@ class Company:
     excluded_tasks: str | None = None  # `excluded_tasks.url` (9.1)
     operations: bool = False  # lists Operations version 2 (Ops 2)
     mediated: dict[str, Any] | None = None  # the Mediated Sign-In extension's entry, when its grant is listed too
+    # 3.2: no OAuth issuer (a 404, or no authorization servers): `issuer` is then the Company's identifier,
+    # https://{organization.domain}, the Session JWT's `aud`; `metadata` is empty and nothing signs in.
+    issuerless: bool = False
 
     @property
     def organization_domain(self) -> str:
         return self.document["organization"]["domain"].lower()
 
     @property
-    def token_endpoint(self) -> str:
-        return self.metadata["token_endpoint"]
+    def token_endpoint(self) -> str | None:
+        return self.metadata.get("token_endpoint")
 
     @property
-    def revocation_endpoint(self) -> str:
-        return self.metadata["revocation_endpoint"]
+    def revocation_endpoint(self) -> str | None:
+        return self.metadata.get("revocation_endpoint")
 
     @property
     def dpop(self) -> bool:
@@ -465,14 +554,25 @@ class Poppy:
         if org.lower() != domain.lower():
             raise DiscoveryError(f"organization.domain {org!r} isn't the host that served it, {domain!r}")
         auth = document.get("auth") if isinstance(document.get("auth"), dict) else {}
-        # 3.2: the issuer from the domain's protected resource metadata (RFC 9728).
+        extensions = document.get("extensions", {}) if isinstance(document.get("extensions"), dict) else {}
+        protocols = document.get("agent", {}).get("protocols", [])
+        # 3.2: the issuer from the domain's protected resource metadata (RFC 9728). A 404, or metadata
+        # without authorization servers, means none; any other status settles nothing.
         prm_response = self.http.get(protected_resource_metadata_url(f"https://{org.lower()}"), follow_redirects=False)
-        if prm_response.status_code != 200:
+        if prm_response.status_code == 404:
+            servers: list[str] = []
+        elif prm_response.status_code != 200:
             raise DiscoveryError(f"protected resource metadata: HTTP {prm_response.status_code}")
-        prm = strict_json(prm_response.text)
-        if prm.get("resource") != f"https://{org.lower()}":
-            raise DiscoveryError("the protected resource metadata names another resource")
-        servers = [str(s) for s in prm.get("authorization_servers", [])]
+        else:
+            prm = strict_json(prm_response.text)
+            if prm.get("resource") != f"https://{org.lower()}":
+                raise DiscoveryError("the protected resource metadata names another resource")
+            servers = [str(s) for s in prm.get("authorization_servers", [])]
+        if not servers:
+            # 3.2: valid only when nothing offers sign-in: no auth.issuer, no Mediated Sign-In, no signed_in access.
+            if "issuer" in auth or "mediated-sign-in" in extensions or any(p.get("access") == "signed_in" for p in protocols if isinstance(p, dict)):
+                raise DiscoveryError("poppy.json offers sign-in, but the Company has no issuer")
+            return self._company(domain, document, f"https://{org.lower()}", {}, protocols, extensions, issuerless=True)
         if isinstance(auth.get("issuer"), str):
             if auth["issuer"] not in servers:
                 raise DiscoveryError("auth.issuer isn't in authorization_servers")
@@ -499,11 +599,13 @@ class Poppy:
             raise DiscoveryError("Direct Sign-In without authorization_endpoint")
         if DEVICE_CODE in grants and "device_authorization_endpoint" not in metadata:
             raise DiscoveryError("Device Sign-In without device_authorization_endpoint")
-        protocols = document.get("agent", {}).get("protocols", [])
+        return self._company(domain, document, issuer, metadata, protocols, extensions)
+
+    def _company(self, domain: str, document: dict[str, Any], identifier: str, metadata: dict[str, Any], protocols: list[Any], extensions: dict[str, Any], *, issuerless: bool = False) -> Company:
+        grants = metadata.get("grant_types_supported", [])
         conversations = next((p["endpoint"] for p in protocols if p.get("type") == "poppy"), None)
         openapi = next((a["url"] for a in document.get("apis", []) if a.get("type") == "openapi"), None)
         mcp = next((a["url"] for a in document.get("apis", []) if a.get("type") == "mcp"), None)
-        extensions = document.get("extensions", {}) if isinstance(document.get("extensions"), dict) else {}
         # 3.3: an extension counts only at a major version we support; anything else is ignored.
         operations = isinstance(extensions.get("operations"), dict) and extensions["operations"].get("version") == "2"
         mediated_entry = extensions.get("mediated-sign-in")
@@ -512,8 +614,8 @@ class Poppy:
         feedback = document.get("feedback", {}).get("endpoint") if isinstance(document.get("feedback"), dict) else None
         excluded = document.get("excluded_tasks", {}).get("url") if isinstance(document.get("excluded_tasks"), dict) else None
         return Company(
-            domain, document, issuer, metadata, conversations, openapi, mcp,
-            web.get("browser_session_endpoint"), feedback, excluded, operations, mediated,
+            domain, document, identifier, metadata, conversations, openapi, mcp,
+            web.get("browser_session_endpoint"), feedback, excluded, operations, mediated, issuerless,
         )
 
     # ---- JWTs (4.1, 4.5, 5.2) ----
@@ -549,7 +651,7 @@ class Poppy:
     ) -> str:
         """
         5.2: the Session JWT for one request: `typ` poppy-session+jwt, ES256,
-        `kid` the delegated key's thumbprint, the delegation in `pap_dlg`;
+        `kid` the delegated key's thumbprint, the delegation in `poppy_dlg`;
         `iss`, `aud` (the issuer), `sid`, `sub`, `htm`, `htu`, `iat`, `jti`,
         and `ath` only with an access token. `claims`, `header`, `key` and
         `drop` are only for the reject rules.
@@ -570,7 +672,7 @@ class Poppy:
         body.update(claims or {})
         for name in drop:
             body.pop(name, None)
-        head: dict[str, Any] = {"typ": "poppy-session+jwt", "kid": session.user.session_key.thumbprint(), "pap_dlg": self.delegation_for(session.user)}
+        head: dict[str, Any] = {"typ": "poppy-session+jwt", "kid": session.user.session_key.thumbprint(), "poppy_dlg": self.delegation_for(session.user)}
         head.update(header or {})
         return signing.sign(body, head)
 
@@ -718,9 +820,13 @@ class Poppy:
         proof: str | None = None,
         session_jwt: str | Callable[[str, str, str | None], str] | None = None,
         retry_limited: bool = True,
+        operator: bool = True,
+        operator_omit: tuple[str, ...] = (),
+        operator_corrupt: bool = False,
     ) -> Reply:
         """
-        A request with the Session header (5.2) and, signed in, the access
+        A request with the Session header (5.2), the agent's operator
+        signature when it has an operator key (5.3), and, signed in, the access
         token with the scheme its `token_type` named (4.5), and a DPoP proof
         with `ath` when it is DPoP-bound. Only to the Company's hosts, never
         with a token or Session JWT in the URL. Retries once on
@@ -757,6 +863,10 @@ class Poppy:
             if content is not None:
                 request_headers["Content-Type"] = content_type
             request_headers.update(headers or {})
+            # 5.3: the operator signature last, over the Session header and token it covers.
+            # `operator`, `operator_omit` and `operator_corrupt` are only for the reject rules.
+            if operator and self.agent.operator_key is not None:
+                request_headers.update(operator_headers(self.agent.operator_key, self.agent.origin, method, url, request_headers, omit=operator_omit, corrupt=operator_corrupt))
             response = self.http.request(method, full, content=content, headers=request_headers)
             self._keep_nonce(url, response)
             self.last = Sent(None, header_value, sent_proof)

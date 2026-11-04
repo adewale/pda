@@ -100,6 +100,8 @@ export type MockConfig = {
     readonly requests429: number;
     /** The first n website page loads get 429. */
     readonly pages429?: number;
+    /** The first n loads of the browser-session page (6, step 1) get 429. */
+    readonly joinPages429?: number;
     readonly retryAfterSeconds: number;
   };
   /**
@@ -255,6 +257,29 @@ export type MockConfig = {
   readonly domainResourceOverride: string | null;
   /** `auth.issuer` in poppy.json, which is optional with one authorization server (3.1). */
   readonly listIssuer: boolean;
+  /**
+   * No OAuth issuer (3.2): poppy.json has no `auth` and no Mediated
+   * Sign-In, the domain's and MCP server's protected resource metadata
+   * are 404, the auth host serves nothing, and Session JWTs are addressed
+   * to `https://{domain}`, the Company's identifier.
+   */
+  readonly issuerless: boolean;
+  /** The issuer is exactly `https://{domain}`, its metadata served on the domain; its endpoints stay on the auth host. */
+  readonly issuerOnDomain: boolean;
+  /** Scopes left out of the main domain's `auth.scopes`, so only the other domain sharing the issuer describes them (3.2). */
+  readonly hideScopesOnMainDomain: readonly string[];
+  /** Scopes left out of every domain's `auth.scopes`, so only the OpenAPI description documents them (4.7). */
+  readonly hideScopesFromAuth: readonly string[];
+  /** Only the other domain sharing the issuer lists the OpenAPI API; the main domain lists none (3.2). */
+  readonly openapiOnAltDomainOnly: boolean;
+  /** `auth.disabled` (3.2): an issuer that serves other clients, but no sign-in for Personal Agents, and no Mediated Sign-In. */
+  readonly authDisabled: boolean;
+  /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
+  readonly omitScopesSupported: boolean;
+  /** Refuse this agent these sign-in types with `unauthorized_client`, while accepting it for signed-out Sessions (4.1). */
+  readonly refuseSignInTypes: readonly ("device")[];
+  /** `organization.logo_uri` (3.1): a PNG, an SVG (which agents must not show), or none. */
+  readonly logo: "png" | "svg" | null;
   /** The issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
   readonly protectedResourcesOverride: readonly string[] | null;
   /** List `excluded_tasks` (9.1). */
@@ -353,6 +378,15 @@ export const DEFAULT_CONFIG: MockConfig = {
   authorizationServersOverride: null,
   domainResourceOverride: null,
   listIssuer: false,
+  issuerless: false,
+  issuerOnDomain: false,
+  hideScopesOnMainDomain: [],
+  hideScopesFromAuth: [],
+  openapiOnAltDomainOnly: false,
+  authDisabled: false,
+  omitScopesSupported: false,
+  refuseSignInTypes: [],
+  logo: null,
   protectedResourcesOverride: null,
   excludedTasks: true,
   feedback: false,
@@ -477,7 +511,7 @@ export function placeCompanies(next: Placement): void {
 }
 
 /** Where an issuer's metadata lives, and the issuer: `/.well-known/oauth-authorization-server` before its path. */
-export type IssuerOptions = { readonly issuerTrailingSlash?: boolean; readonly issuerPath?: string | null };
+export type IssuerOptions = { readonly issuerTrailingSlash?: boolean; readonly issuerPath?: string | null; readonly issuerOnDomain?: boolean };
 
 export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
   const domain = placement.domain(id);
@@ -491,7 +525,8 @@ export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
     id,
     domain,
     altDomain: placement.altDomain(id),
-    issuer: `${auth}${path}${options.issuerTrailingSlash ? "/" : ""}`,
+    // `issuerOnDomain`: the issuer is exactly https://{domain}, so its identifier is the one the domain would have without it (3.2).
+    issuer: options.issuerOnDomain ? `https://${domain}` : `${auth}${path}${options.issuerTrailingSlash ? "/" : ""}`,
     metadataPath: `/.well-known/oauth-authorization-server${path}`,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,

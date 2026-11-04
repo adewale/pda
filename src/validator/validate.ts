@@ -192,7 +192,9 @@ export function validateText(kind: DocumentKind, text: string, options: TextOpti
       if (!options.fetchedFrom) skipped.push({ check: "client_id equals the URL fetched", reason: "No URL given." });
       skipped.push({ check: "The key set at jwks_uri", reason: "Validate by URL to fetch it." });
     } else if (kind === "protected-resource") {
-      profile.protectedResource(c, value, { signIn: { direct: false, device: false, mediated: false } });
+      if (profile.protectedResource(c, value, { signIn: { direct: false, device: false, mediated: false } }) === null) {
+        skipped.push({ check: "Nothing in poppy.json offers sign-in, as a Company without an issuer must not", reason: "Needs the poppy.json; validate by domain." });
+      }
       skipped.push({ check: "resource is https://{organization.domain}; auth.issuer is one of authorization_servers", reason: "Needs the poppy.json; validate by domain." });
     } else {
       profile.jwks(c, value);
@@ -209,6 +211,14 @@ export type CompanyReport = Report & {
   readonly protectedResource?: unknown;
   /** The issuer the documents settled on: the one the domain's protected resource metadata names. */
   readonly issuer?: string;
+  /**
+   * The Company's identifier (3.2): its issuer, or `https://{organization.domain}`
+   * when the domain's protected resource metadata establishes it has none.
+   * Unset when discovery didn't settle it.
+   */
+  readonly identifier?: string;
+  /** The domain's protected resource metadata says the Company has no issuer (3.2): signed-out Sessions only. */
+  readonly issuerless?: true;
   /** The shorter of the two documents' cache lifetimes, unbounded; null if neither said. */
   readonly maxAgeSeconds: number | null;
 };
@@ -245,6 +255,7 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     }
   }
   let protectedResource: unknown;
+  let issuerless = false;
   if (facts) {
     // A redirect may change the host, never the path (3).
     const final = new URL(fetched.finalUrl);
@@ -254,14 +265,23 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     // The issuer is the one the domain's protected resource metadata names (3.2).
     const named = facts.issuer;
     facts.issuer = undefined;
-    if (facts.domain && (facts.needsIssuer || named !== undefined)) {
+    if (facts.domain && (facts.usesSessions || facts.needsIssuer || named !== undefined)) {
       const prmChecker = new Checker("protected-resource");
       checkers.push(prmChecker);
-      const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker);
+      // 3.2: a 404 means the Company has no issuer; any other failure settles nothing.
+      const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker, { notFoundIsAnswer: true });
       protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
       documents.push(documentResult("protected-resource", prmFetched, protectedResource));
       ages.push(prmFetched.maxAgeSeconds);
-      if (protectedResource !== undefined) facts.issuer = profile.protectedResource(prmChecker, protectedResource, { ...facts, ...(named !== undefined ? { issuer: named } : {}) });
+      const context = { ...facts, ...(named !== undefined ? { issuer: named } : {}) };
+      if (prmFetched.status === 404 && prmFetched.text === undefined) {
+        profile.noIssuer(prmChecker, context, "not-found");
+        issuerless = true;
+      } else if (protectedResource !== undefined) {
+        const settled = profile.protectedResource(prmChecker, protectedResource, context);
+        if (settled === null) issuerless = true;
+        else facts.issuer = settled;
+      }
     }
   }
   if (facts?.issuer) {
@@ -279,7 +299,8 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     ...(poppy !== undefined ? { poppy } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
     ...(protectedResource !== undefined ? { protectedResource } : {}),
-    ...(facts?.issuer ? { issuer: facts.issuer } : {}),
+    ...(facts?.issuer ? { issuer: facts.issuer, identifier: facts.issuer } : {}),
+    ...(issuerless && facts?.domain ? { issuerless: true as const, identifier: `https://${facts.domain.toLowerCase()}` } : {}),
     maxAgeSeconds: known.length ? Math.min(...known) : null
   };
 }

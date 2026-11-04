@@ -59,7 +59,9 @@ const KNOBS = [
   "operationIdPrefix",
   "deviceInterval",
   "deviceExpiresIn",
-  "eventPageSize"
+  "eventPageSize",
+  // 3.2: a Company with no OAuth issuer (signed-out only); a way real Companies differ, not a relaxed check.
+  "issuerless"
 ] as const satisfies readonly (keyof MockConfig)[];
 
 const env = { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env;

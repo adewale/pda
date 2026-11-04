@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Table } from "@cloudflare/kumo";
 import { ArrowLeftIcon, ChatsIcon, StorefrontIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { ConnectedAccount, PendingSignOut } from "../poppy/wire";
@@ -42,6 +43,28 @@ export function companiesOf(view: PoppyView): CompanyRow[] {
   return [...byIssuer.entries()]
     .map(([issuer, row]) => ({ issuer, ...row }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A Company's logo, beside its name and domain and never in place of the
+ * domain (Guides, "Finding a company"). The agent fetched it and our origin
+ * serves it (src/poppy/logo.ts); it is decorative, so it has no alt text,
+ * and it disappears when there is none.
+ */
+export function CompanyLogo({ domain }: { domain: string }) {
+  const [missing, setMissing] = useState(false);
+  if (missing) return null;
+  return (
+    <img
+      src={`/api/companies/${encodeURIComponent(domain)}/logo`}
+      alt=""
+      width={20}
+      height={20}
+      loading="lazy"
+      className="size-5 shrink-0 rounded-sm object-contain"
+      onError={() => setMissing(true)}
+    />
+  );
 }
 
 /** The scopes the Company granted, in small mono: each Company defines its own (spec 4.7). */
@@ -101,7 +124,16 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
         <Action variant="ghost" icon={<ArrowLeftIcon size={16} aria-hidden />} onClick={onBack} className="-ml-2 pl-2">
           All Companies
         </Action>
-        <PageHeader title={company.name} description={<code className="font-mono text-[13px] break-all">{company.issuer}</code>} />
+        <PageHeader
+          title={company.name}
+          description={
+            <span className="flex flex-wrap items-center gap-2">
+              {company.domain ? <CompanyLogo domain={company.domain} /> : null}
+              {company.domain ? <span>{company.domain}</span> : null}
+              <code className="font-mono text-[13px] break-all" title="Company identifier: its OAuth issuer, or its domain when it has none">{company.issuer}</code>
+            </span>
+          }
+        />
       </div>
 
       <Section title="Accounts" description="Accounts your agent is signed in to. Signing out stops your agent using the account at once, and asks the Company to revoke the access it granted.">
@@ -234,8 +266,9 @@ export function CompaniesPage({
                         <button
                           type="button"
                           onClick={() => onSelect(row.issuer)}
-                          className="-mx-1 flex min-h-10 max-w-full items-center rounded-md px-1 text-left text-base font-medium text-kumo-link underline-offset-4 hover:underline"
+                          className="-mx-1 flex min-h-10 max-w-full items-center gap-2 rounded-md px-1 text-left text-base font-medium text-kumo-link underline-offset-4 hover:underline"
                         >
+                          {row.domain ? <CompanyLogo domain={row.domain} /> : null}
                           <Truncated text={row.name} />
                         </button>
                       ) : null}

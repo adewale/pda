@@ -454,7 +454,7 @@ describe("device sign-in links (4.3)", () => {
       const value = tc.draw(
         gs.oneOf<unknown>(
           gs.just(`https://${other}/device`),
-          gs.just(`https://${new URL(company.endpoints.deviceAuthorization!).host}/device`),
+          gs.just(`https://${new URL(company.endpoints!.deviceAuthorization!).host}/device`),
           gs.just(`http://${domain}/device`),
           gs.just(`javascript:alert(1)//${domain}`),
           gs.just(`https://user:pass@${domain}/device`),
@@ -476,10 +476,10 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
       const company = companyAt(domain);
       const endpoint = tc.draw(
         gs.sampledFrom([
-          company.endpoints.token,
-          company.endpoints.revocation,
-          company.endpoints.authorization!,
-          company.endpoints.deviceAuthorization!,
+          company.endpoints!.token,
+          company.endpoints!.revocation,
+          company.endpoints!.authorization!,
+          company.endpoints!.deviceAuthorization!,
           company.feedback!.endpoint,
           company.conversations!.endpoint,
           company.web!.browserSessionEndpoint!

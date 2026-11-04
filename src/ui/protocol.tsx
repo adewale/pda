@@ -48,7 +48,8 @@ function clock(at: number): string {
 export function protocolText(log: ProtocolLogView, exportedAt = Date.now()): string {
   const head = [
     `Poppy protocol log: ${log.company}${log.domain && log.domain !== log.company ? ` (${log.domain})` : ""}`,
-    ...(log.issuer ? [`Issuer: ${log.issuer}`] : []),
+    // The Company's identifier (3.2): its OAuth issuer, or https://{domain} when it has none.
+    ...(log.issuer ? [`Company identifier: ${log.issuer}`] : []),
     `Exported: ${new Date(exportedAt).toISOString()}; ${log.entries.length} entr${log.entries.length === 1 ? "y" : "ies"}, oldest first; times in UTC`,
     "Recorded: time, spec section, method, URL (origin and path), status, error code, what was sent and what came back.",
     "Never recorded: headers, bodies, tokens, assertions, DPoP proofs, keys, codes, state, verifiers, sign-in values, query strings.",

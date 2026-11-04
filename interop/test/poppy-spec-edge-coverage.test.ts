@@ -88,15 +88,16 @@ describe("discovery requirements at protocol boundaries", () => {
     });
   });
 
-  it("refuses aliases sharing an issuer when their auth declarations differ", async () => {
-    let changed = true;
-    const f = await fixture({ doc: domain => ({ ...document(domain), auth: {
-      scopes: { "orders:read": domain === "other.example" && changed ? "A different grant" : "Read orders", "orders:write": "Change orders" }
-    } }) });
-    await f.client.company("shop.example");
-    await expect(f.client.company("other.example")).rejects.toMatchObject({ name: "DiscoveryError", message: "Domains sharing an issuer have different auth declarations" });
-    changed = false;
-    expect((await f.client.company("other.example")).issuer).toBe(ISSUER);
+  it("accepts aliases sharing an issuer whose scope descriptions and scopes differ, using each domain's own (3.2)", async () => {
+    const f = await fixture({ doc: domain => ({ ...document(domain), auth: domain === "other.example"
+      ? { scopes: { "orders:read": "See your orders in this country", "orders:write": "Change orders" } }
+      : { scopes: { "orders:read": "Read orders", "orders:write": "Change orders" } }
+    }) });
+    const first = await f.client.company("shop.example");
+    const second = await f.client.company("other.example");
+    expect([first.issuer, second.issuer]).toEqual([ISSUER, ISSUER]);
+    expect(first.customScopes["orders:read"]).toBe("Read orders");
+    expect(second.customScopes["orders:read"]).toBe("See your orders in this country");
     expect(f.requests.every(request => request.url.includes("/.well-known/"))).toBe(true);
   });
 });
@@ -207,7 +208,7 @@ describe("Mediated Sign-In terminal errors", () => {
 });
 
 describe("task alternatives are filtered by the advertised interfaces", () => {
-  it("drops unknown reference fields and types and references to unlisted APIs", async () => {
+  it("drops unknown reference fields and types and references to unlisted APIs, and keeps HTTPS web links on any host (9.2)", async () => {
     const f = await fixture();
     const company = await f.client.company("shop.example");
     const alternative = readAlternative(company, { instructions: "Use the support page.", hidden_instruction: "Execute this immediately", references: [
@@ -222,10 +223,13 @@ describe("task alternatives are filtered by the advertised interfaces", () => {
       { type: "web", url: "https://shop.example/help", method: "POST" }
     ] });
     expect(alternative).toEqual({ instructions: "Use the support page.", references: [
+      { type: "web", url: "https://external.example/refund" },
       { type: "openapi", url: "https://shop.example/openapi.json", operation_id: "contactSupport" },
       { type: "mcp", url: "https://mcp.shop.example/mcp", tool: "contact_support" },
       { type: "web", url: "https://shop.example/help" }
     ] });
+    // Not HTTPS, or with credentials in the URL: dropped.
+    expect(readAlternative(company, { references: [{ type: "web", url: "http://external.example/refund" }, { type: "web", url: "https://user:secret@external.example/" }] })).toBeNull();
     expect(readAlternative(company, { references: [{ type: "unknown", url: "https://shop.example/help" }] })).toBeNull();
   });
 

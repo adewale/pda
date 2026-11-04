@@ -322,14 +322,15 @@ describe("a Company's words", () => {
     expect(refused.text).toContain("hunter2");
     // Frames of the User's that need a token (approving the write) or the revocation endpoint (signing out).
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    // The background jobs, due now: the conversation's read fails on the refused token, and its job's event records why.
+    // The background jobs, due now: the conversation's read is refused, and its job's event records why.
     await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
     await runDurableObjectAlarm(a.stub);
     // Await the signed-in read's actual refusal before changing authority.
     // The privacy oracle must inspect completed work, not assume an alarm
     // has already run merely because it was requested.
+    // The refused client gets invalid_session at the conversation, which no new Session fixes (7).
     await until(async () => (await eventsOf(a, mark)).some(event =>
-      (event.errors ?? []).some((error: Record<string, unknown>) => error.type === "PoppyError" && error.code === "invalid_client")));
+      (event.errors ?? []).some((error: Record<string, unknown>) => error.type === "PoppyError" && error.code === "invalid_session")));
     // Signing out reaches the revocation endpoint, which refuses too; its job runs now.
     await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
     await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
@@ -339,7 +340,7 @@ describe("a Company's words", () => {
     const events = await eventsOf(a, mark);
     const errors = events.flatMap((event) => (event.errors ?? []) as Array<Record<string, unknown>>);
     // The refusals were logged, by class and code: never the Company's words.
-    expect(errors.some((error) => error.type === "PoppyError" && error.code === "invalid_client")).toBe(true);
+    expect(errors.some((error) => error.type === "PoppyError" && error.code === "invalid_session")).toBe(true);
     expect(errors.filter((error) => error.type === "PoppyError" && "message" in error)).toEqual([]);
     expect(leaked(lines)).toEqual([]);
     expect(leaked(await a.stub.diagnostics())).toEqual([]);

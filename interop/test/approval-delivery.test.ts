@@ -9,7 +9,7 @@ const conversation = { id: "local_conversation", remote_id: "remote_conversation
 const approval = { operation_id: "op_one", revision: "revision_one", expires_at: "2026-10-29T12:00:00Z" };
 const binding = { account: "acct_ada", sessionId: "ses_one", authorityGeneration: 0 };
 const row = { status: "unknown", request: storedApproval({ kind: "message-approval", conversationId: conversation.id, approval, binding }) };
-const request = () => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: { id: "msg_one", author: { type: "agent" }, approval: { operation_id: approval.operation_id, revision: approval.revision } } }) });
+const request = () => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: { id: "msg_one", author: { type: "agent" }, extensions: { operations: { approval: { operation_id: approval.operation_id, revision: approval.revision } } } } }) });
 const response = (value: unknown, status = 202) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 const acknowledgement = { conversation_id: conversation.remote_id, status: "working", responder: "agent" };
 

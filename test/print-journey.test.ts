@@ -707,15 +707,13 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(await photoRequests(c)).toEqual([]);
   });
 
-  it("never asks to send a photo to a server that isn't the Company's (N10)", async () => {
-    const elsewhere = await company({ printShop: true });
-    const c = await company({ printShop: true, openapiServerOverride: elsewhere.hosts.api });
+  it("never asks to send a photo to a server on a non-public host, whatever the Company's description names (3)", async () => {
+    const c = await company({ printShop: true, openapiServerOverride: "https://photos.internal/api" });
     const a = await poppyAgent();
     const info = await attached(a);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
     expect(JSON.parse(result.details)).toMatchObject({ error: "untrusted_server" });
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
-    expect(await requests(elsewhere)).toEqual([]);
   });
 
   it("describes an upload's file fields to the model", async () => {
@@ -842,7 +840,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     // The approval went once on the ended Session and is never sent on a new one (approval_changed).
     expect(failed.result).toBe("The account or Session changed. Review a fresh request before sending it. [approval_changed]");
     expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("[approval_changed]");
-    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "invalid_session"]]);
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "session_ended"]]);
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
     await expectFinalElsewhere(a, failed, "failed");
     // The new Session has no copy of the old Session's photo. A premature local

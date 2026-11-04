@@ -103,11 +103,10 @@ class HandoffDirectRules:
         `parent_conversation_id`, and carries the User's own words as
         `human`. The parent MUST be open, the same owner's (8.2), and not a
         Direct Conversation itself, with no other one open; otherwise
-        `conversation_not_found`, `conversation_closed` or
-        `direct_conversation_open` naming the open one. Who owns the parent
-        is 8.2 and 8.11 (`machine.refusal`: S17 lets any User signed in to
-        the account it used continue it). Any parent and any Session can be
-        drawn.
+        `conversation_not_found`, `conversation_closed`, `invalid_request`
+        for a Direct parent, or `direct_conversation_open` naming the open
+        one. Who owns the parent is 8.2 and 8.11 (`machine.refusal`). Any
+        parent and any Session can be drawn.
         """
         parent = data.draw(st.sampled_from(self.conversations))
         ms = data.draw(st.sampled_from(self.live()))
@@ -118,7 +117,7 @@ class HandoffDirectRules:
         if refused is not None:
             self.expect_refusal(reply, refused)
         elif parent.direct:
-            expect(reply, 404, "conversation_not_found")
+            expect(reply, 400, "invalid_request")
         elif parent.closed:
             expect(reply, 409, "conversation_closed")
         elif parent.direct_child is not None:

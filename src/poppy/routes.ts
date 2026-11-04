@@ -1,4 +1,5 @@
 import { readIdentity, readSigningKeys } from "./keys";
+import { DIRECTORY_PATH, directoryResponse, operatorKey } from "./operator";
 
 /**
  * The client metadata document (spec 4.1). Its URL is our `client_id`. It
@@ -17,7 +18,7 @@ export function clientMetadata(env: Env) {
   };
 }
 
-const IDENTITY_PATHS = ["/poppy/client.json", "/poppy/jwks.json"];
+const IDENTITY_PATHS = ["/poppy/client.json", "/poppy/jwks.json", DIRECTORY_PATH];
 
 const PUBLIC_CACHE = "public, max-age=3600";
 
@@ -26,7 +27,8 @@ function notFound(): Response {
 }
 
 /**
- * `GET /poppy/client.json` and `GET /poppy/jwks.json`. Served only on
+ * `GET /poppy/client.json`, `GET /poppy/jwks.json` and the operator key
+ * directory at `/.well-known/http-message-signatures-directory`. Served only on
  * `PUBLIC_ORIGIN`, never by redirect, so a Company that fetches `client_id`
  * gets a document whose `client_id` equals the URL it fetched.
  */
@@ -41,6 +43,11 @@ export async function handleIdentityRoute(
   }
   const identity = readIdentity(env);
   if (url.origin !== identity.origin) return notFound();
+  // Web Bot Auth's key directory (spec 5.3; src/poppy/operator.ts), which Signature-Agent names.
+  if (url.pathname === DIRECTORY_PATH) {
+    const key = operatorKey(env);
+    return directoryResponse(key ? await key : null, request.url);
+  }
   const body =
     url.pathname === "/poppy/client.json" ? clientMetadata(env) : { keys: (await readSigningKeys(env)).map((key) => key.publicJwk) };
   return Response.json(body, { headers: { "Cache-Control": PUBLIC_CACHE } });

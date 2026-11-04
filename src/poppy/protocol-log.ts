@@ -391,10 +391,10 @@ function oauthStep(company: Company, attempt: OauthAttempt): { step: ProtocolSte
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
   // Every request to the issuer carries our client assertion (4.1); never the Session header, which 5.2 keeps off OAuth endpoints.
   const session = "client assertion";
-  if (attempt.endpoint === company.endpoints.deviceAuthorization) {
+  if (attempt.endpoint === company.endpoints?.deviceAuthorization) {
     return { step: "signin.device.start", summary: join("Device authorization request", ...extras, session) };
   }
-  if (attempt.endpoint === company.endpoints.revocation) {
+  if (attempt.endpoint === company.endpoints?.revocation) {
     return { step: "account.revoke", summary: join("Revoke the refresh token", token(form.token_type_hint) ? `token_type_hint ${form.token_type_hint}` : null, session) };
   }
   const grant = GRANTS[form.grant_type ?? ""] ?? null;

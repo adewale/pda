@@ -74,9 +74,9 @@ export async function prepareAttack(ctx: AttackContext, company: Company, attack
   async function grant(who: User, fields: Record<string, string>, marker?: string): Promise<AttackResult> {
     const form = new URLSearchParams({ ...fields, client_id: ctx.clientId, client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", client_assertion: await clientAssertion(signing, ctx.clientId, company.issuer) });
     const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded" });
-    if (company.dpop) headers.set("DPoP", await dpopProof(who.dpop, { method: "POST", url: company.endpoints.token }));
+    if (company.dpop) headers.set("DPoP", await dpopProof(who.dpop, { method: "POST", url: company.endpoints!.token }));
     if (marker) headers.set("X-Interop-Attack", marker);
-    return result(await ctx.fetcher(new Request(company.endpoints.token, { method: "POST", headers, body: form.toString() })));
+    return result(await ctx.fetcher(new Request(company.endpoints!.token, { method: "POST", headers, body: form.toString() })));
   }
   function tokens(answer: AttackResult): Tokens {
     const body = record(answer.body);
@@ -161,12 +161,12 @@ export async function prepareAttack(ctx: AttackContext, company: Company, attack
 /** Reuse a consumed code with fresh independent credentials, isolating code single-use from optional JWT replay policy. */
 export async function freshCodeReplay(ctx: AttackContext, company: Company, original: Request, key: DpopKey, nonce?: string): Promise<Request> {
   const fields = new URLSearchParams(await original.clone().text());
-  if (original.url !== company.endpoints.token || fields.get("grant_type") !== "authorization_code" || !fields.get("code") || fields.get("client_id") !== ctx.clientId) throw new AttackSetupError("No successful code exchange for this Company and client");
+  if (original.url !== company.endpoints!.token || fields.get("grant_type") !== "authorization_code" || !fields.get("code") || fields.get("client_id") !== ctx.clientId) throw new AttackSetupError("No successful code exchange for this Company and client");
   const signing = await currentKey({ POPPY_SIGNING_JWKS: ctx.signingJwks });
   fields.set("client_assertion", await clientAssertion(signing, ctx.clientId, company.issuer));
   const headers = new Headers(original.headers);
   headers.delete("content-length");
   headers.set("X-Interop-Attack", "NREP-fresh");
-  if (company.dpop) headers.set("DPoP", await dpopProof(key, { method: "POST", url: company.endpoints.token, ...(nonce ? { nonce } : {}) }));
+  if (company.dpop) headers.set("DPoP", await dpopProof(key, { method: "POST", url: company.endpoints!.token, ...(nonce ? { nonce } : {}) }));
   return new Request(original.url, { method: "POST", headers, body: fields.toString() });
 }

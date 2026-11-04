@@ -40,8 +40,8 @@ type IncomingMessage = {
   sender?: unknown;
   /** 0.3: who wrote it (8.4). */
   author?: unknown;
-  /** 0.3, Operations 2: the User's approval of an operation (Ops 6). */
-  approval?: unknown;
+  /** 0.3: content defined by extensions, keyed by name (8.4); Operations 2's approval is `extensions.operations.approval` (Ops 6). */
+  extensions?: unknown;
   text?: unknown;
   data?: unknown;
   context?: unknown;
@@ -98,6 +98,8 @@ export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
   /** Message idempotency per User: id → content hash and conversation (8.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
+  /** Accepted `user_requested` events, by parent and event: the Direct Conversation each opened (8.10). */
+  readonly #acceptances = new Map<string, string>();
   /** Long polls waiting for the next event in any conversation. */
   #waiters: (() => void)[] = [];
   operations: Operations | undefined;
@@ -174,16 +176,17 @@ export class Conversations {
       this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
       return notFound();
     };
+    // 8.2: a conversation belongs to the client_id and the User ID that started it, and, once it
+    // uses an account, to that account too. Agent IDs aren't part of ownership.
     if (!conversation || conversation.owner.clientId !== context.session.clientId) throw notFound();
+    if (conversation.owner.userId !== context.session.userId) throw crossUser();
     if (conversation.owner.account) {
       if (context.signedIn && context.account === conversation.owner.account) return conversation;
-      if (conversation.owner.userId === context.session.userId) {
-        // A challenge for the account, as an account action gets (8.11, 7).
-        this.company.requireScopes({ ...context, signedIn: false }, [this.company.orderScopes.read]);
-      }
-      throw crossUser();
+      // Signed out: a challenge for the account, as an account action gets (8.11, 7).
+      if (!context.signedIn) this.company.requireScopes({ ...context, signedIn: false }, [this.company.orderScopes.read]);
+      // Signed in to another account: conversation_not_found (8.2's table).
+      throw notFound();
     }
-    if (conversation.owner.userId !== context.session.userId) throw crossUser();
     return conversation;
   }
 
@@ -202,8 +205,15 @@ export class Conversations {
     if (type !== "agent" && type !== "human") throw bad("message.author", "author.type must be agent or human");
     const author = message.author as Record<string, unknown>;
     if (Object.keys(author).some((key) => key !== "type")) co.violation("message.author", "conversation message: only Company messages name an author's id, name or image (8.4)");
-    if (message.text === undefined && message.data === undefined && message.context === undefined && message.approval === undefined) {
-      throw bad("message.empty", "needs at least one of text, data or context");
+    if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
+      throw bad("message.empty", "needs at least one of text, data, context or extensions");
+    }
+    // 8.4: a side MUST NOT send an extension's content unless the other side lists that extension with the same version.
+    if (message.extensions !== undefined && message.extensions !== null && typeof message.extensions === "object") {
+      const listed = co.config.operations ? ["operations"] : [];
+      for (const name of Object.keys(message.extensions)) {
+        if (!listed.includes(name)) co.violation("message.extension-unlisted", `conversation message: extensions.${name}, which this Company doesn't list (8.4)`);
+      }
     }
     if (message.text !== undefined) {
       if (typeof message.text !== "string") throw bad("message.text-type", "text must be a string");
@@ -264,12 +274,13 @@ export class Conversations {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
     this.#add(conversation, { type: "message", message: { ...message, role: "user" } });
-    if (message.approval !== undefined) this.#approved(context, conversation, message.approval);
+    const approval = operationsContent(message.extensions)?.approval;
+    if (approval !== undefined) this.#approved(context, conversation, approval);
     else if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
   }
 
   /**
-   * A message's `approval` (Ops 6). Only the field
+   * A message's `extensions.operations.approval` (8.4, Ops 6). Only the field
    * approves, whatever the text says; the operation must be this
    * conversation's. The Company Agent says how it went in a later message.
    */
@@ -283,7 +294,7 @@ export class Conversations {
     if (!this.operations) return;
     const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, given as Record<string, string>);
     if ("operation" in result) {
-      this.#say(conversation, "Those terms have changed. Here are the current ones.", { operation: result.operation });
+      this.#say(conversation, "Those terms have changed. Here are the current ones.", { extensions: { operations: { operation: result.operation } } });
       return;
     }
     this.#say(conversation, "Done. The insulated jacket ships today, and a return label for the original was emailed.");
@@ -332,7 +343,7 @@ export class Conversations {
       if (co.config.operations && context.client.listsOperations && this.operations) {
         const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, null);
         if ("operation" in result) {
-          this.#say(conversation, "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.", { operation: result.operation });
+          this.#say(conversation, "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.", { extensions: { operations: { operation: result.operation } } });
           return;
         }
       }
@@ -414,11 +425,63 @@ export class Conversations {
     throw new HttpError(json({ error: "invalid_request", error_description: "expected a JSON object" }, 400));
   }
 
+  /**
+   * Accept a `user_requested` event (8.10): the parent and event ids name the
+   * invitation, which MUST be a user_requested event in that parent
+   * (`invalid_request` otherwise). Without `message`, the Company speaks
+   * first. Repeating the same ids returns the same Direct Conversation without
+   * another message, even after it closes, once ownership is checked.
+   */
+  async #acceptInvitation(inbound: Inbound, context: ResourceContext, parentId: string | null, eventId: string, incoming: IncomingMessage | undefined): Promise<Response> {
+    const invalid = (why: string) => new HttpError(json({ error: "invalid_request", error_description: why }, 400));
+    if (parentId === null) throw invalid("user_requested_event_id needs parent_conversation_id");
+    const parent = this.#owned(context, parentId);
+    const key = `${parent.id}|${eventId}`;
+    const accepted = this.#acceptances.get(key);
+    if (accepted) return this.#answer(inbound, this.#owned(context, accepted), 201);
+    if (!parent.events.some((event) => event.id === eventId && event.type === "user_requested")) throw invalid("user_requested_event_id doesn't name a user_requested event in the parent");
+    const message = incoming === undefined ? null : this.#validate(incoming);
+    if (parent.direct) throw invalid("the parent is a Direct Conversation");
+    if (parent.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
+    if (parent.directChild) throw new HttpError(json({ error: "direct_conversation_open", conversation_id: parent.directChild }, 409));
+    if (message && this.#writer(message) !== "human" && message.text !== undefined) {
+      this.company.violation("direct.agent-words", "Direct Conversation opened with words not marked as the User's (sender agent)");
+    }
+    const conversation: Conversation = {
+      id: randomId("cnv_", 8),
+      owner: { clientId: context.session.clientId, userId: context.session.userId, account: parent.owner.account },
+      parentId: parent.id,
+      direct: true,
+      directChild: null,
+      status: "idle",
+      responder: "agent",
+      events: [],
+      expired: new Set(),
+      sent: [],
+      context: {}
+    };
+    this.#conversations.set(conversation.id, conversation);
+    this.#acceptances.set(key, conversation.id);
+    parent.directChild = conversation.id;
+    this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
+    if (message) {
+      this.#remember(context, message, parent.id, conversation);
+      this.#accept(context, conversation, message);
+    } else {
+      // The Company's first message, recorded as a message event (8.10).
+      this.#say(conversation, "Hello, this is a specialist. I can confirm the exchange with you here.");
+    }
+    return this.#answer(inbound, conversation, 201);
+  }
+
   /** `POST {endpoint}`: a new conversation, or a Direct Conversation (8.3, 8.10). */
   async start(inbound: Inbound, context: ResourceContext): Promise<Response> {
     const body = this.#body(inbound);
-    const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
+    const eventId = typeof body.user_requested_event_id === "string" ? body.user_requested_event_id : null;
+    // 8.10: accepting a user_requested event, with or without the User's first message.
+    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, body.message as IncomingMessage | undefined);
+    const message = this.#validate(body.message as IncomingMessage | undefined);
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
     const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message, parentId);
     // A retry gets the original response only if it may still read the
@@ -427,7 +490,8 @@ export class Conversations {
     let parent: Conversation | null = null;
     if (parentId) {
       parent = this.#owned(context, parentId);
-      if (parent.direct) throw new HttpError(json({ error: "conversation_not_found" }, 404));
+      // 8.10: a parent that is itself a Direct Conversation is invalid_request.
+      if (parent.direct) throw new HttpError(json({ error: "invalid_request", error_description: "the parent is a Direct Conversation" }, 400));
       if (parent.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
       if (parent.directChild) {
         throw new HttpError(
@@ -641,4 +705,11 @@ export class Conversations {
     if (!conversation) throw new Error(`no conversation ${id}`);
     this.#say(conversation, text, extra);
   }
+}
+
+/** Operations 2's content in a message's `extensions` (8.4, Ops 4, 6), if it is an object. */
+function operationsContent(extensions: unknown): Record<string, unknown> | undefined {
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions)) return undefined;
+  const content = (extensions as Record<string, unknown>).operations;
+  return content && typeof content === "object" && !Array.isArray(content) ? (content as Record<string, unknown>) : undefined;
 }

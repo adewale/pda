@@ -15,7 +15,7 @@ import { domainOrigin, originOf, parseIssuer, toIssuer } from "../src/poppy/issu
 import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
-import { isSignInPage } from "../src/poppy/browser";
+import { isSignInPage, onCompanyDomain } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
@@ -435,10 +435,9 @@ describe.each(PROFILES)("4.5, 5 Sessions, access tokens and DPoP ($name)", ({ co
     const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/invalid_session/);
-    // A new Session once, then no more: the Company refuses the agent, not the Session.
+    // No new Session: the Company refuses the agent, not the Session, and a new one would fail the same way (7).
     const sids = (await requests(c)).filter((request) => request.error === "invalid_session").map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
-    expect(sids).toHaveLength(2);
-    expect(new Set(sids).size).toBe(2);
+    expect(sids).toHaveLength(1);
     expect((await c.stub.state()).conversations).toEqual([]);
     const signIn = await signInDirect(a, c);
     expect(signIn!.callback.status).toBe(400);
@@ -1486,6 +1485,24 @@ describe("6 web browsing", () => {
     expect(isSignInPage(ownHost, new URL("https://shop.example/"))).toBe(false);
   });
 
+  it("browses a Company whose domain begins with www., and only its own hosts", () => {
+    const www = { domain: "www.shop.example" };
+    expect(onCompanyDomain(www, new URL("https://www.shop.example/orders"))).toBe(true);
+    expect(onCompanyDomain(www, new URL("https://WWW.shop.example./"))).toBe(true);
+    expect(onCompanyDomain(www, new URL("https://help.www.shop.example/"))).toBe(true);
+    expect(onCompanyDomain(www, new URL("https://shop.example/"))).toBe(false);
+    expect(onCompanyDomain(www, new URL("https://evilwww.shop.example/"))).toBe(false);
+    const apex = { domain: "shop.example" };
+    expect(onCompanyDomain(apex, new URL("https://www.shop.example/"))).toBe(true);
+    expect(onCompanyDomain(apex, new URL("https://notshop.example/"))).toBe(false);
+    // Its website stays browsable when the issuer is the website's own origin, with or without www.
+    const signIn = (issuer: string) =>
+      ({ domain: "www.shop.example", issuer, endpoints: { authorization: `${issuer}/oauth/authorize` }, signIn: {} }) as unknown as PoppyCompany;
+    expect(isSignInPage(signIn("https://www.shop.example"), new URL("https://www.shop.example/orders"))).toBe(false);
+    expect(isSignInPage(signIn("https://shop.example"), new URL("https://shop.example/orders"))).toBe(false);
+    expect(isSignInPage(signIn("https://www.shop.example"), new URL("https://www.shop.example/oauth/authorize"))).toBe(true);
+  });
+
   it("never types credentials into a website", async () => {
     const c = await company();
     const a = await agent();
@@ -1505,6 +1522,19 @@ describe("6 web browsing", () => {
     const loads = (await requests(c)).filter((request) => request.method === "GET" && request.url === `https://${c.domain}/`);
     expect(loads.map((request) => request.status)).toEqual([429, 200]);
     expect(loads[1]!.at - loads[0]!.at).toBeGreaterThanOrEqual(2000);
+  });
+
+  it("waits out the browser-session page's Retry-After before joining again (6, 5.6)", async () => {
+    const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 0, joinPages429: 1, retryAfterSeconds: 30 } });
+    const a = await agent();
+    await signInDirect(a, c);
+    const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
+    expect(page.isError).toBe(true);
+    expect(JSON.parse(page.details)).toMatchObject({ error: "rate_limited" });
+    // The next page waits for the 30 seconds too: no request goes before they're up.
+    expect(JSON.parse((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" })).details)).toMatchObject({ error: "rate_limited" });
+    const joins = (await requests(c)).filter((request) => request.method === "GET" && request.url === c.hosts.browserSessionEndpoint);
+    expect(joins.map((request) => request.status)).toEqual([429]);
   });
 
   it("gives up on a website page whose Retry-After is too long to wait inline", async () => {
@@ -1583,7 +1613,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
-  it("starts a new Session when the Company says the old one ended (invalid_session), and sends the call again in it", async () => {
+  it("starts a new Session when the Company says the old one ended (session_ended), and sends the call again in it", async () => {
     for (const signedIn of [false, true]) {
       const c = await company();
       const a = await agent();
@@ -1595,7 +1625,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       const again = await call();
       expect(again.isError, again.text).toBe(false);
       const sent = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/${signedIn ? "orders" : "products"}`));
-      expect(sent.map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`)).toEqual(["200", "400 invalid_session", "200"]);
+      expect(sent.map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`)).toEqual(["200", "400 session_ended", "200"]);
       const [first, refused, retried] = sent.map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
       expect(refused).toBe(first);
       expect(retried).not.toBe(first);
@@ -1664,19 +1694,17 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(logged.result).toBe("waiting");
   });
 
-  it("checks a write's server before its card: one on another host, or over plain HTTP, is refused and no card is shown", async () => {
+  it("checks a write's server before its card: one on a non-public host, or over plain HTTP, is refused and no card is shown", async () => {
     // Before one constructor checked every request, a write's server was checked only when the approved write was sent.
-    for (const server of ["another host", "plain HTTP"] as const) {
-      const elsewhere = await company();
+    for (const server of ["non-public host", "plain HTTP"] as const) {
       const c = await company({ operations: false });
-      await c.stub.configure({ openapiServerOverride: server === "another host" ? elsewhere.hosts.api : c.hosts.api.replace(/^https:/, "http:") });
+      await c.stub.configure({ openapiServerOverride: server === "non-public host" ? "https://printer.internal/api" : c.hosts.api.replace(/^https:/, "http:") });
       const a = await agent();
       await signInDirect(a, c);
       const result = await tool(a, "poppy_api_call", exchangeWrite(c));
       expect(result.isError, server).toBe(true);
-      expect(JSON.parse(result.details)).toEqual({ error: server === "another host" ? "untrusted_server" : "invalid_request" });
+      expect(JSON.parse(result.details)).toEqual({ error: server === "non-public host" ? "untrusted_server" : "invalid_request" });
       expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
-      expect(await requests(elsewhere)).toEqual([]);
     }
   });
 
@@ -1997,7 +2025,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     for (const request of seen.filter((request) => request.url.startsWith(c.hosts.api))) expect(request.headers.authorization).toBeUndefined();
   });
 
-  it("refuses an MCP server whose metadata doesn't name the issuer, sending it neither the Session header nor a token", async () => {
+  it("refuses a token to an MCP server whose metadata doesn't name the issuer, sending it neither the Session header nor a token", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const a = await agent();
     await signInDirect(a, c);
@@ -2007,16 +2035,54 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
-  it("never sends the Session header or a token to a server on another host that an OpenAPI description names (N10)", async () => {
+  it("checks the MCP server's metadata after recovering an interrupted sign-in, before any token for it", async () => {
+    const c = await company({ mcpPrmOmitIssuer: true });
+    const a = await agent();
+    // A Direct Sign-In whose code exchange answered before an interruption: the answer is kept
+    // ("exchanged") and the Session isn't signed in yet. The next use recovers it, signing the Session in.
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
+    const [row] = JSON.parse(await a.stub.poppySql("SELECT id, issuer FROM poppy_signins")) as { id: string; issuer: string }[];
+    await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      const kept = await client.sealer.seal(JSON.stringify({ refresh_token: "rt_kept", token_type: "Bearer", expires_in: 3600, scope: "orders:read" }), `signin|${row!.id}|${row!.issuer}`);
+      client.sql.exec("UPDATE poppy_signins SET status = 'exchanged', secret = ? WHERE id = ?", kept, row!.id);
+    });
+    expect(await a.stub.poppySql("SELECT signed_in FROM poppy_sessions")).not.toContain('"signed_in":1');
+    const before = (await requests(c)).length;
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    const after = (await requests(c)).slice(before);
+    expect(after.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
+    // No token was asked for the server, whose metadata doesn't name the issuer.
+    expect(after.filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+  });
+
+  it("calls the same MCP server signed out, as poppy.json lists it: 7 asks for the issuer only of a server offering account access", async () => {
+    const c = await company({ mcpPrmOmitIssuer: true });
+    const a = await agent();
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError, result.text).toBe(false);
+    const sent = (await requests(c)).filter((request) => request.url === c.hosts.mcpUrl);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((request) => request.headers["poppy-session"] && !request.headers.authorization)).toBe(true);
+  });
+
+  it("sends the Session header and token to a server on another host that a listed OpenAPI description names, addressed to the Company (5.2, 7)", async () => {
+    // The other host acts as the Company's API provider. Being a mock Company itself, it expects its own identifier as aud.
     const elsewhere = await company();
+    elsewhere.expectViolations(/^\[session-jwt\.aud\]/);
     const c = await company({ openapiServerOverride: elsewhere.hosts.api });
     const a = await agent();
-    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain(`names the server ${elsewhere.hosts.api}, which isn't one of Mock Shop ${c.id}'s hosts`);
-    expect(JSON.parse(result.details)).toMatchObject({ error: "untrusted_server" });
-    expect(await requests(elsewhere)).toEqual([]);
-    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    const sent = (await requests(elsewhere)).filter((request) => new URL(request.url).pathname === "/products");
+    expect(sent.length).toBeGreaterThan(0);
+    // The Session JWT names the Company whose description listed the server, never the server's host.
+    for (const request of sent) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(c.hosts.issuer);
+    expect(sent.every((request) => request.headers.authorization !== undefined)).toBe(true);
+    // Nothing else of the Company's reached the other host: no OAuth request, no conversation.
+    expect((await requests(elsewhere)).filter((request) => !["/products", "/openapi.json"].includes(new URL(request.url).pathname) && !new URL(request.url).pathname.startsWith("/.well-known/"))).toEqual([]);
   });
 
   it("never calls an OpenAPI server over plain HTTP, even on the Company's own host, before any request (3)", async () => {
@@ -2207,6 +2273,79 @@ describe("8 conversations", () => {
     const blocked = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "anything else?" });
     expect(blocked.text).toContain("direct_conversation_open");
     await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
+  });
+
+  it("accepts the Company's invitation by its event id, letting the Company speak first (8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    const invite = await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    expect(invite.eventId).toMatch(/^evt_/);
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "", eventId: invite.eventId });
+    const accept = (await requests(c)).filter((request) => request.method === "POST" && request.url === c.hosts.conversationsEndpoint).at(-1)!;
+    expect(accept.bodyKeys).toEqual(expect.arrayContaining(["parent_conversation_id", "user_requested_event_id"]));
+    expect(accept.bodyKeys).not.toContain("message");
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    expect(direct.parent).toBe(first.conversationId);
+    expect(direct.sent).toEqual([]);
+  });
+
+  it("never reuses an accepted invitation: a later offer opens a new Direct Conversation with the User's words (8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    const invite = await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "", eventId: invite.eventId });
+    const opened = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: opened.id });
+    // The agent offers again, on the same parent: its card names no Company event.
+    expect((await tool(a, "poppy_invite_user", { conversation: first.conversationId, reason: "You asked to explain it yourself." })).isError).toBe(false);
+    const offer = await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite" && card.open));
+    expect(offer.eventId).toBeUndefined();
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "It's me again." });
+    // Even a stale card naming the accepted invitation's event sends the User's words, in a new Direct Conversation.
+    const directs = (await c.stub.state()).conversations.filter((conv) => conv.direct);
+    expect(directs).toHaveLength(2);
+    expect(directs.find((conv) => conv.id !== opened.id)!.sent).toEqual(["human:It's me again."]);
+    const last = (await requests(c)).filter((request) => request.method === "POST" && request.url === c.hosts.conversationsEndpoint).at(-1)!;
+    expect(last.bodyKeys).not.toContain("user_requested_event_id");
+  });
+
+  it("offers no invitation from inside a Direct Conversation, and never offers an accepted one again (8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const invited = await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    const invite = await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "", eventId: invite.eventId });
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    const [local] = JSON.parse(await a.stub.poppySql("SELECT id FROM poppy_conversations WHERE remote_id = ?", direct.id)) as { id: string }[];
+    // A user_requested event in the Direct Conversation itself can't be accepted: it isn't a parent.
+    const inner = await c.stub.pushEvent(direct.id, { type: "user_requested", reason: "Talk to us directly." });
+    await a.stub.poppyReadNow(local!.id);
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE event_id = ?", inner)).length > 0);
+    expect((await cards(a)).filter((card) => card.kind === "direct_invite")).toEqual([]);
+    // The parent's accepted invitation, handled again from the start, offers nothing.
+    await a.stub.poppySql("DELETE FROM poppy_events WHERE conversation_id = ? AND event_id = ?", first.conversationId, invited);
+    await a.stub.poppySql("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", first.conversationId);
+    await a.stub.poppyReadNow(first.conversationId);
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE event_id = ?", invited)).length > 0);
+    expect((await cards(a)).filter((card) => card.kind === "direct_invite")).toEqual([]);
+  });
+
+  it("ends the Company's invitation when it closes the parent conversation (8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    const invite = await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await c.stub.closeConversation(first.conversationId);
+    await a.stub.poppyReadNow(first.conversationId);
+    const ended = await until(async () => (await cards(a)).find((card) => card.id === invite.id && card.kind === "notice"));
+    expect(ended).toMatchObject({ open: false, text: expect.stringContaining("invitation to talk directly has ended") });
+    expect(JSON.parse(await a.stub.poppySql("SELECT call_key FROM poppy_intents WHERE call_key LIKE 'direct-invite|%'"))).toEqual([]);
   });
 
   it("keeps the model's own words out of the User's Direct Conversation (8.10)", async () => {
@@ -2470,6 +2609,24 @@ describe("Operations 2", () => {
     expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("terms expired");
   });
 
+  it("asks the User to approve an operation the Company offers in a Direct Conversation, and sends only the approval there (Ops 6, 8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "Please exchange the jacket for the insulated one." });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    expect(card.terms.summary).toContain("Exchange the Stormline Jacket (M)");
+    expect((await c.stub.state()).performs).toBe(0);
+    await approve(a, card);
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    expect((await c.stub.state()).performs).toBe(1);
+    // The User's words, then the approval with no words of the agent's.
+    expect(direct.sent).toEqual(["human:Please exchange the jacket for the insulated one.", "agent:"]);
+  });
+
   it("asks the User for each operation: approving one approves no other", async () => {
     const c = await company();
     const a = await agent();
@@ -2513,7 +2670,7 @@ describe("Operations 2", () => {
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
-    await c.stub.say(first.conversationId, "Shall I go ahead?", { operation });
+    await c.stub.say(first.conversationId, "Shall I go ahead?", { extensions: { operations: { operation } } });
     const notice = await until(async () => (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-")));
     expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used (${problem}), so nothing was done.`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
@@ -2749,6 +2906,33 @@ describe("8.5 reading again while has_more", () => {
       // Without has_more, a read ends at its page: nothing more is asked for.
       expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
       expect((await ownReads(c, id)).slice(5)).toEqual([all.at(-1)!.id]);
+    } finally {
+      await reads.release();
+    }
+  });
+});
+
+describe("8.5 a closed conversation with more than ten pages", () => {
+  it("reads the rest of a closed conversation's events in the next read, then stops", async () => {
+    const c = await company({ streaming: false, eventPageSize: 1 });
+    const a = await agent();
+    const reads = await holdBackgroundReads(a);
+    try {
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+      const id = first.conversationId as string;
+      await reads.held();
+      const texts = Array.from({ length: 12 }, (_, i) => `Update ${i + 1} of 12.`);
+      for (const text of texts) await c.stub.say(id, text);
+      await c.stub.closeConversation(id);
+      // Ten pages, and the Company still has more: read again soon, though it is closed.
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      expect((await conversationRow(a, id)).status).toBe("closed");
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect((await inbox(a, id)).map((entry) => entry.text)).toEqual(["Hi! How can I help?", ...texts]);
+      // Nothing more: a closed conversation isn't read again.
+      const asked = (await ownReads(c, id)).length;
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect((await ownReads(c, id)).length).toBe(asked);
     } finally {
       await reads.release();
     }

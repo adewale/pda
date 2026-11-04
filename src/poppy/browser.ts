@@ -45,7 +45,7 @@ export interface BrowserContextHandle {
    * code, in software the model never sees: the hidden `code` of the form
    * that posts back to it. Nothing when the page isn't that.
    */
-  joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string }>;
+  joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string; readonly retryAfter?: string }>;
   /** Follows a link; never sends a form. */
   click(selector: string): Promise<PageSnapshot>;
   fill(selector: string, value: string): Promise<PageSnapshot>;
@@ -121,10 +121,20 @@ async function dropContext(contexts: Map<string, ContextEntry>, key: string, exp
   if (entry) await (await entry.context).close().catch(() => undefined);
 }
 
-function onCompanyDomain(company: Company, url: URL): boolean {
-  const host = url.hostname.toLowerCase().replace(/^www\./, "");
-  return host === company.domain || host.endsWith(`.${company.domain}`);
+/**
+ * A host on the Company's domain: the domain itself or a host under it. A
+ * domain that begins with `www.` is compared as it is, so `www.example.com`
+ * browses its own pages; `www.example.com` under `example.com` is already a
+ * host under it.
+ */
+export function onCompanyDomain(company: Pick<Company, "domain">, url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  const domain = company.domain.toLowerCase();
+  return host === domain || host.endsWith(`.${domain}`);
 }
+
+/** A host without a leading `www.`, for telling whether an issuer is the Company's own website. */
+const site = (host: string) => host.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
 
 /**
  * The Company's sign-in pages, which are the User's alone (spec 4.4): its
@@ -134,7 +144,7 @@ function onCompanyDomain(company: Company, url: URL): boolean {
  * own origin (`https://example.com`) keeps its website browsable.
  */
 export function isSignInPage(company: Company, url: URL): boolean {
-  const endpoints = [company.endpoints.authorization, company.endpoints.deviceAuthorization, company.signIn.mediated?.endpoint]
+  const endpoints = [company.endpoints?.authorization, company.endpoints?.deviceAuthorization, company.signIn.mediated?.endpoint]
     .filter((value): value is string => !!value)
     .map((value) => new URL(value));
   const under = (endpoint: URL) => {
@@ -143,7 +153,7 @@ export function isSignInPage(company: Company, url: URL): boolean {
   };
   if (endpoints.some(under)) return true;
   const issuer = new URL(company.issuer);
-  const website = issuer.hostname.toLowerCase().replace(/^www\./, "") === company.domain;
+  const website = site(issuer.hostname) === site(company.domain);
   return !website && url.origin === issuer.origin;
 }
 
@@ -257,7 +267,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   const page = await context.joinCode(endpoint);
   check();
   if (page.status === 429 || page.status === 503) {
-    await client.pageLimited(company, page.status, undefined);
+    await client.pageLimited(company, page.status, page.retryAfter);
     throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
@@ -272,7 +282,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
         || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
         throw new PoppyError("approval_changed", "The account or browser changed while joining. Open a fresh page.", 0);
       }
-      // resource() may have retried invalid_session with a fresh SID. Its
+      // resource() may have retried session_ended with a fresh SID. Its
       // dispatch guard makes this the binding actually sent on that attempt.
       authorized = { sessionId: session.session_id, account: session.account, authorityGeneration: session.authority_generation, scope: entry.scope, accountGeneration: entry.accountGeneration };
       entry.sessionId = authorized.sessionId;

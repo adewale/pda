@@ -1,5 +1,5 @@
 {
-  "catalogChecks": 120,
+  "catalogChecks": 121,
   "dpopPrerequisite": {
     "response": "400 Bad Request, error invalid_dpop_proof",
     "warningProfiles": [
@@ -31,6 +31,7 @@
       "discovery.excluded-tasks",
       "discovery.alternative-references",
       "metadata.device-authorization-endpoint",
+      "metadata.same-issuer",
       "metadata.same-auth",
       "metadata.mediated-grant",
       "mediated.unknown-sign-in",
@@ -86,8 +87,40 @@
       "conversations.direct-closed-parent",
       "conversations.direct-unknown-parent",
       "operations.not-returned"
+    ],
+    "issuerless": [
+      "metadata.resource-metadata",
+      "metadata.issuer-chosen",
+      "metadata.published",
+      "metadata.schema",
+      "metadata.issuer-matches",
+      "metadata.protected-resources",
+      "metadata.token-endpoint",
+      "metadata.revocation-endpoint",
+      "metadata.grant-types",
+      "metadata.authorization-endpoint",
+      "metadata.device-authorization-endpoint",
+      "metadata.scopes-supported",
+      "metadata.scopes-described",
+      "metadata.same-issuer",
+      "metadata.same-auth",
+      "metadata.mediated-grant",
+      "mediated.unknown-sign-in",
+      "assertion.ps384",
+      "assertion.signature",
+      "assertion.expired",
+      "assertion.claims",
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.jti-reuse",
+      "token.invented",
+      "mcp.metadata",
+      "mcp.authorization-servers",
+      "mcp.no-token",
+      "mcp.invalid-token",
+      "feedback.alternative-references"
     ]
   },
   "positiveControlProfile": "bearer",
-  "notes": "These are reviewed observations, not rewritten upstream verdicts. Any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check."
+  "notes": "These are reviewed observations, not rewritten upstream verdicts. Any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The issuerless profile runs the mock with no OAuth issuer (3.2): its skips are the OAuth checks that need an issuer (metadata, client assertions, tokens, MCP token metadata) and the mock's empty-202 feedback."
 }

@@ -13,7 +13,7 @@ const company = (name: string): Company => ({
 });
 
 describe("shared excluded-task document", () => {
-  it("filters cached references against each Company's own services", async () => {
+  it("filters cached API references against each Company's own services, keeping web links (9.2)", async () => {
     let requests = 0;
     const references = ["alpha", "beta"].flatMap(name => [
       { type: "openapi", url: `https://api.${name}.example/openapi.json`, operation_id: "closeAccount" },
@@ -26,12 +26,13 @@ describe("shared excluded-task document", () => {
     const alpha = company("alpha"), beta = company("beta");
     const a = await excludedTasks(client, alpha);
     const b = await excludedTasks(client, beta);
-    expect(a).toEqual([{ task: "Close an account", alternative: { references: references.slice(0, 2) } }]);
-    expect(b).toEqual([{ task: "Close an account", alternative: { references: references.slice(2) } }]);
+    // API references only to each Company's own listed APIs (9.2); web links on any HTTPS host, as links for the User.
+    expect(a).toEqual([{ task: "Close an account", alternative: { references: [references[0], references[1], references[3]] } }]);
+    expect(b).toEqual([{ task: "Close an account", alternative: { references: [references[1], references[2], references[3]] } }]);
     expect(await excludedTasks(client, alpha)).toEqual(a);
     expect(requests).toBe(1);
     // The cached raw document must also respect changed service declarations.
-    expect(await excludedTasks(client, { ...alpha, apis: [] })).toEqual([{ task: "Close an account", alternative: { references: [references[1]] } }]);
+    expect(await excludedTasks(client, { ...alpha, apis: [] })).toEqual([{ task: "Close an account", alternative: { references: [references[1], references[3]] } }]);
     expect(requests).toBe(1);
   });
 });

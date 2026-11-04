@@ -119,8 +119,8 @@ describe("the Company's fetches of the agent's documents (4.1, scenario CM)", ()
   });
 
   it("client_fetched: or the key that signed the delegation of the first Session JWT the Company accepted (5.3, step 1)", () => {
-    const delegation = jwt({ alg: "ES256", kid: "k1", typ: "pap-delegation+jwt" }, { iss: CLIENT_ID, cnf: { jwk: { kty: "EC" } }, iat: NOW, exp: NOW + 3600, jti: jti() });
-    const session = jwt({ alg: "ES256", kid: "thumb", typ: "poppy-session+jwt", pap_dlg: delegation }, { iss: CLIENT_ID, aud: "https://auth.acme.company.interop.test", sid: "s1", sub: "usr_1", htm: "GET", htu: `${API}/products`, iat: NOW, jti: jti() });
+    const delegation = jwt({ alg: "ES256", kid: "k1", typ: "poppy-delegation+jwt" }, { iss: CLIENT_ID, cnf: { jwk: { kty: "EC" } }, iat: NOW, exp: NOW + 3600, jti: jti() });
+    const session = jwt({ alg: "ES256", kid: "thumb", typ: "poppy-session+jwt", poppy_dlg: delegation }, { iss: CLIENT_ID, aud: "https://auth.acme.company.interop.test", sid: "s1", sub: "usr_1", htm: "GET", htu: `${API}/products`, iat: NOW, jti: jti() });
     const request: Spec = { url: `${API}/products`, at: 0, time: 100, headers: { "poppy-session": session } };
     expect(clientFetched(recording(request, metadata(10), keys(20)))).toMatchObject({ kind: "ok", result: { client_id: CLIENT_ID, metadata: 1, jwks: 2 } });
     expect(clientFetched(recording(request, metadata(10), keys(20, "k-old"))).kind).toBe("failed");

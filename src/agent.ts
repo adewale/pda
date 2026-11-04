@@ -3,6 +3,7 @@ import type { Provider } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { createRegistry, Harness, type Extension, type Storage as PiStorage } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
+import { companyLogo } from "./poppy/logo";
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { AgentLog, type Trigger } from "./agent-log";
@@ -665,6 +666,13 @@ export class PersonalAgent extends DurableObject<Env> {
     await this.recordIdentity(identity);
     const found = readAttachment(this.ctx.storage.sql, id, this.clockNow());
     return found ? { info: found.info, bytes: found.bytes.slice().buffer } : null;
+  }
+
+  /** A Company's logo, fetched by the agent and served from our origin (src/poppy/logo.ts), or null. */
+  async companyLogo(identity: Profile, domain: string): Promise<{ type: string; bytes: ArrayBuffer } | null> {
+    await this.recordIdentity(identity);
+    const logo = await companyLogo(this.poppy.client, domain);
+    return logo ? { type: logo.type, bytes: logo.bytes.slice().buffer } : null;
   }
 
   /** Delete one, as when the User removes it before sending. */

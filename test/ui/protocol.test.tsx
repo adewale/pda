@@ -142,7 +142,7 @@ describe("protocol view", () => {
     const text = writeText.mock.calls[0]![0];
     const lines = text.trimEnd().split("\n");
     expect(lines[0]).toBe("Poppy protocol log: Print with Poppy (print.example)");
-    expect(lines[1]).toBe(`Issuer: ${ISSUER}`);
+    expect(lines[1]).toBe(`Company identifier: ${ISSUER}`);
     expect(text).toContain("Never recorded: headers, bodies, tokens");
     expect(lines.slice(-3)).toEqual([
       `${new Date(AT).toISOString()} | §3 Discovery | GET https://print.example/.well-known/poppy.json | Fetch poppy.json, without credentials | -> 200 · application/json [ok]`,

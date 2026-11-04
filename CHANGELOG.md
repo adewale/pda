@@ -2,6 +2,58 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — Poppy 0.3, the 3 November text
+
+Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream commit [`7205250`](https://github.com/personal-agent-protocol/personal-agent-protocol/commit/7205250c6fb7d4a181707898fa418911ccbcb163) ([snapshot](spec/draft-0.3-retrieved-2026-11-03/README.md), [upstream changelog](https://personalagentprotocol.org/docs/changelog)). Operations **v2**, Mediated Sign-In **v1**. The [ledger](docs/poppy-0.3-upgrade.md) gives each of the changelog's 79 entries a disposition.
+
+### Breaking
+
+- Session JWTs carry their delegation in `poppy_dlg`, typed `poppy-delegation+jwt`, in place of `pap_dlg` and `pap-delegation+jwt`. A Company still on the 29 October text refuses them with `invalid_session` until it moves to the current text.
+- `session_ended` starts a new Session once. `invalid_session` is no longer retried with a new Session; it reaches the tool or job as an error.
+- In conversations, an approval goes in `extensions.operations.approval`, and a Company Agent's operation is read from `extensions.operations.operation`. Operations at the old top-level `operation` field are ignored. A message intent stored by an earlier build keeps the old `approval` field; restate any unsent approval.
+
+### Added
+
+- Companies without an OAuth issuer. A 404 for `/.well-known/oauth-protected-resource`, or metadata without authorization servers, means signed-out only, identified by `https://{organization.domain}`. Their APIs (MCP included, without server metadata), conversations, feedback and browser join work signed out, and sign-in is refused before anything is sent. The validator reports this as information (`prm-no-issuer`), not a MUST failure, and refuses sign-in offered without an issuer (`issuer-required`).
+- `auth.disabled`: no sign-in at a Company whose issuer serves other clients. The validator refuses it together with Mediated Sign-In or `signed_in` access.
+- Validator support for `organization.logo_uri`, `skill_index`, the `access` hint and the `links`, `disclosures` and `ucp` extension names.
+- Mock checks and fixtures: `message.extension-unlisted`; `issuerless`, `authDisabled` and `omitScopesSupported` configurations.
+
+- Web Bot Auth operator signatures (5.3) with the optional `POPPY_OPERATOR_KEY`, and a key directory at `/.well-known/http-message-signatures-directory`.
+- Company-first Direct Conversations: accepting an invitation names its `user_requested` event, and the User can let the Company speak first.
+- Company logos on the Companies page, fetched by the agent and served from `/api/companies/<domain>/logo`.
+- A sign-in type a Company refuses with `unauthorized_client` is remembered for an hour, and the Session continues signed out.
+- When a domain's Company identifier changes, accounts held under the old one are signed out and the User is told.
+- The official Company kit is re-pinned to the 3 November download, matching upstream `7205250`.
+
+### Changed
+
+- Three rules where PDA had been stricter than 0.3 are relaxed. A server that a listed OpenAPI description names is a Session destination on any public HTTPS host. An MCP server's metadata is required only before requesting a token for it. Web alternatives keep HTTPS links on any host.
+- The mock keeps idempotency records for the agent, the User and any account rather than the Session.
+- An approval message stored by an earlier build with the top-level `approval` field is refused before sending.
+- `scopes_supported` is recommended, not required (`scopes-supported-missing`, a warning). Direct and Device Sign-In may request scopes the Company documents in `auth.scopes` or an OpenAPI description, even when they're absent from it.
+- Signing in again for more access requests the account's existing scopes along with the new ones.
+- Domains sharing an issuer are no longer refused when their `auth` objects differ.
+- The mock follows 8.2's conversation ownership (the `client_id`, the User ID, and the account once used) and 8.10's `invalid_request` for a Direct Conversation as parent.
+- Readings: a 404 alone doesn't replace an issuer the agent already knew; issues 11 and 21 are settled upstream.
+
+### Migration and rollback
+
+- Nothing to migrate in storage. A Company without an issuer is keyed by `https://{domain}`, a new identifier with its own User IDs and Sessions. Discovery caches refresh on their own.
+- Optional: set `POPPY_OPERATOR_KEY` (`node scripts/poppy-secrets.mjs operator-key`) to send operator signatures. `wrangler.jsonc` routes the key directory to the Worker.
+- Rolling back to a build from before this change speaks the 29 October names, which Companies on the current text refuse. Reconcile any in-flight conversation approvals first.
+
+### Validation
+
+- Offline, on 3 November:
+  - Passing: `npm run typecheck`, `check:spec`, `check:docs` and `test:tooling`.
+  - The five Vitest projects: 1,447, 3, 272, 430 and 196 tests passing, after one interop expectation was updated for 9.2's web alternatives.
+  - `npm run test:hypothesis`: 22 passing. A new machine covers a Company with no issuer, and the Python client signs with its own operator key.
+  - `npm run check:approval-crashes`: every process-kill case passing.
+  - The hosted dummy Company security check: no strict violations or warnings.
+  - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips. That includes a new profile with no issuer: 91 checks passing, none failing or warning, 30 OAuth checks skipped.
+- Not run: the Docker interop grid, the browser journeys and any live Company. Operator signatures haven't been checked against a real edge.
+
 ## Unreleased — Poppy 0.3 alone
 
 Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](spec/draft-0.3-retrieved-2026-10-29/README.md); `spec/upstream.json` pins its hashes; the restored browser rule has no upstream commit yet). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).

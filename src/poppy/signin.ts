@@ -1,11 +1,11 @@
 import { literal, reportError } from "../log";
-import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
+import { covers, grantedScope, issuerEndpoints, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
 import { tryDecode } from "../decode";
 import { MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
 import { one, rows, type RowOf } from "../rows";
-import { signInsTable } from "./store";
+import { intentsTable, signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
@@ -49,6 +49,19 @@ function offeredBySignIn(company: Company, scope: string): boolean {
 }
 
 /**
+ * Whether a sign-in type can grant `scopes`: its list (`scopes_supported`,
+ * or Mediated Sign-In's own), or, for Direct and Device Sign-In, scopes the
+ * Company documents in `auth.scopes` or a listed OpenAPI description, which
+ * a Personal Agent MAY request even when absent from `scopes_supported` (4.7).
+ */
+function grantable(company: Company, type: SignInType, scopes: readonly string[], documented: ReadonlySet<string>, refusedTypes: ReadonlySet<SignInType> = new Set()): boolean {
+  const offered = company.signIn[type];
+  if (!offered || refusedTypes.has(type)) return false;
+  if (covers(offered.scopes.join(" "), scopes)) return true;
+  return type !== "mediated" && scopes.every((scope) => offered.scopes.includes(scope) || documented.has(scope));
+}
+
+/**
  * A device sign-in link the page may show as a link and a QR code: HTTPS, on
  * the host of the Company's issuer or of a URL in its `protected_resources`,
  * or a subdomain of either (4.3). Anything else, such as `javascript:`,
@@ -64,13 +77,35 @@ export function deviceLink(company: Company, value: unknown): string | null {
 }
 
 /** Which sign-in type to use: Direct, then Device, then Mediated (Guides, "Choosing how to sign in"). */
-export function chooseSignInType(company: Company, scopes: readonly string[]): SignInType | null {
+export function chooseSignInType(company: Company, scopes: readonly string[], documented: ReadonlySet<string> = new Set(), refusedTypes: ReadonlySet<SignInType> = new Set()): SignInType | null {
   const order: SignInType[] = ["direct", "device", "mediated"];
   for (const type of order) {
-    const offered = company.signIn[type];
-    if (offered && covers(offered.scopes.join(" "), scopes)) return type;
+    if (grantable(company, type, scopes, documented, refusedTypes)) return type;
   }
   return null;
+}
+
+/** How long a Company's `unauthorized_client` for a sign-in type is remembered (Guides, "Choosing how to sign in": "for a while"). */
+export const SIGN_IN_REFUSAL_MS = 60 * 60_000;
+const refusalKey = (issuer: Issuer, type: SignInType) => `signin-refused|${issuer}|${type}`;
+
+/**
+ * A Company accepts this agent for signed-out Sessions but refuses it a sign-in type with
+ * `unauthorized_client` (4.1): the Session continues signed out, and that type isn't offered
+ * again for a while, so the User isn't sent round the same refusal.
+ */
+function rememberRefusal(client: PoppyClient, issuer: Issuer, type: string): void {
+  if (type !== "direct" && type !== "device" && type !== "mediated") return;
+  client.sql.exec("INSERT OR REPLACE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", refusalKey(issuer, type), "unauthorized_client", client.host.now());
+}
+
+/** The sign-in types the Company refused this agent within `SIGN_IN_REFUSAL_MS`. */
+function refusedSignInTypes(client: PoppyClient, issuer: Issuer): Set<SignInType> {
+  const since = client.host.now() - SIGN_IN_REFUSAL_MS;
+  return new Set((["direct", "device", "mediated"] as const).filter((type) => {
+    const row = one(client.sql, intentsTable.pick("created_at"), "SELECT created_at FROM poppy_intents WHERE call_key = ?", refusalKey(issuer, type));
+    return row !== undefined && row.created_at > since;
+  }));
 }
 
 function sealContext(row: { id: string; issuer: Issuer }): string {
@@ -96,24 +131,56 @@ export async function startSignIn(
   company: Company,
   request: { label: string; scopes: readonly string[]; reason: string; account?: string; type?: SignInType }
 ): Promise<SignInStart> {
-  const scopes = [...new Set(request.scopes)];
-  if (scopes.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
-  for (const scope of scopes) {
+  const requested = [...new Set(request.scopes)];
+  if (requested.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
+  if (Object.keys(company.signIn).length === 0) {
+    // 3.2: with auth.disabled, refresh tokens the Company issued earlier keep working until it revokes
+    // them, so one that covers the scopes is used; only a new Direct, Device or Mediated Sign-In is refused.
+    if (!company.issuerless && await client.signInWithAccount(company, request.label, requested, request.account)) {
+      return { status: "signed_in", scope: client.session(company.issuer, request.label)?.scope ?? "" };
+    }
+    // 3.2: no issuer, or auth.disabled: a Personal Agent MUST NOT start any sign-in.
+    throw new PoppyError("no_sign_in", `${company.name} offers personal agents no sign-in${company.issuerless ? ": it has no OAuth issuer" : ""}, so only signed-out use is possible`, 0);
+  }
+  const apiScopes = await openApiScopeDescriptions(client, company);
+  // 4.7: besides scopes_supported, a Personal Agent can request scopes the Company documents.
+  const documented = new Set([...Object.keys(company.customScopes), ...Object.keys(apiScopes)]);
+  for (const scope of requested) {
     // The protocol defines no scopes (4.7): a scope is one the Company describes or a sign-in type can request.
-    const known = own(company.customScopes, scope) !== undefined || offeredBySignIn(company, scope);
+    const known = documented.has(scope) || offeredBySignIn(company, scope);
     if (!known) {
       throw new PoppyError("invalid_scope", `${company.name} doesn't define the scope ${scope}`, 0);
     }
   }
   const account = request.account ?? "default";
-  if (await client.signInWithAccount(company, request.label, scopes, request.account)) {
+  if (await client.signInWithAccount(company, request.label, requested, request.account)) {
     return { status: "signed_in", scope: client.session(company.issuer, request.label)?.scope ?? "" };
   }
-  const type = request.type ?? chooseSignInType(company, scopes);
-  if (!type || !company.signIn[type] || !covers(company.signIn[type]!.scopes.join(" "), scopes)) {
+  // 4.7: signing in again for more access requests every scope still needed, including those the
+  // account's refresh token already grants, since the new refresh token replaces the old one. The
+  // refresh token is the issuer's, so a held scope counts if any of the issuer's domains still
+  // describes or offers it (3.2: domains sharing an issuer may expose different scopes): signing in
+  // through domain B mustn't revoke access still needed through domain A.
+  const issuerWide = new Set(documented);
+  for (const other of client.companiesForIssuer(company.issuer)) {
+    for (const scope of Object.keys(other.customScopes)) issuerWide.add(scope);
+    for (const type of Object.values(other.signIn)) for (const scope of type?.scopes ?? []) issuerWide.add(scope);
+    // Its OpenAPI descriptions document scopes too (4.7), read as for this domain (cached; one that fails adds none).
+    if (other.domain !== company.domain) for (const scope of Object.keys(await openApiScopeDescriptions(client, other))) issuerWide.add(scope);
+  }
+  const held = client.account(company.issuer, account);
+  const kept = held ? [...scopeSet(held.scope)].filter((scope) => !requested.includes(scope) && (issuerWide.has(scope) || offeredBySignIn(company, scope))) : [];
+  const scopes = [...requested, ...kept];
+  const refusedTypes = refusedSignInTypes(client, company.issuer);
+  const type = request.type ?? chooseSignInType(company, scopes, issuerWide, refusedTypes);
+  if (type && refusedTypes.has(type)) {
+    throw new PoppyError("unauthorized_client", `${company.name} refused this agent ${type} sign-in recently (unauthorized_client). It continues signed out; try again later or use the company's own website.`, 0);
+  }
+  if (!type || !grantable(company, type, scopes, issuerWide)) {
+    const refusedNote = refusedTypes.size ? ` (it recently refused this agent ${[...refusedTypes].join(" and ")} sign-in)` : "";
     throw new PoppyError(
-      "invalid_scope",
-      `${company.name} offers no sign-in that can grant ${scopes.join(" ")}`,
+      refusedTypes.size && !type ? "unauthorized_client" : "invalid_scope",
+      `${company.name} offers no sign-in that can grant ${scopes.join(" ")}${refusedNote}`,
       0
     );
   }
@@ -124,7 +191,7 @@ export async function startSignIn(
   client.rememberCompany("signin", id, company);
   const base = { id, issuer: company.issuer };
   const scopeText = scopes.join(" ");
-  const info = describeScopes(company, scopes, await openApiScopeDescriptions(client, company));
+  const info = describeScopes(company, scopes, apiScopes);
   const insert = (secret: string, stateHash: string | null, interval: number | null, expiresAt: number) =>
     client.sql.exec(
       `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, state_hash, secret, interval_seconds, expires_at, status, created_at)
@@ -152,7 +219,7 @@ export async function startSignIn(
       client.host.now() + SIGN_IN_TTL_MS
     );
     await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
-    const url = new URL(company.endpoints.authorization!);
+    const url = new URL(issuerEndpoints(company).authorization!);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", client.identity.clientId);
     url.searchParams.set("redirect_uri", client.identity.redirectUri);
@@ -174,7 +241,7 @@ export async function startSignIn(
   } else if (type === "device") {
     const { status, body } = await client.oauthRequest(
       company,
-      company.endpoints.deviceAuthorization!,
+      issuerEndpoints(company).deviceAuthorization!,
       async () => ({ scope: scopeText }),
       { dpop: false }
     );
@@ -186,7 +253,8 @@ export async function startSignIn(
       typeof body.verification_uri !== "string"
     ) {
       const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
-      throw new PoppyError(code, `${company.name} refused the device sign-in (${code})`, status);
+      if (code === "unauthorized_client") rememberRefusal(client, company.issuer, "device");
+      throw new PoppyError(code, `${company.name} refused the device sign-in (${code})${code === "unauthorized_client" ? "; your agent continues signed out" : ""}`, status);
     }
     const verificationUri = deviceLink(company, body.verification_uri);
     if (!verificationUri) {
@@ -305,8 +373,9 @@ async function finish(
  * nothing about the User's Sessions changes. Nothing is retried: a code is
  * single use, and credentials are gone.
  */
-async function refused(client: PoppyClient, row: SignInRow, _code: string, message: string): Promise<void> {
-  await finish(client, row, { ok: false, message });
+async function refused(client: PoppyClient, row: SignInRow, code: string, message: string): Promise<void> {
+  if (code === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
+  await finish(client, row, { ok: false, message: code === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : message });
 }
 
 // ---------------------------------------------------------------- Direct Sign-In's code exchange
@@ -437,7 +506,8 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
   }
   const error = url.searchParams.get("error");
   if (error) {
-    const message = error === "access_denied" ? "the User declined" : `the company returned ${error}`;
+    if (error === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
+    const message = error === "access_denied" ? "the User declined" : error === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : `the company returned ${error}`;
     await finish(client, row, { ok: false, message });
     return { ok: false, message: `Sign-in to ${company.name} didn't complete (${error}).` };
   }

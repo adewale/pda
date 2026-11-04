@@ -157,7 +157,7 @@ export function clientFetched(all: readonly Exchange[]): RunnerReply {
   if (!grant) return { kind: "failed", detail: "no request that needs the agent's keys was accepted" };
   const header = grant.requestHeaders.get("poppy-session");
   const session = header ? decodeJwt(header) : null;
-  const delegation = typeof session?.header.pap_dlg === "string" ? decodeJwt(session.header.pap_dlg) : null;
+  const delegation = typeof session?.header.poppy_dlg === "string" ? decodeJwt(session.header.poppy_dlg) : null;
   const assertion = header ? null : decodeJwt(form(grant)?.get("client_assertion") ?? "");
   const signed = delegation ?? assertion;
   const clientId = (header ? null : form(grant)?.get("client_id")) ?? (typeof signed?.payload.iss === "string" ? signed.payload.iss : null);

@@ -272,6 +272,44 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
   return hosts;
 }
 
+/**
+ * Hosts of the servers an OpenAPI description names, per Company, for each
+ * description its poppy.json lists. Since the 3 November text a Session's
+ * destinations are the request URLs its listed APIs describe (5.2), which can
+ * be on another domain.
+ */
+export function describedHosts(all: readonly Exchange[]): Map<string, Set<string>> {
+  const descriptions = new Map<string, string>();
+  for (const x of all) {
+    if (x.direction !== "to-company" || !x.peer || x.status !== 200 || !(x.url.pathname.endsWith("/.well-known/poppy.json") || x.url.pathname === "/poppy.json")) continue;
+    const apis = (jsonBody(x.responseBody) as { apis?: unknown } | undefined)?.apis;
+    for (const api of Array.isArray(apis) ? apis : []) {
+      const { type, url } = (api ?? {}) as { type?: unknown; url?: unknown };
+      if (type === "openapi" && typeof url === "string") descriptions.set(url, x.peer);
+    }
+  }
+  const hosts = new Map<string, Set<string>>();
+  for (const x of all) {
+    const peer = descriptions.get(x.url.href);
+    if (x.direction !== "to-company" || !peer || x.peer !== peer || x.status !== 200) continue;
+    const servers = (jsonBody(x.responseBody) as { servers?: unknown } | undefined)?.servers;
+    for (const server of Array.isArray(servers) ? servers : []) {
+      const url = (server ?? {}) as { url?: unknown };
+      if (typeof url.url !== "string") continue;
+      try {
+        const target = new URL(url.url, x.url);
+        if (target.protocol !== "https:") continue;
+        const set = hosts.get(peer) ?? new Set<string>();
+        set.add(target.host);
+        hosts.set(peer, set);
+      } catch {
+        // Not a URL.
+      }
+    }
+  }
+  return hosts;
+}
+
 /** Company peers whose recorded discovery/issuer metadata identifies each issuer. */
 function issuerPeers(all: readonly Exchange[]): Map<string, Set<string>> {
   const peers = new Map<string, Set<string>>();
@@ -311,13 +349,15 @@ export function sessionHeaderAtListedHost(all: readonly Exchange[], x: Exchange)
 }
 
 /**
- * An access token or Session JWT sent to a host its Company's documents don't list. Our
- * reading, not a MUST: 4.3 and 6 don't say which hosts may receive Session
- * Tokens (spec-issues N10). Still an error here; see docs/history/spec-issues.md N10.
+ * An access token or Session JWT sent to a host its Company's documents don't list,
+ * counting the servers its listed OpenAPI descriptions name (5.2 since the
+ * 3 November text). Our reading, filed as a warning: the text names the
+ * destinations, not every host that may never receive them (spec-issues N10).
  */
 export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);
   const listed = listedHosts(all);
+  const described = describedHosts(all);
   const peers = issuerPeers(all);
   const found: Check[] = [];
   for (const x of all) {
@@ -328,6 +368,7 @@ export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
     for (const issuer of credentials) {
       const hosts = listed.get(issuer);
       if (!hosts) continue;
+      if (described.get(issuer)?.has(x.url.host)) continue;
       if (x.direction !== "to-company" || x.peer !== issuer || !hosts.has(x.url.host)) {
         found.push(check("token.unlisted-host", x, `a token from ${issuer} sent to ${x.url.host}`));
       }

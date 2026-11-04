@@ -46,7 +46,9 @@ export class Web {
     const { read, write } = co.orderScopes;
     const auth: Record<string, unknown> = {
       ...(config.listIssuer ? { issuer: hosts.issuer } : {}),
-      scopes: this.#scopeDescriptions(),
+      ...(config.authDisabled ? { disabled: true } : {}),
+      // 3.2: domains sharing an issuer may describe different scopes.
+      scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => !config.hideScopesFromAuth.includes(scope) && (requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope)))),
       scope_hints: {
         [read]: { changes: "none", personal_data: true },
         [write]: { changes: "irreversible", personal_data: true },
@@ -55,8 +57,13 @@ export class Web {
     };
     const document: Record<string, unknown> = {
       protocol_version: config.protocolVersion,
-      organization: { name: config.organizationName ?? `Mock Shop ${co.id}`, domain: config.organizationDomain ?? requestedDomain },
-      auth
+      organization: {
+        name: config.organizationName ?? `Mock Shop ${co.id}`,
+        domain: config.organizationDomain ?? requestedDomain,
+        ...(config.logo ? { logo_uri: `${hosts.web}/logo.${config.logo}` } : {})
+      },
+      // 3.2: without an issuer there is no sign-in, so nothing to describe.
+      ...(config.issuerless ? {} : { auth })
     };
     if (config.agent) {
       const protocols: Record<string, unknown>[] = [];
@@ -69,7 +76,8 @@ export class Web {
     if (config.feedback) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
-    if (config.openapi) apis.push({ type: "openapi", url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
+    const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
+    if (listsOpenapi) apis.push({ type: "openapi", url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
     if (config.mcp) apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
@@ -97,6 +105,8 @@ export class Web {
   /** The domain's protected resource metadata (RFC 9728), which names the issuer (3.2). */
   domainResourceMetadata(inbound: Inbound): Response {
     const co = this.company;
+    // 3.2: a 404 here means the Company has no issuer.
+    if (co.config.issuerless) return json({ error: "not_found" }, 404);
     const host = inbound.url.hostname;
     return json(
       { resource: co.config.domainResourceOverride ?? `https://${host}`, authorization_servers: co.config.authorizationServersOverride ?? [co.hosts.issuer] },
@@ -183,7 +193,7 @@ export class Web {
       token_endpoint: hosts.tokenEndpoint,
       revocation_endpoint: hosts.revocationEndpoint,
       grant_types_supported: grants,
-      scopes_supported: Object.keys(this.#scopeDescriptions()),
+      ...(co.config.omitScopesSupported ? {} : { scopes_supported: Object.keys(this.#scopeDescriptions()) }),
       protected_resources: co.config.protectedResourcesOverride ?? [`https://${hosts.domain}`, `https://${hosts.altDomain}`, hosts.mcpUrl],
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["ES256", "PS384"],

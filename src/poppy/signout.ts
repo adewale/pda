@@ -1,5 +1,5 @@
 import { literal, reportError } from "../log";
-import { PoppyError, type AccountRow, type PoppyClient } from "./client";
+import { issuerEndpoints, PoppyError, type AccountRow, type PoppyClient } from "./client";
 import type { Company } from "./discovery";
 import { companyErrorCode } from "./error-codes";
 import type { Issuer } from "./issuer";
@@ -149,7 +149,7 @@ async function revoke(client: PoppyClient, company: Company, row: SignOutRow & {
   try {
     const { status, body } = await client.oauthRequest(
       company,
-      company.endpoints.revocation,
+      issuerEndpoints(company).revocation,
       async () => ({ token, token_type_hint: "refresh_token" }),
       { dpop: false }
     );
@@ -180,7 +180,8 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
   try {
     const row = signOutById(client, id);
     if (!row || row.token === null) return null;
-    const company = client.companyByIssuer(row.issuer);
+    // The issuer's own endpoints, even after the domain moved to a Company without one (3.2).
+    const company = client.revocationCompany(row.issuer);
     // Expired by itself: the Company no longer honours it, so there's nothing to send.
     if (row.expires_at !== null && row.expires_at <= Date.now()) {
       if (row.attempts === 0) leaveSessions(client, row);
@@ -229,6 +230,19 @@ function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "ac
 
 /** The `poppy-revoke` job's id for a sign-out. */
 const jobId = (id: string) => `signout-${id}`;
+
+/**
+ * Stop using an account now and leave its revocation to the `poppy-revoke`
+ * job, due at once: for a caller that may already hold another lock, such as
+ * discovery noticing a Company's identifier changed (3.2). Returns whether
+ * there was an account to sign out.
+ */
+export async function queueSignOut(client: PoppyClient, issuer: Issuer, account: string): Promise<boolean> {
+  const id = stopUsing(client, issuer, account);
+  if (!id) return false;
+  await client.host.schedule("poppy-revoke", Date.now(), { id, issuer }, jobId(id));
+  return true;
+}
 
 /** Try each now, under `client.exclusive` for their Company, and schedule the next try for each the Company refused. */
 async function tryNow(client: PoppyClient, ids: readonly string[]): Promise<SignOutOutcome | null> {

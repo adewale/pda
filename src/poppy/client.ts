@@ -25,14 +25,15 @@ import {
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup, type ResourceAuth } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
-import { accountsTable, domainsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
+import { accountsTable, domainsTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
-import { FOREIGN_TEXT, type ForeignText } from "../log";
+import { FOREIGN_TEXT, literal, reportError, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
+import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
@@ -99,6 +100,16 @@ export class PoppyError extends Error implements ForeignText {
   is(...codes: readonly KnownErrorCode[]): boolean {
     return (codes as readonly string[]).includes(this.code);
   }
+}
+
+/**
+ * The Company's OAuth endpoints. A Company without an issuer has none, and
+ * offers only signed-out Sessions (3.2), so anything that needs one is
+ * refused before a request is built.
+ */
+export function issuerEndpoints(company: Company): NonNullable<Company["endpoints"]> {
+  if (!company.endpoints) throw new PoppyError("no_sign_in", `${company.name} has no OAuth issuer, so it offers no sign-in: only signed-out use`, 0);
+  return company.endpoints;
 }
 
 /** Whether `error` is a `PoppyError` with one of these codes. */
@@ -212,7 +223,7 @@ export type TokenOptions = {
   readonly scope?: string;
   /** Internal authority check, after every asynchronous preparation and before each transport attempt. */
   readonly beforeDispatch?: () => void;
-  /** Only a known `invalid_session` refusal may advance an unapproved task's guard to its replacement Session. */
+  /** Only a known `session_ended` refusal may advance an unapproved task's guard to its replacement Session. */
   readonly onSessionRestart?: (previousSessionId: string, nextSessionId: string) => void;
   /**
    * The service a signed-in request goes to (an OpenAPI description's
@@ -273,19 +284,24 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
   };
 }
 
-/** Public HTTPS URLs on hosts the Company has already vouched for; metadata never carries credentials. */
-function serviceMetadataUrl(company: Company, value: string): URL | undefined {
+/**
+ * Public HTTPS URLs on hosts the Company has already vouched for, or on the
+ * origin of the service being asked about, which `poppy.json` or a
+ * description it lists names (4.5, 5.2); metadata never carries credentials.
+ */
+function serviceMetadataUrl(company: Company, value: string, service?: string): URL | undefined {
   if (!URL.canParse(value)) return undefined;
   const url = new URL(value);
-  if (url.protocol !== "https:" || url.username || url.password || url.hash || !tokenHostAllowed(company, url)) return undefined;
+  const ofService = service !== undefined && URL.canParse(service) && new URL(service).origin === url.origin;
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !(tokenHostAllowed(company, url) || ofService)) return undefined;
   try { assertPublicHost(url); } catch { return undefined; }
   return url;
 }
 
-/** A metadata response is trusted only for this issuer and one of this Company's resources. */
-function metadataResource(company: Company, value: Json): string | undefined {
+/** A metadata response is trusted only for this issuer and one of this Company's resources, or the service's own. */
+function metadataResource(company: Company, value: Json, service?: string): string | undefined {
   if (!isObject(value) || typeof value.resource !== "string" || !Array.isArray(value.authorization_servers) || !value.authorization_servers.includes(company.issuer)) return undefined;
-  return serviceMetadataUrl(company, value.resource) ? value.resource : undefined;
+  return serviceMetadataUrl(company, value.resource, service) ? value.resource : undefined;
 }
 
 /** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
@@ -459,17 +475,33 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
-    if (isCompany(result)) {
-      const aliases = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ? AND domain != ? AND expires_at > ?", result.issuer, key, this.host.now());
-      if (aliases.some((row) => {
-        const alias = JSON.parse(row.company) as Company;
-        return alias.authFingerprint && alias.authFingerprint !== result.authFingerprint;
-      })) throw new DiscoveryError("Domains sharing an issuer have different auth declarations");
+    // The domain's last Company document, kept apart from the cache: a website-only answer in between
+    // replaces the cached entry, but not what the domain was known to be.
+    const knownKey = `known-company|${key}`;
+    const knownRow = one(this.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", knownKey);
+    const cachedValue = cached ? (JSON.parse(cached.company) as Company | WebsiteOnly) : undefined;
+    const known = knownRow ? (JSON.parse(knownRow.value) as Company) : cachedValue && isCompany(cachedValue) ? cachedValue : undefined;
+    // A cached Company from before this record existed is kept as the history before anything replaces it,
+    // so a website-only answer as the first discovery after an upgrade doesn't lose the issuer either.
+    if (!knownRow && known) this.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", knownKey, JSON.stringify(known), this.host.now());
+    // 3.2: never fall back to the domain for a Company whose issuer we know unless discovery explicitly
+    // establishes the issuer was removed. Our reading (docs/readings.md): protected resource metadata
+    // that lists no authorization server does; a 404 alone, which a misconfiguration can produce, doesn't.
+    if (isCompany(result) && result.issuerless && known && !known.issuerless && discovered.report.protectedResource === undefined) {
+      recordDiscovery(this.sql, key, discovered.report, null);
+      throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
     }
+    // A removed issuer ends account access even when the identifier stays the same: an issuer of exactly
+    // https://{domain} gives way to the same domain identifier, with nothing left to sign in with or refresh at.
+    if (isCompany(result) && known && (known.issuer !== result.issuer || (!known.issuerless && result.issuerless))) await this.#identifierChanged(key, known, result);
+    // 3.2: domains sharing an issuer are one Company. They SHOULD publish the same scope descriptions and
+    // hints, and MAY expose different scopes and capabilities, so differing `auth` objects aren't refused;
+    // each domain's own document is used for that domain.
     if (isCompany(result) && result.domain.toLowerCase() !== key) {
       await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
     }
     recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
+    if (isCompany(result)) this.sql.exec("INSERT OR REPLACE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", knownKey, JSON.stringify(result), this.host.now());
     this.sql.exec(
       "INSERT OR REPLACE INTO poppy_domains (domain, issuer, company, expires_at) VALUES (?, ?, ?, ?)",
       key,
@@ -480,16 +512,77 @@ export class PoppyClient {
     return result;
   }
 
-  /** The most recently discovered document for an issuer. */
+  /**
+   * The most recently discovered document for an issuer, or, once no domain
+   * names it any more (its identifier changed, 3.2), the last one recorded
+   * for it, so its accounts can still be revoked at its own endpoints.
+   */
   companyByIssuer(issuer: Issuer): Company {
     const row = one(
       this.sql,
       domainsTable.pick("company"),
       "SELECT company FROM poppy_domains WHERE issuer = ? ORDER BY expires_at DESC LIMIT 1",
       issuer
-    );
+    ) ?? one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE issuer = ? ORDER BY rowid DESC LIMIT 1", issuer);
     if (!row) throw new DiscoveryError(`No company known for issuer ${issuer}`);
     return JSON.parse(row.company) as Company;
+  }
+
+  /** Every domain's latest document for an issuer: domains sharing one are one Company, but may describe different scopes (3.2). */
+  companiesForIssuer(issuer: Issuer): Company[] {
+    return rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer)
+      .map((row) => JSON.parse(row.company) as Company | WebsiteOnly)
+      .filter(isCompany);
+  }
+
+  /**
+   * The Company to revoke an issuer's refresh tokens at: the newest record
+   * for it that still has OAuth endpoints. After an issuer is removed, the
+   * domain's record is the issuerless one, which may share its identifier
+   * (an issuer of exactly https://{domain}), so the record kept when the
+   * change was seen supplies the revocation endpoint.
+   */
+  revocationCompany(issuer: Issuer): Company {
+    const current = this.companyByIssuer(issuer);
+    if (current.endpoints) return current;
+    const kept = rows(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE issuer = ? ORDER BY rowid DESC", issuer)
+      .map((row) => JSON.parse(row.company) as Company)
+      .find((company) => company.endpoints !== undefined);
+    return kept ?? current;
+  }
+
+  /**
+   * A domain's Company identifier changed (3.2): an issuer was added, changed
+   * or explicitly removed. A removed issuer counts even when the identifier
+   * stays the same. The new identifier gets new User IDs and Sessions,
+   * and nothing transfers. Accounts held under the old one can't be used from
+   * this domain any more, so they are signed out: the usual sign-out record,
+   * whose revoke job sends the revocation to the old issuer, retries, and
+   * shows the User what is still pending. The User is told.
+   */
+  async #identifierChanged(domain: string, known: Company, current: Company): Promise<void> {
+    this.rememberCompany("identifier-change", `${domain}|${known.issuer}`, known);
+    const accounts = this.accounts(known.issuer);
+    if (accounts.length === 0) return;
+    await this.host.showCard({
+      id: `identifier-change-${domain}-${known.issuer}`,
+      kind: "notice",
+      company: current.name,
+      domain: current.domain,
+      open: true,
+      text: current.issuerless
+        ? `${current.name} no longer has a sign-in service for personal agents, so your agent uses ${domain} signed out only. It is signing out of the account it held there before; nothing from that sign-in carries over.`
+        : `${current.name} moved to a different sign-in service. Your agent is signing out of the account it held through the old one, and you can sign in again when a task needs your account; nothing from the old sign-in carries over.`
+    });
+    // Queued, not awaited: discovery may run under another lock, and the revoke job retries on its own.
+    const { queueSignOut } = await import("./signout");
+    for (const account of accounts) {
+      try {
+        await queueSignOut(this, known.issuer, account.account);
+      } catch (error) {
+        reportError(error, { source: literal("poppy.identifier-change"), severe: false });
+      }
+    }
   }
 
   /** Bind pending work to the interface where it began; never overwrite it. */
@@ -498,6 +591,18 @@ export class PoppyClient {
   }
 
   /** Revalidate the original domain before resuming credentials or consequential work. */
+  /**
+   * The Company domain a task belongs to, from its stored discovery context,
+   * or the issuer's only domain for an older task without one; undefined
+   * when that can't be told.
+   */
+  taskDomain(issuer: Issuer, kind: string, id: string): string | undefined {
+    const context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
+    if (context) return (JSON.parse(context.company) as Company).domain;
+    const domains = new Set(rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer).map((row) => (JSON.parse(row.company) as Company).domain));
+    return domains.size === 1 ? [...domains][0] : undefined;
+  }
+
   async resumeCompany(issuer: Issuer, kind: string, id: string): Promise<Company> {
     let context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
     if (!context) {
@@ -690,7 +795,7 @@ export class PoppyClient {
     params: () => Promise<Record<string, string>>,
     options: { dpop: boolean; beforeDispatch?: () => void } = { dpop: true }
   ): Promise<TokenResponse> {
-    const { status, body } = await this.oauthRequest(company, company.endpoints.token, params, options);
+    const { status, body } = await this.oauthRequest(company, issuerEndpoints(company).token, params, options);
     if (status === 200 && isObject(body) && typeof body.access_token === "string") {
       const decoded = tryDecode(tokenResponse, body, "token response");
       if (!decoded.ok || !(decoded.value.expires_in > 0)) {
@@ -734,6 +839,11 @@ export class PoppyClient {
    * exchange was interrupted, so its refresh token is stored before anything
    * asks for one. Cheap when there is none.
    */
+  /** Finish sign-ins an interruption left half done, so a caller reads the Session as it really is. */
+  async recoverSignIns(issuer: Issuer): Promise<void> {
+    await this.#recoverSignIns(issuer);
+  }
+
   async #recoverSignIns(issuer: Issuer): Promise<void> {
     if (!signInRecovery) return;
     const pending = one(
@@ -745,7 +855,7 @@ export class PoppyClient {
     if (pending) await signInRecovery(this, issuer);
   }
 
-  /** A new `sid` for the Session `label`, keeping its account (7, `invalid_session`). */
+  /** A new `sid` for the Session `label`, keeping its account (5.5, `session_ended`). */
   #restartSession(issuer: Issuer, label: string): void {
     const session = this.session(issuer, label);
     this.#forgetTokens(issuer, label);
@@ -1109,19 +1219,19 @@ export class PoppyClient {
       cached = { metadata, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 };
       this.#serviceResources.set(service, cached);
     }
-    const resource = metadataResource(company, cached.metadata);
+    const resource = metadataResource(company, cached.metadata, service);
     return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
   }
 
   /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
   async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
     this.#serviceResources.delete(service);
-    const url = serviceMetadataUrl(company, hint);
+    const url = serviceMetadataUrl(company, hint, service);
     if (!url) throw new PoppyError("invalid_response", "The service's resource_metadata challenge names an untrusted metadata URL", 0);
     let fetched: Awaited<ReturnType<typeof fetchJson>>;
     try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
     catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
-    const resource = metadataResource(company, fetched.json);
+    const resource = metadataResource(company, fetched.json, service);
     if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
       throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
     }
@@ -1224,7 +1334,7 @@ export class PoppyClient {
    * the protocol defines: the Session header, signed for this request (5.2),
    * and the access token when signed in (4.5), with a DPoP proof when it is
    * DPoP-bound. Nonces, `invalid_token` refreshes, one new Session after
-   * `invalid_session`, and short `Retry-After` waits are handled; other auth
+   * `session_ended`, and short `Retry-After` waits are handled; other auth
    * errors come back as `PoppyError`s. It takes only a request one of the
    * checking constructors made: an `EndpointRequest` to an endpoint
    * `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
@@ -1236,8 +1346,10 @@ export class PoppyClient {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "not_https" });
       throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
     }
-    // Tokens and Session JWTs go only to the Company's own hosts (N10), whatever a description names.
-    if (!tokenHostAllowed(company, url)) {
+    // Tokens and Session JWTs go only to the Company's own hosts (N10), or to a server a description
+    // poppy.json lists names, which 5.2 makes a Session destination; a checked API request carries it.
+    const described = "describedServer" in outgoing && outgoing.company.issuer === company.issuer && request.url.startsWith(outgoing.describedServer.replace(/\/*$/, ""));
+    if (!tokenHostAllowed(company, url) && !described) {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",
@@ -1311,6 +1423,9 @@ export class PoppyClient {
           })
         );
       }
+      // 5.3: an operator signature for bot defenses, after the Session header, token and proof it covers.
+      const operator = operatorKey(this.host.env);
+      if (operator) await signRequest(await operator, this.identity.origin, { method: request.method, url: url.href, headers });
       const outbound = new Request(url.href, {
         method: request.method,
         headers,
@@ -1382,11 +1497,12 @@ export class PoppyClient {
         response.status >= 400 && !(response.headers.get("Content-Type") ?? "").includes("text/event-stream")
           ? ((await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null)
           : null;
-      // `invalid_session` (7: 400, in a JSON body; a 401 is read the same): start a
-      // new Session once; an account it was signed in to stays with the new one.
-      if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "invalid_session") {
+      // `session_ended` (5.5, 7: 400, in a JSON body; a 401 is read the same): start a new
+      // Session once; an account it was signed in to stays with the new one. `invalid_session`
+      // isn't retried: a new Session would fail the same way (7), so it reaches the caller.
+      if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "session_ended") {
         await response.body?.cancel();
-        log({ status: response.status, error: "invalid_session" }, { kind: "restart" });
+        log({ status: response.status, error: "session_ended" }, { kind: "restart" });
         checkRetry();
         this.#restartSession(company.issuer, label);
         options.onSessionRestart?.(sid, this.sessionFor(company, label).session_id);

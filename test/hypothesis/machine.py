@@ -283,26 +283,26 @@ class Base(RuleBasedStateMachine):
     def can_read(self, ms: MSession, conversation: MConversation) -> bool:
         """
         8.2: a conversation belongs to the agent and the User that started
-        it; once it uses the User's account, it belongs to that account
-        instead, so any Session of this agent signed in to it may continue
-        it, whichever User (our reading of S17, docs/readings.md).
+        it, and, once it uses the User's account, to that account too: only
+        a Session of the same User signed in to it continues it (the 3
+        November text settles S17).
         """
-        if conversation.account is not None:
-            return ms.account == conversation.account
-        return ms.user is conversation.user
+        if ms.user is not conversation.user:
+            return False
+        return conversation.account is None or ms.account == conversation.account
 
     def refusal(self, ms: MSession, conversation: MConversation) -> tuple[int, str | None] | None:
         """
-        What a Session that may not use the conversation gets: the same
-        User not signed in to its account, a challenge for the account
-        (8.11, 7: 401 with no error code); anyone else
-        `conversation_not_found` (8.13), which the mock records as a
-        cross-User reach (S17).
+        What a Session that may not use the conversation gets (8.2's table):
+        the same User signed out, a challenge for the account (8.11, 7: 401
+        with no error code); the same User signed in to another account
+        `conversation_not_found`; another User `conversation_not_found`
+        too, which the mock records as a cross-User reach.
         """
         if self.can_read(ms, conversation):
             return None
         if ms.user is conversation.user:
-            return 401, None
+            return (401, None) if ms.account is None else (404, "conversation_not_found")
         self.violation("conversation.cross-user")
         return 404, "conversation_not_found"
 
@@ -400,7 +400,7 @@ class Base(RuleBasedStateMachine):
         order, exchange or return, asked signed in with read and write, uses
         the account (8.2). Returns whether it handed off.
         """
-        if ("text" not in message and "data" not in message) or "approval" in message or not self.config["agentReplies"]:
+        if ("text" not in message and "data" not in message) or "approval" in (message.get("extensions") or {}).get("operations", {}) or not self.config["agentReplies"]:
             return False
         if conversation.status == "queued" or conversation.responder == "human":
             return False
@@ -711,7 +711,7 @@ class Base(RuleBasedStateMachine):
         """
         if self.company is None:
             return
-        oauth = {self.co.token_endpoint, self.co.revocation_endpoint, self.co.metadata.get("device_authorization_endpoint")}
+        oauth = {self.co.token_endpoint, self.co.revocation_endpoint, self.co.metadata.get("device_authorization_endpoint")} - {None}
         misplaced = 0
         for x in self.transport.log:
             bare = x.url.split("?", 1)[0]
@@ -832,11 +832,11 @@ class SessionRules:
     @precondition(lambda self: any(s.ended and s.seen for s in self.all_sessions()))
     @rule(data=st.data())
     def ended_session(self, data: st.DataObject) -> None:
-        """5.5, 7: a Session the Company ended gets `invalid_session`; the agent starts a new one (once)."""
+        """5.5, 7: a Session the Company ended gets `session_ended`; the agent starts a new one (once)."""
         ms = data.draw(st.sampled_from([s for s in self.all_sessions() if s.ended and s.seen]))
         path, _ = data.draw(st.sampled_from(self.api_ops))
         reply = self.poppy.resource(ms.session, "GET", self.api_base + path, self.co)
-        expect(reply, 400, "invalid_session")
+        expect(reply, 400, "session_ended")
         assume(len(ms.user.sessions) < MAX_SESSIONS)
         fresh = self.new_session(ms.user)
         if ms.token is not None:
@@ -870,6 +870,53 @@ class ApiRules:
                 assert isinstance(reply.body, dict) and isinstance(reply.body.get("products"), list), reply.body
             elif path == "/addresses":
                 assert isinstance(reply.body, dict) and isinstance(reply.body.get("addresses"), list), reply.body
+
+
+class OperatorRules:
+    """
+    Operator signatures (5.3, Web Bot Auth). Every honest resource request
+    carries one, made by this client's own signer (poppy_client.operator_headers)
+    and checked by the mock's own verifier, so a misreading of RFC 9421's
+    signature base on either side shows as a recorded violation. The reject
+    rules break one on purpose; the Company records it and still serves the
+    request, which its Session JWT authenticates.
+    """
+
+    def public_paths(self) -> list[str]:
+        return [path for path, needed in self.api_ops if not needed]
+
+    def signed_out(self) -> list[MSession]:
+        """Signed-out Sessions: no DPoP proof to retry on `use_dpop_nonce`, so a broken signature is sent, and recorded, once."""
+        return [s for s in self.live() if s.token is None]
+
+    @precondition(lambda self: self.signed_out() and self.public_paths())
+    @rule(data=st.data())
+    def operator_signature_corrupted(self, data: st.DataObject) -> None:
+        """A signature that doesn't verify against the key in our directory: recorded (`operator-signature.invalid`)."""
+        ms = data.draw(st.sampled_from(self.signed_out()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator_corrupt=True)
+        self.touch(ms, reply)
+        expect(reply, 200)
+        self.violation("operator-signature.invalid")
+
+    @precondition(lambda self: self.signed_out() and self.public_paths())
+    @rule(data=st.data())
+    def operator_signature_without_session(self, data: st.DataObject) -> None:
+        """5.3's MUST: a signature that leaves out `poppy-session`: recorded (`operator-signature.components`)."""
+        ms = data.draw(st.sampled_from(self.signed_out()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator_omit=("poppy-session", "authorization"))
+        self.touch(ms, reply)
+        expect(reply, 200)
+        self.violation("operator-signature.components")
+
+    @precondition(lambda self: self.live() and self.public_paths())
+    @rule(data=st.data())
+    def no_operator_signature(self, data: st.DataObject) -> None:
+        """A SHOULD: a request with no operator signature is served, and nothing is recorded ("its absence does not make a Session JWT invalid")."""
+        ms = data.draw(st.sampled_from(self.live()))
+        reply = self.poppy.resource(ms.session, "GET", self.api_base + data.draw(st.sampled_from(self.public_paths())), self.co, operator=False)
+        self.touch(ms, reply)
+        expect(reply, 200)
 
 
 class WarmUp:
