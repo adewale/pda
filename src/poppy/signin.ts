@@ -165,6 +165,8 @@ export async function startSignIn(
   for (const other of client.companiesForIssuer(company.issuer)) {
     for (const scope of Object.keys(other.customScopes)) issuerWide.add(scope);
     for (const type of Object.values(other.signIn)) for (const scope of type?.scopes ?? []) issuerWide.add(scope);
+    // Its OpenAPI descriptions document scopes too (4.7), read as for this domain (cached; one that fails adds none).
+    if (other.domain !== company.domain) for (const scope of Object.keys(await openApiScopeDescriptions(client, other))) issuerWide.add(scope);
   }
   const held = client.account(company.issuer, account);
   const kept = held ? [...scopeSet(held.scope)].filter((scope) => !requested.includes(scope) && (issuerWide.has(scope) || offeredBySignIn(company, scope))) : [];

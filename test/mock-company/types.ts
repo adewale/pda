@@ -268,6 +268,10 @@ export type MockConfig = {
   readonly issuerOnDomain: boolean;
   /** Scopes left out of the main domain's `auth.scopes`, so only the other domain sharing the issuer describes them (3.2). */
   readonly hideScopesOnMainDomain: readonly string[];
+  /** Scopes left out of every domain's `auth.scopes`, so only the OpenAPI description documents them (4.7). */
+  readonly hideScopesFromAuth: readonly string[];
+  /** Only the other domain sharing the issuer lists the OpenAPI API; the main domain lists none (3.2). */
+  readonly openapiOnAltDomainOnly: boolean;
   /** `auth.disabled` (3.2): an issuer that serves other clients, but no sign-in for Personal Agents, and no Mediated Sign-In. */
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
@@ -377,6 +381,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   issuerless: false,
   issuerOnDomain: false,
   hideScopesOnMainDomain: [],
+  hideScopesFromAuth: [],
+  openapiOnAltDomainOnly: false,
   authDisabled: false,
   omitScopesSupported: false,
   refuseSignInTypes: [],

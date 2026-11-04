@@ -48,7 +48,7 @@ export class Web {
       ...(config.listIssuer ? { issuer: hosts.issuer } : {}),
       ...(config.authDisabled ? { disabled: true } : {}),
       // 3.2: domains sharing an issuer may describe different scopes.
-      scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope))),
+      scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => !config.hideScopesFromAuth.includes(scope) && (requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope)))),
       scope_hints: {
         [read]: { changes: "none", personal_data: true },
         [write]: { changes: "irreversible", personal_data: true },
@@ -76,7 +76,8 @@ export class Web {
     if (config.feedback) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
-    if (config.openapi) apis.push({ type: "openapi", url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
+    const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
+    if (listsOpenapi) apis.push({ type: "openapi", url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
     if (config.mcp) apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
