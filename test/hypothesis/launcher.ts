@@ -55,6 +55,7 @@ const KNOBS = [
   "textDeltas",
   "sseKeepAlive",
   "agentReplies",
+  "mcpVersions",
   "requireOperationsExtension",
   "operationIdPrefix",
   "deviceInterval",

@@ -28,7 +28,7 @@ from hypothesis.stateful import precondition, rule, run_state_machine_as_test
 
 from machine import READ, WRITE, Base, SessionRules, WarmUp, expect, expect_challenge, reached
 from mock_server import DOMAIN, MockServer
-from poppy_client import Browser, protected_resource_metadata_url
+from poppy_client import MCP_LEGACY, MCP_MODERN, Browser, protected_resource_metadata_url, random_id
 
 
 class McpRules:
@@ -37,7 +37,7 @@ class McpRules:
     @precondition(lambda self: self.co.mcp and self.live())
     @rule(data=st.data())
     def mcp_tools(self, data: st.DataObject) -> None:
-        """MCP 2025-06-18: list the tools, then call the one that works signed out."""
+        """List the tools, then call the one that works signed out, in whichever lifecycle the server speaks (7)."""
         ms = data.draw(st.sampled_from(self.live()))
         listed = expect(self.mcp_call(ms, "tools/list"), 200).body
         assert listed.get("jsonrpc") == "2.0" and isinstance(listed["result"]["tools"], list), listed
@@ -82,6 +82,70 @@ class McpRules:
         found = expect(self.poppy.protected_resource_metadata(self.co.mcp), 200)
         assert found.body["resource"] == self.co.mcp, found.body
         assert self.co.issuer in found.body["authorization_servers"], "authorization_servers MUST include the issuer (7)"
+
+    # ---- reject direction: each MCP version's own rules, broken on purpose ----
+
+    @precondition(lambda self: self.co.mcp and self.live() and self.mcp_era == "modern")
+    @rule(data=st.data())
+    def mcp_session_id_in_a_stateless_request(self, data: st.DataObject) -> None:
+        """
+        Reject (7: 2026-07-28 "uses per-request metadata instead of an
+        initialization handshake or Mcp-Session-Id"): the server ignores the
+        header and serves the request (Streamable HTTP, "Backward
+        Compatibility"); the mock records it.
+        """
+        ms = data.draw(st.sampled_from(self.live()))
+        reply = self.poppy.mcp_modern(self.mcp_session(ms), self.co, "tools/list", headers={"Mcp-Session-Id": random_id("mcp_", 8)})
+        self.touch_mcp(ms, reply)
+        self.check_modern(expect(reply, 200))
+        self.mcp_stray_session_ids += 1
+        self.violation("mcp.modern-session-id")
+
+    @precondition(lambda self: self.co.mcp and self.live() and self.mcp_era == "modern")
+    @rule(data=st.data())
+    def mcp_name_that_differs_from_the_body(self, data: st.DataObject) -> None:
+        """
+        Reject (MCP 2026-07-28 Streamable HTTP, "Server Validation"): an
+        `Mcp-Name` that isn't the body's tool is a 400 with `HeaderMismatch`
+        (-32020), and the tool doesn't run.
+        """
+        ms = data.draw(st.sampled_from(self.live()))
+        call = {"name": "search_products", "arguments": {"query": data.draw(st.text(max_size=8))}}
+        reply = self.poppy.mcp_modern(self.mcp_session(ms), self.co, "tools/call", call, tool=(self.mcp_tools or {}).get("search_products"), headers={"Mcp-Name": "exchange_item"})
+        self.touch_mcp(ms, reply)
+        assert expect(reply, 400).body["error"]["code"] == -32020, reply.body
+        self.violation("mcp.modern-name-header")
+
+    @precondition(lambda self: self.co.mcp and self.live() and self.mcp_era == "modern" and self.config["mcpVersions"] == [MCP_MODERN])
+    @rule(data=st.data())
+    def initialize_at_a_stateless_server(self, data: st.DataObject) -> None:
+        """
+        MCP 2026-07-28 Versioning: a server that speaks only 2026-07-28 answers
+        `initialize` with `UnsupportedProtocolVersionError` naming what it
+        speaks. Nothing is recorded: a dual-era client may try it.
+        """
+        ms = data.draw(st.sampled_from(self.live()))
+        rpc = {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": MCP_LEGACY, "capabilities": {}, "clientInfo": {"name": "hypothesis", "version": "0"}}}
+        reply = self.poppy.mcp(self.mcp_session(ms), self.co, rpc)
+        self.touch_mcp(ms, reply)
+        error = expect(reply, 400).body["error"]
+        assert error["code"] == -32022 and error["data"]["supported"] == [MCP_MODERN], error
+        assert "mcp-session-id" not in reply.headers, reply.headers
+        self.mcp_initialize_refused += 1
+
+    @precondition(lambda self: self.co.mcp and self.live() and self.mcp_era == "legacy")
+    @rule(data=st.data())
+    def legacy_request_without_its_session(self, data: st.DataObject) -> None:
+        """
+        Reject (MCP 2025-06-18 Streamable HTTP: a client "MUST include it in
+        the Mcp-Session-Id header on all of their subsequent HTTP requests"):
+        a request outside the session `initialize` opened is a 400, recorded.
+        """
+        ms = data.draw(st.sampled_from(self.live()))
+        reply = self.poppy.mcp(self.mcp_session(ms), self.co, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        self.touch_mcp(ms, reply)
+        expect(reply, 400)
+        self.violation("mcp.legacy-session")
 
     # ---- reject direction: a token where it doesn't belong ----
 

@@ -244,6 +244,77 @@ class Reply:
         return found.group(1) if found else None
 
 
+# ---------------------------------------------------------------- MCP's wire format
+
+MCP_LEGACY = "2025-06-18"
+MCP_MODERN = "2026-07-28"
+# MCP 2026-07-28's own errors (Base Protocol, "Error Codes"): HeaderMismatch,
+# MissingRequiredClientCapability, UnsupportedProtocolVersion.
+MODERN_ERRORS = (-32020, -32021, -32022)
+
+
+def modern_meta() -> dict[str, Any]:
+    """The protocol fields every 2026-07-28 request carries in `_meta` (Base Protocol, "_meta")."""
+    return {
+        "io.modelcontextprotocol/protocolVersion": MCP_MODERN,
+        "io.modelcontextprotocol/clientInfo": {"name": "hypothesis", "version": "0"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+
+
+def mirrored(value: str) -> str:
+    """
+    A value as a mirrored header carries it (Streamable HTTP, "Value
+    Encoding"): unchanged when it is printable ASCII with no surrounding
+    whitespace; else, and when it already looks encoded, `=?base64?…?=`
+    around the Base64 of its UTF-8.
+    """
+    plain = value != "" and all(" " <= c <= "~" for c in value) and value == value.strip(" ")
+    if plain and not (value.startswith("=?base64?") and value.endswith("?=")):
+        return value
+    return "=?base64?" + base64.b64encode(value.encode("utf-8")).decode("ascii") + "?="
+
+
+def header_arguments(schema: Any, args: Any) -> dict[str, str]:
+    """
+    The `Mcp-Param-{name}` headers for a call: each property reached through
+    `properties` alone whose schema has `x-mcp-header`, when the arguments
+    hold a value there (Streamable HTTP, "Custom Headers from Tool
+    Parameters"). Integers in decimal, booleans as `true` or `false`.
+    """
+    found: dict[str, str] = {}
+
+    def walk(node: Any, value: Any) -> None:
+        properties = node.get("properties") if isinstance(node, dict) else None
+        for name, child in (properties or {}).items():
+            here = value.get(name) if isinstance(value, dict) else None
+            header = child.get("x-mcp-header") if isinstance(child, dict) else None
+            if isinstance(header, str) and here is not None:
+                if isinstance(here, bool):
+                    text = "true" if here else "false"
+                elif isinstance(here, (int, str)):
+                    text = str(here)
+                else:
+                    raise AssertionError(f"{header} can't carry {here!r}")
+                found[f"Mcp-Param-{header}"] = mirrored(text)
+            walk(child, here)
+
+    walk(schema, args)
+    return found
+
+
+def rpc_reply(reply: Reply, rpc_id: Any) -> Reply:
+    """A Streamable HTTP answer: JSON, or a stream whose matching `message` event is the JSON-RPC response."""
+    if reply.body is None and "text/event-stream" in reply.headers.get("content-type", ""):
+        for block in re.split(r"\r\n\r\n|\n\n|\r\r", reply.text):
+            data = [line[5:].lstrip(" ") for line in re.split(r"\r\n|\n|\r", block) if line.startswith("data:")]
+            if data:
+                candidate = json.loads("\n".join(data))
+                if isinstance(candidate, dict) and candidate.get("id") == rpc_id:
+                    reply.body = candidate
+    return reply
+
+
 # ---------------------------------------------------------------- the agent
 
 
@@ -940,15 +1011,68 @@ class Poppy:
             headers["Mcp-Session-Id"] = mcp_session
             headers["MCP-Protocol-Version"] = "2025-06-18"
         reply = self.resource(session, "POST", target, company, raw_body=json.dumps(rpc), headers=headers, token=token, scheme=scheme)
-        if reply.status == 200 and reply.body is None and "text/event-stream" in reply.headers.get("content-type", ""):
-            # A Streamable HTTP server may answer with a stream: the JSON-RPC response is a `message` event.
-            for block in re.split(r"\r\n\r\n|\n\n|\r\r", reply.text):
-                data = [line[5:].lstrip(" ") for line in re.split(r"\r\n|\n|\r", block) if line.startswith("data:")]
-                if data:
-                    candidate = json.loads("\n".join(data))
-                    if isinstance(candidate, dict) and candidate.get("id") == rpc.get("id"):
-                        reply.body = candidate
-        return reply
+        return rpc_reply(reply, rpc.get("id"))
+
+    def mcp_modern(
+        self,
+        session: Session,
+        company: Company,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        tool: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+        headers: dict[str, str | None] | None = None,
+    ) -> Reply:
+        """
+        One request in MCP 2026-07-28's stateless lifecycle: no handshake and
+        no MCP session. The version, the client and its (empty) capabilities
+        go in `_meta` beside any other members (the Poppy approval), and are
+        mirrored into `MCP-Protocol-Version` and `Mcp-Method`; a `tools/call`
+        adds `Mcp-Name` and a `Mcp-Param-{name}` header for each argument the
+        tool's schema marks with `x-mcp-header` (Streamable HTTP, "Request
+        Metadata"). `headers` replaces or (with None) removes headers, for the
+        reject rules only.
+        """
+        target = company.mcp
+        assert target is not None
+        sent = dict(params or {})
+        sent["_meta"] = {**(meta or {}), **modern_meta()}
+        rpc = {"jsonrpc": "2.0", "id": int.from_bytes(os.urandom(4), "big"), "method": method, "params": sent}
+        request_headers: dict[str, str] = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": MCP_MODERN, "Mcp-Method": method}
+        if method == "tools/call":
+            request_headers["Mcp-Name"] = mirrored(str(sent["name"]))
+            if tool is not None:
+                request_headers |= header_arguments(tool.get("inputSchema"), sent.get("arguments"))
+        for name, value in (headers or {}).items():
+            request_headers = {k: v for k, v in request_headers.items() if k.lower() != name.lower()}
+            if value is not None:
+                request_headers[name] = value
+        reply = self.resource(session, "POST", target, company, raw_body=json.dumps(rpc), headers=request_headers)
+        return rpc_reply(reply, rpc["id"])
+
+    def mcp_era(self, session: Session, company: Company) -> tuple[str, Reply]:
+        """
+        Which lifecycle the server speaks (MCP 2026-07-28 Streamable HTTP,
+        "Backward Compatibility"): a 2026-07-28 `server/discover` first. Its
+        result names the versions; a 400 whose body isn't one of 2026-07-28's
+        own errors (-32020 to -32022) is a legacy server, and so is an
+        `UnsupportedProtocolVersionError` that offers 2025-06-18.
+        """
+        reply = self.mcp_modern(session, company, "server/discover")
+        error = reply.body.get("error") if isinstance(reply.body, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        if reply.status == 200 and isinstance(reply.body, dict) and isinstance(reply.body.get("result"), dict):
+            versions = reply.body["result"].get("supportedVersions", [])
+            if MCP_MODERN in versions:
+                return "modern", reply
+            if MCP_LEGACY in versions:
+                return "legacy", reply
+        elif reply.status == 400 and code not in MODERN_ERRORS:
+            return "legacy", reply
+        elif reply.status == 400 and code == -32022 and MCP_LEGACY in (error.get("data") or {}).get("supported", []):
+            return "legacy", reply
+        raise AssertionError(f"no MCP version in common: {reply.status} {reply.text[:300]}")
 
     def protected_resource_metadata(self, resource: str) -> Reply:
         return Reply.of(self.http.get(protected_resource_metadata_url(resource)))

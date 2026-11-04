@@ -248,12 +248,13 @@ export class MockCompany extends DurableObject<Env> {
   }
 
   async state(): Promise<MockState> {
-    const { company, conversations, operations } = this.#named();
+    const { company, conversations, operations, apis } = this.#named();
     return {
       recorded: [...company.recorded],
       violations: company.violations,
       warnings: company.warnings,
       requests: company.requests.map((request) => ({ ...request, headers: { ...request.headers } })),
+      mcp: apis.mcpLog.map((exchange) => ({ ...exchange })),
       revocationHints: [...company.revocationHints],
       userIds: [...company.userIds],
       clientIds: [...company.clients.keys()],

@@ -25,6 +25,8 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - A sign-in type a Company refuses with `unauthorized_client` is remembered for an hour, and the Session continues signed out.
 - When a domain's Company identifier changes, accounts held under the old one are signed out and the User is told.
 - The official Company kit is re-pinned to the 3 November download, matching upstream `7205250`.
+- MCP 2026-07-28 beside 2025-06-18 (7; [#47](https://github.com/adewale/pda/issues/47)). A server that speaks only 2026-07-28 can now be used: requests carry the version and client metadata in `_meta` and its mirrored headers, with no `initialize` or `Mcp-Session-Id`. The client learns each server's era with a `server/discover` probe and falls back to `initialize` on the binding's legacy signal. A `tools/call` is never sent again by that negotiation ([readings](docs/readings.md#mcp-lifecycle)).
+- The mock's MCP server speaks 2025-06-18, 2026-07-28 or both (`mcpVersions`), each enforcing its version's wire rules: `mcp.legacy-session`, `mcp.legacy-version-header`, `mcp.legacy-initialized`, and `mcp.modern-meta`, `-client-info`, `-version-header`, `-method-header`, `-name-header`, `-param-header` and `-session-id`. Its `state().mcp` lists every JSON-RPC message with the lifecycle it was served under.
 
 ### Changed
 
@@ -36,6 +38,7 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - Domains sharing an issuer are no longer refused when their `auth` objects differ.
 - The mock follows 8.2's conversation ownership (the `client_id`, the User ID, and the account once used) and 8.10's `invalid_request` for a Direct Conversation as parent.
 - Readings: a 404 alone doesn't replace an issuer the agent already knew; issues 11 and 21 are settled upstream.
+- An MCP server PDA hasn't seen before now gets a `server/discover` probe first. A 2025-06-18 server answers it with a 400, then gets `initialize` as before; the protocol log shows that 400. The mock's default 2025-06-18 server now refuses a request without the session `initialize` opened.
 
 ### Migration and rollback
 
@@ -53,6 +56,15 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
   - The hosted dummy Company security check: no strict violations or warnings.
   - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips. That includes a new profile with no issuer: 91 checks passing, none failing or warning, 30 OAuth checks skipped.
 - Not run: the Docker interop grid, the browser journeys and any live Company. Operator signatures haven't been checked against a real edge.
+- Offline, on 4 November, for MCP 2026-07-28:
+  - Passing: `npm run typecheck`, `check:spec` and `check:docs`.
+  - The five Vitest projects: 1,538 (1 skipped), 3, 273, 431 and 196 tests passing.
+  - `npm run test:hypothesis`: 22 passing. The independent Python client now speaks 2026-07-28 too, written from the MCP text, and each example's mock speaks 2025-06-18, 2026-07-28 or both.
+  - The official Company kit, with and without DPoP, `--reviewed-findings`: only the documented findings and skips.
+  - `npm run check:approval-crashes`: every process-kill case passing.
+  - The Docker interop grid, honest lane: four agents × both mocks, 254 passing, 34 failing (all the sloppy agent's documented mistakes), 128 unsupported, no errors. `pda` passes all 72 of its supported cells, MCP's AM and ML included. The three security commands, with `--require-supported`: 8, 8 and 16 cells passing.
+  - `scripts/app-smoke.mjs --approval-journey --photo-journey` in Chromium: every check passing, including the OpenAPI and MCP approval journeys and both photo journeys, with no uncaught browser errors.
+  - Not run: any live Company, and the print-with-poppy peer, whose latest commit (`b340741`) still requires `pap_dlg`. No interop peer or live Company speaks 2026-07-28 yet.
 
 ## Unreleased — Poppy 0.3 alone
 

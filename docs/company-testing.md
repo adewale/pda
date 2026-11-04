@@ -6,7 +6,7 @@ This page explains the approach. The interop harness's contract is [interop-spec
 
 ## The mock Company
 
-The mock is one implementation of the Company side: discovery documents, OAuth metadata, the token endpoint, Direct, Device and Mediated Sign-In, conversations, OpenAPI and MCP APIs, a website with browser Sessions, and the Operations extension. In the Workers tests it runs as a Durable Object. The interop harness and the Hypothesis suite bundle the same code for Node.
+The mock is one implementation of the Company side: discovery documents, OAuth metadata, the token endpoint, Direct, Device and Mediated Sign-In, conversations, OpenAPI and MCP APIs, a website with browser Sessions, and the Operations extension. Its MCP server speaks MCP 2025-06-18, 2026-07-28 or both (`mcpVersions`), and each mode enforces its own version's wire rules. In the Workers tests it runs as a Durable Object. The interop harness and the Hypothesis suite bundle the same code for Node.
 
 Every check it makes records exactly one id from [`test/mock-company/violations.ts`](../test/mock-company/violations.ts), as `[id] detail`. Each id's description starts with its basis: `MUST`, `RFC` or `Rule` for a requirement, `SHOULD` or `Guides` for a recommendation, and `Reading` for our answer to an open question. The basis decides the level everywhere. A requirement broken is a failure, and anything else is a warning.
 
