@@ -59,9 +59,10 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - Offline, on 4 November, for MCP 2026-07-28:
   - Passing: `npm run typecheck`, `check:spec` and `check:docs`.
   - The five Vitest projects: 1,538 (1 skipped), 3, 273, 431 and 196 tests passing.
-  - `npm run test:hypothesis`: 22 passing. The independent client still speaks 2025-06-18 only, now against the mock's stricter session checks.
+  - `npm run test:hypothesis`: 22 passing. The independent Python client now speaks 2026-07-28 too, written from the MCP text, and each example's mock speaks 2025-06-18, 2026-07-28 or both.
+  - The official Company kit, with and without DPoP, `--reviewed-findings`: only the documented findings and skips.
   - `npm run check:approval-crashes`: every process-kill case passing.
-  - Not run: the Docker interop grid, the official Company kit and any live Company. No interop peer or live Company speaks 2026-07-28 yet.
+  - Not run: the Docker interop grid and any live Company. No interop peer or live Company speaks 2026-07-28 yet.
 
 ## Unreleased — Poppy 0.3 alone
 

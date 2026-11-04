@@ -36,7 +36,7 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 
 from mock_server import DOMAIN, SUFFIX, MockServer
-from poppy_client import Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, Reply, Session, User, set_cookie_attributes
+from poppy_client import MCP_LEGACY, MCP_MODERN, Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, Reply, Session, User, set_cookie_attributes
 from strategies import CONFIGS, MESSAGE_IDS, canonical, messages, serialisations
 
 READ, WRITE = "orders:read", "orders:write"
@@ -216,6 +216,12 @@ class Base(RuleBasedStateMachine):
         self.session_header_misplaced = 0
         # Sessions another Personal Agent started in a reject rule: the Company has them, the model doesn't.
         self.other_sids: set[str] = set()
+        # MCP (7): the lifecycle the server speaks, learnt by the first MCP request's probe; under 2026-07-28 the
+        # tools as listed, for their x-mcp-header arguments; and what the reject rules sent on purpose.
+        self.mcp_era: str | None = None
+        self.mcp_tools: dict[str, Any] | None = None
+        self.mcp_stray_session_ids = 0
+        self.mcp_initialize_refused = 0
 
     def teardown(self) -> None:
         for u in self.users:
@@ -552,9 +558,63 @@ class Base(RuleBasedStateMachine):
             session.token, session.token_type, session.key = token.value, token.token_type, token.key
         return session
 
+    def expected_mcp_era(self) -> str:
+        """The lifecycle the client should settle on: 2026-07-28 whenever the server speaks it."""
+        return "modern" if MCP_MODERN in self.config.get("mcpVersions", [MCP_LEGACY]) else "legacy"
+
     def mcp_call(self, ms: MSession, method: str, params: dict[str, Any] | None = None, *, meta: dict[str, Any] | None = None) -> Reply:
-        """One MCP request with the Session header and its token, after `initialize` (MCP 2025-06-18 lifecycle)."""
+        """
+        One MCP request with the Session header and its token, in the
+        lifecycle the server speaks (7): learnt once, by a 2026-07-28 probe,
+        then 2026-07-28's per-request metadata or 2025-06-18's session.
+        """
         session = self.mcp_session(ms)
+        if self.mcp_era is None:
+            era, probe = self.poppy.mcp_era(session, self.co)
+            self.touch_mcp(ms, probe)
+            assert era == self.expected_mcp_era(), f"settled on {era} with a server that speaks {self.config.get('mcpVersions')}"
+            if era == "modern":
+                self.check_modern(probe)
+                assert probe.body["result"]["supportedVersions"] == self.config["mcpVersions"], probe.body
+            reached(f"mcp era: {era}")
+            self.mcp_era = era
+        if self.mcp_era == "modern":
+            return self.mcp_modern_call(ms, session, method, params, meta)
+        return self.mcp_legacy_call(ms, session, method, params, meta)
+
+    def check_modern(self, reply: Reply) -> None:
+        """A 2026-07-28 answer: never an MCP session, and a result that says it is complete (Base Protocol, "ResultType")."""
+        assert "mcp-session-id" not in reply.headers, reply.headers
+        if reply.status == 200 and isinstance(reply.body, dict) and "result" in reply.body:
+            assert reply.body["result"].get("resultType") == "complete", reply.body
+
+    def mcp_modern_call(self, ms: MSession, session: Session, method: str, params: dict[str, Any] | None, meta: dict[str, Any] | None) -> Reply:
+        """
+        MCP 2026-07-28: each request stands alone. A `tools/call` needs its
+        tool's schema for the `x-mcp-header` arguments, so the tools are
+        listed first when this example hasn't yet.
+        """
+        if method == "tools/call" and self.mcp_tools is None:
+            listed = self.poppy.mcp_modern(session, self.co, "tools/list")
+            self.touch_mcp(ms, listed)
+            self.check_modern(expect(listed, 200))
+            self.remember_tools(listed)
+        tool = (self.mcp_tools or {}).get(str((params or {}).get("name")))
+        reply = self.poppy.mcp_modern(session, self.co, method, params, tool=tool, meta=meta)
+        self.touch_mcp(ms, reply)
+        self.check_modern(reply)
+        if method == "tools/list" and reply.status == 200:
+            self.remember_tools(reply)
+        return reply
+
+    def remember_tools(self, listed: Reply) -> None:
+        """A 2026-07-28 tool list says how long it stays fresh, and for whom (Caching): a whole number of ms, public or private."""
+        result = listed.body["result"]
+        assert isinstance(result.get("ttlMs"), int) and result["ttlMs"] >= 0 and result.get("cacheScope") in ("public", "private"), result
+        self.mcp_tools = {tool["name"]: tool for tool in result["tools"]}
+
+    def mcp_legacy_call(self, ms: MSession, session: Session, method: str, params: dict[str, Any] | None, meta: dict[str, Any] | None) -> Reply:
+        """MCP 2025-06-18: `initialize` and `notifications/initialized` open a session, whose id and version every later request carries."""
         holder = ms.mcp
         mcp_id = holder.mcp_session if holder is not None else ms.mcp_signed_out
         if mcp_id is None:
@@ -589,6 +649,26 @@ class Base(RuleBasedStateMachine):
         reply = self.poppy.mcp(session, self.co, rpc, mcp_session=mcp_id)
         self.touch_mcp(ms, reply)
         return reply
+
+    @invariant()
+    def mcp_lifecycle_matches_the_model(self) -> None:
+        """
+        7: every MCP request carries the Session header. Against a server
+        that speaks 2026-07-28, nothing opens a session or sends
+        `Mcp-Session-Id` but the reject rules; against a 2025-06-18 server,
+        only the probe is a 2026-07-28 request.
+        """
+        if self.company is None or self.mcp_era is None:
+            return
+        exchanges = self.server.state()["mcp"]
+        assert all(e["poppySession"] for e in exchanges), exchanges
+        if self.mcp_era == "modern":
+            assert sum(1 for e in exchanges if e["mcpSessionId"]) == self.mcp_stray_session_ids, exchanges
+            assert sum(1 for e in exchanges if e["method"] == "initialize") == self.mcp_initialize_refused, exchanges
+            assert all(e["lifecycle"] == "modern" for e in exchanges if e["method"] != "initialize"), exchanges
+        else:
+            assert (exchanges[0]["method"], exchanges[0]["lifecycle"], exchanges[0]["status"]) == ("server/discover", "modern", 400), exchanges[0]
+            assert all(e["lifecycle"] == "legacy" for e in exchanges[1:]), exchanges
 
     def touch_mcp(self, ms: MSession, reply: Reply) -> None:
         """An MCP request is a request in the Session too (7: an MCP server MAY ignore the Session header; ours reads it)."""

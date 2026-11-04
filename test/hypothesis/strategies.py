@@ -33,6 +33,8 @@ CONFIGS = st.fixed_dictionaries(
         "textDeltas": st.booleans(),
         "sseKeepAlive": st.booleans(),
         "agentReplies": st.booleans(),
+        # 7: the MCP versions the MCP server speaks: 2025-06-18's session, 2026-07-28's per-request metadata, or both.
+        "mcpVersions": st.sampled_from([["2025-06-18"], ["2026-07-28"], ["2026-07-28", "2025-06-18"]]),
     }
 )
 
