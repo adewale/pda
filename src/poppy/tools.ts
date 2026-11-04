@@ -126,7 +126,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     const owner = client().taskDomain(row.issuer, "conversation", row.id);
     if (owner === undefined) return null;
     if (domain !== undefined && (typeof domain !== "string" || recipient(domain) !== recipient(owner))) {
-      throw new PoppyError("refused", `Conversation ${row.id} is with ${owner}, not ${String(domain)}. Name the conversation's own Company, or start a new conversation.`, 0);
+      // As for a conversation of another issuer (requireCompany): it isn't this Company's.
+      throw new PoppyError("conversation_not_found", `Conversation ${row.id} is with ${owner}, not ${String(domain)}. Name the conversation's own Company, or start a new conversation.`, 404);
     }
     return owner;
   };
