@@ -31,7 +31,9 @@ const ADVERSARY = process.env.INTEROP_ADVERSARY === "company";
  */
 const SINK = "https://runner.interop.test";
 const ATTACKS: Record<string, (params: Params) => Partial<MockConfig>> = {
-  // XH: an OpenAPI `servers` entry points off the Company's hosts (3.2, 7, N10).
+  // XH: an OpenAPI `servers` entry names a server (`sink`) the agent mustn't send credentials to. Since
+  // the 3 November text a public HTTPS server on another domain is a destination (5.2), so the scenario
+  // names a private address (7, N10).
   XH: (params) => ({ openapiServerOverride: typeof params.sink === "string" ? params.sink : SINK }),
   // XI: the OAuth metadata claims another issuer the Company can't prove (3.2).
   XI: (params) => ({ issuerOverride: typeof params.issuer === "string" ? params.issuer : "https://auth.imposter.company.interop.test" }),

@@ -1,12 +1,12 @@
 {
   "id": "XH",
-  "title": "Adversarial Company: an API server off the Company's domain",
-  "requirements": ["3.2", "7"],
+  "title": "Adversarial Company: an API server that isn't a public host",
+  "requirements": ["5.2", "7"],
   "adversary": "company",
   "permitted_by": "N10",
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "api"], "company": ["arm", "approve_authorization"] },
   "steps": [
-    { "company": "arm", "params": { "attack": "XH" } },
+    { "company": "arm", "params": { "attack": "XH", "sink": "https://10.20.30.40" } },
     { "agent": "discover" },
     { "agent": "session" },
     { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
@@ -14,8 +14,8 @@
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
     { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "r" },
     { "expect": { "step": "r", "poppy_error": "untrusted_server" } },
-    { "runner": "assert_trace", "params": { "check": "attack_observed", "body_contains": "runner.interop.test" } },
-    { "runner": "assert_trace", "params": { "check": "token_not_sent_to", "host": "runner.interop.test" } },
-    { "runner": "assert_trace", "params": { "check": "no_request_to", "host": "runner.interop.test" } }
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "body_contains": "10.20.30.40" } },
+    { "runner": "assert_trace", "params": { "check": "token_not_sent_to", "host": "10.20.30.40" } },
+    { "runner": "assert_trace", "params": { "check": "no_request_to", "host": "10.20.30.40" } }
   ]
 }
