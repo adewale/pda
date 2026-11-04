@@ -140,6 +140,22 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     for (const request of resources) expect(decodeJwt(request.headers["poppy-session"]!).aud).toBe(`https://${c.domain}`);
   });
 
+  it("still won't drop a known issuer over a 404 after the domain was website-only in between (3.2)", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    // For a while poppy.json lists nothing that uses a Session, and there is no issuer: website only.
+    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).text).toContain("Website only");
+    // Then it lists an MCP API again, its protected resource metadata still a 404.
+    await c.stub.configure({ mcp: true });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const refused = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("doesn't show the issuer was removed");
+  });
+
   it("signs out of accounts held under an issuer the Company explicitly removed, revoking them at the old issuer", async () => {
     const c = await company({ ...V3, mcp: true });
     const a = await agent();

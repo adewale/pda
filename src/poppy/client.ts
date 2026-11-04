@@ -25,7 +25,7 @@ import {
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup, type ResourceAuth } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
-import { accountsTable, domainsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
+import { accountsTable, domainsTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
@@ -475,22 +475,22 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
+    // The domain's last Company document, kept apart from the cache: a website-only answer in between
+    // replaces the cached entry, but not what the domain was known to be.
+    const knownKey = `known-company|${key}`;
+    const knownRow = one(this.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", knownKey);
+    const cachedValue = cached ? (JSON.parse(cached.company) as Company | WebsiteOnly) : undefined;
+    const known = knownRow ? (JSON.parse(knownRow.value) as Company) : cachedValue && isCompany(cachedValue) ? cachedValue : undefined;
     // 3.2: never fall back to the domain for a Company whose issuer we know unless discovery explicitly
     // establishes the issuer was removed. Our reading (docs/readings.md): protected resource metadata
     // that lists no authorization server does; a 404 alone, which a misconfiguration can produce, doesn't.
-    if (isCompany(result) && result.issuerless && cached && discovered.report.protectedResource === undefined) {
-      const known = JSON.parse(cached.company) as Company | WebsiteOnly;
-      if (isCompany(known) && !known.issuerless) {
-        recordDiscovery(this.sql, key, discovered.report, null);
-        throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
-      }
+    if (isCompany(result) && result.issuerless && known && !known.issuerless && discovered.report.protectedResource === undefined) {
+      recordDiscovery(this.sql, key, discovered.report, null);
+      throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
     }
-    if (isCompany(result) && cached) {
-      const known = JSON.parse(cached.company) as Company | WebsiteOnly;
-      // A removed issuer ends account access even when the identifier stays the same: an issuer of exactly
-      // https://{domain} gives way to the same domain identifier, with nothing left to sign in with or refresh at.
-      if (isCompany(known) && (known.issuer !== result.issuer || (!known.issuerless && result.issuerless))) await this.#identifierChanged(key, known, result);
-    }
+    // A removed issuer ends account access even when the identifier stays the same: an issuer of exactly
+    // https://{domain} gives way to the same domain identifier, with nothing left to sign in with or refresh at.
+    if (isCompany(result) && known && (known.issuer !== result.issuer || (!known.issuerless && result.issuerless))) await this.#identifierChanged(key, known, result);
     // 3.2: domains sharing an issuer are one Company. They SHOULD publish the same scope descriptions and
     // hints, and MAY expose different scopes and capabilities, so differing `auth` objects aren't refused;
     // each domain's own document is used for that domain.
@@ -498,6 +498,7 @@ export class PoppyClient {
       await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
     }
     recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
+    if (isCompany(result)) this.sql.exec("INSERT OR REPLACE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", knownKey, JSON.stringify(result), this.host.now());
     this.sql.exec(
       "INSERT OR REPLACE INTO poppy_domains (domain, issuer, company, expires_at) VALUES (?, ?, ?, ?)",
       key,
