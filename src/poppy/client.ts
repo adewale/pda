@@ -524,6 +524,13 @@ export class PoppyClient {
     return JSON.parse(row.company) as Company;
   }
 
+  /** Every domain's latest document for an issuer: domains sharing one are one Company, but may describe different scopes (3.2). */
+  companiesForIssuer(issuer: Issuer): Company[] {
+    return rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer)
+      .map((row) => JSON.parse(row.company) as Company | WebsiteOnly)
+      .filter(isCompany);
+  }
+
   /**
    * The Company to revoke an issuer's refresh tokens at: the newest record
    * for it that still has OAuth endpoints. After an issuer is removed, the

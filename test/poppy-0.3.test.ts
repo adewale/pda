@@ -300,6 +300,22 @@ describe("0.3: plain OAuth for accounts", () => {
     expect(new URL(card.url).searchParams.get("scope")!.split(" ").sort()).toEqual(["orders:read", "orders:write"]);
   });
 
+  it("keeps a scope granted through another domain of the same issuer when it signs in again for more access (3.2, 4.7)", async () => {
+    // loyalty:read is described only on the other domain, and the issuer publishes no scopes_supported.
+    const c = await company({
+      ...V3, omitScopesSupported: true, customScopes: { "loyalty:read": "See your points" }, hideScopesOnMainDomain: ["loyalty:read"],
+      signIn: { direct: ["orders:read", "orders:write", "loyalty:read"], device: null, mediated: null }
+    });
+    const a = await agent();
+    const other = { ...c, domain: c.hosts.altDomain };
+    expect((await signInDirect(a, other, ["orders:read", "loyalty:read"]))?.callback.status).toBe(200);
+    expect(JSON.parse(await a.stub.poppySql("SELECT scope FROM poppy_accounts"))).toEqual([{ scope: "orders:read loyalty:read" }]);
+    const more = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:write"], reason: "To exchange the jacket" });
+    expect(more.isError, more.text).toBe(false);
+    const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
+    expect(new URL(card.url).searchParams.get("scope")!.split(" ").sort()).toEqual(["loyalty:read", "orders:read", "orders:write"]);
+  });
+
   it("requests a scope the Company documents when its issuer publishes no scopes_supported (3.2, 4.7)", async () => {
     const c = await company({ ...V3, omitScopesSupported: true });
     const a = await agent();

@@ -264,6 +264,8 @@ export type MockConfig = {
   readonly issuerless: boolean;
   /** The issuer is exactly `https://{domain}`, its metadata served on the domain; its endpoints stay on the auth host. */
   readonly issuerOnDomain: boolean;
+  /** Scopes left out of the main domain's `auth.scopes`, so only the other domain sharing the issuer describes them (3.2). */
+  readonly hideScopesOnMainDomain: readonly string[];
   /** `auth.disabled` (3.2): an issuer that serves other clients, but no sign-in for Personal Agents, and no Mediated Sign-In. */
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
@@ -372,6 +374,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   listIssuer: false,
   issuerless: false,
   issuerOnDomain: false,
+  hideScopesOnMainDomain: [],
   authDisabled: false,
   omitScopesSupported: false,
   refuseSignInTypes: [],

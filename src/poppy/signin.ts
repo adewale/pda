@@ -152,16 +152,24 @@ export async function startSignIn(
     return { status: "signed_in", scope: client.session(company.issuer, request.label)?.scope ?? "" };
   }
   // 4.7: signing in again for more access requests every scope still needed, including those the
-  // account's refresh token already grants, since the new refresh token replaces the old one.
+  // account's refresh token already grants, since the new refresh token replaces the old one. The
+  // refresh token is the issuer's, so a held scope counts if any of the issuer's domains still
+  // describes or offers it (3.2: domains sharing an issuer may expose different scopes): signing in
+  // through domain B mustn't revoke access still needed through domain A.
+  const issuerWide = new Set(documented);
+  for (const other of client.companiesForIssuer(company.issuer)) {
+    for (const scope of Object.keys(other.customScopes)) issuerWide.add(scope);
+    for (const type of Object.values(other.signIn)) for (const scope of type?.scopes ?? []) issuerWide.add(scope);
+  }
   const held = client.account(company.issuer, account);
-  const kept = held ? [...scopeSet(held.scope)].filter((scope) => !requested.includes(scope) && (documented.has(scope) || offeredBySignIn(company, scope))) : [];
+  const kept = held ? [...scopeSet(held.scope)].filter((scope) => !requested.includes(scope) && (issuerWide.has(scope) || offeredBySignIn(company, scope))) : [];
   const scopes = [...requested, ...kept];
   const refusedTypes = refusedSignInTypes(client, company.issuer);
-  const type = request.type ?? chooseSignInType(company, scopes, documented, refusedTypes);
+  const type = request.type ?? chooseSignInType(company, scopes, issuerWide, refusedTypes);
   if (type && refusedTypes.has(type)) {
     throw new PoppyError("unauthorized_client", `${company.name} refused this agent ${type} sign-in recently (unauthorized_client). It continues signed out; try again later or use the company's own website.`, 0);
   }
-  if (!type || !grantable(company, type, scopes, documented)) {
+  if (!type || !grantable(company, type, scopes, issuerWide)) {
     const refusedNote = refusedTypes.size ? ` (it recently refused this agent ${[...refusedTypes].join(" and ")} sign-in)` : "";
     throw new PoppyError(
       refusedTypes.size && !type ? "unauthorized_client" : "invalid_scope",

@@ -47,7 +47,8 @@ export class Web {
     const auth: Record<string, unknown> = {
       ...(config.listIssuer ? { issuer: hosts.issuer } : {}),
       ...(config.authDisabled ? { disabled: true } : {}),
-      scopes: this.#scopeDescriptions(),
+      // 3.2: domains sharing an issuer may describe different scopes.
+      scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope))),
       scope_hints: {
         [read]: { changes: "none", personal_data: true },
         [write]: { changes: "irreversible", personal_data: true },
