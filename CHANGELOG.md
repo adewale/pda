@@ -56,6 +56,12 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
   - The hosted dummy Company security check: no strict violations or warnings.
   - The re-pinned official Company kit, reviewed and DPoP-capable: only the documented findings and skips. That includes a new profile with no issuer: 91 checks passing, none failing or warning, 30 OAuth checks skipped.
 - Not run: the Docker interop grid, the browser journeys and any live Company. Operator signatures haven't been checked against a real edge.
+- Offline, on 4 November, for MCP 2026-07-28:
+  - Passing: `npm run typecheck`, `check:spec` and `check:docs`.
+  - The five Vitest projects: 1,538 (1 skipped), 3, 273, 431 and 196 tests passing.
+  - `npm run test:hypothesis`: 22 passing. The independent client still speaks 2025-06-18 only, now against the mock's stricter session checks.
+  - `npm run check:approval-crashes`: every process-kill case passing.
+  - Not run: the Docker interop grid, the official Company kit and any live Company. No interop peer or live Company speaks 2026-07-28 yet.
 
 ## Unreleased — Poppy 0.3 alone
 
