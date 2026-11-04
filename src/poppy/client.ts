@@ -481,6 +481,9 @@ export class PoppyClient {
     const knownRow = one(this.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", knownKey);
     const cachedValue = cached ? (JSON.parse(cached.company) as Company | WebsiteOnly) : undefined;
     const known = knownRow ? (JSON.parse(knownRow.value) as Company) : cachedValue && isCompany(cachedValue) ? cachedValue : undefined;
+    // A cached Company from before this record existed is kept as the history before anything replaces it,
+    // so a website-only answer as the first discovery after an upgrade doesn't lose the issuer either.
+    if (!knownRow && known) this.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", knownKey, JSON.stringify(known), this.host.now());
     // 3.2: never fall back to the domain for a Company whose issuer we know unless discovery explicitly
     // establishes the issuer was removed. Our reading (docs/readings.md): protected resource metadata
     // that lists no authorization server does; a 404 alone, which a misconfiguration can produce, doesn't.

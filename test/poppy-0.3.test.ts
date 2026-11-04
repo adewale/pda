@@ -156,6 +156,22 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     expect(refused.text).toContain("doesn't show the issuer was removed");
   });
 
+  it("keeps a known issuer cached before the upgrade when the first discovery after it is website-only (3.2)", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    // An agent that discovered the Company before the issuer history existed has only its cached document.
+    await a.stub.poppySql("DELETE FROM poppy_intents WHERE call_key LIKE 'known-company|%'");
+    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).text).toContain("Website only");
+    await c.stub.configure({ mcp: true });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const refused = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("doesn't show the issuer was removed");
+  });
+
   it("signs out of accounts held under an issuer the Company explicitly removed, revoking them at the old issuer", async () => {
     const c = await company({ ...V3, mcp: true });
     const a = await agent();
