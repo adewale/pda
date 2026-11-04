@@ -384,8 +384,9 @@ export class Apis {
       }
       return json(seen.body, seen.status);
     }
-    if (header === null) this.#unapprovedKeys.add(scoped);
-    else if (this.#unapprovedKeys.has(scoped)) co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
+    const first = `${firstRequestScope(context)}|${key}`;
+    if (header === null) this.#unapprovedKeys.add(first);
+    else if (this.#unapprovedKeys.has(first)) co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
     let order: PrintOrder;
     try {
       order = JSON.parse(inbound.bodyText || "null") as PrintOrder;
@@ -475,8 +476,8 @@ export class Apis {
     }
     const key = inbound.request.headers.get("Idempotency-Key");
     const scoped = key ? `${idempotencyScope(context)}|${key}|${header ?? ""}` : null;
-    if (key && header === null) this.#unapprovedKeys.add(`${idempotencyScope(context)}|${key}`);
-    else if (key && this.#unapprovedKeys.has(`${idempotencyScope(context)}|${key}`)) {
+    if (key && header === null) this.#unapprovedKeys.add(`${firstRequestScope(context)}|${key}`);
+    else if (key && this.#unapprovedKeys.has(`${firstRequestScope(context)}|${key}`)) {
       co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
     }
     const seen = scoped ? this.#idempotency.get(scoped) : undefined;
@@ -675,4 +676,13 @@ export class Apis {
  */
 function idempotencyScope(context: ResourceContext): string {
   return `${context.session.clientId}|${context.session.userId}|${context.account ?? ""}`;
+}
+
+/**
+ * Whose first requests an approved request must not reuse the key of (Ops 6):
+ * the Personal Agent and the User, without the account, because signing in
+ * between the first request and the approval doesn't make the key new.
+ */
+function firstRequestScope(context: ResourceContext): string {
+  return `${context.session.clientId}|${context.session.userId}`;
 }

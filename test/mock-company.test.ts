@@ -1936,6 +1936,18 @@ describe("the mock Company", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
+  it("records an approved request that reuses the first request's Idempotency-Key after signing in between them (Ops 6)", async () => {
+    const c = company();
+    await c.stub.configure({ printShop: true });
+    const s = await session();
+    const photo = await uploaded(c, s);
+    const { operation } = (await (await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_first_request_2" })).json()) as { operation: Operation };
+    // The same Session signs in to an account; that makes the first request's key no less used.
+    const placed = await orderPrints(c, { ...s, ...(await signIn(c)) }, printOrder(photo), { "Idempotency-Key": "key_first_request_2", ...approval(operation) });
+    expect(placed.status).toBe(201);
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["approval.idempotency-key-reused"]);
+  });
+
   it("answers an ended Session with session_ended, and a new sid starts a new one (5.5)", async () => {
     const c = company();
     const s = await session();
