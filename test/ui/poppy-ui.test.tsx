@@ -422,8 +422,14 @@ describe("local approval card", () => {
 });
 
 describe("Direct Conversation invitation", () => {
+  it("offers to let the Company start only on its own invitation, naming its event (8.10)", () => {
+    renderCards(inviteCard);
+    expect(screen.queryByRole("button", { name: "Let Acme start" })).toBeNull();
+    expect(screen.getByText("Write your first message to start.")).toBeTruthy();
+  });
+
   it("starts with the User's own words or lets the Company start (8.10), and Not now declines", () => {
-    const { sent } = renderCards(inviteCard);
+    const { sent } = renderCards({ ...inviteCard, eventId: "evt_c6" });
     const start = screen.getByRole("button", { name: "Talk to Acme" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Your message"), { target: { value: "  Hello, I'd like a refund  " } });
@@ -431,8 +437,8 @@ describe("Direct Conversation invitation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Let Acme start" }));
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(sent).toEqual([
-      { type: "poppy.direct.start", conversationId: "conv_9", text: "Hello, I'd like a refund" },
-      { type: "poppy.direct.start", conversationId: "conv_9", text: "" },
+      { type: "poppy.direct.start", conversationId: "conv_9", text: "Hello, I'd like a refund", eventId: "evt_c6" },
+      { type: "poppy.direct.start", conversationId: "conv_9", text: "", eventId: "evt_c6" },
       { type: "poppy.direct.decline", conversationId: "conv_9" }
     ]);
   });

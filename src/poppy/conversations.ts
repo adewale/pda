@@ -623,10 +623,10 @@ async function handleEvent(
     }
     case "user_requested": {
       const reason = typeof event.reason === "string" ? event.reason : "The company would like to talk with you.";
-      // The invitation the User may accept, named by its event id when they do (8.10).
-      if (typeof event.id === "string" && ID.test(event.id)) {
-        client.sql.exec("INSERT OR REPLACE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", `direct-invite|${row.id}`, event.id, Date.now());
-      }
+      // The invitation the User may accept, named by its event id when they do (8.10). Each pending invitation
+      // is its own record, consumed when accepted, so a later invitation never reuses an earlier one's id.
+      const eventId = typeof event.id === "string" && ID.test(event.id) ? event.id : undefined;
+      if (eventId) client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", invitationKey(row.id, eventId), eventId, Date.now());
       await client.host.showCard({
         id: `direct-invite-${row.id}`,
         kind: "direct_invite",
@@ -634,7 +634,8 @@ async function handleEvent(
         domain: company.domain,
         open: true,
         conversationId: row.id,
-        reason
+        reason,
+        ...(eventId ? { eventId } : {})
       });
       await client.host.notifyModel(
         `[system] ${company.name} asks to talk with the User directly in conversation ${row.id}: "${reason}". The User has been offered a Direct Conversation; only they can start it.`,
@@ -944,17 +945,23 @@ export async function closeConversation(client: PoppyClient, company: Company, i
  * The User agreed to talk with the Company themselves: open a Direct
  * Conversation with their own first words, `author.type` `human` (8.10).
  */
+/** A pending `user_requested` invitation in a parent conversation, by its event id (8.10). */
+const invitationKey = (parentId: string, eventId: string) => `direct-invite|${parentId}|${eventId}`;
+
 export async function startDirectConversation(
   client: PoppyClient,
   parentId: string,
-  text: string
+  text: string,
+  eventId?: string
 ): Promise<string> {
   const parent = conversation(client, parentId);
   if (!parent) throw new PoppyError("conversation_not_found", `No conversation ${parentId}`, 404);
   const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
   // 8.10: accepting the Company's invitation names its user_requested event, so a retry returns the same
-  // Direct Conversation; with no words from the User, the Company speaks first.
-  const invitation = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `direct-invite|${parentId}`)?.value;
+  // Direct Conversation; with no words from the User, the Company speaks first. The invitation is the one
+  // the User's card answers, and only while it is still pending: an agent's own offer, or a card for an
+  // invitation already accepted, opens a new Direct Conversation with the User's words.
+  const invitation = eventId === undefined ? undefined : one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, eventId))?.value;
   const words = text.trim() ? text : undefined;
   if (!invitation && !words) throw new PoppyError("invalid_request", "Write a first message to start talking with the company", 0);
   const result = await sendMessage(client, company, {
@@ -965,6 +972,8 @@ export async function startDirectConversation(
     ...(words !== undefined ? { text: words } : {}),
     ...(invitation ? { userRequestedEventId: invitation } : {})
   });
+  // Accepted: the invitation is spent.
+  if (invitation) client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, invitation));
   await client.host.showCard({
     id: `direct-invite-${parentId}`,
     kind: "notice",

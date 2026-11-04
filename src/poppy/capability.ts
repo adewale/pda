@@ -478,7 +478,7 @@ export class PoppyCapability extends LifecycleCapability {
         await decideLocalBatch(client, frame.decisions);
         return;
       case "poppy.direct.start":
-        await startDirectConversation(client, frame.conversationId, frame.text);
+        await startDirectConversation(client, frame.conversationId, frame.text, frame.eventId);
         return;
       case "poppy.direct.decline":
         await declineDirect(client, frame.conversationId);

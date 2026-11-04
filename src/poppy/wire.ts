@@ -91,6 +91,8 @@ export type Card =
       readonly kind: "direct_invite";
       readonly conversationId: string;
       readonly reason: string;
+      /** The Company's `user_requested` event this card answers (8.10); absent when the agent offered. Only then can the Company speak first. */
+      readonly eventId?: string;
     })
   | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
@@ -326,7 +328,7 @@ export type PoppyClientFrame =
       readonly type: "poppy.approvals";
       readonly decisions: readonly { readonly approvalId: string; readonly decision: "approve" | "decline" }[];
     }
-  | { readonly type: "poppy.direct.start"; readonly conversationId: string; readonly text: string }
+  | { readonly type: "poppy.direct.start"; readonly conversationId: string; readonly text: string; readonly eventId?: string }
   | { readonly type: "poppy.direct.decline"; readonly conversationId: string }
   | { readonly type: "poppy.direct.say"; readonly conversationId: string; readonly text: string }
   | { readonly type: "poppy.direct.close"; readonly conversationId: string }
