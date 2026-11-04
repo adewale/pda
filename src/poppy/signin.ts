@@ -134,6 +134,11 @@ export async function startSignIn(
   const requested = [...new Set(request.scopes)];
   if (requested.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
   if (Object.keys(company.signIn).length === 0) {
+    // 3.2: with auth.disabled, refresh tokens the Company issued earlier keep working until it revokes
+    // them, so one that covers the scopes is used; only a new Direct, Device or Mediated Sign-In is refused.
+    if (!company.issuerless && await client.signInWithAccount(company, request.label, requested, request.account)) {
+      return { status: "signed_in", scope: client.session(company.issuer, request.label)?.scope ?? "" };
+    }
     // 3.2: no issuer, or auth.disabled: a Personal Agent MUST NOT start any sign-in.
     throw new PoppyError("no_sign_in", `${company.name} offers personal agents no sign-in${company.issuerless ? ": it has no OAuth issuer" : ""}, so only signed-out use is possible`, 0);
   }

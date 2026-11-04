@@ -195,6 +195,26 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
     expect((await requests(c)).slice(before).some((request) => request.url === c.hosts.revocationEndpoint)).toBe(true);
   });
 
+  it("keeps using a refresh token issued before the Company set auth.disabled, in a new Session too (3.2)", async () => {
+    const c = await company({ ...V3, mcp: true });
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    await c.stub.configure({ authDisabled: true });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const before = (await requests(c)).length;
+    // A new Session asks for access the held refresh token already grants: no new sign-in, just a refresh.
+    const reused = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders", session: "second" });
+    expect(reused.isError, reused.text).toBe(false);
+    expect((await cards(a)).filter((item) => item.kind === "signin_link" && item.open)).toEqual([]);
+    const after = (await requests(c)).slice(before);
+    expect(after.filter((request) => request.url === c.hosts.authorizationEndpoint || request.url === c.hosts.deviceEndpoint)).toEqual([]);
+    expect(after.some((request) => request.grant === "refresh_token")).toBe(true);
+    // More access than it holds would need a new sign-in, which auth.disabled refuses.
+    const more = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:write"], reason: "To exchange the jacket", session: "second" });
+    expect(more.isError).toBe(true);
+    expect(more.text).toContain("offers personal agents no sign-in");
+  });
+
   it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
     const c = await company({ ...V3, authDisabled: true, mcp: true });
     const a = await agent();
