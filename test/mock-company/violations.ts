@@ -116,6 +116,18 @@ export const VIOLATIONS = {
   "resource.bearer-scheme": "Rule (4.5: the scheme the token response's token_type names; RFC 9449 7.1): An access token sent with another scheme than its token_type",
   "mcp.wrong-token": "MUST (7: \"MUST request a token with resource set to the MCP server's url\"; 4.5): MCP request with a token not issued for this MCP server",
   "mcp.accept": "RFC (MCP 2025-06-18 Streamable HTTP, which 7 names): MCP request doesn't Accept application/json and text/event-stream",
+  // MCP 2025-06-18's lifecycle: initialize, then its session and version on every later request.
+  "mcp.legacy-session": "RFC (MCP 2025-06-18 Streamable HTTP, which 7 names: \"MUST include it in the Mcp-Session-Id header on all of their subsequent HTTP requests\"): An MCP request after initialize without the server's Mcp-Session-Id",
+  "mcp.legacy-version-header": "RFC (MCP 2025-06-18 Streamable HTTP, which 7 names: \"MUST include the MCP-Protocol-Version: <protocol-version> HTTP header on all subsequent requests\"): An MCP request in a session without the negotiated MCP-Protocol-Version",
+  "mcp.legacy-initialized": "RFC (MCP 2025-06-18 Lifecycle, which 7 names: \"the client MUST send an initialized notification\"): An MCP request in a session before notifications/initialized",
+  // MCP 2026-07-28: no session; the version and client metadata on every request, mirrored in headers.
+  "mcp.modern-meta": "RFC (MCP 2026-07-28 Base Protocol, which 7 names: protocolVersion and clientCapabilities \"MUST be included on every request\"): A 2026-07-28 request without its _meta protocol fields",
+  "mcp.modern-client-info": "SHOULD (MCP 2026-07-28 Base Protocol, which 7 names: \"Clients SHOULD include io.modelcontextprotocol/clientInfo on every request\"): A 2026-07-28 request without clientInfo",
+  "mcp.modern-version-header": "RFC (MCP 2026-07-28 Streamable HTTP, which 7 names: every POST \"MUST include an MCP-Protocol-Version header\" that \"MUST match\" the _meta protocolVersion): A 2026-07-28 request whose MCP-Protocol-Version is missing or differs from its _meta",
+  "mcp.modern-method-header": "RFC (MCP 2026-07-28 Streamable HTTP, which 7 names: Mcp-Method is required on all requests): A 2026-07-28 request whose Mcp-Method is missing or differs from its method",
+  "mcp.modern-name-header": "RFC (MCP 2026-07-28 Streamable HTTP, which 7 names: Mcp-Name is required on tools/call): A 2026-07-28 tools/call whose Mcp-Name is missing or differs from its tool",
+  "mcp.modern-param-header": "RFC (MCP 2026-07-28 Streamable HTTP, which 7 names: \"conforming clients MUST mirror the designated parameter values into HTTP headers\"): A 2026-07-28 tools/call whose Mcp-Param header is missing or differs from an x-mcp-header argument",
+  "mcp.modern-session-id": "Rule (7: \"MCP 2026-07-28 uses per-request metadata instead of an initialization handshake or Mcp-Session-Id\"): A 2026-07-28 request with Mcp-Session-Id",
 
   // ---- Rate limits and secrets (5.6, 10.2; Mediated Sign-In 6; Guides) ----
   "rate-limit.retry-after-ignored": "MUST (5.6: \"MUST wait at least that long before sending the request again\"): Request sent again before its Retry-After elapsed",

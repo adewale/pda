@@ -54,6 +54,9 @@ export const COMPANY_FLAWS = [
 ] as const;
 export type CompanyFlaw = (typeof COMPANY_FLAWS)[number];
 
+/** An MCP version the mock's MCP server can speak: the legacy, `initialize`-based one, or the stateless one. */
+export type McpVersion = "2025-06-18" | "2026-07-28";
+
 export type MockConfig = {
   readonly protocolVersion: string;
   /** Overrides `organization.domain` in poppy.json (to test the agent's check). */
@@ -69,6 +72,13 @@ export type MockConfig = {
   readonly openapi: boolean;
   readonly mcp: boolean;
   readonly mcpDpop: boolean;
+  /**
+   * The MCP versions the MCP server speaks (7): 2025-06-18 alone, with its
+   * `initialize` handshake and `Mcp-Session-Id`; 2026-07-28 alone, with
+   * per-request `_meta` and no session; or both, choosing by how each
+   * request opens, as a dual-era server does. Each enforces its own wire rules.
+   */
+  readonly mcpVersions: readonly McpVersion[];
   /** Also list an API of an unknown type, which agents must skip. */
   readonly unknownApi: boolean;
   /** Also list a conversation protocol of an unknown type. */
@@ -291,6 +301,7 @@ export type MockConfig = {
 
 export const DEFAULT_CONFIG: MockConfig = {
   mcpDpop: false,
+  mcpVersions: ["2025-06-18"],
   protocolVersion: "0.3",
   organizationDomain: null,
   wellKnownRedirect: "none",
@@ -412,6 +423,24 @@ export type MockRequest = {
   readonly error: string | null;
 };
 
+/**
+ * One message to the MCP server: its JSON-RPC method, the lifecycle the
+ * server read it under (`modern` for 2026-07-28's per-request metadata,
+ * `legacy` for 2025-06-18's session), what it answered, and the headers that
+ * tell the two apart.
+ */
+export type McpExchange = {
+  readonly method: string | null;
+  readonly lifecycle: "modern" | "legacy";
+  readonly status: number;
+  /** The JSON-RPC error code it answered with, if any. */
+  readonly code: number | null;
+  readonly protocolVersion: string | null;
+  /** Whether the request carried `Mcp-Session-Id`, and the `Poppy-Session` header. */
+  readonly mcpSessionId: boolean;
+  readonly poppySession: boolean;
+};
+
 /** What a test can read back. JSON-safe and shallow. */
 export type MockState = {
   /** Every check the Company recorded, `[id] detail` with ids from `VIOLATIONS`, in order. */
@@ -421,6 +450,8 @@ export type MockState = {
   /** The recorded checks that are warnings (basis SHOULD, Guides or Reading). */
   readonly warnings: string[];
   readonly requests: MockRequest[];
+  /** Every JSON-RPC message the MCP server answered after the Session's checks, in order, with the lifecycle it was served under. */
+  readonly mcp: readonly McpExchange[];
   /** `token_type_hint` of each revocation request, or null when absent (RFC 7009 makes it optional). */
   readonly revocationHints: (string | null)[];
   readonly userIds: string[];

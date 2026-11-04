@@ -25,6 +25,8 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - A sign-in type a Company refuses with `unauthorized_client` is remembered for an hour, and the Session continues signed out.
 - When a domain's Company identifier changes, accounts held under the old one are signed out and the User is told.
 - The official Company kit is re-pinned to the 3 November download, matching upstream `7205250`.
+- MCP 2026-07-28 beside 2025-06-18 (7; [#47](https://github.com/adewale/pda/issues/47)). A server that speaks only 2026-07-28 can now be used: requests carry the version and client metadata in `_meta` and its mirrored headers, with no `initialize` or `Mcp-Session-Id`. The client learns each server's era with a `server/discover` probe and falls back to `initialize` on the binding's legacy signal. A `tools/call` is never sent again by that negotiation ([readings](docs/readings.md#mcp-lifecycle)).
+- The mock's MCP server speaks 2025-06-18, 2026-07-28 or both (`mcpVersions`), each enforcing its version's wire rules: `mcp.legacy-session`, `mcp.legacy-version-header`, `mcp.legacy-initialized`, and `mcp.modern-meta`, `-client-info`, `-version-header`, `-method-header`, `-name-header`, `-param-header` and `-session-id`. Its `state().mcp` lists every JSON-RPC message with the lifecycle it was served under.
 
 ### Changed
 
@@ -36,6 +38,7 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
 - Domains sharing an issuer are no longer refused when their `auth` objects differ.
 - The mock follows 8.2's conversation ownership (the `client_id`, the User ID, and the account once used) and 8.10's `invalid_request` for a Direct Conversation as parent.
 - Readings: a 404 alone doesn't replace an issuer the agent already knew; issues 11 and 21 are settled upstream.
+- An MCP server PDA hasn't seen before now gets a `server/discover` probe first. A 2025-06-18 server answers it with a 400, then gets `initialize` as before; the protocol log shows that 400. The mock's default 2025-06-18 server now refuses a request without the session `initialize` opened.
 
 ### Migration and rollback
 

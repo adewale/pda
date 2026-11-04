@@ -465,6 +465,53 @@ function exchange(c: C, s: Session, headers: Record<string, string> = {}, body: 
 
 type Operation = { operation_id: string; revision: string; summary: string; terms?: Record<string, unknown>; expires_at: string };
 
+const MCP_INITIALIZE = { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "mock-test", version: "1" } } };
+const LEGACY_ONLY: Partial<MockConfig> = { mcpVersions: ["2025-06-18"] };
+const MODERN_ONLY: Partial<MockConfig> = { mcpVersions: ["2026-07-28"] };
+const DUAL_ERA: Partial<MockConfig> = { mcpVersions: ["2026-07-28", "2025-06-18"] };
+
+/** Open a 2025-06-18 MCP session, `initialize` then `notifications/initialized`, and return the headers each later request carries. */
+async function legacyMcp(c: C, s: Session, options: { initialized?: boolean } = {}): Promise<Record<string, string>> {
+  const opened = await call(c, s, "POST", c.hosts.mcpUrl, { headers: MCP_ACCEPT, body: MCP_INITIALIZE });
+  expect(opened.status).toBe(200);
+  await opened.body?.cancel();
+  const headers = { ...MCP_ACCEPT, "Mcp-Session-Id": opened.headers.get("Mcp-Session-Id")!, "MCP-Protocol-Version": "2025-06-18" };
+  if (options.initialized !== false) {
+    const note = await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: { jsonrpc: "2.0", method: "notifications/initialized" } });
+    expect(note.status).toBe(202);
+  }
+  return headers;
+}
+
+/** Each mock tool's `x-mcp-header` arguments. */
+const MCP_PARAMS: Record<string, string> = { query: "Query", order_id: "Order-Id" };
+
+/**
+ * A correct 2026-07-28 request (MCP Base Protocol "_meta", Streamable HTTP "Request Metadata"):
+ * the protocol fields in `_meta`, mirrored into headers with the tool's name and `x-mcp-header`
+ * arguments. `meta` and `headers` are merged over the correct ones; undefined removes.
+ */
+function modernMcp(method: string, params: Record<string, unknown> = {}, tamper: { meta?: Record<string, unknown>; headers?: Record<string, string | undefined> } = {}) {
+  const meta = defined({
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "mock-test", version: "1" },
+    "io.modelcontextprotocol/clientCapabilities": {},
+    ...((params._meta as Record<string, unknown> | undefined) ?? {}),
+    ...tamper.meta
+  });
+  const args = (params.arguments ?? {}) as Record<string, unknown>;
+  const mirrored = Object.fromEntries(Object.entries(args).filter(([name]) => MCP_PARAMS[name]).map(([name, value]) => [`Mcp-Param-${MCP_PARAMS[name]}`, String(value)]));
+  const headers = defined({
+    ...MCP_ACCEPT,
+    "MCP-Protocol-Version": "2026-07-28",
+    "Mcp-Method": method,
+    ...(method === "tools/call" ? { "Mcp-Name": String(params.name) } : {}),
+    ...mirrored,
+    ...tamper.headers
+  }) as Record<string, string>;
+  return { headers, body: { jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: meta } } };
+}
+
 /** A signed-in Session whose exchange came back `approval_required` with this operation (Ops 4). */
 async function refused(c: C, s?: Session) {
   const signed = s ?? (await signedIn(c));
@@ -994,8 +1041,118 @@ const TAMPERS: readonly Tamper[] = [
     what: "an MCP request that only Accepts JSON",
     detail: '[mcp.accept] MCP request must Accept application/json and text/event-stream, got "application/json"',
     run: async (c) => {
-      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, { body: { jsonrpc: "2.0", id: 1, method: "tools/list" }, headers: { Accept: "application/json" } });
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, { body: MCP_INITIALIZE, headers: { Accept: "application/json" } });
       expect(response.status).toBe(200);
+    }
+  },
+  // ---- MCP 2025-06-18's lifecycle (7) ----
+  {
+    id: "mcp.legacy-session",
+    what: "an MCP request after initialize without Mcp-Session-Id",
+    config: LEGACY_ONLY,
+    detail: "[mcp.legacy-session] tools/list without Mcp-Session-Id",
+    run: async (c) => {
+      const s = await session();
+      const { "Mcp-Session-Id": _dropped, ...headers } = await legacyMcp(c, s);
+      const response = await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: -32000 } });
+    }
+  },
+  {
+    id: "mcp.legacy-version-header",
+    what: "an MCP request in a session without MCP-Protocol-Version",
+    config: LEGACY_ONLY,
+    detail: "[mcp.legacy-version-header] tools/list: MCP-Protocol-Version null in a 2025-06-18 session",
+    run: async (c) => {
+      const s = await session();
+      const { "MCP-Protocol-Version": _dropped, ...headers } = await legacyMcp(c, s);
+      expect((await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } })).status).toBe(200);
+    }
+  },
+  {
+    id: "mcp.legacy-initialized",
+    what: "an MCP request in a session before notifications/initialized",
+    config: LEGACY_ONLY,
+    detail: "[mcp.legacy-initialized] tools/list before notifications/initialized",
+    run: async (c) => {
+      const s = await session();
+      const headers = await legacyMcp(c, s, { initialized: false });
+      expect((await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } })).status).toBe(200);
+    }
+  },
+  // ---- MCP 2026-07-28's per-request metadata (7) ----
+  {
+    id: "mcp.modern-meta",
+    what: "a 2026-07-28 request without clientCapabilities in _meta",
+    config: MODERN_ONLY,
+    detail: "[mcp.modern-meta] tools/list: _meta lacks io.modelcontextprotocol/clientCapabilities",
+    run: async (c) => {
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { meta: { "io.modelcontextprotocol/clientCapabilities": undefined } }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: -32602 } });
+    }
+  },
+  {
+    id: "mcp.modern-client-info",
+    what: "a 2026-07-28 request without clientInfo",
+    config: MODERN_ONLY,
+    detail: "[mcp.modern-client-info] tools/list without io.modelcontextprotocol/clientInfo",
+    run: async (c) => expect((await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { meta: { "io.modelcontextprotocol/clientInfo": undefined } }))).status).toBe(200)
+  },
+  {
+    id: "mcp.modern-version-header",
+    what: "a 2026-07-28 request without MCP-Protocol-Version",
+    config: MODERN_ONLY,
+    detail: '[mcp.modern-version-header] tools/list: MCP-Protocol-Version null, _meta "2026-07-28"',
+    run: async (c) => {
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { headers: { "MCP-Protocol-Version": undefined } }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: -32020 } });
+    }
+  },
+  {
+    id: "mcp.modern-method-header",
+    what: "a 2026-07-28 tools/list whose Mcp-Method says tools/call",
+    config: MODERN_ONLY,
+    detail: '[mcp.modern-method-header] tools/list: Mcp-Method "tools/call"',
+    run: async (c) => {
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { headers: { "Mcp-Method": "tools/call" } }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: -32020 } });
+    }
+  },
+  {
+    id: "mcp.modern-name-header",
+    what: "a 2026-07-28 tools/call whose Mcp-Name names another tool",
+    config: MODERN_ONLY,
+    detail: '[mcp.modern-name-header] tools/call "search_products": Mcp-Name "exchange_item"',
+    run: async (c) => {
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/call", { name: "search_products", arguments: { query: "jacket" } }, { headers: { "Mcp-Name": "exchange_item" } }));
+      expect(response.status).toBe(400);
+    }
+  },
+  {
+    id: "mcp.modern-param-header",
+    what: "a 2026-07-28 tools/call without its x-mcp-header argument's header",
+    config: MODERN_ONLY,
+    detail: '[mcp.modern-param-header] tools/call search_products: Mcp-Param-Query null for "jacket"',
+    run: async (c) => {
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/call", { name: "search_products", arguments: { query: "jacket" } }, { headers: { "Mcp-Param-Query": undefined } }));
+      expect(response.status).toBe(400);
+    }
+  },
+  {
+    id: "mcp.modern-session-id",
+    what: "a 2026-07-28 request with Mcp-Session-Id",
+    config: DUAL_ERA,
+    detail: "[mcp.modern-session-id] tools/list with Mcp-Session-Id",
+    run: async (c) => {
+      const s = await session();
+      const { "Mcp-Session-Id": sessionId } = await legacyMcp(c, s);
+      const response = await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { headers: { "Mcp-Session-Id": sessionId } }));
+      expect(response.status).toBe(200);
+      expect(response.headers.has("Mcp-Session-Id")).toBe(false);
     }
   },
 
@@ -1665,11 +1822,13 @@ const TAMPERS: readonly Tamper[] = [
     id: "approval.mcp-meta",
     what: "an MCP approval that isn't an object",
     detail: /^\[approval\.mcp-meta\]/,
-    run: async (c) =>
-      call(c, await signedIn(c, { resource: c.hosts.mcpUrl }), "POST", c.hosts.mcpUrl, {
-        headers: MCP_ACCEPT,
+    run: async (c) => {
+      const s = await signedIn(c, { resource: c.hosts.mcpUrl });
+      return call(c, s, "POST", c.hosts.mcpUrl, {
+        headers: await legacyMcp(c, s),
         body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", ...EXCHANGE }, _meta: { "personalagentprotocol.org/approval": "yes" } } }
-      })
+      });
+    }
   },
   {
     id: "approval.message",
@@ -2066,7 +2225,7 @@ describe("the mock Company", () => {
     const s: Session = { ...(await session()), ...tokens };
     const mcp = await tokensFrom(await refresh(c, s, { resource: c.hosts.mcpUrl }), flow.key);
     expect(mcp.tokenType).toBe("Bearer");
-    const listed = await call(c, { ...s, ...mcp }, "POST", c.hosts.mcpUrl, { headers: MCP_ACCEPT, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+    const listed = await call(c, { ...s, ...mcp }, "POST", c.hosts.mcpUrl, { headers: await legacyMcp(c, { ...s, ...mcp }), body: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
     const tools = (await listed.json()) as { result: { tools: { name: string }[] } };
     expect(tools.result.tools.map((tool) => tool.name)).toEqual(["search_products", "exchange_item"]);
     expect((await c.stub.state()).recorded).toEqual([]);
@@ -2235,9 +2394,10 @@ describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
   it("asks for approval in an MCP tool result and performs the tool call sent again with the approval in _meta (Ops 4, 6)", async () => {
     const c = company();
     const s = await signedIn(c, { resource: c.hosts.mcpUrl });
+    const headers = await legacyMcp(c, s);
     const callTool = (meta?: Record<string, unknown>) =>
       call(c, s, "POST", c.hosts.mcpUrl, {
-        headers: MCP_ACCEPT,
+        headers,
         body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", ...EXCHANGE }, ...(meta ? { _meta: meta } : {}) } }
       });
     const first = (await (await callTool()).json()) as { result: { isError: boolean; structuredContent: { operation: Operation } } };
@@ -2556,5 +2716,96 @@ describe("Company flaws", () => {
     await revoke(c, { client });
     await revoke(c, { client });
     expect((await c.stub.state()).recorded.map(violationId)).toEqual(["client-assertion.jti-reused"]);
+  });
+});
+
+describe("the mock Company's MCP server under each version (7; MCP 2026-07-28 Versioning)", () => {
+  const listTools = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+
+  it("speaks 2025-06-18 alone: a 2026-07-28 request gets a 400 that isn't a 2026-07-28 error, and initialize opens a session", async () => {
+    const c = company();
+    await c.stub.configure(LEGACY_ONLY);
+    const s = await session();
+    const probe = await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("server/discover"));
+    expect(probe.status).toBe(400);
+    const refused = (await probe.json()) as { error: { code: number } };
+    expect([-32020, -32021, -32022]).not.toContain(refused.error.code);
+    const headers = await legacyMcp(c, s);
+    const listed = await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: listTools });
+    const body = (await listed.json()) as { result: Record<string, unknown> };
+    expect(body.result.resultType).toBeUndefined();
+    const state = await c.stub.state();
+    expect(state.mcp.map((exchange) => `${exchange.method} ${exchange.lifecycle} ${exchange.status}`)).toEqual([
+      "server/discover modern 400",
+      "initialize legacy 200",
+      "notifications/initialized legacy 202",
+      "tools/list legacy 200"
+    ]);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("speaks 2026-07-28 alone: discovery and results say so, no session is minted, and initialize or a 2025-06-18 request is told what it speaks", async () => {
+    const c = company();
+    await c.stub.configure(MODERN_ONLY);
+    const s = await session();
+    const discovered = await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("server/discover"));
+    expect(discovered.status).toBe(200);
+    expect(discovered.headers.has("Mcp-Session-Id")).toBe(false);
+    expect(await discovered.json()).toMatchObject({ result: { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities: { tools: {} }, cacheScope: "public" } });
+    const initialize = await call(c, s, "POST", c.hosts.mcpUrl, { headers: MCP_ACCEPT, body: MCP_INITIALIZE });
+    expect(initialize.status).toBe(400);
+    expect(await initialize.json()).toMatchObject({ error: { code: -32022, data: { supported: ["2026-07-28"], requested: "2025-06-18" } } });
+    const stale = await call(c, s, "POST", c.hosts.mcpUrl, { headers: { ...MCP_ACCEPT, "MCP-Protocol-Version": "2025-06-18", "Mcp-Session-Id": "mcp_gone" }, body: listTools });
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toMatchObject({ error: { code: -32022, data: { supported: ["2026-07-28"] } } });
+    const listed = (await (await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("tools/list"))).json()) as { result: { resultType: string; ttlMs: number; tools: { name: string }[] } };
+    expect(listed.result.resultType).toBe("complete");
+    expect(listed.result.ttlMs).toBeGreaterThan(0);
+    expect(listed.result.tools.map((tool) => tool.name)).toEqual(["search_products", "exchange_item"]);
+    // A value that isn't plain ASCII goes Base64 in its header (Streamable HTTP, "Value Encoding").
+    const search = modernMcp("tools/call", { name: "search_products", arguments: { query: "Stormline é" } }, { headers: { "Mcp-Param-Query": `=?base64?${btoa(String.fromCharCode(...new TextEncoder().encode("Stormline é")))}?=` } });
+    expect(await (await call(c, s, "POST", c.hosts.mcpUrl, search)).json()).toMatchObject({ result: { resultType: "complete", content: [{ text: "No products" }] } });
+    const unknown = await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("resources/list"));
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toMatchObject({ error: { code: -32601 } });
+    expect((await c.call(c.hosts.mcpUrl, { method: "GET" })).status).toBe(405);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("speaks both: discovery names both, and a session and stateless requests are served side by side", async () => {
+    const c = company();
+    await c.stub.configure(DUAL_ERA);
+    const s = await session();
+    expect(await (await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("server/discover"))).json()).toMatchObject({ result: { supportedVersions: ["2026-07-28", "2025-06-18"] } });
+    const headers = await legacyMcp(c, s);
+    expect((await call(c, s, "POST", c.hosts.mcpUrl, { headers, body: listTools })).status).toBe(200);
+    expect((await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("tools/list"))).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.mcp.map((exchange) => `${exchange.method} ${exchange.lifecycle}`)).toEqual([
+      "server/discover modern",
+      "initialize legacy",
+      "notifications/initialized legacy",
+      "tools/list legacy",
+      "tools/list modern"
+    ]);
+    expect(state.mcp.every((exchange) => exchange.poppySession)).toBe(true);
+    expect(state.mcp.filter((exchange) => exchange.lifecycle === "modern").every((exchange) => !exchange.mcpSessionId)).toBe(true);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("takes the approval in a 2026-07-28 tools/call's _meta beside the protocol fields (Ops 6)", async () => {
+    const c = company();
+    await c.stub.configure(MODERN_ONLY);
+    const s = await signedIn(c, { resource: c.hosts.mcpUrl });
+    const args = { order_id: "ord_7Hk2", ...EXCHANGE };
+    const first = (await (await call(c, s, "POST", c.hosts.mcpUrl, modernMcp("tools/call", { name: "exchange_item", arguments: args }))).json()) as { result: { isError: boolean; structuredContent: { operation: Operation } } };
+    expect(first.result.isError).toBe(true);
+    const { operation } = first.result.structuredContent;
+    const approved = modernMcp("tools/call", { name: "exchange_item", arguments: args, _meta: { "personalagentprotocol.org/approval": { operation_id: operation.operation_id, revision: operation.revision } } });
+    expect(Object.keys(approved.body.params._meta)).toEqual(expect.arrayContaining(["io.modelcontextprotocol/protocolVersion", "personalagentprotocol.org/approval"]));
+    expect(await (await call(c, s, "POST", c.hosts.mcpUrl, approved)).json()).toMatchObject({ result: { resultType: "complete", content: [{ text: "Exchange placed." }] } });
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
   });
 });

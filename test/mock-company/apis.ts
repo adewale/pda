@@ -8,6 +8,48 @@ import {
   type ResourceContext
 } from "./core";
 import { parseApprovalHeader, type Operations } from "./operations";
+import type { McpExchange, McpVersion } from "./types";
+
+const MCP_LEGACY = "2025-06-18";
+const MCP_MODERN = "2026-07-28";
+/** Versions that open with `initialize` (MCP 2026-07-28 Versioning, "Terminology"): their header asks for a session, not per-request metadata. */
+const LEGACY_MCP_VERSIONS: readonly string[] = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+/** The `_meta` keys MCP 2026-07-28 reserves for each request's protocol fields (Base Protocol, "_meta"). */
+const MCP_META = {
+  protocolVersion: "io.modelcontextprotocol/protocolVersion",
+  clientInfo: "io.modelcontextprotocol/clientInfo",
+  clientCapabilities: "io.modelcontextprotocol/clientCapabilities",
+  serverInfo: "io.modelcontextprotocol/serverInfo"
+} as const;
+
+type McpMessage = { readonly method: string; readonly params?: unknown };
+type McpOutcome = { result: Record<string, unknown> } | { error: { code: number; message: string } };
+type McpFailure = (status: number, code: number, message: string, data?: unknown) => Response;
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/** A mirrored header's value (MCP 2026-07-28 Streamable HTTP, "Value Encoding"): Base64 UTF-8 between `=?base64?` and `?=`, else as sent. */
+function headerValue(sent: string | null): string | null {
+  if (sent === null) return null;
+  const encoded = /^=\?base64\?([A-Za-z0-9+/]*={0,2})\?=$/.exec(sent);
+  if (!encoded) return sent;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(encoded[1]!), (char) => char.charCodeAt(0)));
+  } catch {
+    return "\u0000undecodable";
+  }
+}
+
+/** The arguments a tool mirrors into `Mcp-Param-{name}` headers: `x-mcp-header`, reached through `properties` alone. */
+function headerParameters(schema: unknown, path: readonly string[] = []): { header: string; path: readonly string[] }[] {
+  return Object.entries(record(record(schema)?.properties) ?? {}).flatMap(([key, child]) => {
+    const here = [...path, key];
+    const header = record(child)?.["x-mcp-header"];
+    return [...(typeof header === "string" ? [{ header, path: here }] : []), ...headerParameters(child, here)];
+  });
+}
 
 const PRODUCTS = [
   { sku: "stormline-m", name: "Stormline Jacket (M)", price: { amount: "180.00", currency: "USD" } },
@@ -91,7 +133,9 @@ export class Apis {
   readonly #unapprovedKeys = new Set<string>();
   /** The print shop's photos, each belonging to the Session that uploaded it. */
   readonly #photos = new Map<string, { sessionId: string; name: string; type: string; size: number }>();
-  readonly #mcpSessions = new Set<string>();
+  /** 2025-06-18 sessions by `Mcp-Session-Id`: the version `initialize` negotiated, and whether `notifications/initialized` came. */
+  readonly #mcpSessions = new Map<string, { initialized: boolean; version: McpVersion }>();
+  readonly #mcpLog: McpExchange[] = [];
 
   constructor(
     readonly company: Company,
@@ -548,7 +592,7 @@ export class Apis {
     return json({ error: "not_found" }, 404);
   }
 
-  // ---- MCP (Streamable HTTP, 2025-06-18) ----
+  // ---- MCP (Streamable HTTP: 2025-06-18's session, 2026-07-28's per-request metadata) ----
 
   protectedResourceMetadata() {
     const co = this.company;
@@ -560,85 +604,224 @@ export class Apis {
     };
   }
 
+  /** Every message the MCP server answered after the Session's checks, for `state().mcp`. */
+  get mcpLog(): readonly McpExchange[] {
+    return this.#mcpLog;
+  }
+
+  /**
+   * The MCP server (7). Which lifecycle a request gets depends on
+   * `mcpVersions` and on how the request opens: `initialize` asks for
+   * 2025-06-18's session; per-request `_meta`, or a version header newer
+   * than the legacy ones, asks for 2026-07-28. A dual-era server serves both
+   * (MCP 2026-07-28 Versioning, "Backward Compatibility").
+   */
   async mcp(inbound: Inbound): Promise<Response> {
     const co = this.company;
     if (inbound.request.method !== "POST") return new Response(null, { status: 405 });
-    const accept = inbound.request.headers.get("Accept") ?? "";
+    const headers = inbound.request.headers;
+    const accept = headers.get("Accept") ?? "";
     if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
       co.violation("mcp.accept", `MCP request must Accept application/json and text/event-stream, got ${JSON.stringify(accept)}`);
     }
     // MCP clients discover OAuth before they have a Poppy identity (spec 7).
     // A token we issued to a Personal Agent still requires its Session header.
-    const authorization = inbound.request.headers.get("Authorization");
+    const authorization = headers.get("Authorization");
     const presented = authorization?.split(" ", 2)[1];
-    if (!inbound.request.headers.has("Poppy-Session") && (!presented || !co.accessTokens.has(presented))) {
+    if (!headers.has("Poppy-Session") && (!presented || !co.accessTokens.has(presented))) {
       const error = authorization ? { error: "invalid_token" } : {};
       return json(error, 401, { "WWW-Authenticate": `Bearer ${authorization ? 'error="invalid_token", ' : ""}resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", co.hosts.mcpUrl).href}"` });
     }
     const context = await co.authorizeResource(inbound, true);
-    const rpc = JSON.parse(inbound.bodyText || "{}") as {
-      jsonrpc?: string;
-      id?: string | number;
-      method?: string;
-      params?: Record<string, unknown>;
-    };
-    const reply = (result: unknown, headers: Record<string, string> = {}) =>
-      json({ jsonrpc: "2.0", id: rpc.id ?? null, result }, 200, headers);
-    const rpcError = (code: number, message: string) =>
-      json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code, message } });
-    if (rpc.method === "initialize") {
-      const session = randomId("mcp_", 8);
-      this.#mcpSessions.add(session);
-      return reply(
-        {
-          protocolVersion: "2025-06-18",
-          capabilities: { tools: {} },
-          serverInfo: { name: `mock-shop-${co.id}`, version: "1.0.0" }
-        },
-        { "Mcp-Session-Id": session }
-      );
-    }
-    if (rpc.method?.startsWith("notifications/")) return new Response(null, { status: 202 });
-    if (rpc.method === "tools/list") {
-      return reply({
-        tools: [
-          {
-            name: "search_products",
-            description: `Search products by name.${co.config.injection ? ` ${co.config.injection}` : ""}`,
-            inputSchema: { type: "object", properties: { query: { type: "string" } } },
-            annotations: { readOnlyHint: true }
-          },
-          {
-            name: "exchange_item",
-            description: `Exchange an item on an order. Asks for the User's approval of its terms when supported.${co.config.injection ? ` ${co.config.injection}` : ""}`,
-            inputSchema: {
-              type: "object",
-              required: ["order_id", "item_id", "replacement_sku"],
-              properties: {
-                order_id: { type: "string" },
-                item_id: { type: "string" },
-                replacement_sku: { type: "string" }
-              }
-            },
-            annotations: { readOnlyHint: false, destructiveHint: false }
-          }
-        ]
+    let parsed: unknown;
+    try { parsed = JSON.parse(inbound.bodyText); } catch { parsed = null; }
+    const message = record(parsed);
+    const method = typeof message?.method === "string" ? message.method : null;
+    const speaks = co.config.mcpVersions;
+    const versionHeader = headers.get("MCP-Protocol-Version");
+    const meta = record(record(message?.params)?._meta) ?? {};
+    const modern = method !== "initialize" &&
+      ((versionHeader !== null && !LEGACY_MCP_VERSIONS.includes(versionHeader)) || meta[MCP_META.protocolVersion] !== undefined || !speaks.includes(MCP_LEGACY));
+    const answer = (response: Response, code: number | null = null): Response => {
+      this.#mcpLog.push({
+        method,
+        lifecycle: modern ? "modern" : "legacy",
+        status: response.status,
+        code,
+        protocolVersion: versionHeader,
+        mcpSessionId: headers.has("Mcp-Session-Id"),
+        poppySession: headers.has("Poppy-Session")
       });
+      return response;
+    };
+    const id = typeof message?.id === "string" || typeof message?.id === "number" ? message.id : null;
+    const failure: McpFailure = (status, code, text, data) =>
+      answer(json({ jsonrpc: "2.0", id, error: { code, message: text, ...(data === undefined ? {} : { data }) } }, status), code);
+    if (!message || method === null) return failure(400, -32700, "Parse error");
+    const rpc: McpMessage = { method, params: message.params };
+    if (method === "initialize") {
+      // A modern-only server names what it does speak (MCP 2026-07-28 Versioning: "SHOULD name the protocol versions it supports in any error it returns to an initialize request").
+      if (!speaks.includes(MCP_LEGACY)) return failure(400, -32022, "Unsupported protocol version", { supported: [...speaks], requested: record(rpc.params)?.protocolVersion ?? null });
+      const session = randomId("mcp_", 8);
+      this.#mcpSessions.set(session, { initialized: false, version: MCP_LEGACY });
+      return answer(json({
+        jsonrpc: "2.0",
+        id,
+        result: { protocolVersion: MCP_LEGACY, capabilities: { tools: {} }, serverInfo: { name: `mock-shop-${co.id}`, version: "1.0.0" } }
+      }, 200, { "Mcp-Session-Id": session }));
+    }
+    if (modern) {
+      // A legacy server reads a version it doesn't know as a bad request; its body is no 2026-07-28 error, so a dual-era client falls back.
+      if (!speaks.includes(MCP_MODERN)) return failure(400, -32000, `Bad Request: Unsupported protocol version: ${versionHeader ?? "none"}`);
+      // 2026-07-28 defines no client notifications over HTTP, nor headers for one.
+      if (method.startsWith("notifications/")) return answer(new Response(null, { status: 202 }));
+      const refused = this.#modernRequest(rpc, meta, headers, versionHeader, failure);
+      if (refused) return refused;
+    } else {
+      const refused = this.#legacyRequest(rpc, headers, versionHeader, failure);
+      if (refused) return refused;
+      if (method.startsWith("notifications/")) return answer(new Response(null, { status: 202 }));
+    }
+    let result: McpOutcome;
+    try {
+      result = await this.#mcpMethod(rpc, context, modern);
+    } catch (error) {
+      if (error instanceof HttpError) answer(error.response);
+      throw error;
+    }
+    // 2026-07-28 answers a method it doesn't implement with 404 (Streamable HTTP, "Protocol Version Header").
+    if ("error" in result) return failure(modern && result.error.code === -32601 ? 404 : 200, result.error.code, result.error.message);
+    const body = modern
+      ? { resultType: "complete", ...result.result, _meta: { [MCP_META.serverInfo]: { name: `mock-shop-${co.id}`, version: "1.0.0" } } }
+      : result.result;
+    return answer(json({ jsonrpc: "2.0", id, result: body }));
+  }
+
+  /**
+   * MCP 2026-07-28's checks, in the order a server can tell them apart. A
+   * version it doesn't speak is answered with the versions it does, which a
+   * dual-era client may provoke on purpose; everything else is the client's
+   * mistake, recorded and refused with the error the binding names.
+   */
+  #modernRequest(rpc: McpMessage, meta: Record<string, unknown>, headers: Headers, versionHeader: string | null, failure: McpFailure): Response | null {
+    const co = this.company;
+    const speaks = co.config.mcpVersions;
+    const metaVersion = meta[MCP_META.protocolVersion];
+    const unsupported = () => failure(400, -32022, "Unsupported protocol version", { supported: [...speaks], requested: versionHeader ?? metaVersion ?? null });
+    // A legacy request (its session's version) at a server that dropped that version.
+    if (versionHeader !== null && versionHeader !== MCP_MODERN && (metaVersion === undefined || metaVersion === versionHeader)) return unsupported();
+    if (typeof metaVersion !== "string" || record(meta[MCP_META.clientCapabilities]) === null) {
+      co.violation("mcp.modern-meta", `${rpc.method}: _meta lacks ${typeof metaVersion !== "string" ? MCP_META.protocolVersion : MCP_META.clientCapabilities}`);
+      return failure(400, -32602, "Invalid params: missing required _meta fields");
+    }
+    if (versionHeader !== metaVersion) {
+      co.violation("mcp.modern-version-header", `${rpc.method}: MCP-Protocol-Version ${JSON.stringify(versionHeader)}, _meta ${JSON.stringify(metaVersion)}`);
+      return failure(400, -32020, "Header mismatch: MCP-Protocol-Version");
+    }
+    if (metaVersion !== MCP_MODERN) return unsupported();
+    if (record(meta[MCP_META.clientInfo]) === null) co.violation("mcp.modern-client-info", `${rpc.method} without ${MCP_META.clientInfo}`);
+    const method = headers.get("Mcp-Method");
+    if (method !== rpc.method) {
+      co.violation("mcp.modern-method-header", `${rpc.method}: Mcp-Method ${JSON.stringify(method)}`);
+      return failure(400, -32020, "Header mismatch: Mcp-Method");
     }
     if (rpc.method === "tools/call") {
-      const name = rpc.params?.name;
-      const args = (rpc.params?.arguments ?? {}) as Record<string, unknown>;
+      const params = record(rpc.params) ?? {};
+      const name = headerValue(headers.get("Mcp-Name"));
+      if (name !== params.name) {
+        co.violation("mcp.modern-name-header", `tools/call ${JSON.stringify(params.name)}: Mcp-Name ${JSON.stringify(headers.get("Mcp-Name"))}`);
+        return failure(400, -32020, "Header mismatch: Mcp-Name");
+      }
+      const tool = this.#mcpTools().find((item) => item.name === params.name);
+      const args = record(params.arguments) ?? {};
+      for (const { header, path } of tool ? headerParameters(tool.inputSchema) : []) {
+        const value = path.reduce<unknown>((at, key) => record(at)?.[key], args);
+        const sent = headers.get(`Mcp-Param-${header}`);
+        const expected = value === undefined || value === null ? null : String(value);
+        if (headerValue(sent) !== expected) {
+          co.violation("mcp.modern-param-header", `tools/call ${String(params.name)}: Mcp-Param-${header} ${JSON.stringify(sent)} for ${JSON.stringify(value ?? null)}`);
+          return failure(400, -32020, `Header mismatch: Mcp-Param-${header}`);
+        }
+      }
+    }
+    // Servers ignore it (MCP 2026-07-28 Streamable HTTP, "Backward Compatibility"); a client of this version has none to send.
+    if (headers.has("Mcp-Session-Id")) co.violation("mcp.modern-session-id", `${rpc.method} with Mcp-Session-Id`);
+    return null;
+  }
+
+  /** MCP 2025-06-18's checks: the session `initialize` returned, the version it negotiated, and `notifications/initialized` first. */
+  #legacyRequest(rpc: McpMessage, headers: Headers, versionHeader: string | null, failure: McpFailure): Response | null {
+    const co = this.company;
+    const sessionId = headers.get("Mcp-Session-Id");
+    if (sessionId === null) {
+      co.violation("mcp.legacy-session", `${rpc.method} without Mcp-Session-Id`);
+      return failure(400, -32000, "Bad Request: No valid session ID provided");
+    }
+    const session = this.#mcpSessions.get(sessionId);
+    if (!session) return failure(404, -32001, "Session not found");
+    if (versionHeader !== session.version) {
+      co.violation("mcp.legacy-version-header", `${rpc.method}: MCP-Protocol-Version ${JSON.stringify(versionHeader)} in a ${session.version} session`);
+      // 2025-06-18: a server that gets no header assumes 2025-03-26 and goes on; a wrong one is a bad request.
+      if (versionHeader !== null) return failure(400, -32000, `Bad Request: Unsupported protocol version: ${versionHeader}`);
+    }
+    if (rpc.method === "notifications/initialized") session.initialized = true;
+    else if (!session.initialized && rpc.method !== "ping" && !rpc.method.startsWith("notifications/")) {
+      co.violation("mcp.legacy-initialized", `${rpc.method} before notifications/initialized`);
+    }
+    return null;
+  }
+
+  /** The tools, as both lifecycles list them; `x-mcp-header` is an annotation older clients skip. */
+  #mcpTools() {
+    const co = this.company;
+    return [
+      {
+        name: "search_products",
+        description: `Search products by name.${co.config.injection ? ` ${co.config.injection}` : ""}`,
+        inputSchema: { type: "object", properties: { query: { type: "string", "x-mcp-header": "Query" } } },
+        annotations: { readOnlyHint: true }
+      },
+      {
+        name: "exchange_item",
+        description: `Exchange an item on an order. Asks for the User's approval of its terms when supported.${co.config.injection ? ` ${co.config.injection}` : ""}`,
+        inputSchema: {
+          type: "object",
+          required: ["order_id", "item_id", "replacement_sku"],
+          properties: {
+            order_id: { type: "string", "x-mcp-header": "Order-Id" },
+            item_id: { type: "string" },
+            replacement_sku: { type: "string" }
+          }
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false }
+      }
+    ];
+  }
+
+  /** What a method does, the same under either lifecycle; the caller frames it for its version. */
+  async #mcpMethod(rpc: McpMessage, context: ResourceContext, modern: boolean): Promise<McpOutcome> {
+    const co = this.company;
+    if (rpc.method === "server/discover" && modern) {
+      return { result: { supportedVersions: [...co.config.mcpVersions], capabilities: { tools: {} }, ttlMs: 3_600_000, cacheScope: "public" } };
+    }
+    if (rpc.method === "tools/list") {
+      return { result: { tools: this.#mcpTools(), ...(modern ? { ttlMs: 300_000, cacheScope: "private" } : {}) } };
+    }
+    if (rpc.method === "tools/call") {
+      const params = record(rpc.params) ?? {};
+      const name = params.name;
+      const args = (record(params.arguments) ?? {}) as Record<string, unknown>;
       if (name === "search_products") {
         const query = String(args.query ?? "").toLowerCase();
         const products = PRODUCTS.filter((product) => product.name.toLowerCase().includes(query));
-        return reply({
+        return { result: {
           content: [{ type: "text", text: products.map((product) => product.name).join(", ") || "No products" }],
           structuredContent: { products }
-        });
+        } };
       }
       if (name === "exchange_item" && co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
-        const meta = (rpc.params?._meta ?? {}) as Record<string, unknown>;
+        const meta = record(params._meta) ?? {};
         const given = meta["personalagentprotocol.org/approval"];
         const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, string>) : null;
         if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
@@ -646,26 +829,26 @@ export class Apis {
         }
         const result = this.operations.exchange(context, `tools/call exchange_item ${JSON.stringify(args)}`, args, approval);
         if ("operation" in result) {
-          return reply({
+          return { result: {
             isError: true,
             content: [{ type: "text", text: `Not done yet. This needs the user's approval: ${result.operation.summary}` }],
             structuredContent: { operation: result.operation }
-          });
+          } };
         }
-        return reply({ content: [{ type: "text", text: "Exchange placed." }], structuredContent: result.performed.body as Record<string, unknown> });
+        return { result: { content: [{ type: "text", text: "Exchange placed." }], structuredContent: result.performed.body as Record<string, unknown> } };
       }
       if (name === "exchange_item") {
         co.requireScopes(context, [co.orderScopes.write], true);
         if (co.config.requireOperationsExtension) {
           // An MCP server refuses one tool with an ordinary tool error, never extension_required (Ops 2).
-          return reply({ isError: true, content: [{ type: "text", text: "Exchanging needs the Operations extension." }] });
+          return { result: { isError: true, content: [{ type: "text", text: "Exchanging needs the Operations extension." }] } };
         }
         co.performExchange(context.account, "MCP tool call");
-        return reply({ content: [{ type: "text", text: "Exchange placed." }], structuredContent: { exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } } });
+        return { result: { content: [{ type: "text", text: "Exchange placed." }], structuredContent: { exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } } } };
       }
-      return rpcError(-32602, `unknown tool ${String(name)}`);
+      return { error: { code: -32602, message: `unknown tool ${String(name)}` } };
     }
-    return rpcError(-32601, `unknown method ${String(rpc.method)}`);
+    return { error: { code: -32601, message: `unknown method ${String(rpc.method)}` } };
   }
 }
 

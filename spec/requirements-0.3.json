@@ -457,7 +457,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/apis.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Every access token is sent as its token_type names. The MCP server's metadata must name the issuer only before a token is requested for it, read after interrupted sign-ins are recovered; signed-out calls, and every call at a Company without an issuer, go as poppy.json lists the server. The client speaks MCP 2025-06-18 with its own MCP session, separate from the Poppy Session; MCP 2026-07-28's stateless lifecycle isn't supported yet (TODO.md)."
+      "notes": "Every access token is sent as its token_type names. The MCP server's metadata must name the issuer only before a token is requested for it, read after interrupted sign-ins are recovered; signed-out calls, and every call at a Company without an issuer, go as poppy.json lists the server. The client speaks MCP 2026-07-28, with per-request metadata and no MCP session, and 2025-06-18, with its own MCP session, learning each server's era with a server/discover probe and the binding's legacy fallback (test/mcp-lifecycle.test.ts; docs/readings.md). Either way the Poppy Session stays separate from MCP's lifecycle."
     },
     {
       "change": "`author` replaces `sender`",
