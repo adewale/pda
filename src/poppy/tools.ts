@@ -111,13 +111,23 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     return candidate === undefined ? one(client().sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", held)?.value : intent(client().sql, held, () => candidate);
   };
   const scope = new TaskCompanyScope(firstCompany);
+  /** The Company a tool call reaches: its `domain`, or the Company its `conversation` belongs to. */
+  const targetOf = (args: unknown): string | null | undefined => {
+    const { domain, conversation: id } = args as { domain?: unknown; conversation?: unknown };
+    if (typeof domain === "string") return domain;
+    if (typeof id !== "string") return undefined;
+    const row = conversation(client(), id);
+    // An unknown conversation is the tool's own conversation_not_found; one whose Company can't be told is refused.
+    return row ? client().taskDomain(row.issuer, "conversation", row.id) ?? null : undefined;
+  };
   const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key, signal, invocation) => {
-    const domain = (args as { domain?: unknown }).domain;
-    if (typeof domain === "string" && definition.name !== "poppy_api_call") {
-      if (!scope.allow(domain)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
+    const target = targetOf(args);
+    // poppy_api_call checks its own recipients; poppy_read sends nothing, but what it returns is the Company's.
+    if (target !== undefined && definition.name !== "poppy_api_call" && definition.name !== "poppy_read") {
+      if (target === null || !scope.allow(target)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
     }
     const answer = await run(args, key, signal, invocation);
-    if (typeof domain === "string") scope.receivedCompanyContent();
+    if (target !== undefined) scope.receivedCompanyContent();
     return answer;
   });
   const company = (domain: string) => client().company(domain);

@@ -587,6 +587,18 @@ export class PoppyClient {
   }
 
   /** Revalidate the original domain before resuming credentials or consequential work. */
+  /**
+   * The Company domain a task belongs to, from its stored discovery context,
+   * or the issuer's only domain for an older task without one; undefined
+   * when that can't be told.
+   */
+  taskDomain(issuer: Issuer, kind: string, id: string): string | undefined {
+    const context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
+    if (context) return (JSON.parse(context.company) as Company).domain;
+    const domains = new Set(rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer).map((row) => (JSON.parse(row.company) as Company).domain));
+    return domains.size === 1 ? [...domains][0] : undefined;
+  }
+
   async resumeCompany(issuer: Issuer, kind: string, id: string): Promise<Company> {
     let context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
     if (!context) {
