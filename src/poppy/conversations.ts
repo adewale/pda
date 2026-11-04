@@ -681,9 +681,13 @@ export async function readConversation(
   idleMinMs = 30_000
 ): Promise<number | null> {
   const row = conversation(client, id);
-  if (!row || row.status === "closed") return null;
+  // A closed conversation is read again only while the Company said it has more events (8.5).
+  const moreKey = `read-more|${id}`;
+  const more = () => one(client.sql, found, "SELECT 1 AS found FROM poppy_intents WHERE call_key = ?", moreKey);
+  if (!row || (row.status === "closed" && !more())) return null;
   const company = await client.resumeCompany(row.issuer, "conversation", row.id);
   const endpoint = endpointOf(company);
+  let hasMore = false;
   for (let round = 0; round < 10; round++) {
     const current = conversation(client, id)!;
     const url = new URL(`${endpoint}/${encodeURIComponent(row.remote_id)}/events`);
@@ -742,7 +746,7 @@ export async function readConversation(
       throw new PoppyError(`http_${response.status}`, `${company.name} refused the read`, response.status);
     }
     const type = response.headers.get("Content-Type") ?? "";
-    let hasMore = false;
+    hasMore = false;
     if (type.includes("text/event-stream")) {
       await readStream(client, company, id, response, waitSeconds);
     } else {
@@ -758,6 +762,12 @@ export async function readConversation(
     }
     if (!hasMore) break;
   }
+  // Ten pages a read; the rest come in the next one, soon, even once the conversation is closed.
+  if (hasMore) {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", moreKey, id, Date.now());
+    return Date.now() + 1_000;
+  }
+  client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", moreKey);
   const after = conversation(client, id);
   if (!after || after.status === "closed") return null;
   return nextRead(after, Date.now(), idleMinMs);

@@ -2881,6 +2881,33 @@ describe("8.5 reading again while has_more", () => {
   });
 });
 
+describe("8.5 a closed conversation with more than ten pages", () => {
+  it("reads the rest of a closed conversation's events in the next read, then stops", async () => {
+    const c = await company({ streaming: false, eventPageSize: 1 });
+    const a = await agent();
+    const reads = await holdBackgroundReads(a);
+    try {
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+      const id = first.conversationId as string;
+      await reads.held();
+      const texts = Array.from({ length: 12 }, (_, i) => `Update ${i + 1} of 12.`);
+      for (const text of texts) await c.stub.say(id, text);
+      await c.stub.closeConversation(id);
+      // Ten pages, and the Company still has more: read again soon, though it is closed.
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      expect((await conversationRow(a, id)).status).toBe("closed");
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect((await inbox(a, id)).map((entry) => entry.text)).toEqual(["Hi! How can I help?", ...texts]);
+      // Nothing more: a closed conversation isn't read again.
+      const asked = (await ownReads(c, id)).length;
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect((await ownReads(c, id)).length).toBe(asked);
+    } finally {
+      await reads.release();
+    }
+  });
+});
+
 describe("8.13 conversation errors", () => {
   /** A conversation the agent started, with its background reader held (`holdBackgroundReads`). */
   async function started(config: Partial<MockConfig> = {}) {
