@@ -2004,6 +2004,29 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
+  it("checks the MCP server's metadata after recovering an interrupted sign-in, before any token for it", async () => {
+    const c = await company({ mcpPrmOmitIssuer: true });
+    const a = await agent();
+    // A Direct Sign-In whose code exchange answered before an interruption: the answer is kept
+    // ("exchanged") and the Session isn't signed in yet. The next use recovers it, signing the Session in.
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
+    const [row] = JSON.parse(await a.stub.poppySql("SELECT id, issuer FROM poppy_signins")) as { id: string; issuer: string }[];
+    await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      const kept = await client.sealer.seal(JSON.stringify({ refresh_token: "rt_kept", token_type: "Bearer", expires_in: 3600, scope: "orders:read" }), `signin|${row!.id}|${row!.issuer}`);
+      client.sql.exec("UPDATE poppy_signins SET status = 'exchanged', secret = ? WHERE id = ?", kept, row!.id);
+    });
+    expect(await a.stub.poppySql("SELECT signed_in FROM poppy_sessions")).not.toContain('"signed_in":1');
+    const before = (await requests(c)).length;
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    const after = (await requests(c)).slice(before);
+    expect(after.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
+    // No token was asked for the server, whose metadata doesn't name the issuer.
+    expect(after.filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+  });
+
   it("calls the same MCP server signed out, as poppy.json lists it: 7 asks for the issuer only of a server offering account access", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const a = await agent();

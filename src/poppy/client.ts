@@ -816,6 +816,11 @@ export class PoppyClient {
    * exchange was interrupted, so its refresh token is stored before anything
    * asks for one. Cheap when there is none.
    */
+  /** Finish sign-ins an interruption left half done, so a caller reads the Session as it really is. */
+  async recoverSignIns(issuer: Issuer): Promise<void> {
+    await this.#recoverSignIns(issuer);
+  }
+
   async #recoverSignIns(issuer: Issuer): Promise<void> {
     if (!signInRecovery) return;
     const pending = one(

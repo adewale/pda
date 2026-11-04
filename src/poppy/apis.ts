@@ -1210,17 +1210,24 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   if (loading && (await loading).expiresAt <= Date.now()) loading = undefined;
   // 7: an MCP server's metadata must name the Company's issuer when it offers account access. It is
   // checked before a token is requested for it; a signed-out call, which carries the Session header
-  // alone, goes to the server as poppy.json lists it, metadata or not.
+  // alone, goes to the server as poppy.json lists it, metadata or not. An interrupted sign-in is
+  // recovered first, since recovery can sign the Session in.
+  const validate = () => {
+    if (!loading) {
+      loading = checkResourceMetadata(client, company, api);
+      metadata.set(resourceKey, loading);
+      void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
+    }
+    return loading;
+  };
+  if (!company.issuerless) await client.recoverSignIns(company.issuer);
   const signedIn = !company.issuerless && !!client.session(company.issuer, label)?.signed_in;
-  if (!loading && signedIn) {
-    loading = checkResourceMetadata(client, company, api);
-    metadata.set(resourceKey, loading);
-    void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
-  }
-  const mode = loading ? await loading : { expiresAt: Date.now() + 60_000 };
+  let mode = signedIn ? await validate() : loading ? await loading : { expiresAt: Date.now() + 60_000 };
   // Refresh credentials before choosing a cache entry: sign-in/account changes
   // must never reuse the previous account's MCP session or tool catalogue.
-  await client.token(company, { label, resource: api.url });
+  const held = await client.token(company, { label, resource: api.url });
+  // A sign-in that completed while this was waiting: the metadata is checked before the token is used.
+  if (held && !signedIn) mode = await validate();
   const bound = client.session(company.issuer, label);
   const slot = JSON.stringify([resourceKey, label]);
   const fingerprint = JSON.stringify([bound?.session_id, bound?.account, bound?.signed_in, bound?.authority_generation, bound?.scope]);
