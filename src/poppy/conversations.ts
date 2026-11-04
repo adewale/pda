@@ -369,6 +369,7 @@ async function sendRefused(
     case "conversation_not_found": {
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
       if (row.direct) pushDirect(client, company, row.id);
+      await endInvitations(client, company, row);
       const what = error.is("conversation_closed") ? "has closed" : "no longer has";
       return new PoppyError(
         error.code,
@@ -597,6 +598,7 @@ async function handleEvent(
         );
       } else if (!row.direct && status === "closed") {
         await client.host.notifyModel(`[system] ${company.name} closed conversation ${row.id}.`, operationId);
+        await endInvitations(client, company, row);
       }
       updateState(client, row.id, event);
       if (row.direct) pushDirect(client, company, row.id);
@@ -625,7 +627,11 @@ async function handleEvent(
       const reason = typeof event.reason === "string" ? event.reason : "The company would like to talk with you.";
       // The invitation the User may accept, named by its event id when they do (8.10). Each pending invitation
       // is its own record, consumed when accepted, so a later invitation never reuses an earlier one's id.
+      // Only an open conversation that isn't itself a Direct Conversation can be a parent (8.10), and an
+      // invitation the User already accepted is never offered again.
+      if (row.direct || row.status === "closed") return;
       const eventId = typeof event.id === "string" && ID.test(event.id) ? event.id : undefined;
+      if (eventId && one(client.sql, found, "SELECT 1 AS found FROM poppy_intents WHERE call_key = ?", acceptedKey(row.id, eventId))) return;
       if (eventId) client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", invitationKey(row.id, eventId), eventId, Date.now());
       await client.host.showCard({
         id: `direct-invite-${row.id}`,
@@ -729,6 +735,7 @@ export async function readConversation(
         `poppy-read-gone-${id}`
       );
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
+      await endInvitations(client, company, row);
       return null;
     }
     if (!response.ok) {
@@ -939,6 +946,7 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   }
   client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
   if (row.direct) pushDirect(client, company, id);
+  await endInvitations(client, company, row);
 }
 
 /**
@@ -947,6 +955,34 @@ export async function closeConversation(client: PoppyClient, company: Company, i
  */
 /** A pending `user_requested` invitation in a parent conversation, by its event id (8.10). */
 const invitationKey = (parentId: string, eventId: string) => `direct-invite|${parentId}|${eventId}`;
+/** An invitation the User accepted, so the same event handled again offers nothing. */
+const acceptedKey = (parentId: string, eventId: string) => `direct-accepted|${parentId}|${eventId}`;
+
+/**
+ * The parent closed: a Direct Conversation can no longer start from it
+ * (8.10, `conversation_closed`), so its pending invitations end and an open
+ * invitation card becomes a notice.
+ */
+async function endInvitations(client: PoppyClient, company: Company, row: ConversationRow): Promise<void> {
+  if (row.direct) return;
+  const prefix = `direct-invite|${row.id}|`;
+  client.sql.exec("DELETE FROM poppy_intents WHERE substr(call_key, 1, ?) = ?", prefix.length, prefix);
+  const open = one(
+    client.sql,
+    found,
+    "SELECT 1 AS found FROM poppy_cards WHERE id = ? AND open = 1 AND json_valid(card) AND json_extract(card, '$.kind') = 'direct_invite'",
+    `direct-invite-${row.id}`
+  );
+  if (!open) return;
+  await client.host.showCard({
+    id: `direct-invite-${row.id}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: false,
+    text: `${company.name} closed the conversation, so its invitation to talk directly has ended.`
+  });
+}
 
 export async function startDirectConversation(
   client: PoppyClient,
@@ -972,8 +1008,11 @@ export async function startDirectConversation(
     ...(words !== undefined ? { text: words } : {}),
     ...(invitation ? { userRequestedEventId: invitation } : {})
   });
-  // Accepted: the invitation is spent.
-  if (invitation) client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, invitation));
+  // Accepted: the invitation is spent, and remembered so the same event never offers it again.
+  if (invitation) {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", acceptedKey(parentId, invitation), invitation, Date.now());
+    client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, invitation));
+  }
   await client.host.showCard({
     id: `direct-invite-${parentId}`,
     kind: "notice",
