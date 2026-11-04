@@ -9,7 +9,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "A 404 for the domain's protected resource metadata, or metadata without authorization servers, means no issuer: the Company's identifier is https://{organization.domain}, which is the Session JWT aud and keys its User IDs, Sessions and records. The client uses its APIs, conversations, feedback and browser join signed out, needs no MCP server metadata, and refuses sign-in (no_sign_in) before sending anything. Timeouts, other statuses and invalid metadata settle nothing. Our reading: a 404 alone never replaces an issuer the client already knew; metadata that explicitly lists no authorization server does. The validator reports no issuer as information (prm-no-issuer) and sign-in offered without one as an error (issuer-required). When a domain's identifier changes, accounts held under the old one are signed out through the usual revocation (kept old record, retried revoke job) and the User is told."
+      "notes": "A 404 for the domain's protected resource metadata, or metadata without authorization servers, means no issuer: the Company's identifier is https://{organization.domain}, which is the Session JWT aud and keys its User IDs, Sessions and records. The client uses its APIs, conversations, feedback and browser join signed out, needs no MCP server metadata, and refuses sign-in (no_sign_in) before sending anything. Timeouts, other statuses and invalid metadata settle nothing. Our reading: a 404 alone never replaces an issuer the client already knew; metadata that explicitly lists no authorization server does. The validator reports no issuer as information (prm-no-issuer) and sign-in offered without one as an error (issuer-required). When a domain's identifier changes, or its issuer is removed even with the identifier unchanged (an issuer of exactly https://{domain}), accounts held under the old issuer are signed out through the usual revocation (kept old record, retried revoke job) and the User is told."
     },
     {
       "change": "Shared issuer with per-domain descriptions",
@@ -135,7 +135,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "With auth.disabled, discovery offers no sign-in type and startSignIn refuses before any request; the issuer stays the identifier and stored refresh tokens keep working until revoked. An unauthorized_client from the device endpoint, the Direct Sign-In callback or a token exchange continues signed out, tells the User, and is remembered for an hour, so that sign-in type isn't offered again meanwhile. The validator refuses auth.disabled with Mediated Sign-In or signed_in access (auth-disabled-sign-in)."
+      "notes": "With auth.disabled, discovery offers no sign-in type and startSignIn refuses before any request; the issuer stays the identifier and stored refresh tokens keep working until revoked, including for a new Session that asks for access one already grants. An unauthorized_client from the device endpoint, the Direct Sign-In callback or a token exchange continues signed out, tells the User, and is remembered for an hour, so that sign-in type isn't offered again meanwhile. The validator refuses auth.disabled with Mediated Sign-In or signed_in access (auth-disabled-sign-in)."
     },
     {
       "change": "Extension content in messages",
@@ -149,7 +149,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy.test.ts",
-      "notes": "Accepting a user_requested event names it in user_requested_event_id beside the parent's id; the User may write a first message or let the Company start (\"Let <Company> start\"), and a repeated acceptance reuses its intent and gets the same Direct Conversation. The mock validates the event id (invalid_request otherwise), speaks first without a message, and answers a retry with the same conversation."
+      "notes": "Accepting a user_requested event names it in user_requested_event_id beside the parent's id. The User may write a first message or, on a Company invitation only, let the Company start. Each invitation is pending under its own event id, which its card and the page's frame carry, and is consumed once accepted, so a later or agent-created invitation opens a new Direct Conversation with the User's words. The mock validates the event id (invalid_request otherwise), speaks first without a message, and answers a retry with the same conversation."
     },
     {
       "change": "Operations version 2: retry with approval",
@@ -289,7 +289,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Signing in again for more access requests the new scopes plus those the account's refresh token already grants and the Company still describes. The sign-in card lists all of them."
+      "notes": "Signing in again for more access requests the new scopes plus those the account's refresh token already grants and any of the issuer's known domains still describes or offers, since domains sharing an issuer may expose different scopes. The sign-in card lists all of them."
     },
     {
       "change": "Scopes a Company won't grant",
@@ -457,7 +457,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/apis.ts",
       "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Every access token is sent as its token_type names. The MCP server's metadata must name the issuer only before a token is requested for it; signed-out calls, and every call at a Company without an issuer, go as poppy.json lists the server. The client speaks MCP 2025-06-18 with its own MCP session, separate from the Poppy Session; MCP 2026-07-28's stateless lifecycle isn't supported yet (TODO.md)."
+      "notes": "Every access token is sent as its token_type names. The MCP server's metadata must name the issuer only before a token is requested for it, read after interrupted sign-ins are recovered; signed-out calls, and every call at a Company without an issuer, go as poppy.json lists the server. The client speaks MCP 2025-06-18 with its own MCP session, separate from the Poppy Session; MCP 2026-07-28's stateless lifecycle isn't supported yet (TODO.md)."
     },
     {
       "change": "`author` replaces `sender`",
