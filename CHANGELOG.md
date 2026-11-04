@@ -62,7 +62,9 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
   - `npm run test:hypothesis`: 22 passing. The independent Python client now speaks 2026-07-28 too, written from the MCP text, and each example's mock speaks 2025-06-18, 2026-07-28 or both.
   - The official Company kit, with and without DPoP, `--reviewed-findings`: only the documented findings and skips.
   - `npm run check:approval-crashes`: every process-kill case passing.
-  - Not run: the Docker interop grid and any live Company. No interop peer or live Company speaks 2026-07-28 yet.
+  - The Docker interop grid, honest lane: four agents × both mocks, 254 passing, 34 failing (all the sloppy agent's documented mistakes), 128 unsupported, no errors. `pda` passes all 72 of its supported cells, MCP's AM and ML included. The three security commands, with `--require-supported`: 8, 8 and 16 cells passing.
+  - `scripts/app-smoke.mjs --approval-journey --photo-journey` in Chromium: every check passing, including the OpenAPI and MCP approval journeys and both photo journeys, with no uncaught browser errors.
+  - Not run: any live Company, and the print-with-poppy peer, whose latest commit (`b340741`) still requires `pap_dlg`. No interop peer or live Company speaks 2026-07-28 yet.
 
 ## Unreleased — Poppy 0.3 alone
 
