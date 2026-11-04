@@ -45,7 +45,7 @@ export interface BrowserContextHandle {
    * code, in software the model never sees: the hidden `code` of the form
    * that posts back to it. Nothing when the page isn't that.
    */
-  joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string }>;
+  joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string; readonly retryAfter?: string }>;
   /** Follows a link; never sends a form. */
   click(selector: string): Promise<PageSnapshot>;
   fill(selector: string, value: string): Promise<PageSnapshot>;
@@ -267,7 +267,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   const page = await context.joinCode(endpoint);
   check();
   if (page.status === 429 || page.status === 503) {
-    await client.pageLimited(company, page.status, undefined);
+    await client.pageLimited(company, page.status, page.retryAfter);
     throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);

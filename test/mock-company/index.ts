@@ -155,7 +155,10 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/poppy.json" || (sub === "cdn" && path === "/poppy.json")) {
         return web.wellKnown(inbound);
       }
-      if (path === "/poppy/browser-session") return web.browserSession(inbound);
+      if (path === "/poppy/browser-session") {
+        if (method === "GET") company.rateLimit("join", inbound);
+        return web.browserSession(inbound);
+      }
       if (path === "/poppy/browser-session/authorize" && method === "POST") return web.authorizeBrowserJoin(inbound);
       if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
       // An issuer of exactly https://{domain} publishes its metadata on the domain (RFC 8414 3.1).

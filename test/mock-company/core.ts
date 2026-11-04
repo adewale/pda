@@ -266,6 +266,7 @@ export class Company {
   tokenRequestCount = 0;
   otherRequestCount = 0;
   pageRequestCount = 0;
+  joinPageRequestCount = 0;
   retryAfterUntil = 0;
   /** When each request (method and URL without the query) that got 429 may be sent again. */
   readonly retryAfterByRequest = new Map<string, number>();
@@ -441,7 +442,7 @@ export class Company {
    * 4.3's MUST ("before sending the request again"); a different request
    * breaks the Guides' advice to share a Company's limits across tasks.
    */
-  rateLimit(kind: "token" | "other" | "page", inbound: Inbound): void {
+  rateLimit(kind: "token" | "other" | "page" | "join", inbound: Inbound): void {
     const now = this.now();
     const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname}`;
     if (now < this.retryAfterUntil) {
@@ -461,9 +462,9 @@ export class Company {
       throw this.tooMany(Math.ceil((this.retryAfterUntil - now) / 1000));
     }
     const limits = this.config.rateLimit;
-    const limit = kind === "token" ? limits.tokenRequests429 : kind === "page" ? (limits.pages429 ?? 0) : limits.requests429;
+    const limit = kind === "token" ? limits.tokenRequests429 : kind === "page" ? (limits.pages429 ?? 0) : kind === "join" ? (limits.joinPages429 ?? 0) : limits.requests429;
     const count =
-      kind === "token" ? ++this.tokenRequestCount : kind === "page" ? ++this.pageRequestCount : ++this.otherRequestCount;
+      kind === "token" ? ++this.tokenRequestCount : kind === "page" ? ++this.pageRequestCount : kind === "join" ? ++this.joinPageRequestCount : ++this.otherRequestCount;
     if (count <= limit) {
       this.retryAfterUntil = now + this.config.rateLimit.retryAfterSeconds * 1000;
       this.retryAfterByRequest.set(request, this.retryAfterUntil);

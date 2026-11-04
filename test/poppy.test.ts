@@ -1524,6 +1524,19 @@ describe("6 web browsing", () => {
     expect(loads[1]!.at - loads[0]!.at).toBeGreaterThanOrEqual(2000);
   });
 
+  it("waits out the browser-session page's Retry-After before joining again (6, 5.6)", async () => {
+    const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 0, joinPages429: 1, retryAfterSeconds: 30 } });
+    const a = await agent();
+    await signInDirect(a, c);
+    const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
+    expect(page.isError).toBe(true);
+    expect(JSON.parse(page.details)).toMatchObject({ error: "rate_limited" });
+    // The next page waits for the 30 seconds too: no request goes before they're up.
+    expect(JSON.parse((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" })).details)).toMatchObject({ error: "rate_limited" });
+    const joins = (await requests(c)).filter((request) => request.method === "GET" && request.url === c.hosts.browserSessionEndpoint);
+    expect(joins.map((request) => request.status)).toEqual([429]);
+  });
+
   it("gives up on a website page whose Retry-After is too long to wait inline", async () => {
     const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 1, retryAfterSeconds: 30 } });
     const a = await agent();

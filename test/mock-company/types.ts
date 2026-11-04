@@ -100,6 +100,8 @@ export type MockConfig = {
     readonly requests429: number;
     /** The first n website page loads get 429. */
     readonly pages429?: number;
+    /** The first n loads of the browser-session page (6, step 1) get 429. */
+    readonly joinPages429?: number;
     readonly retryAfterSeconds: number;
   };
   /**
