@@ -82,7 +82,7 @@ class MOperation:
     conversation: MConversation | None = None
     order: dict[str, Any] | None = None  # a print order, as sent
     keys: list[tuple[MSession, str]] = field(default_factory=list)  # Idempotency-Keys of requests without an approval that returned it
-    performed_keys: list[str] = field(default_factory=list)  # a print order's keys that got the performed response
+    performed_keys: list[tuple[str, str | None]] = field(default_factory=list)  # a print order's keys that got the performed response, each with the account it was sent under
 
 
 class OperationsRules:
@@ -324,7 +324,7 @@ class OperationsRules:
             assert op.order is not None
             reply, used = self.prints_request(ms, op.order, key=key, approval=header)
             if reply.status == 201:
-                op.performed_keys.append(used)
+                op.performed_keys.append((used, ms.account))
             return reply
         if op.channel == "mcp":
             return self.mcp_exchange(ms, meta={APPROVAL_META: {"operation_id": operation_id, "revision": revision}})
@@ -522,17 +522,26 @@ class OperationsRules:
         expect(reply, 400, "idempotency_key_required")
         self.violation("idempotency.key-missing")
 
-    @precondition(lambda self: [op for op in self.operations if op.performed_keys and op.session in self.live()])
+    def performed_retries(self) -> list[tuple[MOperation, str]]:
+        """
+        A performed order's keys that its Session can send again within the
+        record's scope: the agent, the User, and the account the key was sent
+        under (Guides, "Retries"). Signing in to an account, or out of one,
+        leaves that scope.
+        """
+        return [(o, key) for o in self.operations if o.session in self.live() for key, account in o.performed_keys if o.session.account == account]
+
+    @precondition(lambda self: self.performed_retries())
     @rule(data=st.data())
     def prints_key_reused(self, data: st.DataObject) -> None:
         """
-        A performed order's key, sent again: the same body gets the same
-        response (Guides: retries); a different body is `idempotency_conflict`,
-        and recorded.
+        A performed order's key, sent again in the record's scope: the same
+        body gets the same response (Guides: retries); a different body is
+        `idempotency_conflict`, and recorded.
         """
-        op = data.draw(st.sampled_from([o for o in self.operations if o.performed_keys and o.session in self.live()]))
+        op, key = data.draw(st.sampled_from(self.performed_retries()))
         assert op.order is not None
-        ms, key = op.session, data.draw(st.sampled_from(op.performed_keys))
+        ms = op.session
         changed = data.draw(st.booleans(), label="a different body")
         order = op.order | {"email": "grace@example.com"} if changed else op.order
         reply, _ = self.prints_request(ms, order, key=key, approval=approval_header(op.id, op.latest))
