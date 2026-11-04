@@ -121,10 +121,20 @@ async function dropContext(contexts: Map<string, ContextEntry>, key: string, exp
   if (entry) await (await entry.context).close().catch(() => undefined);
 }
 
-function onCompanyDomain(company: Company, url: URL): boolean {
-  const host = url.hostname.toLowerCase().replace(/^www\./, "");
-  return host === company.domain || host.endsWith(`.${company.domain}`);
+/**
+ * A host on the Company's domain: the domain itself or a host under it. A
+ * domain that begins with `www.` is compared as it is, so `www.example.com`
+ * browses its own pages; `www.example.com` under `example.com` is already a
+ * host under it.
+ */
+export function onCompanyDomain(company: Pick<Company, "domain">, url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  const domain = company.domain.toLowerCase();
+  return host === domain || host.endsWith(`.${domain}`);
 }
+
+/** A host without a leading `www.`, for telling whether an issuer is the Company's own website. */
+const site = (host: string) => host.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
 
 /**
  * The Company's sign-in pages, which are the User's alone (spec 4.4): its
@@ -143,7 +153,7 @@ export function isSignInPage(company: Company, url: URL): boolean {
   };
   if (endpoints.some(under)) return true;
   const issuer = new URL(company.issuer);
-  const website = issuer.hostname.toLowerCase().replace(/^www\./, "") === company.domain;
+  const website = site(issuer.hostname) === site(company.domain);
   return !website && url.origin === issuer.origin;
 }
 
