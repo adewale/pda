@@ -735,7 +735,7 @@ export class Apis {
       const tool = this.#mcpTools().find((item) => item.name === params.name);
       const args = record(params.arguments) ?? {};
       for (const { header, path } of tool ? headerParameters(tool.inputSchema) : []) {
-        const value = path.reduce<unknown>((at, key) => record(at)?.[key], args);
+        const value = path.reduce<unknown>((at, key) => { const object = record(at); return object && Object.hasOwn(object, key) ? object[key] : undefined; }, args);
         const sent = headers.get(`Mcp-Param-${header}`);
         const expected = value === undefined || value === null ? null : String(value);
         if (headerValue(sent) !== expected) {

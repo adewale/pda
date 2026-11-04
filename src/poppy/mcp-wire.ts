@@ -82,9 +82,10 @@ export type HeaderParameter = { readonly header: string; readonly path: readonly
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const PRIMITIVE = new Set(["string", "integer", "boolean"]);
 /** Keywords whose values are schemas, or lists or maps of them; `x-mcp-header` under any of them is invalid. */
-const SCHEMA_IN = ["items", "additionalItems", "contains", "additionalProperties", "unevaluatedItems", "unevaluatedProperties", "propertyNames", "not", "if", "then", "else"];
+const SCHEMA_IN = ["items", "additionalItems", "contains", "additionalProperties", "unevaluatedItems", "unevaluatedProperties", "propertyNames", "not", "if", "then", "else", "contentSchema"];
 const SCHEMAS_IN = ["allOf", "anyOf", "oneOf"];
-const SCHEMA_MAPS_IN = ["$defs", "definitions", "patternProperties", "dependentSchemas"];
+// `dependencies` (draft 7) maps a property to a schema or to a list of names; only the schemas can hold an annotation.
+const SCHEMA_MAPS_IN = ["$defs", "definitions", "patternProperties", "dependentSchemas", "dependencies"];
 
 /**
  * A tool's `x-mcp-header` parameters (Streamable HTTP, "Custom Headers from
@@ -146,7 +147,8 @@ export function parameterHeaders(parameters: readonly HeaderParameter[], args: J
   const headers: Record<string, string> = {};
   for (const { header, path } of parameters) {
     let value: Json | undefined = args;
-    for (const key of path) value = isObject(value) ? value[key] : undefined;
+    // Own members only: an absent `constructor` or `__proto__` argument is absent, not Object's.
+    for (const key of path) value = isObject(value) && Object.hasOwn(value, key) ? value[key] : undefined;
     if (value === undefined || value === null) continue;
     if (typeof value === "string") headers[`Mcp-Param-${header}`] = mirroredValue(value);
     else if (typeof value === "boolean") headers[`Mcp-Param-${header}`] = String(value);

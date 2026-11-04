@@ -56,6 +56,8 @@ describe("x-mcp-header", () => {
     ["a parameter under items", schema({ a: { type: "array", items: { type: "string", "x-mcp-header": "A" } } })],
     ["a parameter under oneOf", schema({}, { oneOf: [{ properties: { a: { type: "string", "x-mcp-header": "A" } } }] })],
     ["a parameter under $defs", schema({}, { $defs: { a: { type: "string", "x-mcp-header": "A" } } })],
+    ["a parameter under dependencies", schema({ a: { type: "string" } }, { dependencies: { a: { properties: { b: { type: "string", "x-mcp-header": "B" } } } } })],
+    ["a parameter under contentSchema", schema({ a: { type: "string", contentMediaType: "application/json", contentSchema: { type: "string", "x-mcp-header": "A" } } })],
     ["the root schema", { type: "string", "x-mcp-header": "Root" }]
   ])("makes a tool invalid with %s", (_what, inputSchema) => {
     expect(headerParameters(inputSchema)).toHaveProperty("problem");
@@ -86,6 +88,18 @@ describe("x-mcp-header", () => {
     expect(parameterHeaders(parameters, { count: 1.5 })).toBeNull();
     expect(parameterHeaders(parameters, { count: 2 ** 53 })).toBeNull();
     expect(parameterHeaders(parameters, { region: { nested: true } })).toBeNull();
+  });
+
+  it("omits an absent argument whose name an object inherits, and mirrors one the call gives", () => {
+    const inherited = ["constructor", "toString", "__proto__", "hasOwnProperty"].map((name) => ({ header: `P-${name.replace(/_/g, "")}`, path: [name] }));
+    expect(parameterHeaders(inherited, {})).toEqual({});
+    expect(parameterHeaders([{ header: "Zone", path: ["where", "toString"] }], { where: {} })).toEqual({});
+    // A JSON body can carry them as its own members, which do go in headers.
+    expect(parameterHeaders(inherited, JSON.parse('{"constructor": "c", "__proto__": "p"}') as Json)).toEqual({ "Mcp-Param-P-constructor": "c", "Mcp-Param-P-proto": "p" });
+  });
+
+  it("keeps `dependencies` that only list property names", () => {
+    expect(headerParameters(schema({ a: { type: "string", "x-mcp-header": "A" }, b: { type: "string" } }, { dependencies: { a: ["b"] } }))).toEqual({ parameters: [{ header: "A", path: ["a"] }] });
   });
 });
 
