@@ -1,6 +1,7 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { TaskCompanyScope } from "./task-scope";
+import { recipient } from "./task-text";
 import { TaskFiles } from "./task-files";
 import { TASK_SCOPE_MEMO, type TurnReader, type UserTaskReader } from "../tools/turn-authority";
 import type { Context } from "@earendil-works/chord/context";
@@ -111,14 +112,23 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     return candidate === undefined ? one(client().sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", held)?.value : intent(client().sql, held, () => candidate);
   };
   const scope = new TaskCompanyScope(firstCompany);
-  /** The Company a tool call reaches: its `domain`, or the Company its `conversation` belongs to. */
+  /**
+   * The Company a tool call reaches. A call naming a conversation reaches the
+   * Company that conversation belongs to, whatever else it says: a `domain`
+   * naming another Company, even one sharing its issuer, is refused rather
+   * than checked in its place. Otherwise, its `domain`.
+   */
   const targetOf = (args: unknown): string | null | undefined => {
     const { domain, conversation: id } = args as { domain?: unknown; conversation?: unknown };
-    if (typeof domain === "string") return domain;
-    if (typeof id !== "string") return undefined;
-    const row = conversation(client(), id);
-    // An unknown conversation is the tool's own conversation_not_found; one whose Company can't be told is refused.
-    return row ? client().taskDomain(row.issuer, "conversation", row.id) ?? null : undefined;
+    const row = typeof id === "string" ? conversation(client(), id) : undefined;
+    if (!row) return typeof domain === "string" ? domain : undefined;
+    // One whose Company can't be told is refused.
+    const owner = client().taskDomain(row.issuer, "conversation", row.id);
+    if (owner === undefined) return null;
+    if (domain !== undefined && (typeof domain !== "string" || recipient(domain) !== recipient(owner))) {
+      throw new PoppyError("refused", `Conversation ${row.id} is with ${owner}, not ${String(domain)}. Name the conversation's own Company, or start a new conversation.`, 0);
+    }
+    return owner;
   };
   const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key, signal, invocation) => {
     const target = targetOf(args);
