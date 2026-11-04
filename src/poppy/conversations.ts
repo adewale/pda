@@ -455,7 +455,8 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     callKey: `approval|${approval.approval.operation_id}|${approval.approval.revision}`,
     conversationId: row.id,
     sender: "agent",
-    text: "The User approved this.",
+    // In a Direct Conversation only the User's own words are text (8.10), so the approval goes alone.
+    ...(row.direct ? {} : { text: "The User approved this." }),
     approval: approvalJson(approval.approval),
     beforeDispatch
   });
@@ -568,6 +569,10 @@ async function handleEvent(
       }
       if (row.direct) {
         pushDirect(client, company, row.id);
+        // The Company may ask for approval here too (Ops 4, 6): the User approves on a card, as anywhere else.
+        // The Direct Conversation is the User's, so the model isn't told.
+        const offered = message.role === "company" ? extensionContent(message, "operations")?.operation : undefined;
+        if (isObject(offered) && company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
         return;
       }
       if (message.role !== "company") return;

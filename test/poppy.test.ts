@@ -2609,6 +2609,24 @@ describe("Operations 2", () => {
     expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("terms expired");
   });
 
+  it("asks the User to approve an operation the Company offers in a Direct Conversation, and sends only the approval there (Ops 6, 8.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "Please exchange the jacket for the insulated one." });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    expect(card.terms.summary).toContain("Exchange the Stormline Jacket (M)");
+    expect((await c.stub.state()).performs).toBe(0);
+    await approve(a, card);
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    expect((await c.stub.state()).performs).toBe(1);
+    // The User's words, then the approval with no words of the agent's.
+    expect(direct.sent).toEqual(["human:Please exchange the jacket for the insulated one.", "agent:"]);
+  });
+
   it("asks the User for each operation: approving one approves no other", async () => {
     const c = await company();
     const a = await agent();
