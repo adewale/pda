@@ -9,7 +9,7 @@ import { UserMessage, type TimelineEvent, Transcript } from "./transcript";
 import { approvalsOnSteps, stepDecisions } from "./steps";
 import { APPROVAL_READ_LIMIT } from "../poppy/approval-outcome";
 import { receipts, PoppyCard, openDirect, NeedsYouPanel, HiddenDirectRow, DirectConversations } from "../poppy-ui";
-import { Composer } from "./composer";
+import { Composer, type ComposerHandle } from "./composer";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -29,10 +29,10 @@ function Welcome() {
   return (
     <div className="max-w-[70ch] py-8 sm:py-14">
       <h2 className="text-xl font-semibold text-balance text-kumo-strong">Your agent works with companies for you</h2>
-      <p className="mt-2 text-base text-pretty text-kumo-subtle">Tell it what you need, such as “Exchange my jumper for a size L at manzanita.example”. It remembers this conversation.</p>
+      <p className="mt-2 text-base text-pretty text-kumo-subtle">Choose a domain under “Companies for this message”, then ask for what you need, such as “Exchange my jumper for a size L”. It remembers this conversation.</p>
       <ul className="mt-6 space-y-4">
-        <Capability icon={<MagnifyingGlassIcon size={20} />} title="It finds the company">
-          and what it offers personal agents: an API, its own agent to talk to, or its website.
+        <Capability icon={<MagnifyingGlassIcon size={20} />} title="It checks what your chosen company offers:">
+          an API, its own agent to talk to, or its website.
         </Capability>
         <Capability icon={<SignInIcon size={20} />} title="You sign in on the company's own page.">
           Your agent never sees your password.
@@ -149,6 +149,8 @@ export function ChatPage({
   onProtocol?: (domain: string) => void;
 }) {
   const { poppy, sendPoppy, messages, live, running, tools, error } = session;
+  const composer = useRef<ComposerHandle>(null);
+  const reviewMessage = (text: string) => composer.current?.edit(text);
   const onSteps = useMemo(() => approvalsOnSteps(live ? [...messages, live] : messages), [messages, live]);
   const approvalKey = [...onSteps].sort().join(",");
   useEffect(() => {
@@ -161,7 +163,7 @@ export function ChatPage({
   const decisions = useMemo(() => stepDecisions(poppy.cards, poppy.activity?.log ?? [], poppy.decisions), [poppy.cards, poppy.activity, poppy.decisions]);
   const events: TimelineEvent[] = receipts(poppy.cards)
     .filter((card) => !(card.kind === "approval" && onSteps.has(card.approvalId)))
-    .map((card) => ({ key: card.id, at: card.at ?? Number.POSITIVE_INFINITY, node: <PoppyCard card={card} send={sendPoppy} onAsk={(text) => session.submit(text)} /> }));
+    .map((card) => ({ key: card.id, at: card.at ?? Number.POSITIVE_INFINITY, node: <PoppyCard card={card} send={sendPoppy} onAsk={reviewMessage} /> }));
   const runningTools = tools.map((tool) => tool.name);
   const scroller = useStickToBottom(messages, live, running, poppy.cards, session.outbox);
   const empty = messages.length === 0 && !live && !running && session.outbox.length === 0;
@@ -183,7 +185,7 @@ export function ChatPage({
               messages={messages}
               live={live}
               runningTools={runningTools}
-              onRetry={(text) => session.submit(text)}
+              onRetry={reviewMessage}
               summaries={session.summaries}
               decisions={decisions}
               events={events}
@@ -213,7 +215,7 @@ export function ChatPage({
             />
           ))}
         />
-        <Composer session={session} />
+        <Composer ref={composer} session={session} />
       </section>
       {shown.length ? (
         <DirectConversations

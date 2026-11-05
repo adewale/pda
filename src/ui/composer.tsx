@@ -1,5 +1,5 @@
 /** Message composition, explicit task permissions, and attachment upload state. */
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useImperativeHandle, type Ref } from "react";
 import { type PendingAttachment, attachProblem, uploadAttachment, removeAttachment, withMarkers, PendingAttachments } from "./attachments";
 import { type PiSession } from "../use-pi-session";
 import { companyDomains, readTaskAccess } from "../task-access";
@@ -46,15 +46,28 @@ function imageFiles(list: FileList | null | undefined): File[] {
   return [...(list ?? [])].filter((file) => file.type.startsWith("image/"));
 }
 
-export function Composer({ session }: { session: PiSession }) {
+export type ComposerHandle = { edit(text: string): void };
+
+export function Composer({ session, ref }: { session: PiSession; ref?: Ref<ComposerHandle> }) {
   const [prompt, setPrompt] = useState("");
   const [companies, setCompanies] = useState("");
   const [uploadCompany, setUploadCompany] = useState("");
   const [uploadFiles, setUploadFiles] = useState<ReadonlySet<string>>(new Set());
   const [accessError, setAccessError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const companyOptions = useMemo(() => { try { return companyDomains(companies); } catch { return []; } }, [companies]);
   const attachments = useAttachments();
   const picker = useRef<HTMLInputElement>(null);
+  const editor = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(ref, () => ({ edit(text) {
+    setPrompt(current => current.trim() ? `${current}\n\n${text}` : text);
+    setCompanies("");
+    setUploadCompany("");
+    setUploadFiles(new Set());
+    setAccessError(null);
+    setReviewing(true);
+    editor.current?.focus();
+  } }), []);
   const connected = session.status === "open";
   const [stopNotSent, setStopNotSent] = useState(false);
   const hintId = "composer-hint";
@@ -81,6 +94,7 @@ export function Composer({ session }: { session: PiSession }) {
     setUploadCompany("");
     setUploadFiles(new Set());
     setAccessError(null);
+    setReviewing(false);
     attachments.clear();
     session.submit(text, whenBusy, access);
   };
@@ -103,6 +117,7 @@ export function Composer({ session }: { session: PiSession }) {
         className="mx-auto max-w-3xl px-4 pt-3 pb-3 sm:px-6"
       >
         <PendingAttachments items={attachments.items} onRemove={attachments.remove} />
+        {reviewing ? <p role="status" className="mb-2 text-[13px] text-kumo-subtle">Review the message and choose its Companies before sending. Saved photos still need disclosure consent.</p> : null}
         <fieldset className="mb-2 space-y-2 text-[13px] text-kumo-subtle">
           <legend className="sr-only">Access for this message</legend>
           <label className="flex flex-wrap items-center gap-2">
@@ -152,6 +167,7 @@ export function Composer({ session }: { session: PiSession }) {
             onClick={() => picker.current?.click()}
           />
           <InputArea
+            ref={editor}
             value={prompt}
             onValueChange={setPrompt}
             onPaste={(event) => {

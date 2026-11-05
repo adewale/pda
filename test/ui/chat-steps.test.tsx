@@ -198,6 +198,10 @@ describe("a request's outcome, on the step that asked for it", () => {
     expect(transcript.lastElementChild!.textContent).toContain("All three are waiting for you.");
     // The failed photo can be asked for again, in the User's own words.
     fireEvent.click(screen.getByRole("button", { name: "Ask your agent to try again" }));
+    expect(submitted).toEqual([]);
+    expect((screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement).value).toBe(`Please try sending “meadow.gif” to ${SHOP} again.`);
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: DOMAIN } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submitted).toEqual([`Please try sending “meadow.gif” to ${SHOP} again.`]);
   });
 
