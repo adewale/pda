@@ -1,6 +1,6 @@
 # What the agent can do, and where each part comes from
 
-The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.3](../spec/draft-0.3-retrieved-2026-10-29/README.md) (29 October text), the Operations extension (Ops, version 2) or the Mediated Sign-In extension (MSI) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
+The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.3](../spec/draft-0.3-retrieved-2026-11-03/README.md) (3 November text), the Operations extension (Ops, version 2) or the Mediated Sign-In extension (MSI) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
 
 Back to the [README](../README.md)
 
@@ -62,7 +62,7 @@ No tool approves anything. A scheduled task's run is a background turn like a Co
 | List reminders and tasks waiting, paused or failed | `list_scheduled` | No | `src/tools/schedules.ts` |
 | Cancel one, or dismiss a failed one | `cancel_scheduled` | Only in a turn the User started; also Settings' Cancel and Dismiss | `src/tools/schedules.ts` |
 | Notifications on the User's devices (Web Push), for reminders and tasks | None: Settings' toggle | Turning them on is the User's action | `src/web-push.ts`, `src/ui/notifications.tsx`, `public/sw.js` |
-| Photos in the chat: kept in the agent, shown to the model, uploaded for the User's task to its Company | None: the composer, the agent's storage and a request hook | No extra card for a selected task photo; disclosure consent for another saved photo | `src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx` |
+| Photos in the chat: kept in the agent, shown to the model, uploaded for the User's task to its Company | None: the composer, the agent's storage and a request hook | No extra card for an explicit composer file-and-destination selection; disclosure consent for another saved photo | `src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx` |
 | One never-ending conversation, summarised past about 150,000 tokens | None: a compaction hook | No | `src/compaction.ts` |
 | Activity: what the agent did at each Company, and every Poppy exchange with its spec section | None: the Activity page | No | `src/poppy/activity.ts`, `src/poppy/protocol-log.ts`, `src/ui/activity.tsx` |
 | Pay for the model with the operator's capped demo or the User's own Anthropic or OpenAI key | None: Settings | Pasting a key is the User's action | `src/model-router.ts`, `src/model-keys.ts`, `src/budget.ts` |

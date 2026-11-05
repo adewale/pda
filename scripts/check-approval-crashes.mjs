@@ -198,7 +198,7 @@ try {
     await call("crashArm", point, "", replay ?? "safe");
     const reached = pda.barrier(point);
     const pending = point === "tool-settlement"
-      ? pda.rpc({ action: "frame", frame: { type: "submit", id: crypto.randomUUID(), input: `Place this exchange. @@obey ${tool} ${Buffer.from(JSON.stringify(args)).toString("base64url")}` } })
+      ? pda.rpc({ action: "frame", frame: { type: "submit", taskAccess: { companies: [args.domain], uploads: [] }, id: crypto.randomUUID(), input: `Place this exchange. @@obey ${tool} ${Buffer.from(JSON.stringify(args)).toString("base64url")}` } })
       : ask(callId);
     const interrupted = pending.catch(error => error.message);
     await reached;

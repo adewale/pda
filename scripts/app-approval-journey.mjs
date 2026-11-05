@@ -64,8 +64,9 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     const callback = await runtime.dispatchFetch(callbackUrl, { headers: { Cookie: cookie } });
     assert.equal(callback.status, 200, await callback.text());
   };
-  const send = async prompt => {
+  const send = async (prompt, domain) => {
     await page.waitForSelector('button[aria-label="Send message"]');
+    await page.type('input[aria-label="Companies for this message"]', domain);
     await page.type('textarea[aria-label="Message your agent"]', prompt);
     await page.click('button[aria-label="Send message"]');
   };
@@ -86,7 +87,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     const before = await company.state();
     assert.equal(before.performs, 0);
     const prompt = `Please exchange my Stormline Jacket for the insulated medium at ${domain} using ${transport}.`;
-    await send(prompt);
+    await send(prompt, domain);
     const tool = transport === "OpenAPI" ? "poppy_api_call" : "poppy_mcp_call";
     await page.waitForSelector(`[data-tool="${tool}"][data-status="waiting"]`, { timeout: 20_000 });
     const ours = await until(async () => JSON.parse(await agent.poppyCards()), cards => cards.some(card => card.kind === "approval" && card.open && card.domain === domain), "Local approval not stored");
@@ -196,7 +197,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
   await page.goto("https://agent.test/", { waitUntil: "networkidle0" });
   const unknownPrompt = `Please exchange my Stormline Jacket for the insulated medium at ${unknownDomain} using OpenAPI.`;
-  await send(unknownPrompt);
+  await send(unknownPrompt, unknownDomain);
   const unknownCards = await until(async () => JSON.parse(await agent.poppyCards()), cards => cards.some(card => card.kind === "approval" && card.open && card.domain === unknownDomain), "Unknown-outcome test did not propose its action");
   const unknownApproval = unknownCards.find(card => card.kind === "approval" && card.open && card.domain === unknownDomain);
   await agent.poppyFault({ method: "POST", url: "/exchanges", mode: "throw" });
@@ -210,7 +211,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   await page.waitForFunction(() => ["I checked: it happened", "I checked: it did not happen"].every(text => [...document.querySelectorAll("button")].some(button => button.textContent.trim() === text)));
   assert.equal(await page.$('[aria-label="Needs you"] [aria-label="Dismiss"]'), null, "The unresolved receipt must not offer Dismiss");
   await capture("unknown-choices-desktop");
-  await send(unknownPrompt);
+  await send(unknownPrompt, unknownDomain);
   const blockedStep = '[data-tool="poppy_api_call"][data-status="failed"]';
   await page.waitForSelector(blockedStep, { timeout: 20_000 });
   await page.click(`${blockedStep} button[aria-expanded="false"]`);
@@ -284,7 +285,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   const conversation = JSON.parse(hello.text).conversationId;
   await verificationCompany.say(conversation, "To verify your identity, please provide your email and verification code.");
   await agent.poppyReadNow(conversation);
-  await send(`Please send a verification reply at ${verificationDomain} in ${conversation}.`);
+  await send(`Please send a verification reply at ${verificationDomain} in ${conversation}.`, verificationDomain);
   const withheldStep = await page.waitForFunction(() => [...document.querySelectorAll('[data-tool="poppy_message"]')].find(step => step.innerText.includes("Kept verification details private")));
   const withheldText = await withheldStep.asElement().evaluate(element => { element.scrollIntoView({ block: "center" }); return element.innerText; });
   assert.equal(withheldText.includes("482913"), false);

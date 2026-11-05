@@ -1,3 +1,8 @@
+import { readTaskAccess } from "./task-access";
+import { AgentData, exportAgentData } from "./agent-data";
+import { pendingSignOuts, signOut } from "./poppy/signout";
+import { issuerEndpoints, PoppyError, withoutAnswer } from "./poppy/client";
+import { object, string } from "./decode";
 import { DurableObject } from "cloudflare:workers";
 import type { Provider } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -72,6 +77,13 @@ const SCHEMA = [
 ];
 
 const pausedTable = table("model_paused", { operation_id: text, text, created_at: integer });
+const deletionJob = object({ receipt: string });
+
+function closeDataSockets(ctx: DurableObjectState): void {
+  for (const socket of ctx.getWebSockets()) {
+    try { socket.close(1008, "Agent deletion is in progress"); } catch { /* Already closed. */ }
+  }
+}
 
 /** A reminder or task as Settings shows it. */
 export type ScheduleView = {
@@ -125,6 +137,9 @@ export type KeyResult = { ok: true; entitlement: Entitlement } | { ok: false; st
 
 /** One person's agent: a Pi harness whose root session is their one chat. */
 export class PersonalAgent extends DurableObject<Env> {
+  readonly data: AgentData;
+  #deleting: Promise<{ deleted: false; companies: readonly string[]; reason?: string }> | undefined;
+  readonly #deletionRevocations = new Set<string>();
   readonly browserSessions: BrowserSessions;
   readonly turnAuthority: TurnAuthority;
   readonly registry = createRegistry();
@@ -161,6 +176,8 @@ export class PersonalAgent extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.data = new AgentData(ctx.storage);
+    if (this.data.deleting) closeDataSockets(ctx);
     configureLog(env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
     this.browserSessions = new BrowserSessions(ctx, () => this.maySignInNow());
@@ -178,7 +195,7 @@ export class PersonalAgent extends DurableObject<Env> {
       env,
       keys: this.keys,
       ledger: new Ledger(ctx.storage.sql),
-      profile: () => this.#profile(),
+      profile: () => this.data.deleting ? null : this.#profile(),
       lists: () => this.deployment(),
       agent: agentId,
       domainBudget: (domain) => env.DomainBudget.getByName(domain),
@@ -192,10 +209,18 @@ export class PersonalAgent extends DurableObject<Env> {
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
+    const poppyFetcher = this.poppyFetcher();
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
-      fetcher: this.poppyFetcher(),
+      fetcher: request => {
+        if (this.data.deleting) {
+          const metadata = request.method === "GET" && !["Authorization", "Poppy-Session", "DPoP", "Cookie"].some(name => request.headers.has(name));
+          const revocation = request.method === "POST" && this.#deletionRevocations.has(request.url);
+          if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", "Agent deletion has stopped Company requests.", 0));
+        }
+        return poppyFetcher(request);
+      },
       browser: () => (browser ??= this.poppyBrowser()),
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
       units: this.log,
@@ -213,7 +238,7 @@ export class PersonalAgent extends DurableObject<Env> {
         return { status: result.status, ...(result.reason ? { reason: result.reason } : {}) };
       },
       push: (message) => this.pushToDevices(message),
-      maySignIn: () => this.maySignInNow(),
+      maySignIn: () => !this.data.deleting && this.maySignInNow(),
       changed: () => this.poppy.refreshActivity(),
       units: this.log
     });
@@ -310,6 +335,7 @@ export class PersonalAgent extends DurableObject<Env> {
           if (this.browserSessions.protect(connection)) return socketOptions.handlers?.onConnect?.(connection, context);
         },
         onMessage: async (connection, message) => {
+          if (this.data.deleting) { connection.close(1008, "Agent deletion is in progress"); return; }
           if (!this.browserSessions.protect(connection)) return;
           let forwarded = message;
           if (typeof message === "string") {
@@ -317,13 +343,15 @@ export class PersonalAgent extends DurableObject<Env> {
             try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && (parsed.type === "abort" || parsed.type === "reset")) this.turnAuthority.withdraw();
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "submit") {
-              const input = parsed as { type: "submit"; operationId?: unknown; id?: unknown };
+              const input = parsed as { type: "submit"; operationId?: unknown; id?: unknown; taskAccess?: unknown };
               const supplied = typeof input.operationId === "string" ? input.operationId : typeof input.id === "string" ? input.id : crypto.randomUUID();
               if (supplied.length > 256) { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Message identifier is too long" })); return; }
               const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(supplied));
               const operationId = `user-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-              this.turnAuthority.record(operationId, "user");
-              forwarded = JSON.stringify({ ...input, operationId });
+              try { this.turnAuthority.record(operationId, "user", readTaskAccess(input.taskAccess)); }
+              catch { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Invalid or changed task access. Choose the Companies and photos for this message again." })); return; }
+              const { taskAccess: _access, ...submission } = input;
+              forwarded = JSON.stringify({ ...submission, operationId });
             }
           }
           return socketOptions.handlers?.onMessage?.(connection, forwarded);
@@ -583,6 +611,7 @@ export class PersonalAgent extends DurableObject<Env> {
    * model goes through if calls are allowed again.
    */
   async recordIdentity(identity: Caller): Promise<void> {
+    if (this.data.deleting || this.#deleting) throw new AuthError("Agent deletion is in progress");
     if ("sessionId" in identity && (typeof identity.sessionId !== "string" || !this.browserSessions.active(identity.sessionId))) throw new AuthError("Session revoked");
     this.#storeIdentity(identity);
     // Native RPC bypasses fetch/alarm/WebSocket startup.
@@ -603,7 +632,9 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Authenticated Worker edge only: admit a signed browser cookie without starting work. */
-  async admitBrowserSession(identity: BrowserIdentity): Promise<boolean> {
+  async admitBrowserSession(identity: BrowserIdentity, allowDeleting = false): Promise<boolean> {
+    if (this.#deleting && !allowDeleting) return false;
+    if (!this.data.admits(identity, allowDeleting)) return false;
     if (!maySignIn(identity, this.deployment())) return false;
     this.#storeIdentity(identity);
     return this.browserSessions.admit(identity.sessionId, identity.sessionExpiresAt);
@@ -611,6 +642,65 @@ export class PersonalAgent extends DurableObject<Env> {
 
   async revokeBrowserSession(identity: BrowserIdentity): Promise<void> {
     this.browserSessions.revoke(identity.sessionId, identity.sessionExpiresAt);
+  }
+
+  /** The authenticated edge alone exposes the stream to this agent's owner. */
+  async exportData(identity: BrowserIdentity): Promise<ReadableStream<Uint8Array>> {
+    if (!await this.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+    await this.lifecycle.start();
+    return exportAgentData(this.ctx.storage.sql);
+  }
+
+  /** After aborting the object, the edge verifies this receipt before reporting deletion success. */
+  deletionCompleted(receipt: string): boolean { return this.data.completed(receipt); }
+
+  async deleteData(identity: BrowserIdentity, receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+    if (!await this.admitBrowserSession(identity, true)) throw new AuthError("Session revoked");
+    return this.#runDeletion(receipt);
+  }
+
+  #runDeletion(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+    if (this.#deleting) return this.#deleting;
+    this.#deleting = this.#deleteData(receipt).finally(() => { this.#deleting = undefined; });
+    return this.#deleting;
+  }
+
+  async #deleteData(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+    const client = this.poppy.client;
+    this.data.begin();
+    this.turnAuthority.withdraw();
+    await this.lifecycle.jobs.push({ fn: "agent-delete", id: "agent-delete", time: Date.now() + 60_000, payload: { receipt }, singleflight: true });
+    // Invalidate pending dispatch snapshots, including signed-out and already-approved requests.
+    client.sql.exec("UPDATE poppy_sessions SET authority_generation = authority_generation + 1");
+    this.#deletionRevocations.clear();
+    for (const account of [...client.accounts(), ...pendingSignOuts(client)]) {
+      this.#deletionRevocations.add(issuerEndpoints(client.revocationCompany(account.issuer)).revocation);
+    }
+    await this.lifecycle.start();
+    closeDataSockets(this.ctx);
+    // abort waits for ordinary tool work to stop; no new browser/model/scheduled work is admitted.
+    await this.harness.abort();
+    const activeActions = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_approvals WHERE status = 'executing'").one().n);
+    const activeSignIns = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_signins WHERE status NOT IN ('done', 'cancelled', 'failed', 'expired', 'refused')").one().n);
+    if (activeActions || activeSignIns || client.inFlight.size > 0) {
+      this.data.cancel();
+      return { deleted: false, companies: [], reason: "A Company sign-in or action is still finishing. Cancel pending sign-ins or wait for the action to settle, then retry deletion. Local data has been retained." };
+    }
+    const accounts = client.accounts();
+    const revoke = [...accounts, ...pendingSignOuts(client)];
+    for (const account of revoke) await signOut(client, account.issuer, account.account);
+    const pending = pendingSignOuts(client);
+    if (pending.length) {
+      // Retain the sealed tokens and normal revocation retries. The UI can retry deletion later.
+      this.data.cancel();
+      return { deleted: false, companies: [...new Set(pending.map(row => client.companyByIssuer(row.issuer).domain))] };
+    }
+    await this.access.flushSettlements();
+    await this.harness.dispose();
+    await this.data.erase(receipt);
+    // Clear every in-memory protocol/token/harness cache as well as persisted data.
+    this.ctx.abort("Agent data deleted");
+    throw new Error("Agent data deleted");
   }
 
   /** Which lane, today's demo spend, the key's provider and state. Never the key. */
@@ -781,6 +871,18 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   async onJob({ job }: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
+    if (job.fn === "agent-delete") {
+      const payload = deletionJob(job.payload, "agent deletion job");
+      if (this.data.deleting) {
+        try { await this.#runDeletion(payload.receipt); }
+        catch (error) {
+          // A completed erasure aborts this instance; only incomplete work needs another wake.
+          if (!this.data.completed(payload.receipt)) return { rescheduleAt: Date.now() + 60_000 };
+          throw error;
+        }
+      }
+      return;
+    }
     if (job.fn !== "model-accounting") return;
     try { await this.access.flushSettlements(); }
     catch (error) { await this.log.event("job", { job: literal("model.accounting"), outcome: literal("error") }).fail(error).emit(); }

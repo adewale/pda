@@ -6,6 +6,7 @@ import { MemorySettings } from "./memory";
 import { ModelSettings, type EntitlementState } from "./model";
 import { NotificationSettings } from "./notifications";
 import { ScheduledSettings } from "./scheduled";
+import { AgentDataSettings } from "./agent-data";
 
 export type Identity = { readonly email: string | null; readonly provider: "google" | "github" };
 
@@ -145,7 +146,7 @@ export function SettingsPage({
         <ModelSettings entitlement={entitlement} onChange={onEntitlement} />
       </Section>
 
-      <Section title="Memory" description="Short notes your agent has saved about you. It sees the newest 50 with every message, even after older messages are summarised, and can search the rest. Delete any you don't want it to keep.">
+      <Section title="Memory" description="Short notes your agent has saved about you. It sees the newest 50 with every message, even after older messages are summarised, and can search the rest. Delete any you don't want in saved memory. The original conversation remains available to the agent.">
         <MemorySettings />
       </Section>
 
@@ -154,6 +155,10 @@ export function SettingsPage({
       </Section>
 
       <NotificationSettings />
+
+      <Section title="Your data" description="Export your local records or permanently delete your agent.">
+        <AgentDataSettings />
+      </Section>
 
       <Section title="Appearance">
         <fieldset className="rounded-xl p-4 ring ring-kumo-hairline">

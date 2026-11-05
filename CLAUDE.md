@@ -8,6 +8,7 @@ Read the design sections relevant to your change in [pda-spec.md](pda-spec.md). 
 | --- | --- |
 | Worker, sign-in, per-person agent | `src/index.ts`, `src/oauth.ts`, `src/session.ts`, `src/agent.ts`; design: Architecture and Signing in |
 | Poppy client or approval flow | `src/poppy/`; design: Poppy client; [operation authorization](docs/operation-authorization.md) |
+| API internals, card components or data controls | [Implementation boundaries](docs/architecture.md); preserve public exports and executor initialization |
 | Validator or mock checks | `src/validator/`, `test/mock-company/`; [Company testing](docs/company-testing.md), [conformance levels](docs/conformance-levels.md) |
 | Chat, Activity, Settings | `src/ui/`, `src/poppy-ui.tsx`; design: Chat transport and UI |
 | Tools, schedules, model access | `src/tools/`, `src/schedules.ts`, `src/model-router.ts`; corresponding design sections |

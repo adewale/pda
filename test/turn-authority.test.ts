@@ -17,6 +17,8 @@ it("keeps submission origin durable and refuses missing or mixed run provenance"
     } as unknown as Storage;
     const authority = new TurnAuthority(state.storage.sql, async () => storage);
     authority.record("user-one", "user");
+    authority.record("selected-one", "user", { companies: ["shop.example"], uploads: [] });
+    expect(() => authority.record("selected-one", "user", { companies: ["excluded.example"], uploads: [] })).toThrow("trusted origin cannot change");
     authority.record("background-one", "background");
     expect(() => authority.record("background-one", "user")).toThrow("trusted origin cannot change");
     let inputs: string[] = ["10"];
@@ -36,5 +38,21 @@ it("keeps submission origin durable and refuses missing or mixed run provenance"
     expect(await reopened.isUser(api, context)).toBe(false);
     inputs = [];
     expect(await reopened.isUser(api, context)).toBe(false);
+  });
+});
+
+it("withdraws legacy inferred grants rather than manufacturing structured selections", async () => {
+  const { stub } = await agent();
+  await runInDurableObject(stub, async (_instance, state) => {
+    const sql = state.storage.sql;
+    sql.exec("DROP TABLE turn_sources");
+    sql.exec("CREATE TABLE turn_sources (request_id TEXT PRIMARY KEY, source TEXT NOT NULL, task_policy INTEGER NOT NULL DEFAULT 0)");
+    sql.exec("INSERT INTO turn_sources VALUES ('legacy', 'user', 1)");
+    const authority = new TurnAuthority(sql, async () => ({} as Storage));
+    const previous = sql.exec("SELECT task_policy, task_access FROM turn_sources WHERE request_id = 'legacy'").one();
+    expect(previous.task_policy).toBe(0);
+    expect(JSON.parse(String(previous.task_access))).toEqual({ companies: [], uploads: [] });
+    authority.record("fresh", "user", { companies: ["shop.example"], uploads: [] });
+    expect(sql.exec("SELECT task_policy FROM turn_sources WHERE request_id = 'fresh'").one().task_policy).toBe(1);
   });
 });

@@ -2,11 +2,11 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness, and written-up spec issues for each draft.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 29 October 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)) ([changelog](CHANGELOG.md), [upgrade procedure](docs/upgrading.md)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page when the Company returns an operation for approval. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/history/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
+Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 3 November 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)) ([changelog](CHANGELOG.md), [upgrade procedure](docs/upgrading.md)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page when the Company returns an operation for approval. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/history/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
 
 ## Components and supported Poppy versions
 
-The implementation follows the text retrieved on **29 October 2026** ([snapshot](spec/draft-0.3-retrieved-2026-10-29/README.md)), including the restored rule that only the agent's browser joins a Session. That restored sentence is not yet in the upstream repository; the dated site snapshot is the exact pin. [spec/upstream.json](spec/upstream.json) pins the snapshot's hashes, and `npm run spec:drift` says when the site changes. The [conformance review](docs/poppy-0.3-conformance.md) lists local fixes, verification limits and the disposition of all 43 upstream audit issues; the changelog ledger does not certify full conformance.
+The implementation follows the text retrieved on **3 November 2026**, matching upstream commit `7205250` ([snapshot](spec/draft-0.3-retrieved-2026-11-03/README.md)). [spec/upstream.json](spec/upstream.json) pins the snapshot and its hashes; `npm run spec:drift` reports later changes. The [conformance review](docs/poppy-0.3-conformance.md) distinguishes implementation, independent checks and live verification. The requirement ledger does not certify full conformance.
 
 | Component | Poppy versions | What it does |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ PDA uses the document validator during discovery, and the fake agents wrap PDA's
 
 | Step | You or the agent | Spec | On the page | Status |
 | --- | --- | --- | --- | --- |
-| 1 | You attach a photo and ask: "Print this as a 6×4 at the print shop" | | Chat, with the photo | Works in tests |
+| 1 | You attach a photo, select its Company and upload permission in the composer, and ask: "Print this as a 6×4 at the print shop" | | Chat, with the photo | Works in tests |
 | 2 | The agent fetches `poppy.json`, the domain's protected resource metadata and the OAuth metadata, and the validator checks them | §3 | Activity: discovery and its verdict | Works in tests |
 | 3 | Every request names its Session in a `Poppy-Session` header, signed with a delegated key; signed out, that's all it carries | §5.2 | Activity: the Session | Works in tests |
 | 4 | It reads the store's OpenAPI catalog and uploads the photo you selected for this task, without asking again | §7 | An upload step in the chat | Works in tests |
@@ -61,7 +61,7 @@ At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printw
 - Requests run for the task you asked for; routine requests may complete without another click.
 - When a Company asks for approval, you see its exact terms and decide on the page. No model tool can approve them.
 - Activity shows what the agent did, where and with what access, and every protocol exchange behind it.
-- A photo selected for your task can upload to that task's Company without another permission click. An unselected saved photo still needs disclosure consent.
+- Photos explicitly selected for a Company in the composer can upload there for that message without another disclosure click. Prose references alone grant no permission. An unselected saved photo still needs disclosure consent.
 
 **Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.
 

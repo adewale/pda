@@ -239,7 +239,7 @@ export class MemoryStore {
     if (text.length > MAX_MEMORY_CHARS) throw new MemoryError(`A note is at most ${MAX_MEMORY_CHARS} characters; this one is ${text.length}. Keep one short fact per note`);
     const problem = secretProblem(text);
     if (problem) {
-      throw new MemoryError(`Not saved: ${problem}. Your agent never keeps passwords, codes, keys, tokens or card numbers. Say the fact without the secret`);
+      throw new MemoryError(`Not saved: ${problem}. Do not put secrets in memory; this check catches common patterns but cannot identify every credential. Say the fact without the secret`);
     }
     const existing = one(this.#sql, memoryRow, "SELECT id, text, source, created_at FROM memories WHERE text = ?", text);
     if (existing) return { memory: toMemory(existing), created: false };

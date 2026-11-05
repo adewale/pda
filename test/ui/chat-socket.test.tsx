@@ -193,6 +193,32 @@ describe("a browser session that no longer has access", () => {
 });
 
 describe("sending before the socket is open", () => {
+  it("keeps an explicit recipient selection with its original message across reconnect and composer changes", async () => {
+    render(<Page />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "shop.example" } });
+    type("Check my order. Do not contact excluded.example.");
+    SEND_WITH.Enter();
+    // A later draft must not expand the queued message's authority.
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "excluded.example" } });
+    socket.open();
+    expect(socket.submits()[0]).toMatchObject({ taskAccess: { companies: ["shop.example"], uploads: [] } });
+    const original = socket.submits()[0];
+    socket.close();
+    socket.open();
+    await waitFor(() => expect(socket.submits()).toEqual([original, original]));
+  });
+
+  it("rejects a recipient URL carrying credentials or a path before sending", () => {
+    render(<Page />);
+    socket.open();
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "https://user:password@shop.example/private" } });
+    type("Check my order");
+    SEND_WITH.Enter();
+    expect(socket.submits()).toEqual([]);
+    expect(screen.getByRole("alert").textContent).toContain("Company domain");
+    expect(box().value).toBe("Check my order");
+  });
+
   it.each(Object.keys(SEND_WITH) as (keyof typeof SEND_WITH)[])("keeps a message sent with %s, shows it as pending, and sends it once the socket opens", (how) => {
     render(<Page />);
     expect(screen.getByText("Connecting to your agent.")).toBeTruthy();

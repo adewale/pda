@@ -11,11 +11,13 @@ import { readFileSync } from "node:fs";
 
 export function buildDefines(wranglerPath: string): Record<string, string> {
   let commit = "unknown";
+  let dirty = true;
   try {
     commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || "unknown";
+    dirty = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() !== "";
   } catch {
     // Not a git checkout (a tarball, a container): the events say so.
   }
   const date = /"compatibility_date"\s*:\s*"([^"]+)"/.exec(readFileSync(wranglerPath, "utf8"))?.[1] ?? "unknown";
-  return { __PDA_COMMIT__: JSON.stringify(commit), __PDA_COMPATIBILITY_DATE__: JSON.stringify(date) };
+  return { __PDA_COMMIT__: JSON.stringify(commit), __PDA_DIRTY__: JSON.stringify(dirty), __PDA_COMPATIBILITY_DATE__: JSON.stringify(date) };
 }

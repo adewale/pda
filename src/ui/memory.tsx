@@ -4,7 +4,7 @@ import { Action } from "./controls";
 /**
  * Settings' Memory section: the notes the agent keeps about its User
  * (src/tools/memory-store.ts), from `GET /api/memories`, each with a delete
- * button, and "Forget everything". The page talks to the person's own agent
+ * button, and "Delete all saved notes". The page talks to the person's own agent
  * through the Worker, same origin only; nobody else's notes can reach it.
  */
 
@@ -93,13 +93,13 @@ export function MemorySettings() {
       )}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <p className="min-w-0 flex-1 text-[13px] text-pretty text-kumo-subtle">
-          {notes.notes.length} of {notes.limit} notes. Kept in your agent's storage until you delete them. Your agent never saves passwords, codes, keys or card numbers.
+          {notes.notes.length} of {notes.limit} notes. Deleting notes does not delete your conversation or information already sent to providers or companies. Do not save secrets here. The agent checks for common credential patterns, but may miss them.
         </p>
         {notes.notes.length > 0 ? (
           confirming ? (
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Forget everything?">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Delete all saved notes?">
               <Action variant="secondary-destructive" disabled={busy} onClick={() => void forget("/api/memories")}>
-                Forget all {notes.notes.length}
+                Delete all {notes.notes.length} notes
               </Action>
               <Action variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
                 Keep them
@@ -107,7 +107,7 @@ export function MemorySettings() {
             </div>
           ) : (
             <Action variant="secondary" onClick={() => setConfirming(true)}>
-              Forget everything
+              Delete all saved notes
             </Action>
           )
         ) : null}

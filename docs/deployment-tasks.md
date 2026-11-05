@@ -40,9 +40,21 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [ ] Tell Todd (Alpine) that the live lane's conversation scenario is now `CL` in place of `C`: the same message, now labelled as a test, and a "Thanks", then the conversation is closed ([live-0.2-testing.md](history/live-0.2-testing.md)).
   - [ ] Once nothing links to the `workers.dev` host any more, turn it off for the Worker in the dashboard; `canonicalRedirect` can then go.
 
-- [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Recorded deploy: 23 October, version `de63f442` (commit `afe8f1e`). The owner's 29 October diagnostics subsequently identify deployed commit `4c92a2d`; no newer deployment is established here. Later local corrections are not evidence of a deployment.
+- [x] **Owner. `npm run deploy`.** Recorded deployment on 4 November: commit `f7fac68096cbf89f15b7de670673ea1eef05bdc9`, Worker version `6ccdb433-21f5-4727-adde-4668908fdb04`, 100% of traffic. [Public verification receipt](evidence/deployment-2026-11-04/receipt.json) records endpoint checks, Google/GitHub start redirects and exact served JavaScript equality. This does not verify signed-in journeys, model calls, device notifications, Browser Run or independent MCP interoperability. Later source changes require their own deployment and evidence.
 
 - [ ] **Owner. Back up `TOKEN_ENC_KEY`** in a password manager or equivalent private store; losing it loses sealed refresh tokens and model keys.
+
+## Repeatable release preflight
+
+Commit the intended source, run the offline checks and build, then deploy that exact state. After promotion, run:
+
+```sh
+npm run check:live -- --origin https://your-deployment.example --expected-commit <source-sha> --output /tmp/pda-public-preflight.json
+```
+
+`/api/build-info` exposes the source revision, dirty-tree flag, Worker version and protocol pin. The checker rejects a mismatched or dirty build, checks public pages and identity documents, checks the anonymous data boundary, and inspects OAuth start redirects without following them. It sends no model request or Company action. Its receipt explicitly says public HTTP only. It requires the release containing this endpoint; the 4 November deployment predates it.
+
+For authenticated and service acceptance, use the dedicated identity and bounded sandbox journey below. Run [the isolated hosted pair](../test/hosted/README.md) for real OAuth/model integration, then verify the production-only gateway, Browser Run and real-device paths separately. An unavailable identity, compatible independent MCP server or device remains an explicit limit, not a passed check. Key changes follow [key rotation and recovery](key-rotation.md).
 
 ## 2. Live checks
 

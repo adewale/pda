@@ -329,7 +329,7 @@ describe("chat", () => {
   it("says what the agent can do before the first message", () => {
     open("/");
     expect(screen.getByRole("heading", { name: "Your agent works with companies for you" })).toBeTruthy();
-    for (const text of [/finds the company/i, /sign in on the company's own page/i, /only with your approval/i, /keeps working while you're away/i]) {
+    for (const text of [/finds the company/i, /sign in on the company's own page/i, /makes requests for your task/i, /keeps working while you're away/i]) {
       expect(screen.getByText(text)).toBeTruthy();
     }
   });
@@ -900,7 +900,7 @@ describe("memory settings", () => {
       expect.stringMatching(/^Prefers trains to planesYour agent noted, /),
       expect.stringMatching(/^VegetarianYou said, /)
     ]);
-    expect(screen.getByText(/2 of 200 notes\. Kept in your agent's storage until you delete them/)).toBeTruthy();
+    expect(screen.getByText(/2 of 200 notes\. Deleting notes does not delete your conversation/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete note: Vegetarian" }));
     await waitFor(() => expect(screen.queryByText("Vegetarian")).toBeNull());
     expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories/1", "GET /api/memories"]);
@@ -910,11 +910,11 @@ describe("memory settings", () => {
     const calls = stubMemories();
     open("/settings");
     await screen.findByRole("list", { name: "Your agent's notes" });
-    fireEvent.click(screen.getByRole("button", { name: "Forget everything" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete all saved notes" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
     expect(calls).toEqual(["GET /api/memories"]);
-    fireEvent.click(screen.getByRole("button", { name: "Forget everything" }));
-    fireEvent.click(screen.getByRole("button", { name: "Forget all 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete all saved notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete all 2 notes" }));
     expect(await screen.findByText(/No notes yet/)).toBeTruthy();
     expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories", "GET /api/memories"]);
   });

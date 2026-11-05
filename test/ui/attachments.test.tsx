@@ -82,6 +82,24 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("attaching a photo in the composer", () => {
+  it.each([false, true])("grants upload only after selecting a file and its destination (selected: %s)", async selected => {
+    stubFetch();
+    const submit = vi.fn();
+    chat(session({ submit }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "shop.example" } });
+    pick(photo());
+    fireEvent.click(await screen.findByText("Allow selected photos to upload to a Company"));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Allow upload of lake.jpg" })).toBeTruthy());
+    if (selected) {
+      fireEvent.change(screen.getByRole("combobox", { name: "Photo upload destination" }), { target: { value: "shop.example" } });
+      fireEvent.click(screen.getByRole("checkbox", { name: "Allow upload of lake.jpg" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submit).toHaveBeenCalledWith(expect.stringContaining(LAKE.id), "followUp", {
+      companies: ["shop.example"], uploads: selected ? [{ company: "shop.example", files: [LAKE.id] }] : []
+    });
+  });
+
   it("offers a labelled button for photos only", () => {
     stubFetch();
     chat();

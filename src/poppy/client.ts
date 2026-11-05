@@ -1061,37 +1061,41 @@ export class PoppyClient {
     account: string,
     response: TokenResponse
   ): Promise<AccountRow | null> {
-    const previous = this.account(company.issuer, account);
-    const previousGeneration = this.accountGeneration(company.issuer, account);
-    // Compared before the new token is stored, so nothing awaits between storing it and the caller recording the old one.
-    // One that won't open is taken as replaced: its revocation then says it can't be sent.
-    const same = async (sealed: string, token: string) =>
-      (await this.sealer.open(sealed, this.accountContext(company.issuer, account)).catch(() => null)) === token;
-    const replaced = previous && response.refresh_token && !(await same(previous.token, response.refresh_token)) ? previous : null;
-    this.#checkAccountGeneration(company.issuer, account, previousGeneration);
-    if (response.refresh_token) {
-      await this.storeAccountToken(
-        company.issuer,
-        account,
-        response.refresh_token,
-        response.scope ?? "",
-        response.refresh_token_expires_in
-      );
-    } else this.#advanceAccountGeneration(company.issuer, account);
-    this.#checkAccountGeneration(company.issuer, account, previousGeneration + 1);
-    this.#bindAccount(company, label, account, response.scope ?? "");
-    const generation = this.accountGeneration(company.issuer, account);
-    const bound = sessionAuthority(this.session(company.issuer, label));
-    // The sign-in's own access token serves the Session's next request, when it came with the answer
-    // (a sign-in finished after an interruption kept only the refresh token) and we can use it.
-    const dpop = company.dpop ? await this.dpopKey(company.issuer) : null;
-    this.#checkAccountGeneration(company.issuer, account, generation);
-    if (!sameAuthority(bound, sessionAuthority(this.session(company.issuer, label)))) {
-      throw new PoppyError("approval_changed", "The Session changed while sign-in was being completed. Start it again.", 0);
-    }
-    const held = response.access_token ? this.#usable(response, dpop, account, generation) : null;
-    if (held) this.#tokens.set(`${company.issuer}|${label}|||access`, held);
-    return replaced;
+    const finishing = `signin-store|${randomId()}`;
+    this.inFlight.add(finishing);
+    try {
+      const previous = this.account(company.issuer, account);
+      const previousGeneration = this.accountGeneration(company.issuer, account);
+      // Compared before the new token is stored, so nothing awaits between storing it and the caller recording the old one.
+      // One that won't open is taken as replaced: its revocation then says it can't be sent.
+      const same = async (sealed: string, token: string) =>
+        (await this.sealer.open(sealed, this.accountContext(company.issuer, account)).catch(() => null)) === token;
+      const replaced = previous && response.refresh_token && !(await same(previous.token, response.refresh_token)) ? previous : null;
+      this.#checkAccountGeneration(company.issuer, account, previousGeneration);
+      if (response.refresh_token) {
+        await this.storeAccountToken(
+          company.issuer,
+          account,
+          response.refresh_token,
+          response.scope ?? "",
+          response.refresh_token_expires_in
+        );
+      } else this.#advanceAccountGeneration(company.issuer, account);
+      this.#checkAccountGeneration(company.issuer, account, previousGeneration + 1);
+      this.#bindAccount(company, label, account, response.scope ?? "");
+      const generation = this.accountGeneration(company.issuer, account);
+      const bound = sessionAuthority(this.session(company.issuer, label));
+      // The sign-in's own access token serves the Session's next request, when it came with the answer
+      // (a sign-in finished after an interruption kept only the refresh token) and we can use it.
+      const dpop = company.dpop ? await this.dpopKey(company.issuer) : null;
+      this.#checkAccountGeneration(company.issuer, account, generation);
+      if (!sameAuthority(bound, sessionAuthority(this.session(company.issuer, label)))) {
+        throw new PoppyError("approval_changed", "The Session changed while sign-in was being completed. Start it again.", 0);
+      }
+      const held = response.access_token ? this.#usable(response, dpop, account, generation) : null;
+      if (held) this.#tokens.set(`${company.issuer}|${label}|||access`, held);
+      return replaced;
+    } finally { this.inFlight.delete(finishing); }
   }
 
   // ---------------------------------------------------------------- Sessions (5)

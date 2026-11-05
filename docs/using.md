@@ -24,7 +24,9 @@ Your agent can't answer until one of these is in place. **Settings → Model** s
 
 ## What to ask
 
-One conversation, kept for good: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so.
+Choose the Company domains this message may contact in **Companies for this message**. Leave it empty for tasks that do not use Poppy Companies. Domain names in the message itself grant no access; a follow-up needs its own selection.
+
+One conversation, kept until you delete your agent: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so.
 
 You can send while the page is still connecting or reconnecting. The message shows in the chat, faded, with "Waiting to connect" under it, and goes once the page is connected; the agent takes it once even if the connection drops and the page sends it again. If the agent refuses it, the reason shows under it with **Try again** and **Remove**. Approvals, sign-ins and other buttons on cards don't wait like this: while the page is connecting they are greyed out, and one that didn't reach your agent says "Not sent", so press it again once the page is connected.
 
@@ -37,7 +39,7 @@ You can send while the page is still connecting or reconnecting. The message sho
 
 **Reading a web page you name.** "What does https://example.com/article say?" It sends only the address: no cookies, no sign-in, nothing about you. It can't search, so give it the address. A page that needs JavaScript, such as a shop built as an app, it loads in a fresh browser in Cloudflare's Browser Run that only reads, up to 10 such pages an hour. It treats what a page says as information, never as your instructions.
 
-**Remembering.** "Remember I'm vegetarian." It keeps short notes, one fact each, and sees the newest 50 with every message. It won't save a password, code, key or card number. Delete a User-supplied note in Settings → Memory; a model tool cannot delete these protected notes. The agent may remove its own deductions. Deleting a note doesn't remove what you said from the conversation itself, which the agent can still read.
+**Remembering.** "Remember I'm vegetarian." It keeps short notes, one fact each, and sees the newest 50 with every message. Do not put secrets in memory. It checks common credential patterns, but cannot reliably identify every secret. Delete a User-supplied note in Settings → Memory; a model tool cannot delete these protected notes. The agent may remove its own deductions. Deleting a note doesn't remove what you said from the conversation itself, which the agent can still read.
 
 **Dates, times and sums.** "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?" It uses your browser's time zone, and sums are exact to the cent.
 
@@ -65,13 +67,14 @@ Signing in to a company, signing out, and talking to a company's staff directly 
 
 ## Photos
 
-Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The model provider receives a smaller preview when available, or a sufficiently small original otherwise; that original may retain image metadata. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. When you ask for a task using a selected photo, it can go to that company's own servers without another upload-approval card. A different stored photo needs your disclosure approval. Deleting the local photo later does not delete copies already sent to a Company or model provider. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
+Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The model provider receives a smaller preview when available, or a sufficiently small original otherwise; that original may retain image metadata. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. For Company access, enter the allowed domains in **Companies for this message**. To permit a photo upload without another disclosure card, open **Allow selected photos to upload to a Company**, enter one of those domains and tick the files. These choices apply only to that message. Attaching or naming a photo in prose alone does not grant upload permission; a proposed upload waits on its disclosure card. A photo named in an earlier message also requires disclosure consent unless explicitly selected. Deleting the local photo later does not delete copies already sent to a Company or model provider. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
 
 ## Settings
 
 - **Account:** who you're signed in as, and sign out.
+- **Your data:** download local records and photo chunks (credentials are omitted), or permanently delete the agent. Deletion stops work and revokes Company access first. If a Company refuses, your data is retained and the error names it; retry after revoking access there or after its service recovers. Successful deletion signs out every device. Copies at providers and Companies are outside this deletion.
 - **Model:** the demo meter, or your key (add, replace, remove, and the Workspace ID).
-- **Memory:** every note your agent has saved, marked "You said" or "Your agent noted", each with **Delete**, and **Forget everything**.
+- **Memory:** every note your agent has saved, marked "You said" or "Your agent noted", each with **Delete**, and **Delete all saved notes**.
 - **Scheduled:** each reminder and task waiting, paused or failed, with when it runs next and how it repeats, and **Cancel**. A reminder being tried again says so. A one-off reminder that never reached you, or a one-off task that didn't run, stays here with **Dismiss** until you dismiss it.
 - **Notifications:** shown when the deployment has them and your browser supports them. **Notifications on this device** asks the browser's permission, then delivers reminders, and a word when a task has run, even with the page closed. Turn it on in each browser you want them in.
   - **On iPhone and iPad**, notifications reach only the app added to your Home Screen: in Safari, tap **Share**, then **Add to Home Screen**, open the agent from that icon, and turn notifications on there.
@@ -106,7 +109,6 @@ A run-through that touches every part. Each step says what you should see; if yo
 
 - **Skills,** and **web search**: it reads a page only when you give it the address.
 - **Reminders by email:** only the chat and Web Push.
-- **Delete my agent, or export your data,** from the page. Ask the operator through the contact on the privacy policy (`/privacy`); they delete your agent and everything it stores within 30 days.
 - **Browse a company's website when the site needs JavaScript.** Inside a company Session the agent's browser runs no scripts; only `read_url`, signed out and read only, renders pages.
 - **Resume a paused task:** cancel it in Settings and ask again.
 - **A proper iPhone home-screen icon:** iOS doesn't use the SVG logo.

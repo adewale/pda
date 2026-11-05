@@ -2,6 +2,14 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — explicit task access and personal data controls
+
+- Company recipients and photo-upload permissions are explicit selections in the composer, durably bound to each admitted message. Prose names, negations, filenames and Company replies grant no access. An upload without an explicit file-and-destination selection retains its disclosure card. Legacy inferred grants are withdrawn; unfinished tasks need a fresh message and old tabs must reload.
+- Settings can stream a local-data export without stored credentials and request agent deletion. Deletion stops work, revokes Company tokens, erases local storage and invalidates older browser sessions; a failed revocation retains data for retry. Interrupted deletion has a durable retry. Provider/Company copies and shared operator accounting are outside local erasure.
+- Onboarding describes Company-driven exact-terms approval. Memory controls say what they delete and describe credential checks as best effort. Private photos are no-store and logout clears the browser cache.
+- `apis.ts` and `poppy-ui.tsx` are stable entry points over modules separated by parsing, validation, transport, durable dispatch and interface responsibility. [Implementation boundaries](docs/architecture.md) describe ownership.
+- Public build provenance and `npm run check:live` support read-only release checks. Current protocol guides identify the 3 November pin. [Key rotation](docs/key-rotation.md) records operational steps and recovery limits.
+
 ## Unreleased — Poppy 0.3, the 3 November text
 
 Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream commit [`7205250`](https://github.com/personal-agent-protocol/personal-agent-protocol/commit/7205250c6fb7d4a181707898fa418911ccbcb163) ([snapshot](spec/draft-0.3-retrieved-2026-11-03/README.md), [upstream changelog](https://personalagentprotocol.org/docs/changelog)). Operations **v2**, Mediated Sign-In **v1**. The [ledger](docs/poppy-0.3-upgrade.md) gives each of the changelog's 79 entries a disposition.

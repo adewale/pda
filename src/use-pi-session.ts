@@ -1,3 +1,4 @@
+import { readTaskAccess, type TaskAccess } from "./task-access";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HistoryRequest } from "./history";
@@ -73,6 +74,7 @@ export type Outgoing = {
   /** The submit's id and operation id, the same on every send: pi takes an operation id once, however often it arrives. */
   readonly id: string;
   readonly text: string;
+  readonly taskAccess?: TaskAccess;
   readonly whenBusy: "followUp" | "steer";
   /** `waiting`: not on an open socket yet. `sent`: on one, no answer yet. `failed`: the agent answered with an error. */
   readonly state: "waiting" | "sent" | "failed";
@@ -104,7 +106,7 @@ export function answered(outbox: readonly Outgoing[], id: string, error?: string
 /** Retry a failed submit with its original operation id and payload. */
 export function retryFailed(outbox: readonly Outgoing[], id: string): readonly Outgoing[] {
   return outbox.map((item) => item.id === id && item.state === "failed"
-    ? { id: item.id, text: item.text, whenBusy: item.whenBusy, state: "waiting" } : item);
+    ? { id: item.id, text: item.text, ...(item.taskAccess ? { taskAccess: item.taskAccess } : {}), whenBusy: item.whenBusy, state: "waiting" } : item);
 }
 
 /** A User may dismiss only a failed submit; pending work stays in the outbox. */
@@ -112,8 +114,8 @@ export function dismissFailed(outbox: readonly Outgoing[], id: string): readonly
   return outbox.filter((item) => item.id !== id || item.state !== "failed");
 }
 
-function submitFrame(item: Outgoing): ClientMessage {
-  return { type: "submit", id: item.id, input: item.text, whenBusy: item.whenBusy, operationId: item.id };
+function submitFrame(item: Outgoing): ClientMessage & { taskAccess?: TaskAccess } {
+  return { type: "submit", id: item.id, input: item.text, whenBusy: item.whenBusy, operationId: item.id, ...(item.taskAccess ? { taskAccess: item.taskAccess } : {}) };
 }
 
 type State = SessionView & {
@@ -375,8 +377,8 @@ export function usePiSession(workspaceId: string) {
    * Never dropped: it goes into the outbox, shown as pending, and is sent
    * now if the socket is open, or as soon as one opens.
    */
-  const submit = useCallback((text: string, whenBusy: "followUp" | "steer" = "followUp") => {
-    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, state: "waiting" }]);
+  const submit = useCallback((text: string, whenBusy: "followUp" | "steer" = "followUp", taskAccess?: TaskAccess) => {
+    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, taskAccess: readTaskAccess(taskAccess), state: "waiting" }]);
     flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

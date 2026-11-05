@@ -1,3 +1,5 @@
+import { markersIn } from "../src/attachments";
+import type { TaskAccess } from "../src/task-access";
 /**
  * Helpers for tests that drive the Worker as a browser would: identities,
  * session cookies, the chat WebSocket, and a view folded from its frames;
@@ -119,9 +121,15 @@ export async function chat(
   socket: WebSocket,
   client: ReturnType<typeof follow>,
   text: string,
-  expected?: string
+  expected?: string,
+  taskAccess?: TaskAccess
 ) {
-  socket.send(JSON.stringify({ type: "submit", id: crypto.randomUUID(), input: text }));
+  // This fixture represents the tester selecting its first mock Company and task-attached photos in the composer.
+  // Boundary tests pass taskAccess explicitly, including an empty grant.
+  const companies = created.length ? [created[0]!.company.domain] : [];
+  const files = companies.some(domain => text.includes(domain)) ? markersIn(text) : [];
+  const selected = taskAccess ?? { companies, uploads: companies.map(company => ({ company, files })) };
+  socket.send(JSON.stringify({ type: "submit", id: crypto.randomUUID(), input: text, taskAccess: selected }));
   // Without an expected answer, any turn number will do: the agent may have history.
   await client.until(() =>
     expected === undefined

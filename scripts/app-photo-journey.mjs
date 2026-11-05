@@ -67,6 +67,12 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await page.waitForSelector('ul[aria-label="Photos to send"] img');
+      await page.type('input[aria-label="Companies for this message"]', domain);
+      if (!baselineConsent) {
+        await page.click('fieldset summary');
+        await page.select('select[aria-label="Photo upload destination"]', domain);
+        await page.click('input[aria-label="Allow upload of lake.jpg"]');
+      }
       await page.type('textarea[aria-label="Message your agent"]', `Please print this photo at ${domain}.`);
       await page.click('button[aria-label="Send message"]');
       const ownCards = async () => JSON.parse(await agent.poppyCards()).filter(card => card.kind === "approval" && card.domain === domain);

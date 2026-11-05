@@ -16,13 +16,14 @@ export type Identity = {
 };
 
 type SessionPayload = Identity & {
+  readonly iat?: number;
   /** Random per-login identifier; revocation is held by the person's agent. */
   readonly sid: string;
   /** Expiry, in seconds since the epoch. */
   readonly exp: number;
 };
 
-export type BrowserIdentity = Identity & { readonly sessionId: string; readonly sessionExpiresAt: number };
+export type BrowserIdentity = Identity & { readonly sessionId: string; readonly sessionExpiresAt: number; readonly sessionCreatedAt?: number };
 
 /** `__Host-` pins the cookie to this origin: Secure, Path=/, no Domain. */
 export const SESSION_COOKIE = "__Host-session";
@@ -105,6 +106,7 @@ export async function createSession(
   now = Date.now()
 ): Promise<string> {
   const payload: SessionPayload = {
+    iat: now,
     sid: crypto.randomUUID(),
     provider: identity.provider,
     sub: identity.sub,
@@ -136,11 +138,13 @@ export async function verifySession(
     payload.sub === "" ||
     typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) ||
     typeof payload.sid !== "string" || !/^[0-9a-f-]{36}$/.test(payload.sid)
+    || (payload.iat !== undefined && (!Number.isSafeInteger(payload.iat) || payload.iat > Date.now()))
   ) {
     throw new AuthError("Malformed session");
   }
   if (payload.exp * 1000 <= Date.now()) throw new AuthError("Session expired");
   return {
+    sessionCreatedAt: payload.iat ?? payload.exp * 1000 - SESSION_TTL_SECONDS * 1000,
     sessionId: payload.sid,
     sessionExpiresAt: payload.exp * 1000,
     provider: payload.provider,
