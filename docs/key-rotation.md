@@ -26,6 +26,7 @@ For compromise, prefer revoking Company grants and provider keys, then asking pe
 ## Other secrets
 
 - Replacing `SESSION_SECRET` invalidates every browser login. Verify old cookies fail and a new Google/GitHub login works; do not restore a compromised session secret to ease rollback.
+- After agent deletion has been used, rolling back to code that predates the deletion login cutoff requires replacing `SESSION_SECRET`. Older code does not consult the cutoff and could otherwise admit a still-signed pre-deletion cookie.
 - Replacing `WEB_PUSH_VAPID_JWK` requires devices to subscribe again. Test delivery on each supported device after replacement.
 - `POPPY_OPERATOR_KEY` publishes one operator key rather than an overlapping key set. Coordinate rotation with the verifying edge and its directory cache; verify the directory possession proof and a signed sandbox request. See [setup](setup.md).
 

@@ -27,6 +27,8 @@ Transport code cannot decide an approval. Dispatch code uses shared authority an
 
 `src/task-access.ts` validates the composer's explicit Company/file selections. `tools/turn-authority.ts` persists them beside the admitted input, freezes them across retries and binds resumed tools to their originating task. Prose and Company content confer no recipient or file permission.
 
+Scheduled tasks store those selections when created and pass them to their own background input on each run. An explicit empty selection stays empty; it cannot borrow a later chat's recipients. Scheduled runs retain background provenance, so they cannot create schedules or save notes as the User. Company-notice continuation correlation still uses the existing latest-User fallback; this change does not establish an independent originating-message binding for every unsolicited notice.
+
 `src/agent-data.ts` owns streamed export and the deletion receipt/login cutoff. `agent-data-routes.ts` owns the authenticated HTTP interface; `ui/agent-data.tsx` owns its explicit user confirmation. The agent coordinates stopping tools and Company revocation before erasure. A refused revocation retains the local data and credential for retry. Application SQL/KV erasure and the login cutoff commit atomically, so an interruption cannot erase the cutoff and readmit old cookies. Erasure resets the object to clear memory-only caches as well as storage.
 
 Further extraction from `client.ts` or `operations.ts` should follow a state boundary, such as OAuth transport or approval settlement, with the existing replay/concurrency tests retained. Moving methods solely to meet a line limit would obscure which object owns their mutable state.

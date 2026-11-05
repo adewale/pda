@@ -1,4 +1,4 @@
-import { readTaskAccess } from "./task-access";
+import { NO_TASK_ACCESS, readTaskAccess, type TaskAccess } from "./task-access";
 import { AgentData, exportAgentData } from "./agent-data";
 import { pendingSignOuts, signOut } from "./poppy/signout";
 import { issuerEndpoints, PoppyError, withoutAnswer } from "./poppy/client";
@@ -232,7 +232,7 @@ export class PersonalAgent extends DurableObject<Env> {
       now: () => this.clockNow(),
       jobTime: (at) => this.scheduleJobTime(at),
       showCard: (card) => this.scheduleCard(card),
-      startTask: (text, operationId) => this.scheduledTurn(text, operationId),
+      startTask: (text, operationId, access) => this.scheduledTurn(text, operationId, access),
       taskEnded: async (operationId) => {
         const result = await this.harness.wait(operationId);
         return { status: result.status, ...(result.reason ? { reason: result.reason } : {}) };
@@ -259,7 +259,7 @@ export class PersonalAgent extends DurableObject<Env> {
       webExtension(this.webTools),
       memoryExtension(() => this.memories, { fromUser: this.turnAuthority.isUser }),
       timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() }),
-      scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone, fromUser: this.turnAuthority.isUser })
+      scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone, fromUser: this.turnAuthority.isUser, userTask: this.turnAuthority.userTask })
     ];
     this.harness = new PiHarness({
       harness: async ({ storage, context }) => {
@@ -477,7 +477,7 @@ export class PersonalAgent extends DurableObject<Env> {
    * Company message's turn is, but never held for later. When the model
    * can't be called the run fails, and the notice says why.
    */
-  protected async scheduledTurn(text: string, operationId: string): Promise<TaskStart> {
+  protected async scheduledTurn(text: string, operationId: string, access: TaskAccess = NO_TASK_ACCESS): Promise<TaskStart> {
     const { entitlement } = await this.access.decide({ forQueue: true });
     if (entitlement.lane === "none") {
       await this.#modelNotice(entitlement);
@@ -485,7 +485,7 @@ export class PersonalAgent extends DurableObject<Env> {
       return { ok: false, reason: refusalText(entitlement) };
     }
     await this.#resumePaused();
-    await this.#submit(text, operationId, "schedule");
+    await this.#submit(text, operationId, "schedule", undefined, access);
     return { ok: true };
   }
 
@@ -562,8 +562,8 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Hand pi a background input, saying first who started it, for its turn's event. */
-  async #submit(text: string, operationId: string, trigger: Trigger, requestId?: Safe<"id">): Promise<void> {
-    this.turnAuthority.record(operationId, "background");
+  async #submit(text: string, operationId: string, trigger: Trigger, requestId?: Safe<"id">, access?: TaskAccess): Promise<void> {
+    this.turnAuthority.record(operationId, "background", access);
     this.log.submitted(operationId, trigger, requestId);
     await this.harness.submit(text, { operationId, whenBusy: "followUp" });
   }

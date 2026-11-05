@@ -26,6 +26,8 @@ Your agent can't answer until one of these is in place. **Settings → Model** s
 
 Choose the Company domains this message may contact in **Companies for this message**. Leave it empty for tasks that do not use Poppy Companies. Domain names in the message itself grant no access; a follow-up needs its own selection.
 
+**Send again** and failed-photo retries put the text back in the composer. Review it and choose its Companies before sending; the retry does not reuse an old upload permission. Any current draft and attached photos stay in the composer.
+
 One conversation, kept until you delete your agent: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so.
 
 You can send while the page is still connecting or reconnecting. The message shows in the chat, faded, with "Waiting to connect" under it, and goes once the page is connected; the agent takes it once even if the connection drops and the page sends it again. If the agent refuses it, the reason shows under it with **Try again** and **Remove**. Approvals, sign-ins and other buttons on cards don't wait like this: while the page is connecting they are greyed out, and one that didn't reach your agent says "Not sent", so press it again once the page is connected.
@@ -49,6 +51,8 @@ You can send while the page is still connecting or reconnecting. The message sho
 - "Every weekday at 9, check whether my print order has shipped." A task runs your agent in the background with your words, as a model call on your key or the demo, and tells you when it has run. If a Company requires approval, its exact terms still wait for you. A task that fails three runs in a row is paused; cancel it and ask again.
 - Times are in your time zone, at most a year ahead, and nothing repeats more often than daily: once, daily, on weekdays, or weekly on a day. Up to 20 can wait at once.
 - Only you can set or cancel one, by asking in the chat. A company's message, a web page or a task's own run can't.
+
+A Company task keeps the Company and photo selections from the message that set it. Later chats do not change those permissions. Cancel and recreate older Company tasks that have no saved selection. **Stop** ends the current run; cancel the schedule to prevent future runs.
 
 ## Approvals
 

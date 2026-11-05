@@ -16,6 +16,7 @@ export type Identity = {
 };
 
 type SessionPayload = Identity & {
+  /** Millisecond issuance for this app's signed cookie, not a JWT NumericDate. */
   readonly iat?: number;
   /** Random per-login identifier; revocation is held by the person's agent. */
   readonly sid: string;

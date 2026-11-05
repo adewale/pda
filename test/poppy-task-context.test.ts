@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import type { Context } from "@earendil-works/chord/context";
+import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { attachmentMarker } from "../src/attachments";
 import type { TaskAccess } from "../src/task-access";
 import { agent, chat, company, connect, requests, signInDirect, until } from "./agent-helpers";
 import { obey } from "./worker";
+import { migrateSchedules } from "../src/tools/schedule-store";
+import { scheduleExtension } from "../src/tools/schedules";
+import type { Scheduler } from "../src/schedules";
 
 function selected(section: string | undefined): TaskAccess {
   expect(section, "the model must receive the composer's selected recipients and photos").toBeDefined();
@@ -94,4 +100,94 @@ it("does not send a Company message after Stop while token preparation is suspen
   await connection.client.until(() => connection.client.frames.some(frame => frame.type === "result" && "id" in frame && frame.id === stop));
   expect((await requests(c)).filter(request => request.method === "POST" && request.url.startsWith(c.hosts.conversationsEndpoint))).toEqual([]);
   connection.socket.close();
+});
+
+describe("scheduled task selections", () => {
+  const noon = Date.UTC(2026, 9, 12, 12);
+
+  it("keeps the creating message's recipients after an unrelated message selects another Company", async () => {
+    const original = await company();
+    const unrelated = await company();
+    const a = await agent();
+    const connection = await connect(a.identity);
+    await a.stub.setClock(noon);
+    const instruction = `Check the original selected Company.\n${obey("poppy_discover", { domain: original.domain })}\n${obey("poppy_discover", { domain: unrelated.domain })}\n${obey("schedule_task", { instruction: "Escalated task", in: "PT1H" })}`;
+    const access = { companies: [original.domain], uploads: [] };
+    await chat(connection.socket, connection.client, `Check my order in an hour. ${obey("schedule_task", { instruction: "Check the original selected Company", in: "PT1H" })}`, undefined, access);
+    const [saved] = JSON.parse(await a.stub.poppySql("SELECT id, task_access FROM schedules")) as { id: string; task_access: string }[];
+    expect(JSON.parse(saved!.task_access)).toEqual(access);
+    // Encoded faux-model directives look like secrets to the store; inject
+    // them only after the real User-origin scheduling tool captured its scope.
+    await a.stub.poppySql("UPDATE schedules SET text = ? WHERE id = ?", instruction, saved!.id);
+    await chat(connection.socket, connection.client, "A different task for later.", undefined, { companies: [unrelated.domain], uploads: [] });
+    await a.stub.scheduleAdvance(noon + 60 * 60 * 1000);
+    await runDurableObjectAlarm(a.stub);
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT last_outcome FROM schedules WHERE id = ?", saved!.id))[0]?.last_outcome === "done");
+    const scheduled = (await a.stub.demoRequests()).filter(request => request.last.startsWith("[scheduled task"));
+    expect(scheduled.length).toBeGreaterThan(0);
+    for (const request of scheduled) expect(selected(request.sections.poppy_task_access)).toEqual(access);
+    expect((await requests(original)).length).toBeGreaterThan(0);
+    expect(await requests(unrelated)).toEqual([]);
+    // The saved recipient grant authorizes Company work, not new User-origin powers.
+    expect(JSON.parse(await a.stub.poppySql("SELECT COUNT(*) AS n FROM schedules"))[0].n).toBe(1);
+    expect(await a.stub.poppyTranscript()).toContain("wasn't started by the User's own message");
+    expect(JSON.parse(await a.stub.poppySql("SELECT source FROM turn_sources WHERE request_id GLOB 'schedule:*'"))).toEqual([{ source: "background" }]);
+    connection.socket.close();
+  });
+
+  it("does not lend a later User's Company selection to a legacy schedule with no saved access", async () => {
+    const c = await company();
+    const a = await agent();
+    const connection = await connect(a.identity);
+    await a.stub.setClock(noon);
+    const task = await a.stub.scheduleCreate({ kind: "task", text: "Check my order", when: { in: "PT1H" }, timeZone: "UTC" });
+    await a.stub.poppySql("UPDATE schedules SET text = ? WHERE id = ?", `Check my order. ${obey("poppy_discover", { domain: c.domain })}`, task.id);
+    await chat(connection.socket, connection.client, "Something unrelated.", undefined, { companies: [c.domain], uploads: [] });
+    await a.stub.scheduleAdvance(noon + 60 * 60 * 1000);
+    await runDurableObjectAlarm(a.stub);
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT last_outcome FROM schedules WHERE id = ?", task.id))[0]?.last_outcome === "done");
+    const request = (await a.stub.demoRequests()).at(-1)!;
+    expect(selected(request.sections.poppy_task_access)).toEqual({ companies: [], uploads: [] });
+    expect(await requests(c)).toEqual([]);
+    connection.socket.close();
+  });
+
+  it("migrates older schedule rows with an empty selection instead of parsing their instructions", async () => {
+    const a = await agent();
+    await runInDurableObject(a.stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("ALTER TABLE schedules DROP COLUMN task_access");
+      sql.exec("INSERT INTO schedules (id, kind, text, next_run, recurrence, time_zone, created_at, created_from, status) VALUES ('sch_legacy', 'task', 'Contact shop.example', 1, 'none', 'UTC', 1, 'legacy', 'active')");
+      migrateSchedules(sql);
+      expect(JSON.parse(String(sql.exec("SELECT task_access FROM schedules WHERE id = 'sch_legacy'").one().task_access))).toEqual({ companies: [], uploads: [] });
+    });
+  });
+
+  it("does not create future work after Stop while the originating task lookup is suspended", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    let active = true;
+    let created = 0;
+    const extension = scheduleExtension({
+      scheduler: () => ({ create: async () => { created++; throw new Error("Scheduled work was created"); } }) as unknown as Scheduler,
+      userTimeZone: () => "UTC",
+      fromUser: async () => true,
+      userTask: async () => {
+        entered();
+        await waiting;
+        return { key: "original", text: "Check my order later", history: [], userStarted: true, foreign: false, access: { companies: [], uploads: [] }, active: () => active };
+      }
+    });
+    const controller = new AbortController();
+    const tool = extension.tools!.find(tool => tool.name === "schedule_task")!;
+    const result = tool.execute({ instruction: "Check my order later", in: "PT1H" }, { callId: "stopped" } as ToolExecutionApi, { abortSignal: controller.signal } as Context);
+    await started;
+    active = false;
+    controller.abort();
+    release();
+    expect(await result).toMatchObject({ isError: true, details: { refused: "task_stopped" } });
+    expect(created).toBe(0);
+  });
 });
