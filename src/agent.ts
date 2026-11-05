@@ -214,7 +214,7 @@ export class PersonalAgent extends DurableObject<Env> {
       env,
       storage: ctx.storage,
       fetcher: request => {
-        if (this.data.deleting) {
+        if (this.data.deleting || this.#deleting) {
           const metadata = request.method === "GET" && !["Authorization", "Poppy-Session", "DPoP", "Cookie"].some(name => request.headers.has(name));
           const revocation = request.method === "POST" && this.#deletionRevocations.has(request.url);
           if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", "Agent deletion has stopped Company requests.", 0));
@@ -660,14 +660,17 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   #runDeletion(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
-    if (this.#deleting) return this.#deleting;
+    if (this.#deleting) {
+      this.data.join(receipt);
+      return this.#deleting;
+    }
     this.#deleting = this.#deleteData(receipt).finally(() => { this.#deleting = undefined; });
     return this.#deleting;
   }
 
   async #deleteData(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
     const client = this.poppy.client;
-    this.data.begin();
+    this.data.begin(receipt);
     this.turnAuthority.withdraw();
     await this.lifecycle.jobs.push({ fn: "agent-delete", id: "agent-delete", time: Date.now() + 60_000, payload: { receipt }, singleflight: true });
     // Invalidate pending dispatch snapshots, including signed-out and already-approved requests.
@@ -681,6 +684,13 @@ export class PersonalAgent extends DurableObject<Env> {
     // abort waits for ordinary tool work to stop; no new browser/model/scheduled work is admitted.
     await this.harness.abort();
     const activeActions = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_approvals WHERE status = 'executing'").one().n);
+    // A used callback or sent credential request can outlive its isolate. Once no invocation is
+    // running, neither has a saved token answer to recover; never send their grant again.
+    // Stored rows hold only scope; their bound account tokens are revoked below. Exchanged rows
+    // can still hold an unbound token answer and must survive until recovery safely binds it.
+    if (!activeActions && client.inFlight.size === 0) {
+      client.sql.exec("UPDATE poppy_signins SET status = 'failed' WHERE status IN ('used', 'sent', 'stored')");
+    }
     const activeSignIns = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_signins WHERE status NOT IN ('done', 'cancelled', 'failed', 'expired', 'refused')").one().n);
     if (activeActions || activeSignIns || client.inFlight.size > 0) {
       this.data.cancel();

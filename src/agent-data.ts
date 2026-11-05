@@ -6,8 +6,12 @@ export class AgentData {
   constructor(private readonly storage: DurableObjectStorage) {
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS agent_data_state (
       slot INTEGER PRIMARY KEY CHECK (slot = 1), deleting INTEGER NOT NULL DEFAULT 0,
-      deleted_before INTEGER NOT NULL DEFAULT 0, receipt TEXT
+      deleted_before INTEGER NOT NULL DEFAULT 0, receipt TEXT,
+      request_receipts TEXT NOT NULL DEFAULT '[]'
     )`);
+    if (!storage.sql.exec("PRAGMA table_info(agent_data_state)").toArray().some(row => row.name === "request_receipts")) {
+      storage.sql.exec("ALTER TABLE agent_data_state ADD COLUMN request_receipts TEXT NOT NULL DEFAULT '[]'");
+    }
     storage.sql.exec("INSERT OR IGNORE INTO agent_data_state (slot) VALUES (1)");
   }
 
@@ -19,14 +23,25 @@ export class AgentData {
     return (allowDeleting || state.deleting === 0) && issuedAt > Number(state.deleted_before);
   }
 
-  begin(): void {
-    this.storage.sql.exec("UPDATE agent_data_state SET deleting = 1 WHERE slot = 1");
+  begin(receipt?: string): void {
+    if (!this.deleting) {
+      this.storage.sql.exec("UPDATE agent_data_state SET deleting = 1, receipt = NULL, request_receipts = '[]' WHERE slot = 1");
+    }
+    if (receipt) this.join(receipt);
   }
 
-  cancel(): void { this.storage.sql.exec("UPDATE agent_data_state SET deleting = 0 WHERE slot = 1"); }
+  /** Every concurrent HTTP caller can verify the one erasure it joined after the object resets. */
+  join(receipt: string): void {
+    this.storage.sql.exec(`UPDATE agent_data_state SET request_receipts = json_insert(request_receipts, '$[#]', ?)
+      WHERE slot = 1 AND deleting = 1 AND NOT EXISTS (SELECT 1 FROM json_each(request_receipts) WHERE value = ?)`, receipt, receipt);
+  }
+
+  cancel(): void { this.storage.sql.exec("UPDATE agent_data_state SET deleting = 0, request_receipts = '[]' WHERE slot = 1"); }
 
   completed(receipt: string): boolean {
-    return this.storage.sql.exec("SELECT receipt FROM agent_data_state WHERE slot = 1").one().receipt === receipt;
+    const state = this.storage.sql.exec(`SELECT receipt, EXISTS (SELECT 1 FROM json_each(request_receipts) WHERE value = ?) AS joined
+      FROM agent_data_state WHERE slot = 1`, receipt).one();
+    return typeof state.receipt === "string" && (state.receipt === receipt || state.joined === 1);
   }
 
   async erase(receipt: string): Promise<void> {

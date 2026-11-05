@@ -469,6 +469,14 @@ export async function recoverSignIns(client: PoppyClient, issuer?: Issuer): Prom
 
 registerSignInRecovery(recoverSignIns);
 
+/** Track the whole invocation, including discovery/decryption before a grant is sent. */
+async function signInWork<T>(client: PoppyClient, id: string, work: () => Promise<T>): Promise<T> {
+  const key = `signin-run|${id}|${randomId()}`;
+  client.inFlight.add(key);
+  try { return await work(); }
+  finally { client.inFlight.delete(key); }
+}
+
 /**
  * `GET /poppy/callback` for Direct Sign-In (4.2): check `state` (single
  * use, this Company, not expired) and `iss`, then exchange the code at that
@@ -488,77 +496,79 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     if (row) await recoverSignIns(client, row.issuer);
     return { ok: false, message: "This sign-in has expired or was already used. Start it again from the chat." };
   }
-  // Single use, whatever happens next.
-  setStatus(client, row.id, "used");
-  const company = await client.resumeCompany(row.issuer, "signin", row.id);
-  const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
-    state: string;
-    verifier: string;
-  };
-  if (secret.state !== state || row.expires_at <= client.host.now()) {
-    await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
-    return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
-  }
-  // The response must come from the Company we sent the User to (RFC 9207, 4.2).
-  if (url.searchParams.get("iss") !== company.issuer) {
-    await finish(client, row, { ok: false, message: "the response came from a different sign-in server" });
-    return { ok: false, message: "This sign-in response didn't come from the expected company." };
-  }
-  const error = url.searchParams.get("error");
-  if (error) {
-    if (error === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
-    const message = error === "access_denied" ? "the User declined" : error === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : `the company returned ${error}`;
-    await finish(client, row, { ok: false, message });
-    return { ok: false, message: `Sign-in to ${company.name} didn't complete (${error}).` };
-  }
-  const code = url.searchParams.get("code");
-  if (!code) {
-    await finish(client, row, { ok: false, message: "no authorization code came back" });
-    return { ok: false, message: "The company didn't send an authorization code." };
-  }
-  // The code is spent from here on: record that before sending it.
-  const key = EXCHANGE(row.id);
-  setStatus(client, row.id, "exchanging");
-  client.inFlight.add(key);
-  try {
-    let response: TokenResponse;
+  return signInWork(client, row.id, async () => {
+    // Single use, whatever happens next.
+    setStatus(client, row.id, "used");
+    const company = await client.resumeCompany(row.issuer, "signin", row.id);
+    const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
+      state: string;
+      verifier: string;
+    };
+    if (secret.state !== state || row.expires_at <= client.host.now()) {
+      await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
+      return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
+    }
+    // The response must come from the Company we sent the User to (RFC 9207, 4.2).
+    if (url.searchParams.get("iss") !== company.issuer) {
+      await finish(client, row, { ok: false, message: "the response came from a different sign-in server" });
+      return { ok: false, message: "This sign-in response didn't come from the expected company." };
+    }
+    const error = url.searchParams.get("error");
+    if (error) {
+      if (error === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
+      const message = error === "access_denied" ? "the User declined" : error === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : `the company returned ${error}`;
+      await finish(client, row, { ok: false, message });
+      return { ok: false, message: `Sign-in to ${company.name} didn't complete (${error}).` };
+    }
+    const code = url.searchParams.get("code");
+    if (!code) {
+      await finish(client, row, { ok: false, message: "no authorization code came back" });
+      return { ok: false, message: "The company didn't send an authorization code." };
+    }
+    // The code is spent from here on: record that before sending it.
+    const key = EXCHANGE(row.id);
+    setStatus(client, row.id, "exchanging");
+    client.inFlight.add(key);
     try {
-      response = await client.tokenRequest(company, async () => ({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: client.identity.redirectUri,
-        code_verifier: secret.verifier
-      }));
-    } catch (error) {
-      if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
-        // The Company refused the code: it issued no tokens.
-        await refused(client, row, error.code, error.code);
-        return {
-          ok: false,
-          message: `Sign-in to ${company.name} failed (${error.code}).`
-        };
+      let response: TokenResponse;
+      try {
+        response = await client.tokenRequest(company, async () => ({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: client.identity.redirectUri,
+          code_verifier: secret.verifier
+        }));
+      } catch (error) {
+        if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
+          // The Company refused the code: it issued no tokens.
+          await refused(client, row, error.code, error.code);
+          return {
+            ok: false,
+            message: `Sign-in to ${company.name} failed (${error.code}).`
+          };
+        }
+        // No answer, or one we can't read: the Company may have issued tokens we never got.
+        await abandonExchange(client, row);
+        return { ok: false, message: `Sign-in to ${company.name} was interrupted. Go back to the chat and start it again.` };
       }
-      // No answer, or one we can't read: the Company may have issued tokens we never got.
-      await abandonExchange(client, row);
-      return { ok: false, message: `Sign-in to ${company.name} was interrupted. Go back to the chat and start it again.` };
+      // Keep the answer before using it, so an interruption from here still stores its tokens.
+      const answer = keepable(response);
+      client.sql.exec(
+        "UPDATE poppy_signins SET status = 'exchanged', secret = ? WHERE id = ?",
+        await client.sealer.seal(JSON.stringify(answer), sealContext(row)),
+        row.id
+      );
+      try {
+        await finishExchange(client, signIn(client, row.id)!, answer);
+      } catch (error) {
+        reportError(error, { source: literal("poppy.signin_finish") });
+        return { ok: false, message: `Signing in to ${company.name} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${company.name}.` };
+      }
+      return { ok: true, message: `Connected to ${company.name}. You can close this tab.` };
+    } finally {
+      client.inFlight.delete(key);
     }
-    // Keep the answer before using it, so an interruption from here still stores its tokens.
-    const answer = keepable(response);
-    client.sql.exec(
-      "UPDATE poppy_signins SET status = 'exchanged', secret = ? WHERE id = ?",
-      await client.sealer.seal(JSON.stringify(answer), sealContext(row)),
-      row.id
-    );
-    try {
-      await finishExchange(client, signIn(client, row.id)!, answer);
-    } catch (error) {
-      reportError(error, { source: literal("poppy.signin_finish") });
-      return { ok: false, message: `Signing in to ${company.name} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${company.name}.` };
-    }
-    return { ok: true, message: `Connected to ${company.name}. You can close this tab.` };
-  } finally {
-    client.inFlight.delete(key);
-  }
+  });
 }
 
 /**
@@ -667,19 +677,21 @@ export async function submitCredentials(
 ): Promise<"done" | "code" | "failed"> {
   const row = signIn(client, id);
   if (!row || row.type !== "mediated" || row.status !== "pending") return "failed";
-  const company = await client.resumeCompany(row.issuer, "signin", row.id);
-  const mediated = company.signIn.mediated;
-  if (!mediated) return "failed";
-  const credentials: Record<string, string> = {};
-  for (const field of mediated.fields) {
-    const value = values[field.name];
-    if (typeof value !== "string" || value === "") return "failed";
-    // A field is a token request parameter, so it can't be one the grant uses (Mediated Sign-In 2).
-    if (RESERVED_MEDIATED_FIELDS.has(field.name)) return "failed";
-    credentials[field.name] = value;
-  }
-  setStatus(client, id, "sent");
-  return mediatedGrant(client, company, row, { ...credentials, scope: row.scopes });
+  return signInWork(client, row.id, async () => {
+    const company = await client.resumeCompany(row.issuer, "signin", row.id);
+    const mediated = company.signIn.mediated;
+    if (!mediated) return "failed";
+    const credentials: Record<string, string> = {};
+    for (const field of mediated.fields) {
+      const value = values[field.name];
+      if (typeof value !== "string" || value === "") return "failed";
+      // A field is a token request parameter, so it can't be one the grant uses (Mediated Sign-In 2).
+      if (RESERVED_MEDIATED_FIELDS.has(field.name)) return "failed";
+      credentials[field.name] = value;
+    }
+    setStatus(client, id, "sent");
+    return mediatedGrant(client, company, row, { ...credentials, scope: row.scopes });
+  });
 }
 
 /** The one-time code for a Mediated Sign-In: the same grant again, with the code and not the credentials or scope (Mediated Sign-In 4). */
@@ -690,11 +702,13 @@ export async function submitSignInCode(
 ): Promise<"done" | "code" | "failed"> {
   const row = signIn(client, id);
   if (!row || row.type !== "mediated" || row.status !== "code") return "failed";
-  const company = await client.resumeCompany(row.issuer, "signin", row.id);
-  const { sign_in_id } = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
-    sign_in_id: string;
-  };
-  return mediatedGrant(client, company, row, { sign_in_id, one_time_code: code });
+  return signInWork(client, row.id, async () => {
+    const company = await client.resumeCompany(row.issuer, "signin", row.id);
+    const { sign_in_id } = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
+      sign_in_id: string;
+    };
+    return mediatedGrant(client, company, row, { sign_in_id, one_time_code: code });
+  });
 }
 
 export async function cancelSignIn(client: PoppyClient, id: string): Promise<void> {

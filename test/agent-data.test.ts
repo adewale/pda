@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import { AgentData } from "../src/agent-data";
 import type { StorageProbe } from "./worker";
-import { agent, company, fetchWorker, ORIGIN, sessionCookie, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, fetchWorker, ORIGIN, requests, sessionCookie, signInDirect, tool, until } from "./agent-helpers";
 
 const request = (cookie: string, method = "GET", origin = ORIGIN) => new Request(`${ORIGIN}/api/agent-data`, {
   method, headers: { Cookie: cookie, Origin: origin, "X-PDA-Delete": "delete-my-agent" }
@@ -17,7 +17,10 @@ describe("personal data controls", () => {
       storage.sql.exec("CREATE TABLE private_records (text TEXT)");
       storage.sql.exec("INSERT INTO private_records VALUES ('KEEP_UNTIL_COMMIT')");
       storage.kv.put("private-metadata", "ALSO_PRIVATE");
-      data.begin();
+      data.begin("request-a");
+      data.join("request-b");
+      expect(data.completed("request-a")).toBe(false);
+      expect(data.completed("request-b")).toBe(false);
       const failingSql = new Proxy(storage.sql, { get(target, key) {
         if (key === "exec") return (query: string, ...bindings: SqlStorageValue[]) => {
           if (query.startsWith("UPDATE agent_data_state SET deleting = 0")) throw new Error("cutoff write interrupted");
@@ -38,10 +41,16 @@ describe("personal data controls", () => {
       expect(data.completed("failed")).toBe(false);
       await data.erase("committed");
       expect(data.completed("committed")).toBe(true);
+      expect(data.completed("request-a")).toBe(true);
+      expect(data.completed("request-b")).toBe(true);
+      expect(data.completed("unrelated")).toBe(false);
       expect([...storage.kv.list()]).toEqual([]);
       expect(storage.sql.exec("SELECT name FROM sqlite_master WHERE name = 'private_records'").toArray()).toEqual([]);
       const identity = { provider: "google" as const, sub: "owner", email: null, domain: null, sessionId: crypto.randomUUID(), sessionExpiresAt: Date.now() + 10000, sessionCreatedAt: 1 };
       expect(new AgentData(storage).admits(identity)).toBe(false);
+      data.begin("new-attempt");
+      data.cancel();
+      for (const receipt of ["committed", "request-a", "request-b", "new-attempt"]) expect(data.completed(receipt)).toBe(false);
     });
   });
   it("exposes only public build provenance without requiring a personal session", async () => {
@@ -97,6 +106,22 @@ describe("personal data controls", () => {
     expect(await (await fetchWorker(request(fresh))).text()).not.toContain("ERASE_ME");
   });
 
+  it("confirms one completed erasure to every concurrent deletion caller", async () => {
+    const a = await agent();
+    const c = await company();
+    await signInDirect(a, c);
+    await a.stub.poppyFault({ method: "POST", url: c.hosts.revocationEndpoint, mode: "pause" });
+    const first = fetchWorker(request(a.cookie, "DELETE"));
+    await until(async () => await a.stub.poppyHeldCount() === 1);
+    const second = fetchWorker(request(a.cookie, "DELETE"));
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT json_array_length(request_receipts) AS n FROM agent_data_state")).some((row: { n: number }) => row.n === 2));
+    await a.stub.poppyReleaseHeld();
+    const responses = await Promise.all([first, second]);
+    expect(responses.map(response => response.status)).toEqual([204, 204]);
+    for (const response of responses) expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect((await c.stub.state()).accountTokens).toBe(0);
+  });
+
   it("requires same-origin confirmation before any destructive work", async () => {
     const a = await agent();
     expect((await fetchWorker(request(a.cookie, "DELETE", "https://other.example"))).status).toBe(403);
@@ -115,10 +140,53 @@ describe("personal data controls", () => {
     expect((await fetchWorker(request(a.cookie))).status).toBe(200);
   });
 
-  it("revokes Company refresh tokens before erasing their local credentials", async () => {
+  it.each(["used", "sent"] as const)("retires an abandoned %s sign-in without repeating its token grant", async status => {
+    const a = await agent();
+    const c = await company(status === "sent" ? { signIn: { direct: null, device: null, mediated: ["orders:read"] } } : {});
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    // The isolate died before completing the request; no live invocation or saved token answer exists.
+    await a.stub.poppySql("UPDATE poppy_signins SET status = ?, expires_at = 1", status);
+    const grantsBefore = (await requests(c)).filter(item => item.url === c.hosts.tokenEndpoint).length;
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
+    expect((await requests(c)).filter(item => item.url === c.hosts.tokenEndpoint)).toHaveLength(grantsBefore);
+    expect((await c.stub.state()).accountTokens).toBe(0);
+  });
+
+  it("retains a live mediated sign-in until its issued token can be revoked", async () => {
+    const a = await agent();
+    const c = await company({ signIn: { direct: null, device: null, mediated: ["orders:read"] } });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    const card = (await cards(a)).find(item => item.kind === "signin_credentials")!;
+    await a.stub.poppyFault({ method: "POST", url: c.hosts.tokenEndpoint, grant: "https://personalagentprotocol.org/grant/mediated-sign-in", mode: "pause" });
+    const signingIn = a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values: { email: "ada@example.com", password: "correct horse" } });
+    await until(async () => await a.stub.poppyHeldCount() === 1);
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(409);
+    expect(JSON.parse(await a.stub.poppySql("SELECT status FROM poppy_signins"))).toContainEqual({ status: "sent" });
+    await a.stub.poppyReleaseHeld();
+    await signingIn;
+    expect((await c.stub.state()).accountTokens).toBeGreaterThan(0);
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
+    expect((await c.stub.state()).accountTokens).toBe(0);
+  });
+
+  it("retains a sealed exchanged token answer when recovery cannot bind it", async () => {
+    const a = await agent();
+    const c = await company();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    // A kept answer must survive even if its discovery context cannot currently be revalidated.
+    await a.stub.poppySql("UPDATE poppy_signins SET status = 'exchanged', secret = 'SEALED_ISSUED_TOKEN_ANSWER'");
+    await a.stub.poppySql("DELETE FROM poppy_task_contexts WHERE kind = 'signin'");
+    await a.stub.poppySql("DELETE FROM poppy_domains");
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(409);
+    expect(JSON.parse(await a.stub.poppySql("SELECT secret, status FROM poppy_signins"))).toContainEqual({ secret: "SEALED_ISSUED_TOKEN_ANSWER", status: "exchanged" });
+  });
+
+  it("revokes Company refresh tokens before erasing a stored sign-in and its bound credentials", async () => {
     const a = await agent();
     const c = await company();
     await signInDirect(a, c);
+    // The token is bound, but the isolate stopped before finishing the sign-in's card/notification.
+    await a.stub.poppySql("UPDATE poppy_signins SET status = 'stored'");
     const before = await c.stub.state();
     expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
     const after = await c.stub.state();
