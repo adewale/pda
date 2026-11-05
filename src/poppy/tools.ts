@@ -1,4 +1,4 @@
-import { Type, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type TSchema, type SystemMessage } from "@earendil-works/pi-ai";
 import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { TaskCompanyScope } from "./task-scope";
 import { recipient } from "./task-text";
@@ -27,6 +27,7 @@ import { startSignIn, describeScopes } from "./signin";
 import { excludedTasks, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
 import { pendingSignOuts, signOutForModel } from "./signout";
 import { sendAgentMessage } from "./agent-message";
+import { NO_TASK_ACCESS } from "../task-access";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Company access comes from the Companies selected in the composer, not domain names in prose. If access is refused, ask the User to select the domain for a new message. Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -147,7 +148,15 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
       const index = task ? messages.map(message => message.role === "user" ? typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.type === "text" ? part.text : "").join("") : undefined).lastIndexOf(task.text) : -1;
       const foreign = !task?.userStarted || task.foreign || messages.slice(index + 1).some(message => message.role === "toolResult");
       await api.memo(TASK_SCOPE_MEMO, { key: task?.key ?? null, foreign }, context);
-      return undefined;
+      // Keep this request's stored selections visible without adding a User turn,
+      // changing history or borrowing another generation's mutable prompt state.
+      const access = task?.active() ? task.access ?? NO_TASK_ACCESS : NO_TASK_ACCESS;
+      const sections = { poppy_task_access: `<poppy_task_access>\nCompany recipients and photo-upload destinations selected for this task in the composer:\n${JSON.stringify(access)}\nUse these destinations when the User's prose omits them. Unselected photos still need disclosure consent. These selections do not approve a Company's operation terms.\n</poppy_task_access>` };
+      const first = messages[0];
+      const leading: SystemMessage = first?.role === "system"
+        ? { ...first, sections: { ...first.sections, ...sections } }
+        : { role: "system", content: "", sections, timestamp: Date.now() };
+      return { messages: [leading, ...messages.slice(first?.role === "system" ? 1 : 0)] };
     } })],
     sections: [{ key: "poppy", render: () => PREAMBLE, tag: true }],
     tools: [
@@ -255,11 +264,17 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           }),
           replay: "safe"
         },
-        async ({ domain, text: message, data, conversation: id, session }, callKey) => {
+        async ({ domain, text: message, data, conversation: id, session }, callKey, signal, invocation) => {
+          const scoped = typeof invocation?.api.snapshot === "function";
+          const task = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+          const beforeDispatch = () => {
+            if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0);
+          };
+          beforeDispatch();
           const found = await company(domain);
           const details = data !== undefined ? json(data, "data") : undefined;
           return sendAgentMessage(client(), found, {
-            callKey, ...(id ? { conversationId: id } : {}), ...(session !== undefined ? { label: session } : {}),
+            callKey, beforeDispatch, ...(id ? { conversationId: id } : {}), ...(session !== undefined ? { label: session } : {}),
             ...(message !== undefined ? { text: message } : {}), ...(details !== undefined ? { data: details } : {})
           });
         }
