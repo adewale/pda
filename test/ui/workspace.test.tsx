@@ -416,12 +416,12 @@ describe("chat", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send again" }));
     expect(submitted).toEqual([]);
     expect((screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement).value).toBe("Hello");
-    expect(screen.getByText(/Review the message and choose its Companies/)).toBeTruthy();
+    expect(screen.getByText(/Review the message and its selected Companies/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submitted).toEqual(["Hello"]);
   });
 
-  it("routes a retry through the composer without dropping the draft or silently reusing its permissions", () => {
+  it("routes a retry through the composer without dropping the draft or sending by itself", () => {
     const submit = vi.fn();
     const messages: TranscriptMessage[] = [
       { id: "1", role: "user", parts: [{ type: "text", text: "Check my order" }], timestamp: 1 },
@@ -429,12 +429,13 @@ describe("chat", () => {
     ];
     open("/", session({ messages, submit }));
     fireEvent.change(screen.getByRole("textbox", { name: "Message your agent" }), { target: { value: "Keep this draft" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "old.example" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "old.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Send again" }));
     expect(submit).not.toHaveBeenCalled();
     expect((screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement).value).toBe("Keep this draft\n\nCheck my order");
-    expect((screen.getByRole("textbox", { name: "Companies for this message" }) as HTMLInputElement).value).toBe("");
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "shop.example" } });
+    // A retry keeps the selection in view; only the send grants it.
+    expect((screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement).value).toBe("old.example");
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "shop.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submit).toHaveBeenCalledWith("Keep this draft\n\nCheck my order", "followUp", { companies: ["shop.example"], uploads: [] });
   });

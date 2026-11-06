@@ -200,7 +200,7 @@ describe("a request's outcome, on the step that asked for it", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ask your agent to try again" }));
     expect(submitted).toEqual([]);
     expect((screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement).value).toBe(`Please try sending “meadow.gif” to ${SHOP} again.`);
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: DOMAIN } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: DOMAIN } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submitted).toEqual([`Please try sending “meadow.gif” to ${SHOP} again.`]);
   });

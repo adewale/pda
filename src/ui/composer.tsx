@@ -1,5 +1,5 @@
 /** Message composition, explicit task permissions, and attachment upload state. */
-import { useState, useMemo, useRef, useImperativeHandle, type Ref } from "react";
+import { useEffect, useState, useMemo, useRef, useImperativeHandle, type Ref } from "react";
 import { type PendingAttachment, attachProblem, uploadAttachment, removeAttachment, withMarkers, PendingAttachments } from "./attachments";
 import { type PiSession } from "../use-pi-session";
 import { companyDomains, readTaskAccess } from "../task-access";
@@ -48,9 +48,31 @@ function imageFiles(list: FileList | null | undefined): File[] {
 
 export type ComposerHandle = { edit(text: string): void };
 
+/** The Companies last sent from any tab or device. The field shows them; only sending grants them. */
+function useRememberedCompanies(show: (companies: string) => void): boolean {
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const response = await fetch("/api/task-companies", { signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) return;
+      const { companies } = readTaskAccess({ companies: (await response.json() as { companies?: unknown }).companies, uploads: [] });
+      if (!live) return;
+      if (companies.length) show(companies.join(", "));
+      setLoaded(true);
+      // Left unloaded on failure: an empty field then hasn't seen the selection, so it can't replace it.
+    })().catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return loaded;
+}
+
 export function Composer({ session, ref }: { session: PiSession; ref?: Ref<ComposerHandle> }) {
   const [prompt, setPrompt] = useState("");
   const [companies, setCompanies] = useState("");
+  const companiesLoaded = useRememberedCompanies(saved => setCompanies(current => current || saved));
+  const companiesEdited = useRef(false);
   const [uploadCompany, setUploadCompany] = useState("");
   const [uploadFiles, setUploadFiles] = useState<ReadonlySet<string>>(new Set());
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -61,7 +83,6 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
   const editor = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({ edit(text) {
     setPrompt(current => current.trim() ? `${current}\n\n${text}` : text);
-    setCompanies("");
     setUploadCompany("");
     setUploadFiles(new Set());
     setAccessError(null);
@@ -90,13 +111,15 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
     }
     const text = withMarkers(prompt, attachments.ready);
     setPrompt("");
-    setCompanies("");
+    setCompanies(access.companies.join(", "));
     setUploadCompany("");
     setUploadFiles(new Set());
     setAccessError(null);
     setReviewing(false);
     attachments.clear();
-    session.submit(text, whenBusy, access);
+    // A field the User hasn't touched and that hasn't heard the saved selection says nothing about it.
+    // The message gets what the field showed, no Companies, and the saved selection stays.
+    session.submit(text, whenBusy, companiesLoaded || companiesEdited.current ? access : undefined);
   };
   return (
     <div className="shrink-0 border-t border-kumo-hairline bg-kumo-base">
@@ -117,15 +140,16 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
         className="mx-auto max-w-3xl px-4 pt-3 pb-3 sm:px-6"
       >
         <PendingAttachments items={attachments.items} onRemove={attachments.remove} />
-        {reviewing ? <p role="status" className="mb-2 text-[13px] text-kumo-subtle">Review the message and choose its Companies before sending. Saved photos still need disclosure consent.</p> : null}
+        {reviewing ? <p role="status" className="mb-2 text-[13px] text-kumo-subtle">Review the message and its selected Companies before sending. Saved photos still need disclosure consent.</p> : null}
         <fieldset className="mb-2 space-y-2 text-[13px] text-kumo-subtle">
-          <legend className="sr-only">Access for this message</legend>
+          <legend className="sr-only">What your agent can access</legend>
           <label className="flex flex-wrap items-center gap-2">
-            <span>Companies for this message</span>
-            <input aria-label="Companies for this message" value={companies} maxLength={2048}
-              onChange={event => { setCompanies(event.currentTarget.value); setUploadCompany(""); setUploadFiles(new Set()); }}
+            <span>Companies your agent can contact</span>
+            <input aria-label="Companies your agent can contact" aria-describedby="companies-hint" value={companies} maxLength={2048}
+              onChange={event => { companiesEdited.current = true; setCompanies(event.currentTarget.value); setUploadCompany(""); setUploadFiles(new Set()); }}
               placeholder="shop.example, another.example (optional)" className="min-h-9 min-w-0 flex-1 rounded-md px-2 ring ring-kumo-line" />
           </label>
+          <p id="companies-hint" className="text-[12px]">Stays selected for your next messages until you change it.</p>
           {attachments.ready.length > 0 ? (
             <details>
               <summary className="cursor-pointer">Allow selected photos to upload to a Company</summary>

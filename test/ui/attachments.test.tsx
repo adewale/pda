@@ -53,6 +53,7 @@ function stubFetch(answer: () => Response | Promise<Response> = () => Response.j
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const call = { url: String(input), method: init?.method ?? "GET", body: init?.body };
+      if (call.url === "/api/task-companies") return Response.json({ companies: [] }); // The composer's own startup read.
       calls.push(call);
       if (call.url === "/api/attachments" && call.method === "POST") return answer();
       if (call.url.startsWith("/api/attachments/") && call.method === "DELETE") return new Response(null, { status: 204 });
@@ -86,7 +87,7 @@ describe("attaching a photo in the composer", () => {
     stubFetch();
     const submit = vi.fn();
     chat(session({ submit }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "shop.example" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "shop.example" } });
     pick(photo());
     fireEvent.click(await screen.findByText("Allow selected photos to upload to a Company"));
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "Allow upload of lake.jpg" })).toBeTruthy());

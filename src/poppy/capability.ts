@@ -3,7 +3,7 @@ import { code, currentEvent, id, literal, origin, plainUnits, recordCard, report
 import { buildActivity } from "./activity";
 import { apiOperationFor } from "./apis";
 import type { PoppyBrowser } from "./browser";
-import { PoppyClient, type JobName, type PoppyHost } from "./client";
+import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "./client";
 import {
   closeConversation,
   conversation,
@@ -43,6 +43,8 @@ export type PoppyOptions = {
   readonly storage: DurableObjectStorage;
   readonly fetcher: Fetcher;
   readonly browser: () => PoppyBrowser;
+  /** While true, the page's frames do nothing: its approvals and sign-ins could otherwise start new Company work. */
+  readonly framesRefused?: () => boolean;
   /** Hand a notice to the model, at most once per `operationId`. */
   readonly notifyModel: (text: string, operationId: string) => Promise<void>;
   /** Seconds a conversation read waits for events (spec 7.5). */
@@ -385,6 +387,7 @@ export class PoppyCapability extends LifecycleCapability {
     const frame = decoded.value;
     if (frame.type !== "poppy.result_links.checked") this.#lastActivity = Date.now();
     try {
+      if (this.#options.framesRefused?.()) throw new PoppyError("refused", "Your agent is being deleted.", 0);
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
       else await this.#units.frame(code(frame.type) ?? literal("poppy.unknown"), frameFields(frame), () => this.#handleFrame(socket, frame));
       if (!QUIET_FRAMES.has(frame.type)) this.#sendActivity();

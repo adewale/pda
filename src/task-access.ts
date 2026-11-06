@@ -36,7 +36,7 @@ export function readTaskAccess(value: unknown): TaskAccess {
     const upload = value as Record<string, unknown>;
     if (Object.keys(upload).some(key => key !== "company" && key !== "files") || typeof upload.company !== "string" || !Array.isArray(upload.files) || upload.files.length > 20 || upload.files.some(id => typeof id !== "string" || !ATTACHMENT.test(id))) throw new Error("Invalid photo selection.");
     const company = companyDomain(upload.company);
-    if (!companies.includes(company)) throw new Error("Photo uploads must name a Company selected for this message.");
+    if (!companies.includes(company)) throw new Error("Photo uploads must name a selected Company.");
     return { company, files: [...new Set(upload.files as string[])].sort() };
   }).sort((a, b) => a.company.localeCompare(b.company));
   if (new Set(uploads.map(upload => upload.company)).size !== uploads.length) throw new Error("Duplicate photo destination.");

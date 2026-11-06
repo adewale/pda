@@ -13,6 +13,7 @@ import { build, stop } from "esbuild";
 import { exportJWK, generateKeyPair } from "jose";
 import puppeteer from "@cloudflare/puppeteer";
 import { approvalJourneys } from "./app-approval-journey.mjs";
+import { dataControlsJourney } from "./app-data-controls-journey.mjs";
 import { photoJourneys } from "./app-photo-journey.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -36,7 +37,7 @@ try {
   const workerDirectory = path.join(directory, "worker");
   let workerConfig = "test/wrangler.jsonc";
   let workerEntry = "worker.js";
-  if (args.includes("--approval-journey") || args.includes("--photo-journey")) {
+  if (args.includes("--approval-journey") || args.includes("--photo-journey") || args.includes("--data-controls-journey")) {
     const fixtureConfig = JSON.parse(readFileSync(path.join(root, workerConfig), "utf8").replace(/^\s*\/\/.*$/gm, ""));
     fixtureConfig.main = path.join(root, "test/browser/approval-journey-worker.ts");
     workerEntry = "approval-journey-worker.js";
@@ -190,6 +191,9 @@ try {
   }
   if (args.includes("--photo-journey")) {
     evidence.photoJourneys = await photoJourneys({ runtime, page, network, agentName: await agentNameFor(identity), output, baselineConsent: args.includes("--baseline-photo-consent"), negativeControl: args.includes("--photo-negative-control") });
+  }
+  if (args.includes("--data-controls-journey")) {
+    evidence.dataControls = await dataControlsJourney({ runtime, browser, createSession, agentNameFor, secret: config.vars.SESSION_SECRET, output, failures });
   }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });

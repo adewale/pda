@@ -192,14 +192,93 @@ describe("a browser session that no longer has access", () => {
   });
 });
 
+describe("the Companies your agent can contact", () => {
+  const remembered = (companies: string[]) => vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+    String(input) === "/api/task-companies" ? Response.json({ companies }) : Response.json({ workspaceId: "workspace-a" })));
+  const field = () => screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement;
+
+  it("stays selected for the next message, and photos' upload grants don't", async () => {
+    render(<Page />);
+    socket.open();
+    fireEvent.change(field(), { target: { value: "shop.example, Another.example" } });
+    type("First");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(box().value).toBe(""));
+    expect(field().value).toBe("another.example, shop.example");
+    type("Yes, the 6x4 please");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(2));
+    expect(socket.submits()[1]).toMatchObject({ input: "Yes, the 6x4 please", taskAccess: { companies: ["another.example", "shop.example"], uploads: [] } });
+  });
+
+  it("stops at once when the User clears it", async () => {
+    render(<Page />);
+    socket.open();
+    fireEvent.change(field(), { target: { value: "shop.example" } });
+    type("First");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(box().value).toBe(""));
+    fireEvent.change(field(), { target: { value: "" } });
+    type("Second");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(2));
+    expect(socket.submits()[1]).toMatchObject({ taskAccess: { companies: [], uploads: [] } });
+  });
+
+  it("shows the saved selection after a reload, and sending is what grants it", async () => {
+    remembered(["shop.example"]);
+    render(<Page />);
+    socket.open();
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    expect(socket.submits()).toEqual([]);
+    type("Still there?");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(1));
+    expect(socket.submits()[0]).toMatchObject({ taskAccess: { companies: ["shop.example"], uploads: [] } });
+  });
+
+  it("doesn't let the saved selection replace what the User has typed", async () => {
+    let answer!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => String(input) === "/api/task-companies" ? new Promise<Response>(resolve => { answer = resolve; }) : Promise.resolve(Response.json({ workspaceId: "workspace-a" }))));
+    render(<Page />);
+    socket.open();
+    fireEvent.change(field(), { target: { value: "typed.example" } });
+    await waitFor(() => expect(answer).toBeDefined());
+    answer(Response.json({ companies: ["saved.example"] }));
+    await new Promise(resolve => setTimeout(resolve));
+    expect(field().value).toBe("typed.example");
+  });
+
+  it("states no selection when the saved one couldn't be loaded, so it can't erase it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/task-companies" ? new Response("", { status: 503 }) : Response.json({ workspaceId: "workspace-a" })));
+    render(<Page />);
+    socket.open();
+    await new Promise(resolve => setTimeout(resolve));
+    type("Quick");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(1));
+    expect(socket.submits()[0]).not.toHaveProperty("taskAccess");
+  });
+
+  it("states no selection for a message sent before the saved one arrives, so it can't erase it", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => String(input) === "/api/task-companies" ? new Promise<Response>(() => {}) : Promise.resolve(Response.json({ workspaceId: "workspace-a" }))));
+    render(<Page />);
+    socket.open();
+    type("Quick");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(1));
+    expect(socket.submits()[0]).not.toHaveProperty("taskAccess");
+  });
+});
+
 describe("sending before the socket is open", () => {
   it("keeps an explicit recipient selection with its original message across reconnect and composer changes", async () => {
     render(<Page />);
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "shop.example" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "shop.example" } });
     type("Check my order. Do not contact excluded.example.");
     SEND_WITH.Enter();
     // A later draft must not expand the queued message's authority.
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "excluded.example" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "excluded.example" } });
     socket.open();
     expect(socket.submits()[0]).toMatchObject({ taskAccess: { companies: ["shop.example"], uploads: [] } });
     const original = socket.submits()[0];
@@ -211,7 +290,7 @@ describe("sending before the socket is open", () => {
   it("rejects a recipient URL carrying credentials or a path before sending", () => {
     render(<Page />);
     socket.open();
-    fireEvent.change(screen.getByRole("textbox", { name: "Companies for this message" }), { target: { value: "https://user:password@shop.example/private" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: "https://user:password@shop.example/private" } });
     type("Check my order");
     SEND_WITH.Enter();
     expect(socket.submits()).toEqual([]);

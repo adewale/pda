@@ -378,7 +378,7 @@ export function usePiSession(workspaceId: string) {
    * now if the socket is open, or as soon as one opens.
    */
   const submit = useCallback((text: string, whenBusy: "followUp" | "steer" = "followUp", taskAccess?: TaskAccess) => {
-    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, taskAccess: readTaskAccess(taskAccess), state: "waiting" }]);
+    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, ...(taskAccess ? { taskAccess: readTaskAccess(taskAccess) } : {}), state: "waiting" }]);
     flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -528,6 +528,12 @@ export class PoppyClient {
     return JSON.parse(row.company) as Company;
   }
 
+  /** Where a domain's discovery led: its `organization.domain`, which the User who chose the domain may never have typed. */
+  discoveredDomain(domain: string): string | undefined {
+    const row = one(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE domain = ?", domain.toLowerCase());
+    return row ? (JSON.parse(row.company) as Company).domain?.toLowerCase() : undefined;
+  }
+
   /** Every domain's latest document for an issuer: domains sharing one are one Company, but may describe different scopes (3.2). */
   companiesForIssuer(issuer: Issuer): Company[] {
     return rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer)

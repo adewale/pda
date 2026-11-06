@@ -112,6 +112,7 @@ const EXACT_ROUTES = [
   "/api/build-info",
   "/api/attachments",
   "/api/memories",
+  "/api/task-companies",
   "/api/schedules",
   "/api/push/key",
   "/api/push/subscription",
@@ -313,6 +314,12 @@ async function handleMemories(request: Request, env: Env): Promise<Response> {
   const agent = await agentFor(identity, env);
   if (rest === "") return json(200, { forgotten: await agent.forgetAllMemories(identity) });
   return (await agent.forgetMemory(identity, Number(rest))) ? new Response(null, { status: 204 }) : text(404, "Not found");
+}
+
+/** The Companies this person's composer last sent: `GET /api/task-companies`. Reading it grants nothing. */
+async function handleTaskCompanies(request: Request, env: Env): Promise<Response> {
+  const identity = await signedIn(request, env);
+  return json(200, { companies: await (await agentFor(identity, env)).taskCompanies(identity) });
 }
 
 /**
@@ -526,6 +533,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
     if (pathname.startsWith("/api/companies/")) return await handleCompanyLogo(request, env);
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
+    if (pathname === "/api/task-companies") return request.method === "GET" ? await handleTaskCompanies(request, env) : text(405, "Method not allowed");
     if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
     if (pathname.startsWith("/api/push/")) return await handlePush(request, env);
     if (pathname === "/logout") return await handleLogout(request, env);

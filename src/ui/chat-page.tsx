@@ -29,7 +29,7 @@ function Welcome() {
   return (
     <div className="max-w-[70ch] py-8 sm:py-14">
       <h2 className="text-xl font-semibold text-balance text-kumo-strong">Your agent works with companies for you</h2>
-      <p className="mt-2 text-base text-pretty text-kumo-subtle">Choose a domain under “Companies for this message”, then ask for what you need, such as “Exchange my jumper for a size L”. It remembers this conversation.</p>
+      <p className="mt-2 text-base text-pretty text-kumo-subtle">Add a domain under “Companies your agent can contact”, then ask for what you need, such as “Exchange my jumper for a size L”. It remembers this conversation.</p>
       <ul className="mt-6 space-y-4">
         <Capability icon={<MagnifyingGlassIcon size={20} />} title="It checks what your chosen company offers:">
           an API, its own agent to talk to, or its website.

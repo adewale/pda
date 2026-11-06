@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test";
 import type { Context } from "@earendil-works/chord/context";
 import type { Storage } from "@earendil-works/pi-durable";
 import { expect, it } from "vitest";
-import { TurnAuthority, type TurnReader } from "../src/tools/turn-authority";
+import { runAccess, TurnAuthority, type TurnReader } from "../src/tools/turn-authority";
 import { agent } from "./agent-helpers";
 
 it("keeps submission origin durable and refuses missing or mixed run provenance", async () => {
@@ -55,4 +55,47 @@ it("withdraws legacy inferred grants rather than manufacturing structured select
     authority.record("fresh", "user", { companies: ["shop.example"], uploads: [] });
     expect(sql.exec("SELECT task_policy FROM turn_sources WHERE request_id = 'fresh'").one().task_policy).toBe(1);
   });
+});
+
+it("remembers the Companies a new message states, and nothing else changes them", async () => {
+  const { stub } = await agent();
+  await runInDurableObject(stub, async (_instance, state) => {
+    const authority = new TurnAuthority(state.storage.sql, async () => ({}) as Storage);
+    const selected = (...companies: string[]) => ({ companies, uploads: [] });
+    expect(authority.selectedCompanies()).toEqual([]);
+    authority.record("first", "user", selected("shop.example"));
+    expect(authority.selectedCompanies()).toEqual(["shop.example"]);
+    // A message that states no selection, as from a tab that hasn't loaded it, leaves it alone and is granted nothing.
+    authority.record("silent", "user");
+    expect(authority.selectedCompanies()).toEqual(["shop.example"]);
+    // Background work never edits what the composer shows.
+    authority.record("scheduled", "background", selected("other.example"));
+    expect(authority.selectedCompanies()).toEqual(["shop.example"]);
+    authority.record("second", "user", selected("next.example"));
+    // A late resend of an older message can't undo the newer choice.
+    authority.record("first", "user", selected("shop.example"));
+    expect(authority.selectedCompanies()).toEqual(["next.example"]);
+    authority.record("cleared", "user", selected());
+    expect(authority.selectedCompanies()).toEqual([]);
+    authority.record("third", "user", selected("again.example"));
+    authority.forgetCompanies();
+    expect(authority.selectedCompanies()).toEqual([]);
+  });
+});
+
+const USER = { key: "user", source: "user" as const, policy: 1, access: { companies: ["shop.example", "both.example"], uploads: [{ company: "shop.example", files: ["att_a"] }] } };
+const SCHEDULED = { key: "scheduled", source: "background" as const, policy: 1, access: { companies: ["both.example", "other.example"], uploads: [] } };
+
+it("keeps a photo permission to its own message, and a mixed run to what both inputs hold", () => {
+  expect(runAccess(USER, [USER])).toEqual(USER.access);
+  expect(runAccess(SCHEDULED, [SCHEDULED])).toEqual(SCHEDULED.access);
+  // A later message of the User's still carries its own grant.
+  const next = { ...USER, key: "next" };
+  expect(runAccess(next, [USER, next])).toEqual(USER.access);
+  // A Company-started run borrows the User's Companies, never their permission for one message's photo.
+  expect(runAccess(USER, [])).toEqual({ companies: USER.access.companies, uploads: [] });
+  expect(runAccess(USER, [SCHEDULED, USER])).toEqual({ companies: ["both.example"], uploads: [] });
+  expect(runAccess(SCHEDULED, [USER, SCHEDULED])).toEqual({ companies: ["both.example"], uploads: [] });
+  // A withdrawn schedule lends nothing to the message that steered into its run.
+  expect(runAccess(USER, [{ ...SCHEDULED, policy: 0 }, USER])).toEqual({ companies: [], uploads: [] });
 });

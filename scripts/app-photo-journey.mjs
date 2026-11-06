@@ -67,7 +67,9 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await page.waitForSelector('ul[aria-label="Photos to send"] img');
-      await page.type('input[aria-label="Companies for this message"]', domain);
+      // The selection stays between messages, so replace it rather than adding to it.
+      await page.$eval('input[aria-label="Companies your agent can contact"]', field => { field.focus(); field.select(); });
+      await page.type('input[aria-label="Companies your agent can contact"]', domain);
       if (!baselineConsent) {
         await page.click('fieldset summary');
         await page.select('select[aria-label="Photo upload destination"]', domain);

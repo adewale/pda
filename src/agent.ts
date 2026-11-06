@@ -1,7 +1,8 @@
 import { NO_TASK_ACCESS, readTaskAccess, type TaskAccess } from "./task-access";
-import { AgentData, exportAgentData } from "./agent-data";
-import { pendingSignOuts, signOut } from "./poppy/signout";
-import { issuerEndpoints, PoppyError, withoutAnswer } from "./poppy/client";
+import { AgentData } from "./agent-data";
+import { exportAgentData } from "./agent-data-export";
+import { pendingSignOuts, revocationEndpoint, signOut, unrevokedAccess, type UnrevokedAccess } from "./poppy/signout";
+import { PoppyError, withoutAnswer } from "./poppy/client";
 import { object, string } from "./decode";
 import { DurableObject } from "cloudflare:workers";
 import type { Provider } from "@earendil-works/pi-ai";
@@ -79,6 +80,9 @@ const SCHEMA = [
 const pausedTable = table("model_paused", { operation_id: text, text, created_at: integer });
 const deletionJob = object({ receipt: string });
 
+/** Deletion stopped short, and the local data is intact. */
+export type DeletionRetained = { readonly deleted: false; readonly unrevoked: readonly UnrevokedAccess[]; readonly reason?: string };
+
 function closeDataSockets(ctx: DurableObjectState): void {
   for (const socket of ctx.getWebSockets()) {
     try { socket.close(1008, "Agent deletion is in progress"); } catch { /* Already closed. */ }
@@ -138,7 +142,7 @@ export type KeyResult = { ok: true; entitlement: Entitlement } | { ok: false; st
 /** One person's agent: a Pi harness whose root session is their one chat. */
 export class PersonalAgent extends DurableObject<Env> {
   readonly data: AgentData;
-  #deleting: Promise<{ deleted: false; companies: readonly string[]; reason?: string }> | undefined;
+  #deleting: Promise<DeletionRetained> | undefined;
   readonly #deletionRevocations = new Set<string>();
   readonly browserSessions: BrowserSessions;
   readonly turnAuthority: TurnAuthority;
@@ -209,19 +213,12 @@ export class PersonalAgent extends DurableObject<Env> {
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
-    const poppyFetcher = this.poppyFetcher();
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
-      fetcher: request => {
-        if (this.data.deleting || this.#deleting) {
-          const metadata = request.method === "GET" && !["Authorization", "Poppy-Session", "DPoP", "Cookie"].some(name => request.headers.has(name));
-          const revocation = request.method === "POST" && this.#deletionRevocations.has(request.url);
-          if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", "Agent deletion has stopped Company requests.", 0));
-        }
-        return poppyFetcher(request);
-      },
+      fetcher: this.#stoppedByDeletion(this.poppyFetcher()),
       browser: () => (browser ??= this.poppyBrowser()),
+      framesRefused: () => this.data.deleting || this.#deleting !== undefined,
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
       units: this.log,
       ...this.poppySettings()
@@ -342,14 +339,15 @@ export class PersonalAgent extends DurableObject<Env> {
             let parsed: unknown;
             try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && (parsed.type === "abort" || parsed.type === "reset")) this.turnAuthority.withdraw();
+            if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "reset") this.turnAuthority.forgetCompanies();
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "submit") {
               const input = parsed as { type: "submit"; operationId?: unknown; id?: unknown; taskAccess?: unknown };
               const supplied = typeof input.operationId === "string" ? input.operationId : typeof input.id === "string" ? input.id : crypto.randomUUID();
               if (supplied.length > 256) { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Message identifier is too long" })); return; }
               const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(supplied));
               const operationId = `user-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-              try { this.turnAuthority.record(operationId, "user", readTaskAccess(input.taskAccess)); }
-              catch { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Invalid or changed task access. Choose the Companies and photos for this message again." })); return; }
+              try { this.turnAuthority.record(operationId, "user", input.taskAccess === undefined ? undefined : readTaskAccess(input.taskAccess)); }
+              catch { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Invalid or changed task access. Check the selected Companies and photos, then send again." })); return; }
               const { taskAccess: _access, ...submission } = input;
               forwarded = JSON.stringify({ ...submission, operationId });
             }
@@ -535,7 +533,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
   protected poppyBrowser(): PoppyBrowser {
-    return new FetchBrowser(this.poppyFetcher());
+    return new FetchBrowser(this.#stoppedByDeletion(this.poppyFetcher()));
   }
 
   /**
@@ -644,6 +642,18 @@ export class PersonalAgent extends DurableObject<Env> {
     this.browserSessions.revoke(identity.sessionId, identity.sessionExpiresAt);
   }
 
+  /** Every path to a Company: while deleting, only anonymous metadata reads and the revocations themselves go out. */
+  #stoppedByDeletion(fetcher: Fetcher): Fetcher {
+    return request => {
+      if (this.data.deleting || this.#deleting) {
+        const metadata = request.method === "GET" && !["Authorization", "Poppy-Session", "DPoP", "Cookie"].some(name => request.headers.has(name));
+        const revocation = request.method === "POST" && this.#deletionRevocations.has(new URL(request.url).href);
+        if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", "Agent deletion has stopped Company requests.", 0));
+      }
+      return fetcher(request);
+    };
+  }
+
   /** The authenticated edge alone exposes the stream to this agent's owner. */
   async exportData(identity: BrowserIdentity): Promise<ReadableStream<Uint8Array>> {
     if (!await this.admitBrowserSession(identity)) throw new AuthError("Session revoked");
@@ -654,63 +664,111 @@ export class PersonalAgent extends DurableObject<Env> {
   /** After aborting the object, the edge verifies this receipt before reporting deletion success. */
   deletionCompleted(receipt: string): boolean { return this.data.completed(receipt); }
 
-  async deleteData(identity: BrowserIdentity, receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+  /** `waivers` name unrevoked credentials the person, shown them, agreed to abandon. */
+  async deleteData(identity: BrowserIdentity, receipt: string, waivers: readonly string[] = []): Promise<DeletionRetained> {
     if (!await this.admitBrowserSession(identity, true)) throw new AuthError("Session revoked");
-    return this.#runDeletion(receipt);
+    return this.#runDeletion(receipt, waivers);
   }
 
-  #runDeletion(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+  #runDeletion(receipt: string, waivers?: readonly string[]): Promise<DeletionRetained> {
     if (this.#deleting) {
       this.data.join(receipt);
       return this.#deleting;
     }
-    this.#deleting = this.#deleteData(receipt).finally(() => { this.#deleting = undefined; });
+    this.#deleting = this.#deleteData(receipt, waivers).finally(() => { this.#deleting = undefined; });
     return this.#deleting;
   }
 
-  async #deleteData(receipt: string): Promise<{ deleted: false; companies: readonly string[]; reason?: string }> {
+  async #deleteData(receipt: string, waivers?: readonly string[]): Promise<DeletionRetained> {
+    this.data.begin(receipt, waivers);
+    try {
+      return await this.#stopAndErase(receipt);
+    } catch (error) {
+      // A failure that would repeat must not leave the agent refusing its owner's requests while
+      // its job retries for ever. The erasure's own abort leaves a receipt, so it is not a failure.
+      if (!this.data.completed(receipt)) this.data.cancel();
+      throw error;
+    }
+  }
+
+  async #stopAndErase(receipt: string): Promise<DeletionRetained> {
     const client = this.poppy.client;
-    this.data.begin(receipt);
     this.turnAuthority.withdraw();
     await this.lifecycle.jobs.push({ fn: "agent-delete", id: "agent-delete", time: Date.now() + 60_000, payload: { receipt }, singleflight: true });
     // Invalidate pending dispatch snapshots, including signed-out and already-approved requests.
     client.sql.exec("UPDATE poppy_sessions SET authority_generation = authority_generation + 1");
-    this.#deletionRevocations.clear();
-    for (const account of [...client.accounts(), ...pendingSignOuts(client)]) {
-      this.#deletionRevocations.add(issuerEndpoints(client.revocationCompany(account.issuer)).revocation);
-    }
     await this.lifecycle.start();
-    closeDataSockets(this.ctx);
     // abort waits for ordinary tool work to stop; no new browser/model/scheduled work is admitted.
     await this.harness.abort();
     const activeActions = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_approvals WHERE status = 'executing'").one().n);
-    // A used callback or sent credential request can outlive its isolate. Once no invocation is
-    // running, neither has a saved token answer to recover; never send their grant again.
-    // Stored rows hold only scope; their bound account tokens are revoked below. Exchanged rows
-    // can still hold an unbound token answer and must survive until recovery safely binds it.
+    // With no invocation running, a used callback, sent credentials or an interrupted exchange has no
+    // token answer to recover, and an expired sign-in can no longer complete. Never send their grant
+    // again, and don't wait for them: a Company that has gone would leave them unfinished for ever.
+    // Stored rows hold only scope; their bound account tokens are revoked below.
     if (!activeActions && client.inFlight.size === 0) {
-      client.sql.exec("UPDATE poppy_signins SET status = 'failed' WHERE status IN ('used', 'sent', 'stored')");
+      client.sql.exec(
+        `UPDATE poppy_signins SET status = 'failed' WHERE status IN ('used', 'sent', 'stored', 'exchanging')
+           OR (status NOT IN ('done', 'cancelled', 'failed', 'expired', 'refused', 'exchanged') AND expires_at <= ?)`,
+        Date.now()
+      );
     }
-    const activeSignIns = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_signins WHERE status NOT IN ('done', 'cancelled', 'failed', 'expired', 'refused')").one().n);
+    // An exchanged row that outlived recovery holds a token answer nothing can bind. It can't finish,
+    // so it isn't waited for: it is reported with the other unrevoked credentials.
+    const activeSignIns = Number(client.sql.exec("SELECT COUNT(*) AS n FROM poppy_signins WHERE status NOT IN ('done', 'cancelled', 'failed', 'expired', 'refused', 'exchanged')").one().n);
     if (activeActions || activeSignIns || client.inFlight.size > 0) {
       this.data.cancel();
-      return { deleted: false, companies: [], reason: "A Company sign-in or action is still finishing. Cancel pending sign-ins or wait for the action to settle, then retry deletion. Local data has been retained." };
+      return { deleted: false, unrevoked: [], reason: "A Company sign-in or action is still finishing. Cancel any pending sign-in, or wait a few minutes, then try again. Your local data is still here, but your agent has stopped what it was doing." };
     }
-    const accounts = client.accounts();
-    const revoke = [...accounts, ...pendingSignOuts(client)];
-    for (const account of revoke) await signOut(client, account.issuer, account.account);
-    const pending = pendingSignOuts(client);
-    if (pending.length) {
-      // Retain the sealed tokens and normal revocation retries. The UI can retry deletion later.
+    // Read now, not earlier: recovery above can bind an account a moment ago unknown.
+    const signedIn = [...client.accounts(), ...pendingSignOuts(client)];
+    this.#deletionRevocations.clear();
+    for (const account of signedIn) {
+      const endpoint = revocationEndpoint(client, account.issuer);
+      if (endpoint) this.#deletionRevocations.add(new URL(endpoint).href);
+    }
+    // One defunct Company's timeouts must not hold up, or stop, the others'. A try that throws leaves
+    // its credential unrevoked, which the check below reports.
+    await Promise.allSettled(signedIn.map(account => signOut(client, account.issuer, account.account)));
+    const unrevoked = unrevokedAccess(client);
+    const waived = this.data.waivers;
+    if (unrevoked.some(item => !waived.has(item.id))) {
+      // Sealed tokens and their normal retries stay, so the person can retry or decide what to abandon.
       this.data.cancel();
-      return { deleted: false, companies: [...new Set(pending.map(row => client.companyByIssuer(row.issuer).domain))] };
+      return { deleted: false, unrevoked };
     }
     await this.access.flushSettlements();
     await this.harness.dispose();
-    await this.data.erase(receipt);
+    // A waived credential goes with everything else. This agent held the only usable copy, so
+    // nothing can use that access afterwards; the Company's record of it is what the person accepted.
+    try {
+      await this.data.erase(receipt);
+    } catch (error) {
+      // The harness is already disposed, so this instance can't go on; a fresh one has everything.
+      this.data.cancel();
+      this.ctx.abort("Agent deletion failed");
+      throw error;
+    }
+    // Only now is erasure certain. A deletion that stopped short leaves open pages connected.
+    closeDataSockets(this.ctx);
     // Clear every in-memory protocol/token/harness cache as well as persisted data.
     this.ctx.abort("Agent data deleted");
     throw new Error("Agent data deleted");
+  }
+
+  /** A deletion resumed after an interruption has no page waiting for its answer, so it says how it ended here. */
+  async #resumeDeletion(receipt: string): Promise<void> {
+    let stopped: DeletionRetained;
+    try {
+      stopped = await this.#runDeletion(receipt);
+    } catch (error) {
+      if (this.data.completed(receipt)) throw error;
+      stopped = { deleted: false, unrevoked: [] };
+    }
+    const companies = [...new Set(stopped.unrevoked.map(item => item.company))];
+    await this.poppy.client.host.showCard({
+      id: `agent-delete-${receipt}`, kind: "notice", company: "", open: true,
+      text: `Your agent's deletion didn't finish, so your local data is still here. ${companies.length ? `Your agent couldn't revoke its access at ${companies.join(", ")}. ` : ""}To try again, open Settings, then Your data.`
+    });
   }
 
   /** Which lane, today's demo spend, the key's provider and state. Never the key. */
@@ -790,6 +848,12 @@ export class PersonalAgent extends DurableObject<Env> {
   async listMemories(identity: Profile): Promise<{ memories: Memory[]; limit: number }> {
     await this.recordIdentity(identity);
     return { memories: this.memories.all(), limit: MAX_MEMORIES };
+  }
+
+  /** The Companies the composer starts with, across reloads and devices. */
+  async taskCompanies(identity: Profile): Promise<readonly string[]> {
+    await this.recordIdentity(identity);
+    return this.turnAuthority.selectedCompanies();
   }
 
   /** Forget one note, as Settings' delete button does. */
@@ -883,14 +947,7 @@ export class PersonalAgent extends DurableObject<Env> {
   async onJob({ job }: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
     if (job.fn === "agent-delete") {
       const payload = deletionJob(job.payload, "agent deletion job");
-      if (this.data.deleting) {
-        try { await this.#runDeletion(payload.receipt); }
-        catch (error) {
-          // A completed erasure aborts this instance; only incomplete work needs another wake.
-          if (!this.data.completed(payload.receipt)) return { rescheduleAt: Date.now() + 60_000 };
-          throw error;
-        }
-      }
+      if (this.data.deleting) await this.#resumeDeletion(payload.receipt);
       return;
     }
     if (job.fn !== "model-accounting") return;

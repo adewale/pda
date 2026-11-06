@@ -12,7 +12,7 @@ A pending decision is claimed once before dispatch. If approval and decline arri
 
 ## Withdrawal and uncertain outcomes
 
-Declining a pending card ends that local decision without sending an approval. Signing out or changing the account or Session invalidates the authority bound to an unsent request. Stop and reset withdraw task grants, including permission to upload task-selected photos. These changes do not undo a request already dispatched.
+Declining a pending card ends that local decision without sending an approval. Signing out or changing the account or Session invalidates the authority bound to an unsent request. Stop and reset withdraw the grants of admitted messages, including permission to upload task-selected photos. The composer's Company list stays visible after Stop, and takes effect only when the User sends again; reset clears it. These changes do not undo a request already dispatched.
 
 Operations 2 has no remote confirm, cancel or operation-tracking endpoint. If a dispatched action's outcome is unknown, the agent preserves its receipt and blocks further writes at that Company until the User checks what happened. It does not resend the uncertain request. The User can record that the action happened or did not happen; this assertion is stored separately from the original receipt and sends no business request. A failed receipt update or notification does not turn a committed result into permission to retry.
 

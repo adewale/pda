@@ -61,6 +61,7 @@ At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printw
 - Requests run for the task you asked for; routine requests may complete without another click.
 - When a Company asks for approval, you see its exact terms and decide on the page. No model tool can approve them.
 - Activity shows what the agent did, where and with what access, and every protocol exchange behind it.
+- Your agent contacts only the Companies you list in the composer, which stay selected until you change them. Domain names in a message grant nothing.
 - Photos explicitly selected for a Company in the composer can upload there for that message without another disclosure click. Prose references alone grant no permission. An unselected saved photo still needs disclosure consent.
 
 **Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.

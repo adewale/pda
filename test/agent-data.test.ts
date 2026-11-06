@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import { AgentData } from "../src/agent-data";
+import { unclassifiedStorage } from "../src/agent-data-export";
+import { unrevokedAccess } from "../src/poppy/signout";
 import type { StorageProbe } from "./worker";
-import { agent, cards, company, fetchWorker, ORIGIN, requests, sessionCookie, signInDirect, tool, until } from "./agent-helpers";
+import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, sessionCookie, signInDirect, tool, until } from "./agent-helpers";
 
-const request = (cookie: string, method = "GET", origin = ORIGIN) => new Request(`${ORIGIN}/api/agent-data`, {
-  method, headers: { Cookie: cookie, Origin: origin, "X-PDA-Delete": "delete-my-agent" }
+const request = (cookie: string, method = "GET", origin = ORIGIN, body?: string) => new Request(`${ORIGIN}/api/agent-data`, {
+  method, headers: { Cookie: cookie, Origin: origin, "X-PDA-Delete": "delete-my-agent" }, ...(body === undefined ? {} : { body })
 });
+const abandon = (cookie: string, ...ids: string[]) => fetchWorker(request(cookie, "DELETE", ORIGIN, JSON.stringify({ abandonRevocations: ids })));
+type Unrevoked = { id: string; domain: string; code: string; liveUntil: number | null };
+const unrevoked = async (response: Response) => (await response.json() as { unrevoked: Unrevoked[] }).unrevoked;
+const agentStillAnswers = async (cookie: string) => (await fetchWorker(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } }))).status === 200;
 
 describe("personal data controls", () => {
   it("commits erasure and the old-login cutoff together, or retains both records and retry state", async () => {
@@ -89,6 +95,52 @@ describe("personal data controls", () => {
     expect(data.tables.attachment_chunks).toHaveLength(2);
     expect(data.tables.attachment_chunks[0].bytes).toMatchObject({ encoding: "base64" });
     expect((await fetchWorker(request(""))).status).toBe(401);
+  });
+
+  it("returns the saved Company selection only to its owner, and a reset chat starts empty", async () => {
+    const identity = person();
+    const a = { ...(await agent(identity)), ...(await connect(identity)) };
+    const saved = async () => (await (await fetchWorker(new Request(`${ORIGIN}/api/task-companies`, { headers: { Cookie: a.cookie } }))).json() as { companies: string[] }).companies;
+    expect(await saved()).toEqual([]);
+    expect((await fetchWorker(new Request(`${ORIGIN}/api/task-companies`))).status).toBe(401);
+    await chat(a.socket, a.client, "hello", undefined, { companies: ["shop.example"], uploads: [] });
+    expect(await saved()).toEqual(["shop.example"]);
+    const other = await agent();
+    expect(await (await fetchWorker(new Request(`${ORIGIN}/api/task-companies`, { headers: { Cookie: other.cookie } }))).json()).toEqual({ companies: [] });
+    a.socket.send(JSON.stringify({ type: "reset", id: crypto.randomUUID() }));
+    await until(async () => (await saved()).length === 0);
+  });
+
+  it("classifies every stored table and column, so a new one can't reach an export by default", async () => {
+    const identity = person();
+    const a = { ...(await agent(identity)), ...(await connect(identity)) };
+    await chat(a.socket, a.client, "hello");
+    await tool(a, "poppy_status", {});
+    const unclassified = await runInDurableObject(a.stub, async (_, state) => unclassifiedStorage(state.storage.sql));
+    expect(unclassified.filter(name => !name.startsWith("test_budget_scope"))).toEqual([]);
+    // Every exported table is read by rowid, dependencies' tables included.
+    const exported = JSON.parse(await (await fetchWorker(request(a.cookie))).text());
+    expect(exported.tables.pi_entries.length).toBeGreaterThan(0);
+    expect(JSON.stringify(exported.tables)).toContain("hello");
+  });
+
+  it("withholds push addresses, queued jobs and one-time sign-in values, and an unclassified column", async () => {
+    const a = await agent();
+    const c = await company();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    const link = (await cards(a)).find(item => item.kind === "signin_link") as unknown as { url: string };
+    await a.stub.poppySql("INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at) VALUES ('https://push.example/DEVICE_ADDRESS', 'DEVICE_KEY', 'DEVICE_AUTH', 1)");
+    await a.stub.poppySql("ALTER TABLE memories ADD COLUMN future_secret TEXT");
+    await a.stub.poppySql("INSERT INTO memories (text, source, created_at, future_secret) VALUES ('note', 'user', 1, 'FUTURE_SECRET')");
+    const text = await (await fetchWorker(request(a.cookie))).text();
+    const data = JSON.parse(text);
+    for (const secret of ["DEVICE_ADDRESS", "DEVICE_KEY", "DEVICE_AUTH", "FUTURE_SECRET", link.url, new URL(link.url).searchParams.get("state")!]) expect(text).not.toContain(secret);
+    expect(data.tables.push_subscriptions[0].endpoint).toEqual({ omitted: "credential" });
+    expect(data.tables.cf_agents_jobs).toBeUndefined();
+    expect(data.withheldUnclassified).toContain("memories.future_secret");
+    const card = data.tables.poppy_cards.map((row: { card: string }) => JSON.parse(row.card)).find((item: { kind: string }) => item.kind === "signin_link");
+    expect(card.url).toEqual({ omitted: "credential" });
+    expect(card.reason).toBe("Check an order");
   });
 
   it("erases local state and revokes every pre-deletion cookie while allowing a fresh sign-in", async () => {
@@ -177,8 +229,13 @@ describe("personal data controls", () => {
     await a.stub.poppySql("UPDATE poppy_signins SET status = 'exchanged', secret = 'SEALED_ISSUED_TOKEN_ANSWER'");
     await a.stub.poppySql("DELETE FROM poppy_task_contexts WHERE kind = 'signin'");
     await a.stub.poppySql("DELETE FROM poppy_domains");
-    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(409);
+    const refused = await fetchWorker(request(a.cookie, "DELETE"));
+    expect(refused.status).toBe(409);
     expect(JSON.parse(await a.stub.poppySql("SELECT secret, status FROM poppy_signins"))).toContainEqual({ secret: "SEALED_ISSUED_TOKEN_ANSWER", status: "exchanged" });
+    // Nothing will ever finish this sign-in, so it can't be what keeps a person's data here.
+    const [held] = await unrevoked(refused);
+    expect(held).toMatchObject({ code: "sign_in_unfinished" });
+    expect((await abandon(a.cookie, held!.id)).status).toBe(204);
   });
 
   it("revokes Company refresh tokens before erasing a stored sign-in and its bound credentials", async () => {
@@ -205,11 +262,165 @@ describe("personal data controls", () => {
     await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES ('KEEP_UNTIL_REVOKED', 'user', 1)");
     const first = await fetchWorker(request(a.cookie, "DELETE"));
     expect(first.status).toBe(409);
-    expect(await first.json()).toMatchObject({ companies: [c.domain] });
+    expect(await unrevoked(first)).toEqual([expect.objectContaining({ domain: c.domain, code: "invalid_client" })]);
     expect((await c.stub.state()).accountTokens).toBeGreaterThan(0);
     expect(await a.stub.poppySql("SELECT text FROM memories")).toContain("KEEP_UNTIL_REVOKED");
     expect(JSON.parse(await a.stub.poppySql("SELECT token FROM poppy_signouts WHERE token IS NOT NULL"))).toHaveLength(1);
     expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
     expect((await c.stub.state()).accountTokens).toBe(0);
+  });
+
+  it("erases everything once the person abandons a credential a Company will never revoke", async () => {
+    const a = await agent();
+    const c = await company({ refuseRevocations: 1000 });
+    await signInDirect(a, c);
+    await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES ('ERASE_ME', 'user', 1)");
+    const refused = await fetchWorker(request(a.cookie, "DELETE"));
+    expect(refused.status).toBe(409);
+    const items = await unrevoked(refused);
+    expect(items).toHaveLength(1);
+    expect(await a.stub.poppySql("SELECT text FROM memories")).toContain("ERASE_ME");
+    expect(await agentStillAnswers(a.cookie)).toBe(true);
+    const attempts = (await c.stub.state()).revocationHints.length;
+    expect((await abandon(a.cookie, items[0]!.id)).status).toBe(204);
+    // Revocation is always tried first: a Company that recovered needs no abandoning.
+    expect((await c.stub.state()).revocationHints.length).toBeGreaterThan(attempts);
+    expect((await c.stub.state()).accountTokens).toBeGreaterThan(0);
+    const fresh = await sessionCookie(a.identity);
+    const text = await (await fetchWorker(request(fresh))).text();
+    expect(text).not.toContain("ERASE_ME");
+    expect(JSON.parse(text).tables.poppy_signouts ?? []).toEqual([]);
+  });
+
+  it("leaves open pages connected when deletion stops short, so a kept agent still works", async () => {
+    const identity = person();
+    const a = { ...(await agent(identity)), ...(await connect(identity)) };
+    const c = await company({ refuseRevocations: 1000 });
+    await signInDirect(a, c);
+    let closed = false;
+    a.socket.addEventListener("close", () => { closed = true; });
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(409);
+    await chat(a.socket, a.client, "still here?");
+    expect(closed).toBe(false);
+  });
+
+  it("says so when a resumed deletion stops short, so it can't end silently", async () => {
+    const a = await agent();
+    const c = await company({ refuseRevocations: 1000 });
+    await signInDirect(a, c);
+    await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES ('KEEP', 'user', 1)");
+    await runInDurableObject(a.stub, async instance => {
+      instance.data.begin("interrupted");
+      await instance.onJob({ job: { fn: "agent-delete", payload: { receipt: "interrupted" } } } as unknown as Parameters<typeof instance.onJob>[0]);
+    });
+    expect((await cards(a)).find(card => card.id === "agent-delete-interrupted")).toMatchObject({ open: true, text: expect.stringContaining(c.hosts.domain.split(".")[0]!) });
+    expect(await a.stub.poppySql("SELECT text FROM memories")).toContain("KEEP");
+    expect(JSON.parse(await a.stub.poppySql("SELECT deleting FROM agent_data_state"))).toEqual([{ deleting: 0 }]);
+  });
+
+  it("holds a waiver to the credentials it names", async () => {
+    const a = await agent();
+    const c = await company({ refuseRevocations: 1000 });
+    await signInDirect(a, c);
+    await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES ('KEEP', 'user', 1)");
+    const [item] = await unrevoked(await fetchWorker(request(a.cookie, "DELETE")));
+    const other = await abandon(a.cookie, "so_some_other_credential");
+    expect(other.status).toBe(409);
+    expect(await unrevoked(other)).toEqual([expect.objectContaining({ id: item!.id })]);
+    expect(await a.stub.poppySql("SELECT text FROM memories")).toContain("KEEP");
+  });
+
+  it("revokes what it can when another Company refuses, and asks only about the refusal", async () => {
+    const a = await agent();
+    const refusing = await company({ refuseRevocations: 1000 });
+    const willing = await company();
+    await signInDirect(a, refusing);
+    await signInDirect(a, willing);
+    const items = await unrevoked(await fetchWorker(request(a.cookie, "DELETE")));
+    expect(items.map(item => item.domain)).toEqual([refusing.domain]);
+    expect((await willing.stub.state()).accountTokens).toBe(0);
+  });
+
+  it("erases while an export is unread or cancelled: no read holds a table open", async () => {
+    const a = await agent();
+    await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES ('ERASE_ME', 'user', 1)");
+    const reader = (await fetchWorker(request(a.cookie))).body!.getReader();
+    await reader.read();
+    const cancelled = (await fetchWorker(request(a.cookie))).body!.getReader();
+    await cancelled.read();
+    await cancelled.cancel();
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
+  });
+
+  it("exports every row of a table longer than one read", async () => {
+    const a = await agent();
+    for (let index = 0; index < 250; index++) await a.stub.poppySql("INSERT INTO memories (text, source, created_at) VALUES (?, 'user', 1)", `note ${index}`);
+    const data = await (await fetchWorker(request(a.cookie))).json() as { tables: { memories: { text: string }[] } };
+    expect(data.tables.memories.map(row => row.text)).toEqual(Array.from({ length: 250 }, (_, index) => `note ${index}`));
+  });
+
+  it.each(["exchanging", "pending"] as const)("doesn't wait for a %s sign-in that can never finish", async status => {
+    const a = await agent();
+    const c = await company();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    await a.stub.poppySql("UPDATE poppy_signins SET status = ?, expires_at = 1", status);
+    expect((await fetchWorker(request(a.cookie, "DELETE"))).status).toBe(204);
+  });
+
+  it("ignores the page's frames while deleting, since they can start new Company work", async () => {
+    const a = await agent();
+    const c = await company();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "Check an order" });
+    const card = (await cards(a)).find(item => item.open)!;
+    await runInDurableObject(a.stub, async instance => { instance.data.begin("deleting"); });
+    await a.stub.poppyFrame({ type: "poppy.card.dismiss", cardId: card.id });
+    await runInDurableObject(a.stub, async instance => { instance.data.cancel(); });
+    expect((await cards(a)).find(item => item.id === card.id)).toMatchObject({ open: true });
+    await a.stub.poppyFrame({ type: "poppy.card.dismiss", cardId: card.id });
+  });
+
+  it("lists an account sign-out hasn't reached, so it can't be erased unasked", async () => {
+    const a = await agent();
+    await tool(a, "poppy_status", {});
+    await a.stub.poppySql("INSERT INTO poppy_accounts (issuer, account, token, scope, expires_at, updated_at) VALUES ('https://auth.gone.example', 'default', 'SEALED', '', NULL, 1)");
+    const listed = await runInDurableObject(a.stub, async instance => unrevokedAccess(instance.poppy.client));
+    expect(listed).toEqual([expect.objectContaining({ domain: "auth.gone.example", code: "not_signed_out", liveUntil: null })]);
+  });
+
+  it("does not lock the agent when a Company's records are gone, and can still erase", async () => {
+    const a = await agent();
+    const c = await company();
+    await signInDirect(a, c);
+    // Nothing is known of the issuer any more, so there is no endpoint to revoke at.
+    await a.stub.poppySql("DELETE FROM poppy_domains");
+    await a.stub.poppySql("DELETE FROM poppy_task_contexts");
+    const refused = await fetchWorker(request(a.cookie, "DELETE"));
+    expect(refused.status).toBe(409);
+    const items = await unrevoked(refused);
+    expect(items).toHaveLength(1);
+    expect(await agentStillAnswers(a.cookie)).toBe(true);
+    expect(JSON.parse(await a.stub.poppySql("SELECT deleting FROM agent_data_state"))).toEqual([{ deleting: 0 }]);
+    expect((await abandon(a.cookie, items[0]!.id)).status).toBe(204);
+  });
+
+  it("refuses a malformed waiver before any destructive work", async () => {
+    const a = await agent();
+    for (const body of ["not json", '{"abandonRevocations":"so_x"}', "{}", JSON.stringify({ abandonRevocations: Array(65).fill("so_x") }), JSON.stringify({ abandonRevocations: ["x".repeat(9000)] })]) {
+      expect((await fetchWorker(request(a.cookie, "DELETE", ORIGIN, body))).status).toBe(400);
+    }
+    expect(await agentStillAnswers(a.cookie)).toBe(true);
+  });
+
+  it("keeps a deletion's waivers through a retry, and drops them when it stops", async () => {
+    const probes = (env as unknown as { STORAGE_PROBE: DurableObjectNamespace<StorageProbe> }).STORAGE_PROBE;
+    await runInDurableObject(probes.get(probes.newUniqueId()), async (_, state) => {
+      const data = new AgentData(state.storage);
+      expect([...data.waivers]).toEqual([]);
+      data.begin("first", ["so_a"]);
+      data.begin("resumed", ["so_b"]);
+      expect([...new AgentData(state.storage).waivers]).toEqual(["so_a"]);
+      data.cancel();
+      expect([...data.waivers]).toEqual([]);
+    });
   });
 });

@@ -298,7 +298,7 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 - **For 30 days.** Each photo is deleted, file and copy, 30 days after it was attached. Every read takes the agent's clock and first deletes whatever is past that, so an older photo is never served, shown to the model or sent to a Company. A Lifecycle job (`attachments-expire`, `AttachmentExpiry` in `src/attachment-images.ts`) wakes when the oldest photo is due and deletes it whether or not anything reads it; there is no job while the agent keeps no photos.
 - **In the message.** The protocol between page and agent is the upstream copy, which carries text, so the page adds a marker per photo to the message: `[attachment att_… · lake.jpg · image/jpeg · 2.4 MB]`. The transcript keeps the marker, never the bytes, and the page shows the photo in its place.
 - **To the model.** A pi `beforeRequest` hook adds the preview (or the file itself, when it is under 1 MiB and there is no preview) as an image to the User's message that names it, on each request, for the four most recent photos. A message of photos and no words gets its images too. A message that starts with any other `[`, as every Company message and agent notice does, or with the known compaction-summary wrapper, can't make the model look at a photo.
-- **To a Company.** Only through `poppy_api_call`'s `files`, for the User's task using their selected photo, or after separate disclosure consent for an unselected saved photo (APIs, Uploads).
+- **To a Company.** Only through `poppy_api_call`'s `files`, for the User's task using a photo they selected for that message, or after separate disclosure consent for any other saved photo (APIs, Uploads).
 
 **What the page shows**
 
@@ -339,7 +339,7 @@ The browser bootstrap (`src/main.tsx`) mounts the page component. The signed-out
 
 ## Personal data controls
 
-Settings → Your data streams an export of local records and base64 photo chunks, omitting credential fields and browser sessions. It is a streaming read rather than a transactional snapshot. Deletion closes browser sockets, withdraws task grants and aborts work before revoking Company refresh tokens. Refusal keeps the data and revocation credential for retry; interrupted deletion has a durable retry job. After successful revocation and accounting settlement, all local storage is erased, a minimal timestamp/receipt invalidates older logins, and the object is aborted to clear memory-only caches. Provider copies, Company records and shared operator accounting are outside local erasure.
+Settings → Your data streams an export of local records and base64 photo chunks. It holds only the tables and columns `src/agent-data-export.ts` lists, so a credential added later stays out by default, and it blanks the one-time values sign-in cards carry. It is a streaming read rather than a transactional snapshot. Deletion withdraws task grants and aborts work before revoking Company refresh tokens. A credential no Company accepted revoking is listed with its reason, and the data and credential stay for retry unless the person abandons that listed credential ([decision 42](docs/decisions.md#42-erasure-doesnt-depend-on-a-companys-cooperation)); interrupted deletion has a durable retry job that keeps the same waivers. Browser sockets close only after the erasure commits, so a refused deletion leaves the agent working, though it has by then stopped its work and signed out of the Companies that accepted; a resumed deletion that stops short says so on a card. After revocation and accounting settlement, all local storage is erased, a minimal timestamp/receipt invalidates older logins, and the object is aborted to clear memory-only caches. Provider copies, Company records and shared operator accounting are outside local erasure.
 
 ## Poppy client
 
@@ -766,7 +766,7 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 - **Reminders and scheduled tasks.** Only the User's own message sets or cancels one; a turn that began with a Company message, a notice or a task's run can't. A task's run is a background turn with no extra powers: it approves nothing, and its model calls count against the demo's caps like any other.
 - **Spend.** The operator pays only for the demo lane: `OWNERS` and `DEMO_ALLOWLIST`, capped per person and per domain each day before every call, with gateway spend limits behind. Everyone else uses their own key or makes no calls. Open sign-up still costs the operator storage for every agent created. A scheduled task's run is one more background turn under the same caps; at most 20 can wait per agent, none more often than daily. Each `read_url` is one more model call, the reader's, under the same caps; the page's text then stays out of every later request of the conversation. Browser Run is the operator's too, for every signed-in person: Workers Paid includes 10 browser hours a month and 10 concurrent browsers (averaged over the month), then $0.09 a browser hour and $2 a concurrent browser. A render takes at most 20 seconds and each agent at most 10 an hour, so one agent can use at most about 3.3 browser minutes an hour; there is no deployment-wide cap, and `BROWSER_RUN=off` stops rendering.
 - **Forks.** The committed template names nobody and points at no host; until its deployer sets `OWNERS` and `PUBLIC_ORIGIN` every route answers with a config error.
-- **Deletion.** "Delete my agent" (milestone 2) first revokes every refresh token at its Company, then runs `ctx.storage.deleteAll()`.
+- **Deletion.** "Delete my agent" first tries to revoke every refresh token at its Company, then erases the application's tables and keys in one transaction with the login cutoff. Destroying a credential the Company wouldn't revoke needs the person's decision (Personal data controls).
 
 ## Observability
 
@@ -877,7 +877,6 @@ Test cases live with their assertions in [test/](test/) and [interop/test/](inte
 5. **Mediated Sign-In and browsing.** Built; browsing runs on the fetch-based browser, tested against the mock Company. Next: try it on the first real Company's website.
 6. **Reference release.** Next (the owner's steps, in order, are in [`docs/deployment-tasks.md`](docs/deployment-tasks.md)):
    - close the "not yet" rows in Appendix A;
-   - choose the final domain and move `PUBLIC_ORIGIN` to it;
    - try the agent against a live Company;
    - publish the interop harness, with the mock Company as its reference, for other implementations (built; this repository is still private);
    - send our readings of the draft (Open questions) to its maintainers.

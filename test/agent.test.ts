@@ -627,7 +627,7 @@ describe("configuration", () => {
     expect(html).toContain("only for the <code>openid</code> and <code>email</code> scopes");
     expect(html).toContain("Google API Services User Data Policy</a>, including the Limited Use requirements");
     expect(html).toContain("attached photos are deleted after 30 days");
-    expect(html).toContain("choose the photos and their destination there to permit upload without another disclosure card");
+    expect(html).toContain("choose photos and their destination there to permit upload for that message without another disclosure card");
     expect(html).toContain("Attaching a photo or naming one in prose alone does not permit Company upload");
     expect(html).toContain("shows its exact terms and waits for your decision");
     expect(html).not.toContain("Proposed account actions require your confirmation");

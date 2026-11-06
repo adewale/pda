@@ -66,7 +66,9 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   };
   const send = async (prompt, domain) => {
     await page.waitForSelector('button[aria-label="Send message"]');
-    await page.type('input[aria-label="Companies for this message"]', domain);
+    // The selection stays between messages, so replace it rather than adding to it.
+    await page.$eval('input[aria-label="Companies your agent can contact"]', field => { field.focus(); field.select(); });
+    await page.type('input[aria-label="Companies your agent can contact"]', domain);
     await page.type('textarea[aria-label="Message your agent"]', prompt);
     await page.click('button[aria-label="Send message"]');
   };
