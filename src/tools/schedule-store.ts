@@ -11,6 +11,7 @@ import { addToInstant, checkZone, civil, dayNumber, instantOf, parseDuration, pa
 import { secretProblem } from "./memory-store";
 import { literal } from "../decode";
 import { integer, nullable, one, rows, table, text, textOf, type RowOf } from "../rows";
+import { readTaskAccess, type TaskAccess } from "../task-access";
 
 /** Most reminders and tasks waiting to run, per agent. */
 export const MAX_ACTIVE_SCHEDULES = 20;
@@ -59,6 +60,8 @@ export type Schedule = {
   readonly createdAt: number;
   /** What created it: the tool call, so a replayed call finds the same row. */
   readonly createdFrom: string;
+  /** Composer selections captured when this task was set; legacy tasks have no Company access. */
+  readonly taskAccess: TaskAccess;
   readonly status: ScheduleStatus;
   /** Task runs that failed in a row. */
   readonly failures: number;
@@ -111,7 +114,8 @@ const SCHEDULES = `CREATE TABLE IF NOT EXISTS schedules (
     paused_reason TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     retry_due INTEGER,
-    finished_at INTEGER
+    finished_at INTEGER,
+    task_access TEXT NOT NULL DEFAULT '{"companies":[],"uploads":[]}'
   )`;
 
 const RUNS = `CREATE TABLE IF NOT EXISTS schedule_runs (
@@ -136,7 +140,10 @@ export function migrateSchedules(sql: SqlStorage): void {
   sql.exec(SCHEDULES);
   sql.exec(RUNS);
   const columns = (sql.exec("PRAGMA table_info(schedules)").toArray() as { name: string }[]).map((column) => column.name);
-  if (columns.includes("finished_at")) return;
+  if (columns.includes("finished_at")) {
+    if (!columns.includes("task_access")) sql.exec(`ALTER TABLE schedules ADD COLUMN task_access TEXT NOT NULL DEFAULT '{"companies":[],"uploads":[]}'`);
+    return;
+  }
   sql.exec("ALTER TABLE schedules RENAME TO schedules_before_retries");
   sql.exec(SCHEDULES);
   const kept = columns.join(", ");
@@ -267,12 +274,13 @@ export const schedulesTable = table("schedules", {
   paused_reason: nullable(text),
   attempts: integer,
   retry_due: nullable(integer),
-  finished_at: nullable(integer)
+  finished_at: nullable(integer),
+  task_access: text
 });
 const scheduleRow = schedulesTable.row;
 type Row = RowOf<typeof scheduleRow>;
 
-const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason, attempts, retry_due, finished_at";
+const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason, attempts, retry_due, finished_at, task_access";
 
 function toRecurrence(row: Row): Recurrence {
   if (row.recurrence === "weekly") return { repeat: "weekly", time: String(row.local_time), weekday: (WEEKDAYS.find((day) => day === row.weekday) ?? "Monday") as Weekday };
@@ -290,6 +298,7 @@ function toSchedule(row: Row): Schedule {
     timeZone: row.time_zone,
     createdAt: row.created_at,
     createdFrom: row.created_from,
+    taskAccess: readTaskAccess(JSON.parse(row.task_access)),
     status: row.status,
     failures: row.failures,
     lastRun: row.last_run,
@@ -342,6 +351,7 @@ export type NewSchedule = {
   readonly when: WhenInput;
   readonly timeZone: string;
   readonly createdFrom: string;
+  readonly taskAccess?: TaskAccess;
 };
 
 export class ScheduleStore {
@@ -399,8 +409,8 @@ export class ScheduleStore {
     const row = one(
       this.#sql,
       scheduleRow,
-      `INSERT INTO schedules (id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING ${COLUMNS}`,
+      `INSERT INTO schedules (id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, task_access, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING ${COLUMNS}`,
       newId(),
       input.kind,
       text,
@@ -410,7 +420,8 @@ export class ScheduleStore {
       recurrence.repeat === "weekly" ? recurrence.weekday : null,
       zone,
       now,
-      input.createdFrom
+      input.createdFrom,
+      JSON.stringify(readTaskAccess(input.taskAccess))
     )!;
     this.#prune();
     return { schedule: toSchedule(row), created: true };

@@ -20,6 +20,8 @@ Use the source below for the question it owns. Link to that source when another 
 | Question | Source |
 | --- | --- |
 | What is built, and why? | [Design and requirements](../pda-spec.md); [decisions](decisions.md) preserve rationale and superseded choices |
+| Which module owns an API, card or data-control concern? | [Implementation boundaries](architecture.md) |
+| How do keys rotate or recover after compromise? | [Key rotation](key-rotation.md) |
 | Which capabilities and model tools exist? | [Capabilities](capabilities.md) |
 | What authorizes an operation? | [Operation authorization](operation-authorization.md) |
 | How do we test against Companies? | [Company testing](company-testing.md) |

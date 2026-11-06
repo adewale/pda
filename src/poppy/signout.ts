@@ -6,7 +6,7 @@ import type { Issuer } from "./issuer";
 import { isObject } from "./json";
 import { randomId } from "./jwt";
 import { newestRows, one, rows, type RowOf } from "../rows";
-import { signOutsTable } from "./store";
+import { signInsTable, signOutsTable } from "./store";
 
 /**
  * Signing out of an account (5.5, 4.6). The agent stops using the account at
@@ -56,6 +56,52 @@ export function pendingSignOuts(client: PoppyClient, issuer?: Issuer): SignOutRe
   return issuer
     ? rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts WHERE token IS NOT NULL AND issuer = ? ORDER BY created_at`, issuer)
     : rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts WHERE token IS NOT NULL ORDER BY created_at`);
+}
+
+/** A credential the agent still holds and could not revoke: what deletion has to tell the person. */
+export type UnrevokedAccess = {
+  /** The sign-out or sign-in row: what a person's waiver names, so it covers this credential alone. */
+  readonly id: string;
+  readonly company: string;
+  readonly domain: string;
+  readonly account: string;
+  /** Why it isn't revoked: the Company's code, ours, or `sign_in_unfinished`. */
+  readonly code: string;
+  /** When the Company stops honouring it, if it said. */
+  readonly liveUntil: number | null;
+};
+
+/** A Company can have gone from the agent's records, and it must still be named somehow. */
+function namedCompany(client: PoppyClient, issuer: Issuer): { company: string; domain: string } {
+  try {
+    const { name, domain } = client.companyByIssuer(issuer);
+    return { company: name, domain };
+  } catch {
+    const domain = URL.canParse(issuer) ? new URL(issuer).host : issuer;
+    return { company: domain, domain };
+  }
+}
+
+/** The endpoint to revoke at, or null when none is known: such a credential is reported, never fatal. */
+export function revocationEndpoint(client: PoppyClient, issuer: Issuer): string | null {
+  try { return issuerEndpoints(client.revocationCompany(issuer)).revocation; } catch { return null; }
+}
+
+const exchangedSignIn = signInsTable.pick("id", "issuer", "account");
+
+/**
+ * Every credential that stays live at a Company unless someone revokes it:
+ * refused revocations, token answers a sign-in received but could never bind
+ * to an account, and accounts sign-out hasn't reached, such as one a recovered
+ * sign-in bound meanwhile. Whatever isn't listed here is erased unasked.
+ */
+export function unrevokedAccess(client: PoppyClient): UnrevokedAccess[] {
+  return [
+    ...client.accounts().map((row) => ({ id: `account|${row.issuer}|${row.account}`, ...namedCompany(client, row.issuer), account: row.account, code: "not_signed_out", liveUntil: row.expires_at })),
+    ...pendingSignOuts(client).map((row) => ({ id: row.id, ...namedCompany(client, row.issuer), account: row.account, code: row.last_error ?? "no_answer", liveUntil: row.expires_at })),
+    ...rows(client.sql, exchangedSignIn, "SELECT id, issuer, account FROM poppy_signins WHERE status = 'exchanged'")
+      .map((row) => ({ id: row.id, ...namedCompany(client, row.issuer), account: row.account, code: "sign_in_unfinished", liveUntil: null }))
+  ];
 }
 
 /** A revocation the Company hasn't accepted, for the model (`poppy_status`): so it can tell the User their access there is still live. */

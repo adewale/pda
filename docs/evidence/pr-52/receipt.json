@@ -1,0 +1,16 @@
+{
+  "sourceCommit": "73b950da2434bc9d8a35d9e689dac20cb82dd56d",
+  "beforeCommit": "cdad2a9",
+  "dataControls": {
+    "selectionSurvivesReload": true,
+    "refusedRevocationShown": true,
+    "refusedDeletionLeavesAgentUsable": true,
+    "abandonedDeletionErased": true
+  },
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false
+}

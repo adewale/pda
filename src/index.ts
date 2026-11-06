@@ -1,4 +1,6 @@
 import type { AttachResult, Caller, KeyResult, PersonalAgent } from "./agent";
+import { handleAgentData } from "./agent-data-routes";
+import { buildInfo } from "./build-info";
 import { BROWSER_SESSION_HEADER } from "./browser-sessions";
 import { isAllowed, maySignIn, readOwners } from "./allowlist";
 import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
@@ -45,13 +47,13 @@ function sameOrigin(request: Request): boolean {
  * request. What the agent is handed: who they are, and this request's id,
  * for the events of any turn the call starts.
  */
-async function signedIn(request: Request, env: Env): Promise<Caller & BrowserIdentity> {
+async function signedIn(request: Request, env: Env, allowDeleting = false): Promise<Caller & BrowserIdentity> {
   const identity = await verifySession(request, readSessionSecret(env));
   const event = currentEvent();
   event?.set({ sign_in_provider: literal(identity.provider) });
   if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
   const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
-  if (!await agent.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+  if (!await agent.admitBrowserSession(identity, allowDeleting)) throw new AuthError("Session revoked");
   // Pseudonymous: never the email or provider id.
   event?.set({ signed_in: true, agent_id: agentId(agent.id), is_owner: isAllowed(identity, readOwners(env)) });
   const requestId = id(event?.fields.request_id);
@@ -106,8 +108,11 @@ const EXACT_ROUTES = [
   "/api/sign-in-options",
   "/api/entitlement",
   "/api/model-key",
+  "/api/agent-data",
+  "/api/build-info",
   "/api/attachments",
   "/api/memories",
+  "/api/task-companies",
   "/api/schedules",
   "/api/push/key",
   "/api/push/subscription",
@@ -274,7 +279,7 @@ async function handleAttachments(request: Request, env: Env): Promise<Response> 
       headers: {
         "Content-Type": found.info.type,
         "Content-Length": String(found.info.size),
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; sandbox",
         "Content-Disposition": "inline"
@@ -309,6 +314,12 @@ async function handleMemories(request: Request, env: Env): Promise<Response> {
   const agent = await agentFor(identity, env);
   if (rest === "") return json(200, { forgotten: await agent.forgetAllMemories(identity) });
   return (await agent.forgetMemory(identity, Number(rest))) ? new Response(null, { status: 204 }) : text(404, "Not found");
+}
+
+/** The Companies this person's composer last sent: `GET /api/task-companies`. Reading it grants nothing. */
+async function handleTaskCompanies(request: Request, env: Env): Promise<Response> {
+  const identity = await signedIn(request, env);
+  return json(200, { companies: await (await agentFor(identity, env)).taskCompanies(identity) });
 }
 
 /**
@@ -382,7 +393,7 @@ async function handleLogout(request: Request, env: Env): Promise<Response> {
   }
   return new Response(null, {
     status: 303,
-    headers: { Location: "/", "Set-Cookie": clearSession(), "Cache-Control": "no-store" }
+    headers: { Location: "/", "Set-Cookie": clearSession(), "Cache-Control": "no-store", "Clear-Site-Data": '"cache"' }
   });
 }
 
@@ -513,6 +524,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     checkDeployment(env);
     if (pathname === "/ws") return await handleWs(request, env);
     if (pathname === "/api/me") return await handleMe(request, env);
+    if (pathname === "/api/build-info") return request.method === "GET" ? buildInfo(env) : text(405, "Method not allowed");
+    if (pathname === "/api/agent-data") return await handleAgentData(request, env, signedIn);
     if (pathname === "/api/sign-in-options") return handleSignInOptions(request, env);
     if (pathname === "/privacy") return request.method === "GET" ? privacyPage(env) : text(405, "Method not allowed");
     if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
@@ -520,6 +533,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
     if (pathname.startsWith("/api/companies/")) return await handleCompanyLogo(request, env);
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
+    if (pathname === "/api/task-companies") return request.method === "GET" ? await handleTaskCompanies(request, env) : text(405, "Method not allowed");
     if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
     if (pathname.startsWith("/api/push/")) return await handlePush(request, env);
     if (pathname === "/logout") return await handleLogout(request, env);

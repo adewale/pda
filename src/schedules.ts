@@ -14,8 +14,8 @@
  *   never fails the run.
  * - A **task** starts a background model turn, as a Company message does,
  *   labelled `[scheduled task you set on <date>]` with the User's words
- *   verbatim. It gains no powers: writes still need an approval card or a
- *   standing permission. The model router meters it like any call; when the
+ *   verbatim. It keeps the creating message's Company and photo selections;
+ *   Company operation terms still need the User's decision. The model router meters it like any call; when the
  *   model can't be called (no key, a refused key, a demo cap), or the turn
  *   ends unanswered, the run fails. Three failures in a row pause the task.
  *
@@ -33,6 +33,7 @@ import { formatDate, wallAt } from "./tools/clock";
 import { PAUSE_AFTER_FAILURES, REMINDER_ATTEMPTS, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
 
 import type { PushMessage } from "./web-push";
+import type { TaskAccess } from "./task-access";
 
 export type { PushMessage };
 
@@ -53,7 +54,7 @@ export type SchedulerOptions = {
   readonly jobTime: (at: number) => number;
   readonly showCard: (card: Card) => Promise<void>;
   /** Start a background model turn for a task, or say why the model can't be called. */
-  readonly startTask: (text: string, operationId: string) => Promise<TaskStart>;
+  readonly startTask: (text: string, operationId: string, access: TaskAccess) => Promise<TaskStart>;
   /** Wait for a started turn to end. */
   readonly taskEnded: (operationId: string) => Promise<TaskEnd>;
   /** Tell the User's subscribed devices; does nothing when they have none. */
@@ -201,7 +202,7 @@ export class Scheduler extends LifecycleCapability {
     }
     let start: TaskStart;
     try {
-      start = await this.#options.startTask(taskPrompt(schedule), operationId);
+      start = await this.#options.startTask(taskPrompt(schedule), operationId, schedule.taskAccess);
     } catch (error) {
       start = { ok: false, reason: `The task couldn't be started: ${error instanceof Error ? error.message : String(error)}` };
     }

@@ -6,7 +6,7 @@ PDA supports one protocol version at a time ([decision 37](decisions.md#37-03-al
 
 ## Current protocol inputs
 
-[spec/upstream.json](../spec/upstream.json) pins Poppy 0.3, Operations 2 and Mediated Sign-In 1 to the manually reviewed [29 October 2026 site snapshot](../spec/draft-0.3-retrieved-2026-10-29/README.md). Its restored agent-controlled-browser requirement is absent from the recorded upstream GitHub head, so no commit exactly matches all pinned text (`commit: null`). `npm run check:spec` verifies the snapshot offline; `npm run spec:drift` compares it with the live site. Start each upgrade with the [pinned changelog](../spec/draft-0.3-retrieved-2026-10-29/pages/changelog.md) and actual specification diff. The [requirement ledger](poppy-0.3-upgrade.md) records implementation and limits. An extension can change between draft revisions without changing its version.
+[spec/upstream.json](../spec/upstream.json) pins Poppy 0.3, Operations 2 and Mediated Sign-In 1 to the reviewed [3 November 2026 snapshot](../spec/draft-0.3-retrieved-2026-11-03/README.md), matching upstream commit `7205250c6fb7d4a181707898fa418911ccbcb163`. `npm run check:spec` verifies the snapshot offline; `npm run spec:drift` compares it with the live site. Start each upgrade with the [pinned changelog](../spec/draft-0.3-retrieved-2026-11-03/pages/changelog.md) and actual specification diff. The [requirement ledger](poppy-0.3-upgrade.md) records implementation and limits. An extension can change between draft revisions without changing its version.
 
 0.1 and 0.2 were dropped on 28 October ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)); their snapshots stay in `spec/` as records.
 
@@ -25,6 +25,8 @@ PDA supports one protocol version at a time ([decision 37](decisions.md#37-03-al
 There is no compatibility path for the old two-card API flow. Stored approvals now require version 3 with explicit authority bindings and withdrawal generations. Earlier pending forms are refused, not migrated or executed; the User must start those tasks again. Preserve historical receipts and unknown-outcome holds: refusal to execute an old record is not proof that its earlier attempt did nothing. File-disclosure consent for unselected photos and website-form confirmation remain separate current flows. Task-selected photos no longer need a second disclosure click (decision 39). Earlier input admissions acquire no new task grant during this upgrade: restate unfinished work in a fresh User message. Existing receipts and supported exact-terms decisions retain their original bindings.
 
 ## State and rollback
+
+Composer access is now explicit. The additive `turn_sources.task_access` migration withdraws legacy inferred task grants; it does not invent Company or file permissions for old inputs. Restate unfinished tasks with the Company selection in a fresh message. Stored receipts, unknown-outcome holds and explicit pending disclosure decisions remain intact. Old browser tabs must reload to use the new composer.
 
 Keep stable User IDs and sealed refresh tokens keyed by the exact issuer. Add schema columns rather than changing encryption contexts or deleting account records. Treat discovery caches as disposable. In-flight sign-ins and approvals must retain their domain and profile context; a changed protocol or issuer needs reconciliation before an action resumes. An issuer change never transfers credentials or consent.
 

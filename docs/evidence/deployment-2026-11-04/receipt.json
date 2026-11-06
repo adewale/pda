@@ -1,0 +1,79 @@
+{
+  "checkedAt": "2026-11-04T14:01:16.981Z",
+  "origin": "https://poppydemoagent.dev",
+  "checks": [
+    {
+      "path": "/theme.js",
+      "status": 200,
+      "matchesLocalBuild": true
+    },
+    {
+      "path": "/assets/index-DVsWBhvy.js",
+      "status": 200,
+      "matchesLocalBuild": true
+    },
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/about",
+      "status": 200
+    },
+    {
+      "path": "/about/ecosystem",
+      "status": 200
+    },
+    {
+      "path": "/privacy",
+      "status": 200
+    },
+    {
+      "path": "/validator",
+      "status": 200
+    },
+    {
+      "path": "/poppy/client.json",
+      "status": 200
+    },
+    {
+      "path": "/poppy/jwks.json",
+      "status": 200
+    },
+    {
+      "path": "/api/sign-in-options",
+      "status": 200
+    },
+    {
+      "path": "/api/me",
+      "status": 401
+    },
+    {
+      "path": "/sw.js",
+      "status": 200
+    },
+    {
+      "path": "/manifest.webmanifest",
+      "status": 200
+    },
+    {
+      "path": "/.well-known/http-message-signatures-directory",
+      "status": 200
+    },
+    {
+      "path": "/auth/github",
+      "status": 303,
+      "expectedCallback": true
+    },
+    {
+      "path": "/auth/google",
+      "status": 303,
+      "expectedCallback": true
+    }
+  ],
+  "passed": true,
+  "sourceCommit": "f7fac68096cbf89f15b7de670673ea1eef05bdc9",
+  "workerVersion": "6ccdb433-21f5-4727-adde-4668908fdb04",
+  "trafficPercent": 100,
+  "scope": "Public HTTP endpoints, OAuth start redirects and deployed asset equality; no authenticated browser/model/Company journey."
+}

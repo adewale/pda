@@ -13,6 +13,7 @@ const policy = literal(...MESSAGE_POLICIES);
 /** Model-origin messages: persist the decision and prompt, send one handoff per prompt, and report delivery. */
 export async function sendAgentMessage(client: PoppyClient, company: Company, request: {
   readonly callKey: string; readonly conversationId?: string; readonly label?: string; readonly text?: string; readonly data?: Json;
+  readonly beforeDispatch?: () => void;
 }): Promise<AgentMessageResult> {
   const id = request.conversationId;
   const messages = id ? recentMessages(client, id) : [];
@@ -35,6 +36,7 @@ export async function sendAgentMessage(client: PoppyClient, company: Company, re
   const result = await sendMessage(client, company, {
     label: request.label ?? (id ? conversation(client, id)?.label ?? "main" : "main"),
     callKey: authorizationKey,
+    ...(request.beforeDispatch ? { beforeDispatch: request.beforeDispatch } : {}),
     ...(id ? { conversationId: id } : {}), sender: "agent", wait: 10,
     ...(decision === "request_authorization" ? { text: REQUEST_AUTHORIZATION } : {
       ...(request.text !== undefined ? { text: request.text } : {}), ...(request.data !== undefined ? { data: request.data } : {})

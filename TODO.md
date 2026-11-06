@@ -11,7 +11,6 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 
 ## Product
 
-- [ ] **Delete my agent and data export.** The privacy policy promises deletion on request; it is currently manual. Revoke Company refresh tokens, then delete the agent's storage, including memories, photos and keys. Explain what local deletion cannot erase.
 - [ ] **Skills**, the remaining personal-agent milestone in the [build plan](pda-spec.md#build-plan).
 - [ ] **Web search**, once a provider and funding are chosen.
 - [ ] **Email reminders**, once a sender and verified-address flow are chosen.
@@ -24,7 +23,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 
 ## Maintenance
 
-- [ ] A signing-key rotation and compromise runbook: publish both keys, switch signer, retire the old key after caches expire, and use a new `kid` for each new key.
+- [ ] Rehearse the [key rotation and recovery runbook](docs/key-rotation.md) in an isolated deployment before a production rotation.
 - [ ] Resolve the npm install-script policy using commands actually supported by the selected npm version. The old `npm install-scripts approve|deny` note was unverified and is not an instruction to run it.
 
 Keep Node 24 while supported and compatible with dependencies. A new LTS release alone does not create an upgrade task.

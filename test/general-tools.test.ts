@@ -602,7 +602,7 @@ describe("memory", () => {
     for (const text of secrets) {
       const result = await stub.generalTool("remember", { text, source: "agent" });
       expect(result.isError, text).toBe(true);
-      expect(result.text, text).toMatch(/^Not saved: It looks like .+\. Your agent never keeps passwords, codes, keys, tokens or card numbers/);
+      expect(result.text, text).toMatch(/^Not saved: It looks like .+\. Do not put secrets in memory/);
     }
     // The refusal says why without repeating the secret.
     const short = await stub.generalTool("remember", { text: "hunter2 is my password", source: "user" });

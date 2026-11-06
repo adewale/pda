@@ -31,7 +31,8 @@
     "check:spec": "node scripts/check-spec.mjs",
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
     "spec:import": "node scripts/spec-import.mjs",
-    "spec:docs": "node scripts/spec-ledger.mjs --write"
+    "spec:docs": "node scripts/spec-ledger.mjs --write",
+    "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": {
     "@cfworker/json-schema": "4.1.1",

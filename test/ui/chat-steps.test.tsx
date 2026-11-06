@@ -198,6 +198,10 @@ describe("a request's outcome, on the step that asked for it", () => {
     expect(transcript.lastElementChild!.textContent).toContain("All three are waiting for you.");
     // The failed photo can be asked for again, in the User's own words.
     fireEvent.click(screen.getByRole("button", { name: "Ask your agent to try again" }));
+    expect(submitted).toEqual([]);
+    expect((screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement).value).toBe(`Please try sending “meadow.gif” to ${SHOP} again.`);
+    fireEvent.change(screen.getByRole("textbox", { name: "Companies your agent can contact" }), { target: { value: DOMAIN } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submitted).toEqual([`Please try sending “meadow.gif” to ${SHOP} again.`]);
   });
 
@@ -307,7 +311,8 @@ describe("the order", () => {
     expect(screen.getByText(/Print 3 photos as 4×6 lustre prints/).closest("figure")!.textContent).toContain(`${SHOP} says:`);
     const preview = screen.getByRole("link", { name: "items 1 preview" });
     expect(preview.getAttribute("target")).toBe("_blank");
-    fireEvent.click(screen.getByRole("button", { name: "Approve $15.00" }));
+    // The currency symbol follows the browser's locale: "$15.00" or "US$15.00".
+    fireEvent.click(screen.getByRole("button", { name: /^Approve (US)?\$15\.00$/ }));
     expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr2_order1", decision: "approve" }]);
   });
 
