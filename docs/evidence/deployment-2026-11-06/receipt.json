@@ -1,0 +1,70 @@
+{
+  "checkedAt": "2026-11-06T16:17:56.422Z",
+  "origin": "https://poppydemoagent.dev",
+  "provenance": {
+    "commit": "0539f98",
+    "dirty": false,
+    "workerVersion": "1696070b-d8f2-4c80-adb8-33d643878d43",
+    "protocolVersions": [
+      "0.3"
+    ],
+    "protocolRevision": "2026-11-03"
+  },
+  "checks": [
+    {
+      "path": "/api/build-info",
+      "status": 200
+    },
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/about",
+      "status": 200
+    },
+    {
+      "path": "/about/ecosystem",
+      "status": 200
+    },
+    {
+      "path": "/privacy",
+      "status": 200
+    },
+    {
+      "path": "/validator",
+      "status": 200
+    },
+    {
+      "path": "/poppy/client.json",
+      "status": 200
+    },
+    {
+      "path": "/poppy/jwks.json",
+      "status": 200
+    },
+    {
+      "path": "/api/sign-in-options",
+      "status": 200
+    },
+    {
+      "path": "/auth/github",
+      "status": 303
+    },
+    {
+      "path": "/auth/google",
+      "status": 303
+    },
+    {
+      "path": "/api/me",
+      "status": 401
+    },
+    {
+      "path": "/api/agent-data",
+      "status": 401
+    }
+  ],
+  "verification": "public HTTP only",
+  "authenticatedJourneyVerified": false,
+  "passed": true
+}
