@@ -40,7 +40,7 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [ ] Tell Todd (Alpine) that the live lane's conversation scenario is now `CL` in place of `C`: the same message, now labelled as a test, and a "Thanks", then the conversation is closed ([live-0.2-testing.md](history/live-0.2-testing.md)).
   - [ ] Once nothing links to the `workers.dev` host any more, turn it off for the Worker in the dashboard; `canonicalRedirect` can then go.
 
-- [x] **Owner. `npm run deploy`.** Recorded deployment on 4 November: commit `f7fac68096cbf89f15b7de670673ea1eef05bdc9`, Worker version `6ccdb433-21f5-4727-adde-4668908fdb04`, 100% of traffic. [Public verification receipt](evidence/deployment-2026-11-04/receipt.json) records endpoint checks, Google/GitHub start redirects and exact served JavaScript equality. This does not verify signed-in journeys, model calls, device notifications, Browser Run or independent MCP interoperability. Later source changes require their own deployment and evidence.
+- [x] **Owner. `npm run deploy`.** Recorded deployment on 6 November: commit `0539f98423e00911944347ba659cb0dbba65941f`, Worker version `1696070b-d8f2-4c80-adb8-33d643878d43`, 100% of traffic. [Public verification receipt](evidence/deployment-2026-11-06/receipt.json) from `npm run check:live` records the served commit, a clean build, the protocol pin, public pages and identity documents, Google/GitHub start redirects and the anonymous boundary. This does not verify signed-in journeys, model calls, device notifications, Browser Run or independent MCP interoperability. Later source changes require their own deployment and evidence. The [4 November receipt](evidence/deployment-2026-11-04/receipt.json) records the deployment before it, `f7fac68`.
 
 - [ ] **Owner. Back up `TOKEN_ENC_KEY`** in a password manager or equivalent private store; losing it loses sealed refresh tokens and model keys.
 
@@ -52,7 +52,7 @@ Commit the intended source, run the offline checks and build, then deploy that e
 npm run check:live -- --origin https://your-deployment.example --expected-commit <source-sha> --output /tmp/pda-public-preflight.json
 ```
 
-`/api/build-info` exposes the source revision, dirty-tree flag, Worker version and protocol pin. The checker rejects a mismatched or dirty build, checks public pages and identity documents, checks the anonymous data boundary, and inspects OAuth start redirects without following them. It sends no model request or Company action. Its receipt explicitly says public HTTP only. It requires the release containing this endpoint; the 4 November deployment predates it.
+`/api/build-info` exposes the source revision, dirty-tree flag, Worker version and protocol pin. The checker rejects a mismatched or dirty build, checks public pages and identity documents, checks the anonymous data boundary, and inspects OAuth start redirects without following them. It sends no model request or Company action. Its receipt explicitly says public HTTP only.
 
 For authenticated and service acceptance, use the dedicated identity and bounded sandbox journey below. Run [the isolated hosted pair](../test/hosted/README.md) for real OAuth/model integration, then verify the production-only gateway, Browser Run and real-device paths separately. An unavailable identity, compatible independent MCP server or device remains an explicit limit, not a passed check. Key changes follow [key rotation and recovery](key-rotation.md).
 
