@@ -16,11 +16,9 @@ describe("explicit task access", () => {
     expect(TaskFiles.none().includes([photo])).toBe(false);
   });
 
-  it("keeps the recipient set fixed when Company content arrives", () => {
+  it("allows only the selected recipients, and none once they are withdrawn", () => {
     const scope = new TaskCompanyScope();
     scope.update(access());
-    expect(scope.allow("shop.example")).toBe(true);
-    scope.receivedCompanyContent();
     expect(scope.allow("shop.example")).toBe(true);
     expect(scope.allow("excluded.example")).toBe(false);
     scope.update(undefined);

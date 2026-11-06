@@ -311,7 +311,8 @@ describe("the order", () => {
     expect(screen.getByText(/Print 3 photos as 4×6 lustre prints/).closest("figure")!.textContent).toContain(`${SHOP} says:`);
     const preview = screen.getByRole("link", { name: "items 1 preview" });
     expect(preview.getAttribute("target")).toBe("_blank");
-    fireEvent.click(screen.getByRole("button", { name: "Approve $15.00" }));
+    // The currency symbol follows the browser's locale: "$15.00" or "US$15.00".
+    fireEvent.click(screen.getByRole("button", { name: /^Approve (US)?\$15\.00$/ }));
     expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr2_order1", decision: "approve" }]);
   });
 

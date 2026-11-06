@@ -379,6 +379,28 @@ describe("personal data controls", () => {
     await a.stub.poppyFrame({ type: "poppy.card.dismiss", cardId: card.id });
   });
 
+  it("stops the website browser while deleting: its cookie-bearing requests and saved forms stay here", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const browse = (args: Record<string, unknown>) => a.stub.poppyTool("poppy_browse", { domain: c.domain, ...args });
+    await browse({ action: "open", url: "/account/address" });
+    const saved = JSON.parse((await browse({ action: "submit", selector: "#address" })).text).proposed;
+    const before = (await requests(c)).length;
+    await runInDurableObject(a.stub, async instance => { instance.data.begin("deleting"); });
+    const refused = await browse({ action: "open", url: "/orders" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("deletion");
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: saved, decision: "approve" });
+    expect((await c.stub.state()).formPosts).toEqual([]);
+    expect((await requests(c)).length).toBe(before);
+    // The same requests go out once deletion stops, so only the deletion was holding them back.
+    await runInDurableObject(a.stub, async instance => { instance.data.cancel(); });
+    expect((await browse({ action: "open", url: "/orders" })).text).toContain("Signed in as acct_ada");
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: saved, decision: "approve" });
+    expect((await c.stub.state()).formPosts).toHaveLength(1);
+  });
+
   it("lists an account sign-out hasn't reached, so it can't be erased unasked", async () => {
     const a = await agent();
     await tool(a, "poppy_status", {});

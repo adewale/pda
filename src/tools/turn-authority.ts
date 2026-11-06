@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/chord/context";
 import { GenerationTask, LiveDoc, ToolTask, type HookApi, type Storage } from "@earendil-works/pi-durable";
-import { boolean, flag, literal, nullable, object, string } from "../decode";
+import { flag, literal, nullable, object, string } from "../decode";
 import { integer, integerOf, one, rows, table, text, textOf, type RowOf } from "../rows";
 import { NO_TASK_ACCESS, readTaskAccess, type TaskAccess } from "../task-access";
 
@@ -8,7 +8,7 @@ const selection = table("task_company_selection", { slot: integer, companies: te
 const sources = table("turn_sources", { request_id: text, source: textOf(literal("user", "background")), task_policy: integerOf(flag), task_access: text, task_bound: integerOf(flag) });
 
 export const TASK_SCOPE_MEMO = "pda.poppy-task-v1";
-const taskScope = object({ key: nullable(string), foreign: boolean });
+const taskScope = object({ key: nullable(string) });
 
 type GrantingInput = { readonly key: string; readonly source: TurnSource; readonly policy: number; readonly access: TaskAccess };
 
@@ -35,7 +35,7 @@ export function runAccess(granting: GrantingInput, run: readonly GrantingInput[]
   return run.map(input => input.policy === 1 ? input.access : NO_TASK_ACCESS).reduce(shared);
 }
 
-export type UserTaskContext = { readonly key: string; readonly text: string; readonly history: readonly string[]; readonly userStarted: boolean; readonly foreign: boolean; readonly access?: TaskAccess; readonly active: () => boolean };
+export type UserTaskContext = { readonly key: string; readonly access: TaskAccess; readonly active: () => boolean };
 export type UserTaskReader = (api: TurnReader, context: Context) => Promise<UserTaskContext | undefined>;
 
 /** Only the application ingress records this value; model text and tool arguments never do. */
@@ -120,15 +120,14 @@ export class TurnAuthority {
     if (asking.kind === ToolTask.definition.name && memo === undefined) return;
     const bound = memo === undefined ? undefined : taskScope(memo, "Poppy task scope");
     if (bound?.key === null) return;
-    const inputs: { key: string; id: number; source: TurnSource; text: string; stopped: boolean; policy: number; access: TaskAccess }[] = [];
+    const inputs: { key: string; id: number; source: TurnSource; stopped: boolean; policy: number; access: TaskAccess }[] = [];
     for (const row of rows(this.sql, sources.pick("request_id", "source", "task_policy", "task_access"), "SELECT request_id, source, task_policy, task_access FROM turn_sources WHERE source = 'user' OR task_bound = 1 ORDER BY rowid DESC LIMIT 100")) {
       const key = row.request_id;
       const submission = await storage.submissionByRequest(api.conversationId, key, context);
       if (submission?.type !== "input" || submission.entry === undefined) continue;
       const found = await storage.entry(api.conversationId, submission.entry, context);
       if (found?.entry.kind !== "pi.user") continue;
-      const text = (found.entry.model ?? []).filter(message => message.role === "user").map(message => typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.type === "text" ? part.text : "").join("")).join("\n");
-      inputs.push({ key, id: found.entry.id, source: row.source, text, stopped: submission.status === "unanswered", policy: row.task_policy, access: readTaskAccess(JSON.parse(row.task_access)) });
+      inputs.push({ key, id: found.entry.id, source: row.source, stopped: submission.status === "unanswered", policy: row.task_policy, access: readTaskAccess(JSON.parse(row.task_access)) });
     }
     inputs.sort((a, b) => a.id - b.id);
     const running = await this.#runRequests(api, context);
@@ -141,9 +140,8 @@ export class TurnAuthority {
       latest = explicitlyBound ? inputs.filter(input => running.has(input.key)).at(-1)
         : inputs.filter(input => input.source === "user").at(-1);
     }
-    const userStarted = await this.isUser(api, context);
     return latest && !latest.stopped && latest.policy === 1 ? {
-      key: latest.key, text: latest.text, access: runAccess(latest, inputs.filter(input => running?.has(input.key))), history: inputs.filter(input => input.id <= latest.id).map(input => input.text), userStarted, foreign: bound?.foreign ?? !userStarted,
+      key: latest.key, access: runAccess(latest, inputs.filter(input => running?.has(input.key))),
       active: () => one(this.sql, sources.pick("task_policy"), "SELECT task_policy FROM turn_sources WHERE request_id = ?", latest.key)?.task_policy === 1
     } : undefined;
   };

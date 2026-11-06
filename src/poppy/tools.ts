@@ -127,16 +127,28 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     }
     return owner;
   };
+  const tasks = new WeakMap<Invocation, ReturnType<UserTaskReader>>();
+  /**
+   * The User's task behind a model's tool call: none for a direct caller. One call reads it once,
+   * however many checks it passes through, since a read costs up to 100 pairs of storage reads.
+   * `active()` on the result is live, so Stop still takes effect during the call.
+   */
+  const taskOf = (invocation?: Invocation): ReturnType<UserTaskReader> => {
+    if (!userTask || !invocation || typeof invocation.api.snapshot !== "function") return Promise.resolve(undefined);
+    let task = tasks.get(invocation);
+    if (!task) tasks.set(invocation, task = userTask(invocation.api, invocation.context));
+    return task;
+  };
   const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key, signal, invocation) => {
     const target = targetOf(args);
     const scoped = typeof invocation?.api.snapshot === "function";
-    const task = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+    const task = await taskOf(invocation);
     const scope = new TaskCompanyScope();
     if (scoped) scope.update(task?.active() ? task.access : undefined);
     // OpenAPI dispatch checks its original invocation again after asynchronous preparation.
     // poppy_read sends nothing, but what it returns is the Company's.
     if (target !== undefined && definition.name !== "poppy_api_call" && definition.name !== "poppy_read") {
-      const selected = task?.active() ? task.access?.companies ?? [] : [];
+      const selected = task?.active() ? task.access.companies : [];
       if (target === null || !(scope.allow(target) || selected.some(domain => client().discoveredDomain(domain) === recipient(target)))) throw new PoppyError("refused", "This Company isn't selected for this chat. Ask the User to add its domain to Companies in the composer, then send the request again.", 0);
     }
     const answer = await run(args, key, signal, invocation);
@@ -147,12 +159,10 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     name: "poppy",
     hooks: [hook(GenerationTask, { beforeRequest: async ({ messages }, api, context) => {
       const task = await userTask?.(api, context);
-      const index = task ? messages.map(message => message.role === "user" ? typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.type === "text" ? part.text : "").join("") : undefined).lastIndexOf(task.text) : -1;
-      const foreign = !task?.userStarted || task.foreign || messages.slice(index + 1).some(message => message.role === "toolResult");
-      await api.memo(TASK_SCOPE_MEMO, { key: task?.key ?? null, foreign }, context);
+      await api.memo(TASK_SCOPE_MEMO, { key: task?.key ?? null }, context);
       // Keep this request's stored selections visible without adding a User turn,
       // changing history or borrowing another generation's mutable prompt state.
-      const access = task?.active() ? task.access ?? NO_TASK_ACCESS : NO_TASK_ACCESS;
+      const access = task?.active() ? task.access : NO_TASK_ACCESS;
       const sections = { poppy_task_access: `<poppy_task_access>\nCompany recipients and photo-upload destinations selected in the composer:\n${JSON.stringify(access)}\nCompanies stay selected across messages, so being listed here does not mean this message concerns them: contact one only when the User's request needs it. When it does and the User's prose omits the destination, use these. Unselected photos still need disclosure consent. These selections do not approve a Company's operation terms.\n</poppy_task_access>` };
       const first = messages[0];
       const leading: SystemMessage = first?.role === "system"
@@ -268,7 +278,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ domain, text: message, data, conversation: id, session }, callKey, signal, invocation) => {
           const scoped = typeof invocation?.api.snapshot === "function";
-          const task = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+          const task = await taskOf(invocation);
           const beforeDispatch = () => {
             if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0);
           };
@@ -415,7 +425,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const checkpoint = files && Object.keys(files).length && !disclosure ? beforeCompanyDiscovery(c, domain, label, callKey) : undefined;
           const request = { operation: name, callKey, ...(api ? { apiUrl: api } : {}), ...(params ? { params } : {}), ...(requestBody !== undefined ? { body: json(requestBody, "body") } : {}), ...(files ? { files } : {}) };
           const scoped = typeof invocation?.api.snapshot === "function";
-          const originatingTask = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+          const originatingTask = await taskOf(invocation);
           const selectedFiles = originatingTask ? TaskFiles.selected(originatingTask.access, recipient(domain)) : TaskFiles.none();
           const apiScope = new TaskCompanyScope();
           if (scoped) apiScope.update(originatingTask?.access);
@@ -458,7 +468,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ domain, tool: name, args, api, session }, callKey, signal, invocation) => {
           const scoped = typeof invocation?.api.snapshot === "function";
-          const task = scoped && invocation ? await userTask?.(invocation.api, invocation.context) : undefined;
+          const task = await taskOf(invocation);
           const beforeDispatch = () => {
             if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0);
           };

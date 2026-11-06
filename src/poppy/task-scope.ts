@@ -13,6 +13,4 @@ export class TaskCompanyScope {
     // Direct protocol callers have no model; model hooks always initialize the scope.
     return this.#domains === undefined || this.#domains.has(recipient(domain));
   }
-
-  receivedCompanyContent(): void { /* Structured authority is immutable throughout the turn. */ }
 }

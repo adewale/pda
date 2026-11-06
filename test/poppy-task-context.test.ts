@@ -4,6 +4,7 @@ import type { Context } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { attachmentMarker } from "../src/attachments";
 import type { TaskAccess } from "../src/task-access";
+import { poppyExtension } from "../src/poppy/tools";
 import { agent, chat, company, connect, requests, signInDirect, until } from "./agent-helpers";
 import { obey } from "./worker";
 import { migrateSchedules } from "../src/tools/schedule-store";
@@ -15,7 +16,50 @@ function selected(section: string | undefined): TaskAccess {
   return JSON.parse(section!.split("\n").find(line => line.startsWith("{"))!);
 }
 
+describe("one run holding a scheduled task and the User's message", () => {
+  it("gives the run only what both selected, once the User steers into a scheduled run", async () => {
+    const scheduledOnly = await company();
+    const steerOnly = await company();
+    const both = await company();
+    const a = await agent();
+    const connection = await connect(a.identity);
+    await a.stub.poppyFault({ method: "GET", url: `${scheduledOnly.domain}/.well-known/poppy.json`, mode: "pause" });
+    await a.stub.scheduledRun(`Scheduled. ${obey("poppy_discover", { domain: scheduledOnly.domain })}`, "scheduled-run", { companies: [scheduledOnly.domain, both.domain], uploads: [] });
+    await until(async () => await a.stub.poppyHeldCount() === 1);
+    connection.socket.send(JSON.stringify({
+      type: "submit", id: crypto.randomUUID(), whenBusy: "steer", taskAccess: { companies: [steerOnly.domain, both.domain], uploads: [] },
+      input: `Also. ${obey("poppy_discover", { domain: steerOnly.domain })} ${obey("poppy_discover", { domain: both.domain })}`
+    }));
+    await until(async () => JSON.parse(await a.stub.poppySql("SELECT COUNT(*) AS n FROM turn_sources"))[0].n === 2);
+    await a.stub.poppyReleaseHeld();
+    await until(async () => (await a.stub.poppyTranscript()).includes("isn't selected for this chat"));
+    await until(async () => (await requests(both)).length > 0);
+    expect(await requests(steerOnly)).toEqual([]);
+    connection.socket.close();
+  });
+});
+
 describe("the model's task selections", () => {
+  it.each([
+    ["poppy_message", { text: "Which sizes?" }],
+    ["poppy_api_call", { operation: "listOrders" }],
+    ["poppy_mcp_call", { tool: "search", args: {} }]
+  ])("reads the task once for one %s, however many checks it passes", async (name, args) => {
+    const c = await company();
+    const a = await agent();
+    const reads = await runInDurableObject(a.stub, async instance => {
+      let count = 0;
+      const extension = poppyExtension(() => instance.poppy.client, () => { throw new Error("No browser"); }, async () => {
+        count++;
+        return { key: "task", access: { companies: [c.domain], uploads: [] }, active: () => true };
+      });
+      const api = { conversationId: "1", callId: "call", snapshot: async () => undefined } as unknown as ToolExecutionApi;
+      await extension.tools!.find(tool => tool.name === name)!.execute({ domain: c.domain, ...args } as never, api, {} as Context);
+      return count;
+    });
+    expect(reads).toBe(1);
+  });
+
   it("shows the selected Company when the User's prose does not name it", async () => {
     const c = await company();
     const a = await agent();
@@ -177,7 +221,7 @@ describe("scheduled task selections", () => {
       userTask: async () => {
         entered();
         await waiting;
-        return { key: "original", text: "Check my order later", history: [], userStarted: true, foreign: false, access: { companies: [], uploads: [] }, active: () => active };
+        return { key: "original", access: { companies: [], uploads: [] }, active: () => active };
       }
     });
     const controller = new AbortController();

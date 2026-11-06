@@ -1,3 +1,4 @@
+import type { TaskAccess } from "../src/task-access";
 import { DurableObject } from "cloudflare:workers";
 import {
   createAssistantMessageEventStream,
@@ -1222,6 +1223,11 @@ export class PersonalAgent extends ProductionAgent {
   }
 
   /** A background turn, as a Company message would start one. */
+  /** A scheduled task's run, as the scheduler starts it, with the selections stored on the task. */
+  async scheduledRun(text: string, operationId: string, access: TaskAccess): Promise<void> {
+    await this.scheduledTurn(text, operationId, access);
+  }
+
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);
   }
