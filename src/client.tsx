@@ -2,6 +2,7 @@ import { GithubLogoIcon, GoogleLogoIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Workspace } from "./ui/shell";
 import { usePiSession } from "./use-pi-session";
+import { isSignInErrorCode, type SignInErrorCode } from "./sign-in-errors";
 import "./styles.css";
 
 const PublicPage = lazy(() => import("./public/pages"));
@@ -33,14 +34,14 @@ async function signInProviders(): Promise<readonly SignInProvider[]> {
 }
 
 /** What the page says for each `?signin_error=` code the Worker's OAuth callback sets. */
-export const SIGN_IN_ERRORS: Record<string, string> = {
+export const SIGN_IN_ERRORS = {
   denied: "Sign-in was cancelled.",
   state: "That sign-in expired. Try again.",
   code: "The provider didn't complete sign-in. Try again.",
   token: "The provider didn't confirm who you are. Try again.",
   profile: "The provider didn't share your account ID. Try again.",
   not_allowed: "That account isn't on this agent's allowlist. Ask the owner to add it, or sign in with another account."
-};
+} satisfies Record<SignInErrorCode, string>;
 
 function takeSignInError(): string | null {
   const url = new URL(window.location.href);
@@ -48,7 +49,7 @@ function takeSignInError(): string | null {
   if (code === null) return null;
   url.searchParams.delete("signin_error");
   window.history.replaceState(null, "", url);
-  return SIGN_IN_ERRORS[code] ?? "Sign-in failed. Try again.";
+  return isSignInErrorCode(code) ? SIGN_IN_ERRORS[code] : "Sign-in failed. Try again.";
 }
 
 function useMe(): Me {

@@ -1,3 +1,4 @@
+import type { SignInErrorCode } from "./sign-in-errors";
 import { decodeJwt } from "jose";
 import { maySignIn } from "./allowlist";
 import { currentEvent, literal } from "./log";
@@ -28,7 +29,7 @@ type Flow = {
   readonly exp: number;
 };
 
-type SignInErrorCode = "denied" | "state" | "code" | "not_allowed" | "token" | "profile";
+// This wire contract is shared with the page, independent of constructor spelling.
 
 /** Why a sign-in stopped: `code` goes to the page as `?signin_error=` and to the request's event; `message` is for debugging, never logged. */
 class SignInError extends Error {
