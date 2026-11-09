@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, SIGN_IN_ERRORS } from "../../src/client";
 import { ECOSYSTEM_SOURCE, PROJECT_URL } from "../../src/public/project";
+import { SIGN_IN_ERROR_CODES } from "../../src/sign-in-errors";
 
 /**
  * A smoke test of the page itself (`src/client.tsx`) when no one is signed
@@ -11,10 +10,7 @@ import { ECOSYSTEM_SOURCE, PROJECT_URL } from "../../src/public/project";
  * didn't complete, for every reason the Worker's OAuth callback gives.
  */
 
-/** The `signin_error` codes `src/oauth.ts` can redirect with. */
-const WORKER_CODES = [...readFileSync(path.join(import.meta.dirname, "../../src/oauth.ts"), "utf8").matchAll(/new SignInError\("([a-z_]+)"/g)]
-  .map((match) => match[1]!)
-  .filter((code, index, all) => all.indexOf(code) === index);
+const WORKER_CODES = SIGN_IN_ERROR_CODES;
 
 const meRequests: string[] = [];
 let signInProviders: string[] = ["google", "github"];
@@ -50,8 +46,6 @@ async function openPage(search: string) {
 describe("sign-in page", () => {
   it("knows every code the Worker sends", async () => {
     await openPage("");
-    expect(WORKER_CODES).toContain("not_allowed");
-    expect(WORKER_CODES.length).toBeGreaterThanOrEqual(6);
     for (const code of WORKER_CODES) expect(SIGN_IN_ERRORS).toHaveProperty(code);
   });
 
@@ -61,6 +55,12 @@ describe("sign-in page", () => {
     expect(screen.getByRole("alert").textContent).toBe(SIGN_IN_ERRORS[code]);
     expect(screen.getByRole("link", { name: "Sign in with Google" }).getAttribute("href")).toBe("/auth/google");
     expect(screen.getByRole("link", { name: "Sign in with GitHub" }).getAttribute("href")).toBe("/auth/github");
+    expect(window.location.search).toBe("");
+  });
+
+  it.each(["toString", "__proto__", "future_error"])("shows the fallback for unknown signin_error=%s", async (code) => {
+    await openPage(`?signin_error=${code}`);
+    expect(screen.getByRole("alert").textContent).toBe("Sign-in failed. Try again.");
     expect(window.location.search).toBe("");
   });
 

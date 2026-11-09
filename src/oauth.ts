@@ -16,6 +16,7 @@ import {
   unsign,
   type Identity
 } from "./session";
+import type { SignInErrorCode } from "./sign-in-errors";
 
 /** Holds `state` and the PKCE verifier between the redirect and the callback. */
 const FLOW_COOKIE = "__Host-oauth";
@@ -27,8 +28,6 @@ type Flow = {
   readonly verifier: string;
   readonly exp: number;
 };
-
-type SignInErrorCode = "denied" | "state" | "code" | "not_allowed" | "token" | "profile";
 
 /** Why a sign-in stopped: `code` goes to the page as `?signin_error=` and to the request's event; `message` is for debugging, never logged. */
 class SignInError extends Error {
