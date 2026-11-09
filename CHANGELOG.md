@@ -2,6 +2,14 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — the Poppy 0.4 draft, pinned beside 0.3
+
+Nothing changes on the wire: the agent still speaks 0.3 alone.
+
+- The 0.4 draft is pinned from the [9 November 2026 snapshot](spec/draft-0.4-retrieved-2026-11-09/README.md) and the [official kit](spec/company-kit-2026-11-09/README.md) downloaded the same day, both matching upstream [`b2569c5`](https://github.com/personal-agent-protocol/personal-agent-protocol/commit/b2569c552d100922e7d60829d33a0fc50d88e822). [Decision 43](docs/decisions.md#43-03-beside-04-both-versions-website-operations-and-approvals-across-sessions) records the choice to support both versions, and the [0.4 upgrade](docs/poppy-0.4-upgrade.md) the work, its order, and a ledger of all 34 changelog entries.
+- `spec/upstream.json` lists one pin per version. `npm run check:spec` verifies each pin, its kit and its ledger, and that the runtime pins match the versions the agent speaks. `npm run spec:drift` checks only a published version's own pages and changelog entry titles, and every page of a draft.
+- `node scripts/check-company-kit.mjs --protocol 0.4` runs the 0.4 kit against the mock. Its first run stops at `discovery.schema`, because the mock still lists each extension as an object rather than the versions it serves.
+
 ## Unreleased — explicit task access and personal data controls
 
 - Company recipients and photo-upload permissions are explicit selections in the composer, durably bound to each admitted message. The Company list stays selected for later messages, across reloads and devices, until you change it; photo permissions last for one message. Prose names, negations, filenames and Company replies grant no access. An upload without an explicit file-and-destination selection retains its disclosure card. Legacy inferred grants are withdrawn; unfinished tasks need a fresh message and old tabs must reload.

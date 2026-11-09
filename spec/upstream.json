@@ -1,11 +1,31 @@
 {
-  "snapshot": "spec/draft-0.3-retrieved-2026-11-03",
-  "protocolVersion": "0.3",
-  "revision": "2026-11-03",
-  "commit": "7205250c6fb7d4a181707898fa418911ccbcb163",
-  "operationsVersion": "2",
-  "mediatedSignInVersion": "1",
-  "source": "https://personalagentprotocol.org/docs/0.3/spec",
   "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol",
-  "note": "Manually reviewed 3 November site snapshot. Its specification, extension, guides and changelog text matches upstream commit 7205250 (2 November) apart from site formatting: code-block titles, heading anchors and link prefixes. Since the 29 October pin: Companies without an OAuth issuer (850a46d), auth.disabled, extension content in messages, session_ended, poppy_dlg and poppy-delegation+jwt, and the Links, Disclosures and UCP extensions. Snapshot hashes are the exact pin."
+  "pins": [
+    {
+      "protocolVersion": "0.3",
+      "status": "published",
+      "runtime": true,
+      "snapshot": "spec/draft-0.3-retrieved-2026-11-03",
+      "kit": "spec/company-kit-2026-11-03",
+      "revision": "2026-11-03",
+      "commit": "7205250c6fb7d4a181707898fa418911ccbcb163",
+      "operationsVersion": "2",
+      "mediatedSignInVersion": "1",
+      "source": "https://personalagentprotocol.org/docs/0.3/spec",
+      "note": "Manually reviewed 3 November site snapshot. Its specification, extension, guides and changelog text matches upstream commit 7205250 (2 November) apart from site formatting: code-block titles, heading anchors and link prefixes. Since the 29 October pin: Companies without an OAuth issuer (850a46d), auth.disabled, extension content in messages, session_ended, poppy_dlg and poppy-delegation+jwt, and the Links, Disclosures and UCP extensions. Snapshot hashes are the exact pin. 0.3 was published on 4 November 2026 with this text and is frozen: its pages and changelog entries were unchanged on 9 November, so drift checks only its own pages and changelog entry titles."
+    },
+    {
+      "protocolVersion": "0.4",
+      "status": "draft",
+      "runtime": false,
+      "snapshot": "spec/draft-0.4-retrieved-2026-11-09",
+      "kit": "spec/company-kit-2026-11-09",
+      "revision": "2026-11-09",
+      "commit": "b2569c552d100922e7d60829d33a0fc50d88e822",
+      "operationsVersion": "2",
+      "mediatedSignInVersion": "1",
+      "source": "https://personalagentprotocol.org/docs/0.4/spec",
+      "note": "Manually reviewed 9 November site snapshot of the 0.4 draft. Its specification, guides and Operations text matches content/versions/0.4 at upstream commit b2569c5 (8 November) word for word apart from site formatting: code-block captions, heading anchors, link prefixes, the pronunciation button and the license footer. The pinned kit is kit/company at the same commit. 0.4 is still a draft: a newer snapshot gets its own dated directory and replaces this pin after review. Not yet spoken at runtime."
+    }
+  ]
 }
