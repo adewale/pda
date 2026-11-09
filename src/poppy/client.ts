@@ -360,7 +360,7 @@ export class PoppyClient {
   readonly host: PoppyHost;
   readonly identity: AgentIdentity;
   readonly sealer: Sealer;
-  /** Per-Company DPoP keys, generated on first use and never stored. */
+  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use and never stored. */
   readonly #dpopKeys = new Map<string, Promise<DpopKey>>();
   /** Access tokens by issuer, Session label, resource and scope. */
   readonly #tokens = new Map<string, HeldToken>();
@@ -371,7 +371,7 @@ export class PoppyClient {
   /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
   readonly #delegated = new Map<Issuer, Promise<Delegated>>();
   /** Cache public service metadata by URL; its issuer and host checks are specific to each Company (4.5). */
-  readonly #serviceResources = new Map<string, { readonly metadata: Json | null; readonly expiresAt: number }>();
+  readonly #serviceResources = new Map<string, { readonly metadata: Json | null; readonly expiresAt: number; readonly challenged?: true }>();
   /**
    * One token-endpoint exchange at a time per Company. Refresh tokens can
    * rotate on use, so two parallel renewals (say, a send and a background
@@ -650,10 +650,11 @@ export class PoppyClient {
   // ---------------------------------------------------------------- Keys
 
   dpopKey(issuer: Issuer): Promise<DpopKey> {
-    let key = this.#dpopKeys.get(issuer);
+    const id = `${issuer}|${this.userId(issuer)}`;
+    let key = this.#dpopKeys.get(id);
     if (!key) {
       key = newDpopKey();
-      this.#dpopKeys.set(issuer, key);
+      this.#dpopKeys.set(id, key);
     }
     return key;
   }
@@ -1230,7 +1231,11 @@ export class PoppyClient {
       this.#serviceResources.set(service, cached);
     }
     const resource = metadataResource(company, cached.metadata, service);
-    return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
+    if (resource === undefined) return undefined;
+    // RFC 9728 3.3: metadata at the URL derived from the service, whose `resource` isn't the URL it came from, is absent (0.4, 4.5).
+    const from = new URL(service);
+    if (!cached.challenged && resource !== service && resource !== `${from.origin}${from.pathname === "/" ? "" : from.pathname}`) return undefined;
+    return resource.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
   }
 
   /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
@@ -1245,7 +1250,7 @@ export class PoppyClient {
     if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
       throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
     }
-    this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
+    this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000, challenged: true });
     // An explicitly selected resource (MCP's exact URL) remains explicit even if it names the Company domain.
     return expectedResource ?? (resource.toLowerCase() === `https://${company.domain}` ? undefined : resource);
   }

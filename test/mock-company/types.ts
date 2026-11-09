@@ -162,6 +162,8 @@ export type MockConfig = {
   readonly requiredExtension: string | null;
   /** The OpenAPI entry names `resource` (RFC 8707), and the API takes only tokens issued for it. */
   readonly apiResource: boolean;
+  /** The API host's protected resource metadata names a `resource` other than the API's URL (RFC 9728 3.3); the API takes the Company's own tokens. */
+  readonly mismatchedApiResourceMetadata: boolean;
   /** Ignore `wait` on conversation POSTs: answer at once, without events. */
   readonly ignoreWait: boolean;
   /** Never say `queued`: a handoff goes straight to `working`. */
@@ -361,6 +363,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   omitTokenScope: false,
   requiredExtension: null,
   apiResource: false,
+  mismatchedApiResourceMetadata: false,
   ignoreWait: false,
   neverQueued: false,
   reuseDetection: false,

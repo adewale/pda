@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { pathFor, readOnlyScope, type OpenApiOperation } from "../../src/poppy/apis";
-import { covers, grantedScope, parseRateLimit, parseWwwAuthenticate, PoppyError, retryAfterMs, scopeSet } from "../../src/poppy/client";
+import { covers, grantedScope, parseRateLimit, parseWwwAuthenticate, PoppyClient, PoppyError, retryAfterMs, scopeSet, type PoppyHost } from "../../src/poppy/client";
+import { migrate } from "../../src/poppy/store";
+import { memorySql } from "../../interop/impls/pda-agent/sqlite";
 import { boundedCacheSeconds, protocolEndpoint, type Company } from "../../src/poppy/discovery";
 import { assertPublicHost, cacheSeconds, PoppyFetchError, readLimited } from "../../src/poppy/fetch";
 import { htu } from "../../src/poppy/jwt";
@@ -466,6 +468,33 @@ describe("device sign-in links (4.3)", () => {
       expect(deviceLink(company, value)).toBeNull();
     })
   );
+
+  it(
+    "shows no link on the host of another protected resource, which can be a service the Company doesn't control (0.4, 4.3)",
+    property((tc) => {
+      const domain = tc.draw(hosts).toLowerCase();
+      const other = tc.draw(hosts).toLowerCase();
+      tc.assume(other !== domain && !other.endsWith(`.${domain}`) && !`auth.${domain}`.endsWith(`.${other}`));
+      const company = { ...companyAt(domain), poppyDomains: [domain, other] };
+      expect(deviceLink(company, `https://${tc.draw(gs.sampledFrom([other, `eu.${other}`]))}/device`)).toBeNull();
+    })
+  );
+});
+
+describe("DPoP keys (4.5)", () => {
+  it("uses each DPoP key for one User ID: one per Company, and a new one if the User ID changes", async () => {
+    const sql = memorySql();
+    migrate(sql);
+    const env = { PUBLIC_ORIGIN: "https://agent.example", POPPY_CLIENT_NAME: "Key test", POPPY_LOGO_URI: "https://agent.example/logo.svg", TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64") };
+    const host = { env, sql, fetcher: async () => new Response(null, { status: 502 }), now: () => Date.now() } as unknown as PoppyHost;
+    const client = new PoppyClient(host);
+    const shop = toIssuer("https://auth.shop.example"), other = toIssuer("https://auth.other.example");
+    const first = await client.dpopKey(shop);
+    expect(await client.dpopKey(shop)).toBe(first);
+    expect((await client.dpopKey(other)).thumbprint).not.toBe(first.thumbprint);
+    sql.exec("UPDATE poppy_user_ids SET user_id = ? WHERE issuer = ?", "usr_replaced", shop);
+    expect((await client.dpopKey(shop)).thumbprint).not.toBe(first.thumbprint);
+  });
 });
 
 describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () => {

@@ -63,16 +63,19 @@ function grantable(company: Company, type: SignInType, scopes: readonly string[]
 
 /**
  * A device sign-in link the page may show as a link and a QR code: HTTPS, on
- * the host of the Company's issuer or of a URL in its `protected_resources`,
- * or a subdomain of either (4.3). Anything else, such as `javascript:`,
- * `http:` or another site, is null.
+ * the host of the Company's issuer or `organization.domain`, or a subdomain
+ * of either (4.3). Anything else, such as `javascript:`, `http:`, another
+ * site or another protected resource's host, is null. 0.3 also allows the
+ * hosts of the issuer's other `protected_resources`; 0.4 doesn't, since they
+ * can name services the Company doesn't control. `https://{domain}` is always
+ * one of them (3.2), so this is the rule both texts allow.
  */
 export function deviceLink(company: Company, value: unknown): string | null {
   if (typeof value !== "string" || !URL.canParse(value)) return null;
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
-  const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
+  const allowed = [new URL(company.issuer).hostname, company.domain].map((domain) => domain.toLowerCase());
   return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
 }
 

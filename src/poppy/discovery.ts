@@ -260,7 +260,7 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
     ...(logo && URL.canParse(logo) && new URL(logo).protocol === "https:" ? { logoUri: logo } : {}),
     name: known.name,
     domain: known.domain,
-    // Hosts that may receive Session JWTs and show a device link (4.3): the issuer's protected resources.
+    // Hosts that may receive Session JWTs: the issuer's protected resources.
     poppyDomains: protectedResources.flatMap((entry) => (URL.canParse(entry) ? [new URL(entry).hostname.toLowerCase()] : [])),
     protocolVersion: known.version,
     specificationRevision: protocolRevision(known.version),

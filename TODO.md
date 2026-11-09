@@ -12,6 +12,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 ## Product
 
 - [ ] **Skills**, the remaining personal-agent milestone in the [build plan](pda-spec.md#build-plan).
+- [ ] **Poppy 0.4**: the decisions and changes in the [0.4 upgrade plan](docs/poppy-0.4-plan.md), once 0.4 is pinned upstream or a peer speaks it.
 - [ ] **Web search**, once a provider and funding are chosen.
 - [ ] **Email reminders**, once a sender and verified-address flow are chosen.
 - [ ] **Resume a paused scheduled task** from Settings; today the User cancels it and asks again.

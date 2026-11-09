@@ -87,7 +87,7 @@ describe("resource metadata refreshed after invalid_token", () => {
     const resources: Array<string | null> = [];
     let calls = 0;
     const f = await fixture(async (request) => {
-      if (request.url === INITIAL) return metadata(RESOURCE);
+      if (request.url === INITIAL) return metadata(SERVICE);
       if (request.url === HINT) return metadata("https://books.example");
       if (request.url === `${ISSUER}/token`) {
         resources.push(new URLSearchParams(await request.text()).get("resource"));
@@ -97,7 +97,7 @@ describe("resource metadata refreshed after invalid_token", () => {
     });
     await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
     await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
-    expect(resources).toEqual([RESOURCE, null]);
+    expect(resources).toEqual([SERVICE, null]);
     expect(calls).toBe(3);
   });
 

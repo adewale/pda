@@ -10,6 +10,7 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 - Onboarding describes Company-driven exact-terms approval. Memory controls say what they delete and describe credential checks as best effort. Private photos are no-store and logout clears the browser cache.
 - `apis.ts` and `poppy-ui.tsx` are stable entry points over modules separated by parsing, validation, transport, durable dispatch and interface responsibility. [Implementation boundaries](docs/architecture.md) describe ownership.
 - The sign-in page shows its generic failure message for an unknown `?signin_error=` code; an inherited name such as `__proto__` used to break the page. The Worker and the page share one list of codes (`src/sign-in-errors.ts`).
+- Three Poppy 0.4 rules that 0.3 also allows, adopted ahead of the 0.4 upgrade ([plan](docs/poppy-0.4-plan.md)). A Device Sign-In link is shown only on the issuer's host or `organization.domain`, or a subdomain, not on the host of another protected resource (0.4, 4.3). Protected resource metadata fetched from the URL derived from a service is used only when its `resource` is that service (RFC 9728 3.3); otherwise the Company's own token is used. Each DPoP key is used for one User ID (0.4, 4.5).
 - Public build provenance and `npm run check:live` support read-only release checks. Current protocol guides identify the 3 November pin. [Key rotation](docs/key-rotation.md) records operational steps and recovery limits.
 
 ## Unreleased — Poppy 0.3, the 3 November text

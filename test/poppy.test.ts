@@ -2175,6 +2175,16 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     for (const request of forResource) expect(request.headers.dpop).toBe("<present>");
   });
 
+  it("treats protected resource metadata for another resource as absent, and uses the Company's own token (RFC 9728 3.3)", async () => {
+    const c = await company({ mismatchedApiResourceMetadata: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(orders.isError, orders.text).toBe(false);
+    expect(orders.text).toContain("ord_7Hk2");
+    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"))).toEqual([]);
+  });
+
   it("tells the User and the model which extension a Company requires (extension_required)", async () => {
     const c = await company({ requiredExtension: "mock.test/gift-wrap" });
     const a = await agent();

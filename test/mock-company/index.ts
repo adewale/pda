@@ -214,7 +214,9 @@ export class MockCompany extends DurableObject<Env> {
     }
     // The API takes only its own tokens when its protected resource metadata names it (4.5).
     if (path.startsWith("/.well-known/oauth-protected-resource") && method === "GET") {
-      return company.config.apiResource && path === "/.well-known/oauth-protected-resource"
+      if (path !== "/.well-known/oauth-protected-resource") return json({ error: "not_found" }, 404);
+      if (company.config.mismatchedApiResourceMetadata) return json({ resource: `${company.hosts.api}/elsewhere`, authorization_servers: [company.hosts.issuer] });
+      return company.config.apiResource
         ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
         : json({ error: "not_found" }, 404);
     }
