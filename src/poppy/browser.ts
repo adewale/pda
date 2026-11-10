@@ -57,8 +57,11 @@ export interface BrowserContextHandle {
 }
 
 /** Starts browser contexts (`FetchBrowser` in production), each held to `guard`. */
+/** Headers a page request carries besides the browser's own, for its URL and method; null for none (0.4 5.2). */
+export type PageHeaders = (url: URL, method: string) => Promise<Headers | null>;
+
 export interface PoppyBrowser {
-  newContext(guard: PageGuard): Promise<BrowserContextHandle>;
+  newContext(guard: PageGuard, pageHeaders?: PageHeaders): Promise<BrowserContextHandle>;
 }
 
 type ContextEntry = {
@@ -203,13 +206,18 @@ async function sessionContext(
     const guard = pageGuard(company, endpoint);
     const fresh: ContextEntry = {
       id: randomId("ctx_"),
-      context: browser.newContext((url) => { guard(url); checkContext(client, company, label, fresh); }),
+      context: browser.newContext(
+        (url) => { guard(url); checkContext(client, company, label, fresh); },
+        (url, method) => client.pageHeaders(company, label, { method, url: url.href })
+      ),
       sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0,
       scope: canonicalScope(session?.scope), accountGeneration: accountGeneration(client, company, session?.account ?? null), joined: false
     };
     contexts.set(key, fresh);
     return fresh;
   };
+  // Signed pages name the Session, so it exists, as its pages will declare it, before the context binds to it.
+  if (client.signsPages(company)) client.preparedSession(company, label);
   let entry = contexts.get(key);
   const before = client.session(company.issuer, label);
   if (entry && !sameContextSession(client, company, entry, before)) {

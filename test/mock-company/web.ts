@@ -1,4 +1,4 @@
-import { Company, json, MEDIATED_GRANT, randomId, type Inbound, type ResourceContext, type Session } from "./core";
+import { Company, HttpError, json, MEDIATED_GRANT, randomId, type Inbound, type ResourceContext, type Session } from "./core";
 import type { ViolationId } from "./violations";
 
 /** The tasks the mock chose not to offer (9.1); the web reference is filled in per Company. */
@@ -353,6 +353,31 @@ export class Web {
     }
     this.company.formPosts.push({ account: session.account, fields });
     return new Response(null, { status: 303, headers: { Location: "/account/address?saved=1" } });
+  }
+
+  /**
+   * A website page's Session header (0.4 5.2): a page the agent fetches
+   * without a browser may carry one, signed out, on `organization.domain`
+   * only. Verified as at any endpoint, so a failed check is answered with
+   * `invalid_session`; one sent to another host, beside a token, or in a 0.3
+   * request is recorded. Null: serve the page.
+   */
+  async pageSession(inbound: Inbound, offHost: boolean): Promise<Response | null> {
+    const co = this.company;
+    const headers = inbound.request.headers;
+    if (!headers.has("Poppy-Session")) return null;
+    const where = `${inbound.request.method} ${inbound.url.href}`;
+    if (offHost) co.violation("page.session-off-host", `a Session header on a page that isn't on organization.domain (${where})`);
+    if (headers.has("Authorization")) co.violation("page.token", `an access token with a website page (${where})`);
+    if (!headers.has("Poppy-Version")) co.violation("page.session-0.3", `a Session header on a page in a 0.3 request (${where})`);
+    if (co.config.pagesRefuseSession) return co.invalidSession("this page refuses the Session header").response;
+    try {
+      await co.verifySessionHeader(inbound, null);
+    } catch (error) {
+      if (error instanceof HttpError) return error.response;
+      throw error;
+    }
+    return null;
   }
 
   /**

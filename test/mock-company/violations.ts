@@ -246,6 +246,9 @@ export const VIOLATIONS = {
   "browser-join.cookie": "MUST (6, step 3: the Company MUST check \"The request has the cookie from step 1\"): A join form submitted without the cookie set with its code",
   "browser-join.not-authorized": "MUST (6, step 3: the Company MUST check \"The code was authorized in step 2\"): A join form submitted before the agent authorized its code",
   "browser-join.authorize-body": "Rule (6, step 2: a JSON body with the code): An authorize request without the code as JSON",
+  "page.session-off-host": "Rule (0.4 5.2: the header \"covers only HTTPS URLs whose host is exactly organization.domain\", and a redirect is signed again \"only if its host is still organization.domain\"): A Session header on a page on another host",
+  "page.token": "MUST NOT (0.4 5.2: \"MUST NOT send an access token with these requests\"): An access token with a website page",
+  "page.session-0.3": "Reading (5.2 defines no Session header on website pages before 0.4; docs/readings.md#v04-fetch-browser): A Session header on a page in a request without Poppy-Version",
   "web.disabled-form": "SHOULD NOT (0.4 6: \"SHOULD NOT use a browser on the website of a Company that sets\" web.disabled; docs/readings.md#v04-web-disabled counts a form as a browser's work): A form sent to a website that sets web.disabled",
 
   // ---- Operations extension, version 2 (Ops 6) ----

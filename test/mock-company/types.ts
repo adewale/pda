@@ -91,6 +91,8 @@ export type MockConfig = {
   readonly unknownProtocol: boolean;
   readonly web: boolean;
   readonly browserSession: boolean;
+  /** Answer a website page's Session header with `invalid_session`, as a page whose check fails (0.4 5.2). */
+  readonly pagesRefuseSession: boolean;
   /** 0.4's `web.disabled` (6): ask Personal Agents not to browse, listing no `browser_session_endpoint`, and record a form they send. */
   readonly webDisabled: boolean;
   /** Offer the Operations extension. */
@@ -342,6 +344,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   web: true,
   browserSession: true,
   webDisabled: false,
+  pagesRefuseSession: false,
   operations: true,
   requireOperationsExtension: false,
   unknownExtension: true,

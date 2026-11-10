@@ -1835,6 +1835,18 @@ const TAMPERS: readonly Tamper[] = [
       return submitJoin(c, code, cookie);
     }
   },
+  // ---- Website pages fetched without a browser (0.4 5.2) ----
+  ...([
+    ["page.session-off-host", "a Session header on a page on the CDN host", (c: C) => `https://cdn.${c.hosts.domain}/orders`, { headers: { "Poppy-Version": "0.4" } }],
+    ["page.token", "an access token with a page", (c: C) => `${c.hosts.web}/orders`, { headers: { "Poppy-Version": "0.4" }, auth: "Bearer not-a-token" }],
+    ["page.session-0.3", "a Session header on a page without Poppy-Version", (c: C) => `${c.hosts.web}/orders`, {}]
+  ] as const).map(([id, what, url, options]) => ({
+    id,
+    what,
+    config: id === "page.session-0.3" ? {} : V4,
+    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    run: async (c: C) => call(c, await session(), "GET", url(c), options)
+  })),
   {
     id: "web.disabled-form",
     what: "a form sent to a website that sets web.disabled",

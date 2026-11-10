@@ -1,6 +1,7 @@
-import type { BrowserContextHandle, FormSubmission, PageGuard, PageSnapshot, PoppyBrowser } from "./browser";
+import type { BrowserContextHandle, FormSubmission, PageGuard, PageHeaders, PageSnapshot, PoppyBrowser } from "./browser";
 import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from "./client";
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
+import { isObject, parseStrictJson } from "./json";
 
 /**
  * Poppy web browsing without a real browser (6): plain HTTPS requests
@@ -428,17 +429,29 @@ function isSubmitter(control: Control): boolean {
 
 const SUBMIT_ADVICE = "This browser only follows links: fill the form's fields with fill, then send it with submit, which waits for the User's approval";
 
+/** Whether a page's 400 is `invalid_session` (5.3), in its JSON body. */
+function refusedSession(bytes: Uint8Array): boolean {
+  try {
+    const body = parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return isObject(body) && body.error === "invalid_session";
+  } catch {
+    return false;
+  }
+}
+
 class FetchContext implements BrowserContextHandle {
   readonly #fetcher: Fetcher;
   readonly #guard: PageGuard;
+  readonly #pageHeaders: PageHeaders | undefined;
   readonly #options: Required<Omit<FetchBrowserOptions, "now">>;
   readonly #jar: CookieJar;
   #page: Page | undefined;
   #closed = false;
 
-  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions) {
+  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions, pageHeaders?: PageHeaders) {
     this.#fetcher = fetcher;
     this.#guard = guard;
+    this.#pageHeaders = pageHeaders;
     this.#options = {
       maxBytes: options.maxBytes ?? DEFAULTS.maxBytes,
       timeoutMs: options.timeoutMs ?? DEFAULTS.timeoutMs,
@@ -470,10 +483,15 @@ class FetchContext implements BrowserContextHandle {
     let body = init.body;
     let sent = false;
     let answered: number | undefined;
+    // After a page refuses our Session header, the rest of this navigation goes without it (0.4 5.2).
+    let unsigned = false;
     try {
       for (let hop = 0; ; hop++) {
         this.#check(current);
         const headers = new Headers({ Accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5,*/*;q=0.1" });
+        // 0.4: the Session header, signed for this hop's URL; a redirect off the Company's domain gets none.
+        const signed = unsigned || !this.#pageHeaders ? null : await this.#pageHeaders(current, method);
+        if (signed) for (const [name, value] of signed) headers.set(name, value);
         // The Session's cookies, to this host only. Nothing else of ours goes with a page request.
         const cookie = this.#jar.header(current);
         if (cookie) headers.set("Cookie", cookie);
@@ -511,6 +529,12 @@ class FetchContext implements BrowserContextHandle {
         } catch (error) {
           const failure = error instanceof PoppyFetchError ? new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0) : error;
           throw init.method === "POST" ? withUnreadableAnswer(failure, response.status) : failure;
+        }
+        // A page that verifies the header and rejects it may be fetched once more without it (5.2). A form isn't sent again.
+        if (signed && method === "GET" && response.status === 400 && refusedSession(bytes)) {
+          unsigned = true;
+          hop--;
+          continue;
         }
         return {
           url: current,
@@ -816,7 +840,7 @@ export class FetchBrowser implements PoppyBrowser {
     this.#options = options;
   }
 
-  async newContext(guard: PageGuard): Promise<BrowserContextHandle> {
-    return new FetchContext(this.#fetcher, guard, this.#options);
+  async newContext(guard: PageGuard, pageHeaders?: PageHeaders): Promise<BrowserContextHandle> {
+    return new FetchContext(this.#fetcher, guard, this.#options, pageHeaders);
   }
 }

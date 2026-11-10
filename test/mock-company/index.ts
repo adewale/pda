@@ -173,6 +173,8 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/logo.svg" && method === "GET") {
         return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { headers: { "Content-Type": "image/svg+xml" } });
       }
+      const refused = await web.pageSession(inbound, sub === "cdn");
+      if (refused) return refused;
       if (path === "/account/address" && method === "POST") {
         company.rateLimit("page", inbound);
         return web.saveAddress(inbound);

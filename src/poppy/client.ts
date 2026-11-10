@@ -1159,6 +1159,37 @@ export class PoppyClient {
     return next;
   }
 
+  /**
+   * The headers for a website page the agent fetches with its own HTTP
+   * client rather than a browser (0.4 5.2): the Session header, signed out
+   * (no `ath`; a page never gets a token), the Session's declared versions,
+   * and the operator signature. Only under 0.4, only where the Company lists
+   * no `browser_session_endpoint` (where it does, the fetch browser joins
+   * the Session as a browser and sends no header; decision 44), and only to
+   * exactly `organization.domain`. Null otherwise.
+   */
+  async pageHeaders(company: Company, label: string, request: { readonly method: string; readonly url: string }): Promise<Headers | null> {
+    const url = new URL(request.url);
+    if (!this.signsPages(company) || url.protocol !== "https:") return null;
+    if (url.host.toLowerCase() !== company.domain.toLowerCase()) return null;
+    const { session, declared } = this.#declaredSession(company, label);
+    const headers = new Headers({ "Poppy-Session": await this.sessionHeader(company, session.session_id, { method: request.method, url: url.href }) });
+    for (const [name, value] of declarationHeaders(declared)) headers.set(name, value);
+    const operator = operatorKey(this.host.env);
+    if (operator) await signRequest(await operator, this.identity.origin, { method: request.method, url: url.href, headers });
+    return headers;
+  }
+
+  /** Whether pages fetched without a browser carry the Session header at this Company (`pageHeaders`). */
+  signsPages(company: Company): boolean {
+    return company.protocolVersion === "0.4" && !company.web?.browserSessionEndpoint;
+  }
+
+  /** The label's Session as its next request will use it: started, with the declaration the Company calls for (3.4). */
+  preparedSession(company: Company, label: string): SessionRow {
+    return this.#declaredSession(company, label).session;
+  }
+
   /** The Session header for one request (5.2). */
   async sessionHeader(company: Company, sid: string, request: { readonly method: string; readonly url: string; readonly accessToken?: string }): Promise<string> {
     return sessionJwt(await this.#delegatedFor(company), {

@@ -35,6 +35,7 @@ function fixture(stage?: "authorize" | "post", restart = false) {
     rememberCompany: () => {}, resumeCompany: async () => COMPANY,
     session: () => state,
     accountGeneration: () => 0,
+    signsPages: () => false,
     token: async () => null,
     beforeRequest: async () => {},
     pageLimited: async () => false,

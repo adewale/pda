@@ -274,3 +274,47 @@ describe("0.4: extension_required in a JSON body (3.3)", () => {
     expect((await c.stub.state()).performs).toBe(0);
   });
 });
+
+describe("0.4: the Session header on website pages fetched without a browser (5.2; decision 44)", () => {
+  const pages = async (c: Company) => (await requests(c)).filter((request) => {
+    const url = new URL(request.url);
+    return !url.pathname.startsWith("/.well-known/") && !url.pathname.startsWith("/poppy/") && (url.hostname === c.domain || url.hostname === `cdn.${c.domain}`);
+  });
+
+  it("signs each page on organization.domain, signed out even in a signed-in Session, and never one a redirect leaves it for", async () => {
+    const c = await company({ ...V4, browserSession: false });
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
+    const opened = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: `/go?to=${encodeURIComponent(`https://cdn.${c.domain}/orders`)}` });
+    expect(opened.isError, opened.text).toBe(false);
+    const [first, second] = await pages(c);
+    expect(new URL(first!.url).pathname).toBe("/go");
+    expect(first!.headers["poppy-session"]).toBeDefined();
+    expect(first!.headers["poppy-version"]).toBe("0.4");
+    // No token, so no ath either: the mock records one in the JWT (session-jwt.ath-without-token) or beside it (page.token).
+    expect(first!.headers.authorization).toBeUndefined();
+    expect(new URL(second!.url).hostname).toBe(`cdn.${c.domain}`);
+    expect(second!.headers["poppy-session"]).toBeUndefined();
+  });
+
+  it("fetches a page once more without the header when the page refuses it with invalid_session", async () => {
+    const c = await company({ ...V4, browserSession: false, pagesRefuseSession: true });
+    const a = await agent();
+    const opened = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
+    expect(opened.isError, opened.text).toBe(false);
+    expect((await pages(c)).map((request) => [request.status, request.headers["poppy-session"] !== undefined])).toEqual([[400, true], [200, false]]);
+  });
+
+  it.each([
+    ["joins the Session as a browser where the Company lists browser_session_endpoint", V4],
+    ["keeps 0.3's pages unsigned", { protocolVersion: "0.3", browserSession: false }]
+  ] as const)("sends no header on a page when it %s", async (_, config) => {
+    const c = await company(config);
+    const a = await agent();
+    const opened = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
+    expect(opened.isError, opened.text).toBe(false);
+    const fetched = await pages(c);
+    expect(fetched.length).toBeGreaterThan(0);
+    expect(fetched.every((request) => request.headers["poppy-session"] === undefined)).toBe(true);
+  });
+});

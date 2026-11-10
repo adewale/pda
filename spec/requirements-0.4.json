@@ -55,10 +55,10 @@
     },
     {
       "change": "Session header on website pages fetched without a browser",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/fetch-browser.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W4, 0.4 only: under 0.3 website pages never carry the header. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry after invalid_session."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W4 is done, 0.4 only: under 0.3 website pages never carry the header. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header with the Session's declared versions and the operator signature, to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry of a page (not a form) after invalid_session. The mock verifies a page's header and records one off-host (page.session-off-host), beside a token (page.token), or in a 0.3 request (page.session-0.3)."
     },
     {
       "change": "Conversation state in four fields",
