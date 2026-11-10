@@ -1030,6 +1030,13 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   {
+    id: "resource.unverified-target",
+    what: "a token for a resource named only by metadata for another URL",
+    config: { mismatchedApiResourceMetadata: true },
+    detail: (c) => `[resource.unverified-target] token request for ${c.hosts.api}/elsewhere, which no metadata at its own derived URL names`,
+    run: async (c) => refresh(c, await signedIn(c), { resource: `${c.hosts.api}/elsewhere` })
+  },
+  {
     id: "mcp.wrong-token",
     what: "the default access token at the MCP server",
     config: BEARER,

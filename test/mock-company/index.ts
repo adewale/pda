@@ -199,6 +199,7 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
         // 7: an MCP server that offers no account access needs no issuer discovery.
         if (company.config.issuerless) return json({ error: "not_found" }, 404);
+        if (company.config.mcpPrmAtRootOnly && path !== "/.well-known/oauth-protected-resource") return json({ error: "not_found" }, 404);
         return json(apis.protectedResourceMetadata());
       }
       if (path === "/mcp") {
@@ -214,7 +215,9 @@ export class MockCompany extends DurableObject<Env> {
     }
     // The API takes only its own tokens when its protected resource metadata names it (4.5).
     if (path.startsWith("/.well-known/oauth-protected-resource") && method === "GET") {
-      return company.config.apiResource && path === "/.well-known/oauth-protected-resource"
+      if (path !== "/.well-known/oauth-protected-resource") return json({ error: "not_found" }, 404);
+      if (company.config.mismatchedApiResourceMetadata) return json({ resource: `${company.hosts.api}/elsewhere`, authorization_servers: [company.hosts.issuer] });
+      return company.config.apiResource
         ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
         : json({ error: "not_found" }, 404);
     }
@@ -254,6 +257,7 @@ export class MockCompany extends DurableObject<Env> {
       violations: company.violations,
       warnings: company.warnings,
       requests: company.requests.map((request) => ({ ...request, headers: { ...request.headers } })),
+      sent: company.sent.map((payload) => JSON.stringify(payload)),
       mcp: apis.mcpLog.map((exchange) => ({ ...exchange })),
       revocationHints: [...company.revocationHints],
       userIds: [...company.userIds],

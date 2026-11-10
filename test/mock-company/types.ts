@@ -153,6 +153,8 @@ export type MockConfig = {
   readonly agentReplies: boolean;
   /** Leave the issuer out of the MCP server's protected resource metadata. */
   readonly mcpPrmOmitIssuer: boolean;
+  /** The MCP server's protected resource metadata is only at the root well-known URL, still naming the server's path URL, so RFC 9728 3.3 says not to use it. */
+  readonly mcpPrmAtRootOnly: boolean;
   readonly accounts: readonly MockAccount[];
   /** Overrides the OpenAPI description's `servers` URL, to name another host (N10). */
   readonly openapiServerOverride: string | null;
@@ -162,6 +164,8 @@ export type MockConfig = {
   readonly requiredExtension: string | null;
   /** The OpenAPI entry names `resource` (RFC 8707), and the API takes only tokens issued for it. */
   readonly apiResource: boolean;
+  /** The API host's protected resource metadata names a `resource` other than the API's URL (RFC 9728 3.3); the API takes the Company's own tokens. */
+  readonly mismatchedApiResourceMetadata: boolean;
   /** Ignore `wait` on conversation POSTs: answer at once, without events. */
   readonly ignoreWait: boolean;
   /** Never say `queued`: a handoff goes straight to `working`. */
@@ -343,6 +347,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   maxWaitSeconds: 2,
   agentReplies: true,
   mcpPrmOmitIssuer: false,
+  mcpPrmAtRootOnly: false,
   accounts: [
     {
       account: "acct_ada",
@@ -361,6 +366,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   omitTokenScope: false,
   requiredExtension: null,
   apiResource: false,
+  mismatchedApiResourceMetadata: false,
   ignoreWait: false,
   neverQueued: false,
   reuseDetection: false,
@@ -402,6 +408,25 @@ export const DEFAULT_CONFIG: MockConfig = {
   excludedTasks: true,
   feedback: false,
   feedbackAlternative: false
+};
+
+/** A JWT's protected header and payload, decoded but not verified. */
+export type DecodedJwt = { readonly header: Record<string, unknown>; readonly payload: Record<string, unknown> };
+
+/**
+ * What the Personal Agent sent, decoded for the official kit's schemas
+ * (test/kit-schemas.ts): a JSON body, the Session JWT and its delegation,
+ * `Poppy-Approval`, or the client metadata the mock fetched. Form bodies,
+ * which carry client assertions and credentials, are left out.
+ */
+export type AgentPayload = {
+  readonly method: string;
+  readonly url: string;
+  readonly json?: unknown;
+  readonly sessionJwt?: DecodedJwt;
+  readonly delegation?: DecodedJwt;
+  readonly approval?: string;
+  readonly clientMetadata?: unknown;
 };
 
 /** One request the mock received, with secrets redacted. */
@@ -450,6 +475,8 @@ export type MockState = {
   /** The recorded checks that are warnings (basis SHOULD, Guides or Reading). */
   readonly warnings: string[];
   readonly requests: MockRequest[];
+  /** What the Personal Agent sent, decoded, in order: each an `AgentPayload` as JSON text, which RPC types can carry. */
+  readonly sent: string[];
   /** Every JSON-RPC message the MCP server answered after the Session's checks, in order, with the lifecycle it was served under. */
   readonly mcp: readonly McpExchange[];
   /** `token_type_hint` of each revocation request, or null when absent (RFC 7009 makes it optional). */

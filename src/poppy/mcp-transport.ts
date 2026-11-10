@@ -73,21 +73,17 @@ class McpEraChanged extends PoppyError {}
  */
 async function checkResourceMetadata(client: PoppyClient, company: Company, api: Api): Promise<{ expiresAt: number }> {
   const url = new URL(api.url);
-  const candidates = [
-    `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`,
-    `${url.origin}/.well-known/oauth-protected-resource`
-  ];
-  for (const candidate of candidates) {
-    try {
-      const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, candidate, { maxRedirects: 0 });
-      if (isObject(json) && Array.isArray(json.authorization_servers)) {
-        if (!json.authorization_servers.includes(company.issuer)) throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
-        if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
-        return { expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 };
-      }
-    } catch (error) {
-      if (error instanceof PoppyError) throw error;
+  // Only the URL derived from the server's own (RFC 9728 3.1). The root document describes the origin, so
+  // its `resource` can't be a server with a path without breaking RFC 9728 3.3's exact match (decision 43).
+  try {
+    const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`, { maxRedirects: 0 });
+    if (isObject(json) && Array.isArray(json.authorization_servers)) {
+      if (!json.authorization_servers.includes(company.issuer)) throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
+      if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
+      return { expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 };
     }
+  } catch (error) {
+    if (error instanceof PoppyError) throw error;
   }
   throw new PoppyError("bad_api", `${api.url} publishes no protected resource metadata`, 0);
 }

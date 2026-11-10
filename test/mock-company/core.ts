@@ -17,6 +17,8 @@ import {
   hostsFor,
   type CompanyFlaw,
   type Hosts,
+  type AgentPayload,
+  type DecodedJwt,
   type MockConfig,
   type MockRequest
 } from "./types";
@@ -230,6 +232,8 @@ export class Company {
   /** Every check the Company recorded, `[id] detail`, in order: violations and warnings (violations.ts). */
   readonly recorded: string[] = [];
   readonly requests: { -readonly [K in keyof MockRequest]: MockRequest[K] }[] = [];
+  /** What the Personal Agent sent, decoded for the kit's schemas. */
+  readonly sent: AgentPayload[] = [];
   readonly revocationHints: (string | null)[] = [];
   /** Revocation requests refused so far under `refuseRevocations`. */
   revocationsRefused = 0;
@@ -356,7 +360,32 @@ export class Company {
       error: null as string | null
     };
     this.requests.push(entry);
+    this.#capture(inbound, type);
     return entry;
+  }
+
+  #capture(inbound: Inbound, type: string): void {
+    const decode = (jwt: unknown): DecodedJwt | undefined => {
+      if (typeof jwt !== "string") return undefined;
+      try {
+        return { header: { ...decodeProtectedHeader(jwt) }, payload: { ...decodeJwt(jwt) } };
+      } catch {
+        return undefined; // verifySessionHeader records it.
+      }
+    };
+    let json: unknown;
+    if (/^application\/(?:[\w.+-]+\+)?json\b/.test(type)) {
+      try {
+        json = JSON.parse(inbound.bodyText);
+      } catch {
+        // Not JSON; the route refuses it.
+      }
+    }
+    const sessionJwt = decode(inbound.request.headers.get("Poppy-Session"));
+    const delegation = decode(sessionJwt?.header.poppy_dlg);
+    const approval = inbound.request.headers.get("Poppy-Approval") ?? undefined;
+    if (json === undefined && !sessionJwt && approval === undefined) return;
+    this.sent.push({ method: inbound.request.method, url: inbound.url.href, json, sessionJwt, delegation, approval });
   }
 
   /** JTIs are single-use within each kind of JWT. */
@@ -568,6 +597,8 @@ export class Company {
     } catch {
       throw fail("client-metadata.not-json", "client metadata is not JSON");
     }
+    // A document a test serves in its place isn't what the agent publishes.
+    if (!this.served.has(clientId)) this.sent.push({ method: "GET", url: clientId, clientMetadata: metadata });
     if (metadata.client_id !== clientId) {
       throw fail("client-metadata.client-id-mismatch", "client_id in the document doesn't equal the URL it was fetched from");
     }

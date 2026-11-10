@@ -304,6 +304,16 @@ function metadataResource(company: Company, value: Json, service?: string): stri
   return serviceMetadataUrl(company, value.resource, service) ? value.resource : undefined;
 }
 
+/**
+ * Whether metadata's `resource` is exactly the identifier its URL was derived from (RFC 9728 3.1, 3.3):
+ * the service URL as listed, or the origin and path the well-known segment was inserted into. Anything
+ * else, even a parent of the service or another case, means the metadata isn't used (0.4, 4.5).
+ */
+function identifiesService(resource: string, service: string): boolean {
+  const url = new URL(service);
+  return resource === service || resource === `${url.origin}${url.pathname === "/" ? "" : url.pathname}`;
+}
+
 /** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
 const HTTP_DATE = [
   /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/,
@@ -360,7 +370,7 @@ export class PoppyClient {
   readonly host: PoppyHost;
   readonly identity: AgentIdentity;
   readonly sealer: Sealer;
-  /** Per-Company DPoP keys, generated on first use and never stored. */
+  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use and never stored. */
   readonly #dpopKeys = new Map<string, Promise<DpopKey>>();
   /** Access tokens by issuer, Session label, resource and scope. */
   readonly #tokens = new Map<string, HeldToken>();
@@ -650,10 +660,11 @@ export class PoppyClient {
   // ---------------------------------------------------------------- Keys
 
   dpopKey(issuer: Issuer): Promise<DpopKey> {
-    let key = this.#dpopKeys.get(issuer);
+    const id = `${issuer}|${this.userId(issuer)}`;
+    let key = this.#dpopKeys.get(id);
     if (!key) {
       key = newDpopKey();
-      this.#dpopKeys.set(issuer, key);
+      this.#dpopKeys.set(id, key);
     }
     return key;
   }
@@ -1208,8 +1219,8 @@ export class PoppyClient {
    * Whether a service takes only its own tokens (4.5): its protected
    * resource metadata, at the URL RFC 9728 3.1 defines from the service's
    * URL, names a `resource` other than the Company's domain. Fetched
-   * without redirects, cached like discovery documents; no metadata means
-   * the default token.
+   * without redirects, cached like discovery documents; no metadata, or
+   * metadata whose `resource` isn't that service, means the default token.
    */
   async serviceResource(company: Company, service: string): Promise<string | undefined> {
     let cached = this.#serviceResources.get(service);
@@ -1230,10 +1241,15 @@ export class PoppyClient {
       this.#serviceResources.set(service, cached);
     }
     const resource = metadataResource(company, cached.metadata, service);
-    return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
+    if (resource === undefined || !identifiesService(resource, service)) return undefined;
+    return resource.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
   }
 
-  /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
+  /**
+   * An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or
+   * following a redirect. Its `resource` must be exactly the service, as at the derived URL (RFC 9728 3.3,
+   * decision 43): a challenge can't send a token request to another resource.
+   */
   async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
     this.#serviceResources.delete(service);
     const url = serviceMetadataUrl(company, hint, service);
@@ -1242,7 +1258,7 @@ export class PoppyClient {
     try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
     catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
     const resource = metadataResource(company, fetched.json, service);
-    if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
+    if (!resource || !identifiesService(resource, service) || (expectedResource !== undefined && resource !== expectedResource)) {
       throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
     }
     this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });

@@ -12,7 +12,9 @@ import type { Provider } from "../src/config";
 import type { PiServerMessage } from "../src/protocol";
 import { agentNameFor, createSession, type Identity } from "../src/session";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
+import { kitSchemaErrors } from "./kit-schemas";
 import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from "./mock-company";
+import type { AgentPayload } from "./mock-company/types";
 import worker, { type PersonalAgent } from "./worker";
 
 export const ORIGIN = "https://agent.example.com";
@@ -147,8 +149,10 @@ export async function chat(
  * created with `company()` must have recorded no violations and no warnings
  * (our own client is held to SHOULDs, the Guides and our readings too: the
  * strict run of docs/conformance-levels.md), unless the test said which it
- * expects (`expectViolations`, which matches either). Every file that
- * imports this module gets the check.
+ * expects (`expectViolations`, which matches either). What the agent sent
+ * must also fit the official kit's schemas (test/kit-schemas.ts), unless the
+ * test said which errors it expects (`expectSchemaErrors`). Every file that
+ * imports this module gets both checks.
  */
 
 export const testEnv = env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -160,10 +164,12 @@ export type Company = {
   readonly hosts: ReturnType<typeof hostsFor>;
   /** This test breaks the protocol on purpose: exactly these violations, and no others. */
   expectViolations(...patterns: RegExp[]): void;
+  /** This test sends what the kit's schemas refuse on purpose: exactly these errors, and no others. */
+  expectSchemaErrors(...patterns: RegExp[]): void;
 };
 
 /** Every mock Company the current test created, with the violations it expects. */
-const created: { company: Company; expected: RegExp[]; instanceId: string }[] = [];
+const created: { company: Company; expected: RegExp[]; expectedSchemaErrors: RegExp[]; instanceId: string }[] = [];
 const createdAgents = new Set<string>();
 
 /** Flush cancellation before terminating this test's object. The concurrency
@@ -201,9 +207,10 @@ afterEach(async () => {
   const agents = [...createdAgents];
   createdAgents.clear();
   try {
-    for (const { company: c, expected, instanceId } of mocks) {
-      const violations = (await companyEvidence(c.stub, instanceId)).recorded;
-      expect(compareViolations(violations, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+    for (const { company: c, expected, expectedSchemaErrors, instanceId } of mocks) {
+      const state = await companyEvidence(c.stub, instanceId);
+      expect(compareViolations(state.recorded, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+      expect(compareViolations(kitSchemaErrors(state.sent.map((payload) => JSON.parse(payload) as AgentPayload)), expectedSchemaErrors), `kit schema errors in what the agent sent to mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
     }
   } finally {
     await Promise.all(agents.map((name) => stopAgent(testEnv.PersonalAgent.getByName(name))));
@@ -215,13 +222,14 @@ export async function company(config: Partial<MockConfig> = {}): Promise<Company
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const stub = testEnv.MOCK_COMPANY.getByName(id);
   await stub.configure({ deviceInterval: 1, ...config });
-  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[], instanceId: await stub.instanceId() };
+  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[], expectedSchemaErrors: [] as RegExp[], instanceId: await stub.instanceId() };
   entry.company = {
     id,
     stub,
     domain: `${id}.shop.test`,
     hosts: hostsFor(id, { issuerTrailingSlash: config.issuerTrailingSlash ?? false, issuerPath: config.issuerPath ?? null, issuerOnDomain: config.issuerOnDomain ?? false }),
-    expectViolations: (...patterns) => entry.expected.push(...patterns)
+    expectViolations: (...patterns) => entry.expected.push(...patterns),
+    expectSchemaErrors: (...patterns) => entry.expectedSchemaErrors.push(...patterns)
   };
   created.push(entry);
   return entry.company;

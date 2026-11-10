@@ -2058,6 +2058,20 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(after.filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
   });
 
+  it("doesn't use the root metadata document for an MCP server with a path, whose resource it can't be (RFC 9728 3.3)", async () => {
+    const c = await company({ mcpPrmAtRootOnly: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("publishes no protected resource metadata");
+    const seen = await requests(c);
+    expect(seen.some((request) => new URL(request.url).pathname === "/.well-known/oauth-protected-resource/mcp")).toBe(true);
+    expect(seen.filter((request) => new URL(request.url).host === new URL(c.hosts.mcpUrl).host && new URL(request.url).pathname === "/.well-known/oauth-protected-resource")).toEqual([]);
+    expect(seen.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
+    expect(seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"))).toEqual([]);
+  });
+
   it("calls the same MCP server signed out, as poppy.json lists it: 7 asks for the issuer only of a server offering account access", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const a = await agent();
@@ -2173,6 +2187,19 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const forResource = (await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
     expect(forResource.map((request) => request.grant)).toEqual(expect.arrayContaining(["refresh_token"]));
     for (const request of forResource) expect(request.headers.dpop).toBe("<present>");
+  });
+
+  it("treats protected resource metadata for another resource as absent, and uses the Company's own token (RFC 9728 3.3)", async () => {
+    const c = await company({ mismatchedApiResourceMetadata: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(orders.isError, orders.text).toBe(false);
+    expect(orders.text).toContain("ord_7Hk2");
+    const seen = await requests(c);
+    // The metadata was read, at the URL derived from the API's, and not used.
+    expect(seen.some((request) => request.url === `${c.hosts.api}/.well-known/oauth-protected-resource`)).toBe(true);
+    expect(seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"))).toEqual([]);
   });
 
   it("tells the User and the model which extension a Company requires (extension_required)", async () => {

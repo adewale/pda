@@ -1,8 +1,8 @@
 {
   "protocolVersion": "0.4",
-  "revision": "2026-11-09",
-  "commit": "b2569c552d100922e7d60829d33a0fc50d88e822",
-  "scope": "Disposition of every entry in the 0.4 draft changelog as retrieved on 9 November 2026 (upstream commit b2569c5). Planned names the work item in the upgrade plan that implements it; Done records implementation with the stated evidence and limits. A newer 0.4 snapshot changes this list.",
+  "revision": "2026-11-10",
+  "commit": "a2f16ec4c38e111289c12d7fbd8fec57b8aba06e",
+  "scope": "Disposition of every entry in the 0.4 draft changelog as retrieved on 10 November 2026 (upstream commit a2f16ec). Planned names the work item in the upgrade plan that implements it; Done records implementation with the stated evidence and limits. A newer 0.4 snapshot changes this list.",
   "changes": [
     {
       "change": "Direct Sign-In preferred",
@@ -51,7 +51,14 @@
       "disposition": "Planned",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W2: a Personal Agent SHOULD NOT browse such a Company. Kit: discovery.web-disabled."
+      "notes": "W2: a Personal Agent SHOULD NOT use a browser on such a Company's website; pages fetched without a browser are not covered (W4). Kit: discovery.web-disabled."
+    },
+    {
+      "change": "Session header on website pages fetched without a browser",
+      "disposition": "Planned",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "W4, 0.4 only: under 0.3 website pages never carry the header. Pages the agent fetches with its own HTTP client, rather than a joined browser, carry a signed-out Session header to organization.domain only, never with an access token; a redirect is re-signed only on that host; after invalid_session the page may be fetched once without it. S3 records whether the fetch browser counts as a browser when no browser join is available."
     },
     {
       "change": "Conversation state in four fields",
@@ -103,11 +110,32 @@
       "notes": "T1 reads tasks.endpoint per Session with the Session header and no token, and takes feedback.endpoint from it; T2 feeds the skill index to the Skills milestone. Kit: tasks.response, tasks.alternative-references, tasks.skill-index."
     },
     {
+      "change": "Browser Control extension",
+      "disposition": "Not used",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "Not declared. Support means handing the User control of the agent's browser and providing navigator.poppy.controller (Browser Control 3, 5, 6). The fetch browser runs no JavaScript and has no window to hand over. Without the declaration a Company handles marked steps as it would without the extension (3). Revisit if the agent gains a real browser."
+    },
+    {
       "change": "Operations on websites",
       "disposition": "Planned",
       "implementation": "src/poppy/fetch-browser.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "Adopted (decision 43). W3 surfaces Poppy-Operation from the agent's own browser, approves at the operations endpoint, repeats the browser's request with its own replay safety, and keeps the local form-consent card. Needs A1."
+      "notes": "Adopted (decision 43), with Operations version 3 under 0.4 (O3). W3 surfaces Poppy-Operation from the agent's own browser, approves at the operations endpoint, repeats the browser's request with its own replay safety, and keeps the local form-consent card. Needs A1."
+    },
+    {
+      "change": "Operations version 3: agent approvals",
+      "disposition": "Planned",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "O3: 0.4 Sessions declare operations version 3 and 0.3 Sessions keep version 2. Every approval says approver user: the agent makes no agent approvals, because only the person's interface approves a Company's exact terms. reference is the local approval record's ID, unique per approval and so never sent to two Companies. Kit: approval.schema.json through the schema oracle (V0)."
+    },
+    {
+      "change": "Operations require terms",
+      "disposition": "Planned",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "O3: under version 3 an operation needs terms and may omit summary. The card shows the Company's summary when there is one, and otherwise every value in terms, labelled; the approval stays bound to the exact terms. Version 2 keeps its required summary. Kit: operation.schema.json."
     },
     {
       "change": "`auth.disabled` without other clients",
@@ -146,17 +174,17 @@
     },
     {
       "change": "A DPoP key per User ID",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/client.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "H1 keys DPoP keys by issuer and User ID. Today it holds only because each issuer has one User ID. Can ship on 0.3."
+      "evidence": "interop/test/dpop-keys.test.ts",
+      "notes": "H1: DPoP keys are held by issuer and User ID, so a changed User ID gets a new key. Each issuer still has one stored User ID; the key stays in memory and is regenerated after a restart. Shipped on 0.3, which allows it."
     },
     {
       "change": "Checking protected resource metadata",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/client.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "H2 uses derived metadata only when its resource is the derived identifier, and, per decision 43, requires the same exact match for metadata from a resource_metadata hint; fixes MCP's root-metadata fallback in mcp-transport.ts. Can ship on 0.3."
+      "evidence": "interop/test/resource-metadata-refresh.test.ts",
+      "notes": "H2: derived metadata counts only when its resource is exactly the service URL, or the origin and path the well-known segment was inserted into (interop/test/service-resource.test.ts). Per decision 43, metadata from a resource_metadata challenge must name the same service exactly. MCP reads only the URL derived from the server (src/poppy/mcp-transport.ts). The mock records resource.unverified-target for a token request naming any other resource. Shipped on 0.3, which allows it."
     },
     {
       "change": "Scopes described twice",
@@ -205,7 +233,7 @@
       "disposition": "Planned",
       "implementation": "src/poppy/operations-v2.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O1 sends approved_at (Unix seconds; an Integer in the header) and input_type without personal or device data; the mock parses Integer members."
+      "notes": "O1 sends approved_at (Unix seconds; an Integer in the header) and input_type without personal or device data, with approver user under version 3 (O3); the mock parses Integer members."
     },
     {
       "change": "Operations: what counts as the same request",

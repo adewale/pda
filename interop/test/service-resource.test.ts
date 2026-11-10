@@ -67,6 +67,26 @@ describe("per-service access-token metadata", () => {
     expect(await client.serviceResource(books, service)).toBe(service);
     expect(requests).toEqual([expectedUrl]);
   });
+
+  it.each([
+    ["a parent of the service", "https://api.books.example"],
+    ["another resource on its host", "https://api.books.example/v2"],
+    ["a trailing slash", `${SERVICE}/`],
+    ["a different case in the path", "https://api.books.example/V1"],
+    ["a different case in the host", "https://API.books.example/v1"],
+    ["a query", `${SERVICE}?tenant=books`]
+  ])("treats derived metadata whose resource is %s as absent: the default token works there (0.4, 4.5; RFC 9728 3.3)", async (_name, resource) => {
+    const { client, requests } = fixture(() => Response.json({ resource, authorization_servers: [ISSUER] }));
+    expect(await client.serviceResource(books, SERVICE)).toBeUndefined();
+    expect(requests).toEqual(["https://api.books.example/.well-known/oauth-protected-resource/v1"]);
+  });
+
+  it("accepts a root service's metadata naming it with or without the trailing slash", async () => {
+    for (const resource of ["https://api.books.example", "https://api.books.example/"]) {
+      const { client } = fixture(() => Response.json({ resource, authorization_servers: [ISSUER] }));
+      expect(await client.serviceResource(books, "https://api.books.example/")).toBe(resource);
+    }
+  });
 });
 
 function deferred() {

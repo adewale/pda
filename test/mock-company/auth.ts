@@ -134,8 +134,12 @@ export class AuthServer {
     const co = this.company;
     const grant = form.get("grant_type");
     const resource = form.get("resource");
-    const isMcp = resource === co.hosts.mcpUrl;
-    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) throw oauthError(400, "invalid_target", "unknown resource");
+    // A resource is a target only where its own metadata, at the URL derived from it, names it (RFC 9728 3.3).
+    const isMcp = resource === co.hosts.mcpUrl && !co.config.mcpPrmAtRootOnly;
+    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) {
+      co.violation("resource.unverified-target", `token request for ${resource}, which no metadata at its own derived URL names`);
+      throw oauthError(400, "invalid_target", "unknown resource");
+    }
     const proof = inbound.request.headers.get("DPoP");
     if (co.config.dpopTokens && !proof) {
       co.violation("token.dpop-not-sent", `token request (${grant}) without a DPoP proof, though the metadata lists dpop_signing_alg_values_supported`);

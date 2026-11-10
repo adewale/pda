@@ -9,7 +9,7 @@ PDA speaks 0.3 and is adding 0.4 beside it ([decision 43](decisions.md#43-03-bes
 [spec/upstream.json](../spec/upstream.json) has one pin per protocol version, each with a site snapshot, the official kit retrieved with it, and the Operations and Mediated Sign-In versions it uses:
 
 - **0.3**, published and frozen: the [3 November 2026 snapshot](../spec/draft-0.3-retrieved-2026-11-03/README.md) and [kit](../spec/company-kit-2026-11-03/README.md), upstream commit `7205250`. Spoken at runtime. Its [requirement ledger](poppy-0.3-upgrade.md) records implementation and limits.
-- **0.4**, a draft: the [9 November 2026 snapshot](../spec/draft-0.4-retrieved-2026-11-09/README.md) and [kit](../spec/company-kit-2026-11-09/README.md), upstream commit `b2569c5`. Not yet spoken; the [0.4 upgrade](poppy-0.4-upgrade.md) has the work and its ledger.
+- **0.4**, a draft: the [10 November 2026 snapshot](../spec/draft-0.4-retrieved-2026-11-10/README.md) and [kit](../spec/company-kit-2026-11-10/README.md), upstream commit `a2f16ec`. It replaced the 9 November pin (`b2569c5`); both stay in `spec/`. Not yet spoken; the [0.4 upgrade](poppy-0.4-upgrade.md) has the work and its ledger.
 
 `npm run check:spec` verifies every pin offline, and that the runtime pins are exactly the versions in `src/poppy/protocol-version.ts`. `npm run spec:drift` compares the pins with the live site: for a frozen version, only its own pages and its changelog entry titles; for a draft, every page. An extension can change between draft revisions without changing its version.
 

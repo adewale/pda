@@ -114,6 +114,7 @@ export const VIOLATIONS = {
 
   // ---- Access tokens at resources (4.5, 7) ----
   "resource.bearer-scheme": "Rule (4.5: the scheme the token response's token_type names; RFC 9449 7.1): An access token sent with another scheme than its token_type",
+  "resource.unverified-target": "MUST (RFC 9728 3.3, which 4.5 names: metadata whose resource isn't the identifier its URL was derived from \"MUST NOT be used\"): A token request for a resource that no protected resource metadata at its own derived URL names",
   "mcp.wrong-token": "MUST (7: \"MUST request a token with resource set to the MCP server's url\"; 4.5): MCP request with a token not issued for this MCP server",
   "mcp.accept": "RFC (MCP 2025-06-18 Streamable HTTP, which 7 names): MCP request doesn't Accept application/json and text/event-stream",
   // MCP 2025-06-18's lifecycle: initialize, then its session and version on every later request.

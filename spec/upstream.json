@@ -18,14 +18,14 @@
       "protocolVersion": "0.4",
       "status": "draft",
       "runtime": false,
-      "snapshot": "spec/draft-0.4-retrieved-2026-11-09",
-      "kit": "spec/company-kit-2026-11-09",
-      "revision": "2026-11-09",
-      "commit": "b2569c552d100922e7d60829d33a0fc50d88e822",
-      "operationsVersion": "2",
+      "snapshot": "spec/draft-0.4-retrieved-2026-11-10",
+      "kit": "spec/company-kit-2026-11-10",
+      "revision": "2026-11-10",
+      "commit": "a2f16ec4c38e111289c12d7fbd8fec57b8aba06e",
+      "operationsVersion": "3",
       "mediatedSignInVersion": "1",
       "source": "https://personalagentprotocol.org/docs/0.4/spec",
-      "note": "Manually reviewed 9 November site snapshot of the 0.4 draft. Its specification, guides and Operations text matches content/versions/0.4 at upstream commit b2569c5 (8 November) word for word apart from site formatting: code-block captions, heading anchors, link prefixes, the pronunciation button and the license footer. The pinned kit is kit/company at the same commit. 0.4 is still a draft: a newer snapshot gets its own dated directory and replaces this pin after review. Not yet spoken at runtime."
+      "note": "Manually reviewed 10 November site snapshot of the 0.4 draft, replacing the 9 November pin (b2569c5). Since then: Operations version 3 (agent approvals, a required approver, required terms), the Browser Control extension, and the Session header on website pages fetched without a browser; the 34 earlier changelog entries keep their titles. The pinned kit is upstream kit/company at commit a2f16ec apart from links the site rewrites to /docs/0.4/, and its reference pages match this snapshot. The home page walkthroughs were not extracted: the snapshot script can not read the new bundle; they are examples, not requirements. 0.4 is still a draft: a newer snapshot gets its own dated directory and replaces this pin after review. Not yet spoken at runtime."
     }
   ]
 }

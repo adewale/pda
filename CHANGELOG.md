@@ -2,6 +2,24 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — the 0.4 pin moves to 10 November: Operations 3, Browser Control, and Session headers on fetched pages
+
+Nothing changes on the wire: the agent still speaks 0.3 alone.
+
+- The 0.4 draft is pinned from the [10 November 2026 snapshot](spec/draft-0.4-retrieved-2026-11-10/README.md) and the [official kit](spec/company-kit-2026-11-10/README.md) downloaded from the protocol site the same day, both matching upstream [`a2f16ec`](https://github.com/personal-agent-protocol/personal-agent-protocol/commit/a2f16ec4c38e111289c12d7fbd8fec57b8aba06e). The 9 November pin stays in `spec/` as a record.
+- Upstream added four changelog entries, now in the [ledger](docs/poppy-0.4-upgrade.md) with 38 dispositions. 0.4 uses Operations version 3, which adds a required `approver`, optional agent approvals and a `reference`, and makes `terms` required and `summary` optional. Plan item O3 sends only user approvals. Browser Control version 1 isn't declared, because the fetch browser has no window to hand to the User. Website pages fetched without a browser carry a signed-out Session header under 0.4 (W4).
+- The new kit's validator has the same 132 checks: `operations.not-returned` became `extensions.not-returned`. Against the mock it gives the same baseline as the 9 November kit on all four profiles: 11 pass, 1 fails (`discovery.schema`) and 120 are skipped.
+- The official kit now checks our agent too. After every Workers test, the JSON bodies, Session JWTs, delegations, approvals and client metadata the agent sent the mock are checked against the pinned 0.3 kit's own schemas and validator (`test/kit-schemas.ts`). The current suite passes it unchanged.
+- The snapshot has no home-page walkthroughs: `scripts/spec-snapshot.mjs` can't read the site's new bundle. They are examples, not requirements.
+
+## Unreleased — exact protected resource metadata, and a DPoP key per User ID
+
+Two rules from the 0.4 draft that 0.3 also allows ([0.4 upgrade](docs/poppy-0.4-upgrade.md), H1 and H2).
+
+- Protected resource metadata counts only when its `resource` is exactly the service it was fetched for (RFC 9728 3.3): the URL derived from an OpenAPI server or conversation endpoint, a `resource_metadata` challenge's URL, and an MCP server's URL. Metadata naming a parent, a sibling, another case, a trailing slash or a query is treated as absent at the derived URL, and refused after a challenge, so a service can no longer steer the agent into asking for a token for another resource. MCP no longer falls back to the root `/.well-known/oauth-protected-resource`, whose `resource` can't be a server with a path. A Company that relied on either looser match now gets the Company's own token at that service, or, for MCP, an error that it publishes no metadata.
+- DPoP keys are held by issuer and User ID (0.4, 4.5). Keys stay in memory, so nothing stored changes.
+- The mock records `resource.unverified-target` for a token request naming a resource that no metadata at its own derived URL names. New configurations: `mismatchedApiResourceMetadata` and `mcpPrmAtRootOnly`.
+
 ## Unreleased — the Poppy 0.4 draft, pinned beside 0.3
 
 Nothing changes on the wire: the agent still speaks 0.3 alone.
