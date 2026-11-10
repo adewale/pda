@@ -58,7 +58,7 @@
       "disposition": "Planned",
       "implementation": "src/poppy/fetch-browser.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W4, 0.4 only: under 0.3 website pages never carry the header. Pages the agent fetches with its own HTTP client, rather than a joined browser, carry a signed-out Session header to organization.domain only, never with an access token; a redirect is re-signed only on that host; after invalid_session the page may be fetched once without it. S3 records whether the fetch browser counts as a browser when no browser join is available."
+      "notes": "W4, 0.4 only: under 0.3 website pages never carry the header. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry after invalid_session."
     },
     {
       "change": "Conversation state in four fields",
@@ -111,10 +111,10 @@
     },
     {
       "change": "Browser Control extension",
-      "disposition": "Not used",
+      "disposition": "Planned",
       "implementation": "src/poppy/fetch-browser.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "Not declared. Support means handing the User control of the agent's browser and providing navigator.poppy.controller (Browser Control 3, 5, 6). The fetch browser runs no JavaScript and has no window to hand over. Without the declaration a Company handles marked steps as it would without the extension (3). Revisit if the agent gains a real browser."
+      "notes": "Adopted (decision 44). B1 to B5: a Browser Run browser joined to the Session, a live view that hands the User control, navigator.poppy.controller on the Company's hosts, marked steps left to the User, and the declaration in 0.4 Sessions that use that browser. The fetch browser, which can't hand over control, refuses marked steps (B4)."
     },
     {
       "change": "Operations on websites",
@@ -128,7 +128,7 @@
       "disposition": "Planned",
       "implementation": "src/poppy/operations-v2.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O3: 0.4 Sessions declare operations version 3 and 0.3 Sessions keep version 2. Every approval says approver user: the agent makes no agent approvals, because only the person's interface approves a Company's exact terms. reference is the local approval record's ID, unique per approval and so never sent to two Companies. Kit: approval.schema.json through the schema oracle (V0)."
+      "notes": "O3, AG1 and AG2, per decision 44: 0.4 Sessions declare operations version 3 and 0.3 Sessions keep version 2. The agent approves on the User's standing instructions only when a deterministic check finds the revision's terms within one, and otherwise asks the User. approver says which, and reference is the ledger entry's ID, unique per approval. Kit: approval.schema.json through the schema oracle (V0)."
     },
     {
       "change": "Operations require terms",
