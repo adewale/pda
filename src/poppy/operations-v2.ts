@@ -57,6 +57,11 @@ export function operationsVersion(company: Company): "2" | "3" | null {
   return company.protocolVersion === "0.3" ? "2" : "3";
 }
 
+/** Whether an approval at this Company holds in another Session of the same agent and User (0.4 Ops 3; `sameAuthority`). */
+export function approvesAcrossSessions(company: Company): boolean {
+  return operationsVersion(company) === "3";
+}
+
 /**
  * The statement a version 3 approval carries (0.4 Ops 6), or nothing under
  * version 2. Every approval so far is the User's, given by pressing the

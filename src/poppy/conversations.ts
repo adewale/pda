@@ -5,7 +5,7 @@ import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { ActionOutcomePending, approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor } from "./operations";
-import { approvable, approvalCardId, approvalJson, approvalSummary, operationsVersion, parseOperationV2, toSend } from "./operations-v2";
+import { approvable, approvalCardId, approvalJson, approvalSummary, approvesAcrossSessions, operationsVersion, parseOperationV2, toSend } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
@@ -488,7 +488,7 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
   const beforeDispatch = () => {
     execution.beforeDispatch();
     const session = client.session(company.issuer, label);
-    if (!sameAuthority(approval.binding, sessionAuthority(session))) {
+    if (!sameAuthority(approval.binding, sessionAuthority(session), approvesAcrossSessions(company))) {
       throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
     }
     if (!approvable(approval.approval, Date.now())) {

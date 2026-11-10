@@ -6,8 +6,14 @@ export function sessionAuthority(session: { readonly session_id: string; readonl
   return { sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0 };
 }
 
-/** Compare the explicit current-format authority; missing generations are never inferred. */
-export function sameAuthority(expected: Authority, current: Authority): boolean {
-  return expected.sessionId === current.sessionId && expected.account === current.account
+/**
+ * Compare the explicit current-format authority; missing generations are never inferred.
+ * `acrossSessions`: an Operations 3 approval holds in any Session of the same agent and
+ * User (0.4 Ops 3; decision 43), so only the account and withdrawals must match: a
+ * signed-out approval stays signed out, a signed-in one stays with its account, and a
+ * sign-out still voids it.
+ */
+export function sameAuthority(expected: Authority, current: Authority, acrossSessions = false): boolean {
+  return (acrossSessions || expected.sessionId === current.sessionId) && expected.account === current.account
     && expected.authorityGeneration === current.authorityGeneration;
 }

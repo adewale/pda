@@ -4,6 +4,7 @@
  * test also passes the strict check in agent-helpers: the mock recorded no
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
+import { decodeJwt } from "jose";
 import { describe, expect, it } from "vitest";
 import { agent, cards, company, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
@@ -316,5 +317,48 @@ describe("0.4: the Session header on website pages fetched without a browser (5.
     const fetched = await pages(c);
     expect(fetched.length).toBeGreaterThan(0);
     expect(fetched.every((request) => request.headers["poppy-session"] === undefined)).toBe(true);
+  });
+});
+
+describe("0.4: approvals across Sessions (Operations 3; decision 43)", () => {
+  const exchange = (c: Company) => ({ domain: c.domain, operation: "POST /orders/{order_id}/exchanges", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+  const approveAfterSessionEnds = async (config: Partial<MockConfig>) => {
+    const c = await company(config);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", exchange(c));
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(await c.stub.endAllSessions()).toBeGreaterThan(0);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    return { c, a, card };
+  };
+
+  it("sends an approval in the new Session the agent starts after the Company ends the one that returned the operation", async () => {
+    const { c } = await approveAfterSessionEnds(V4);
+    expect((await c.stub.state()).performs).toBe(1);
+    const exchanges = resourceRequests(await requests(c), c).filter((request) => request.method === "POST" && request.url.endsWith("/exchanges"));
+    const sid = (request: MockRequest) => decodeJwt(request.headers["poppy-session"]!).sid;
+    const returned = exchanges.find((request) => request.headers["poppy-approval"] === undefined)!;
+    const performed = exchanges.filter((request) => request.headers["poppy-approval"] !== undefined).at(-1)!;
+    expect(performed.status).toBe(201);
+    expect(sid(performed)).not.toBe(sid(returned));
+  });
+
+  it("still never sends a signed-in approval after the User signs out", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", exchange(c));
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)?.status).not.toBe("done");
+  });
+
+  it("keeps a 0.3 approval in the Session that returned it", async () => {
+    const { c, a, card } = await approveAfterSessionEnds({ protocolVersion: "0.3" });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "failed" });
   });
 });
