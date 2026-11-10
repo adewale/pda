@@ -5,7 +5,10 @@ import { PoppyClient, type PoppyHost } from "../../src/poppy/client";
 import { migrate } from "../../src/poppy/store";
 import { readConversation, updateAvailability } from "../../src/poppy/conversations";
 import { buildActivity, openAtCompanies } from "../../src/poppy/activity";
-import { PROTOCOL_REVISION } from "../../src/poppy/protocol-version";
+import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
+
+// These are 0.3 records, so 0.3's revision.
+const PROTOCOL_REVISION = PROTOCOL_REVISIONS["0.3"];
 import type { Company } from "../../src/poppy/discovery";
 
 const ISSUER = "https://auth.shop.example";

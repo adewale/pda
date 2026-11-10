@@ -111,9 +111,19 @@ describe("upgrade state and pending-work compatibility", () => {
     const f = fixture();
     const original = await f.client.company("shop.example");
     f.client.rememberCompany("approval", "apr_1", original);
-    f.change({ version: "0.4" });
+    f.change({ version: "0.5" });
     await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ name: "DiscoveryError" });
     expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+  });
+
+  it("holds a pending approval when its Company moves from 0.3 to 0.4, which this agent speaks, without replaying an action", async () => {
+    const f = fixture();
+    const original = await f.client.company("shop.example");
+    f.client.rememberCompany("approval", "apr_1", original);
+    f.change({ version: "0.4" });
+    await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ code: "company_changed" });
+    expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+    expect(f.cards.at(-1)).toMatchObject({ kind: "notice", domain: original.domain });
   });
 
   it("holds a task begun under 0.2, before this agent spoke 0.3 only, without replaying it", async () => {

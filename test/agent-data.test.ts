@@ -63,9 +63,11 @@ describe("personal data controls", () => {
     const response = await fetchWorker(new Request(`${ORIGIN}/api/build-info`));
     expect(response.status).toBe(200);
     const build = await response.json() as Record<string, unknown>;
-    expect(Object.keys(build).sort()).toEqual(["commit", "dirty", "protocolRevision", "protocolVersions", "workerVersion"]);
-    expect(build.protocolRevision).toBe("2026-11-03");
-    expect(build.protocolVersions).toEqual(["0.3"]);
+    expect(Object.keys(build).sort()).toEqual(["commit", "dirty", "protocolRevision", "protocolRevisions", "protocolVersions", "workerVersion"]);
+    // The newest version's revision, and each version's.
+    expect(build.protocolRevision).toBe("2026-11-10");
+    expect(build.protocolRevisions).toEqual({ "0.3": "2026-11-03", "0.4": "2026-11-10" });
+    expect(build.protocolVersions).toEqual(["0.3", "0.4"]);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
   it("exports the caller's records and chunked photos without stored credentials or another person's records", async () => {

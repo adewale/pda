@@ -7,8 +7,8 @@ import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
 /**
  * Extensions this client supports under each protocol version, with the
  * major version it implements (3.3): Operations 2 under 0.3 and 3 under
- * 0.4, and Mediated Sign-In 1. Discovery chooses 0.4 only once it is in
- * PROTOCOL_VERSIONS (P1), after Operations 3 is implemented.
+ * 0.4, and Mediated Sign-In 1. Operations 3 is still being built
+ * (docs/poppy-0.4-upgrade.md, O3; decision 45).
  */
 export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string }>> = {
   "0.3": { operations: "2", "mediated-sign-in": "1" },

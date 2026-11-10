@@ -2,9 +2,12 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
-## Unreleased — the validator checks 0.4 documents and chooses a version
+## Unreleased — the agent speaks 0.4 beside 0.3 (in progress; not deployable)
 
-Nothing changes on the wire: the agent still speaks 0.3 alone.
+The agent now speaks 0.4 beside 0.3, and chooses 0.4 from any Company that offers it ([decision 45](docs/decisions.md#45-04-spoken-on-the-branch-before-it-is-finished-and-strict-04-re-pins)). **Don't deploy this yet.** 0.4 support is unfinished: Operations 3, conversation state and the tasks endpoint, among others, aren't done ([0.4 upgrade](docs/poppy-0.4-upgrade.md)). No live Company serves 0.4 yet; Print with Poppy is still on 0.3.
+
+- `PROTOCOL_VERSIONS` is `0.3, 0.4`, and the 0.4 pin (`a2f16ec`, 10 November) is `runtime`. Build info adds `protocolRevisions` for each version; `protocolRevision` is the newest version's. The validator checks a document that names no usable version against 0.4.
+- A new 0.4 snapshot is strict, as any revision change is: the agent retires a 0.4 Company's open conversations and holds its pending approvals.
 
 - The validator has a Draft 0.4 profile beside 0.3's. It checks extensions as lists of version entries, `tasks.endpoint` and the members that moved there, `web.disabled` and `web.unscoped`, website operations and Browser Control with browser join, `poppy:browser-sign-in` in `scopes_supported`, and warns when a Company offers Device Sign-In but not Direct. Messages for rules 0.4 kept from 0.3 link to the 0.4 pages.
 - `validateCompany(fetcher, domain, { versions })` chooses the newest version the caller speaks from poppy.json and its `supported_versions`, as the agent will (3.4). A linked document must be on the same host and is never fetched through a redirect; one that names another version, lists `supported_versions` or names another domain is reported. Without `versions` it chooses among every version the validator has a profile for.

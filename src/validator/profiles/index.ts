@@ -11,10 +11,10 @@ export const PROFILES: readonly Profile[] = [draft03, draft04];
 
 /**
  * The profile for a document that names no usable version, and the default
- * context for documents without their own: 0.3, the version the agent speaks
- * at runtime, until 0.4 is added to it (docs/poppy-0.4-upgrade.md, P1).
+ * context for documents without their own: 0.4, the newest version the
+ * agent speaks (docs/poppy-0.4-upgrade.md, P1).
  */
-export const LATEST: Profile = draft03;
+export const LATEST: Profile = draft04;
 
 export function profileForVersion(version: string): Profile | undefined {
   return PROFILES.find((profile) => profile.version === version);

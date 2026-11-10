@@ -17,7 +17,7 @@
     {
       "protocolVersion": "0.4",
       "status": "draft",
-      "runtime": false,
+      "runtime": true,
       "snapshot": "spec/draft-0.4-retrieved-2026-11-10",
       "kit": "spec/company-kit-2026-11-10",
       "revision": "2026-11-10",

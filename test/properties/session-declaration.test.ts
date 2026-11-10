@@ -9,9 +9,8 @@ import { world } from "./client-fixture";
  * What a Session declares (0.4, 3.4; F2 in docs/poppy-0.4-upgrade.md):
  * `Poppy-Version` and `Poppy-Extensions` on every request with the Session
  * header, the same for the whole Session, and a new Session to change them.
- * The client refuses a 0.4 Company until P1 (assertSupported), so the 0.4
- * values are checked here as data, and the Session rules through the client
- * under 0.3. The mock checks the headers once it serves 0.4 (M1).
+ * The 0.4 Company here is the mock's discovered 0.3 Company read as 0.4,
+ * since the mock doesn't serve 0.4 yet; it checks the headers with M1.
  */
 
 async function send(client: Awaited<ReturnType<typeof world>>["client"], company: Company) {
@@ -37,6 +36,28 @@ describe("what a Session declares (3.4)", () => {
 });
 
 describe("a Session's declaration is fixed for its sid (3.4)", () => {
+  it("sends the version and extensions under 0.4, and starts a new Session to change them", async () => {
+    const { client, company, mock } = await world({ protocolVersion: "0.3" });
+    const as04: Company = { ...company, protocolVersion: "0.4", extensions: { operations: true } };
+    const sid = () => client.session(company.issuer, "main")!.session_id;
+    const last = async () => (await mock.state()).requests.at(-1)!.headers;
+
+    await send(client, company);
+    const first = sid();
+    // The Company moved to 0.4: a new Session, before anything is sent with other values.
+    await send(client, as04);
+    expect(await last()).toMatchObject({ "poppy-version": "0.4", "poppy-extensions": `"operations";v="3"` });
+    const second = sid();
+    expect(second).not.toBe(first);
+    await send(client, as04);
+    expect(sid()).toBe(second);
+    // An extension it no longer uses: another new Session, which declares none.
+    await send(client, { ...as04, extensions: {} });
+    expect(await last()).toMatchObject({ "poppy-version": "0.4" });
+    expect(await last()).not.toHaveProperty("poppy-extensions");
+    expect(sid()).not.toBe(second);
+  });
+
   it("sends no declaration headers under 0.3", async () => {
     const { client, company, mock } = await world({ protocolVersion: "0.3" });
     await send(client, company);

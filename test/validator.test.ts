@@ -504,7 +504,7 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // Before 1.0 every version can break the one before (3.1), and 0.3 is the only one checked.
+    // Before 1.0 every version can break the one before (3.1), and only 0.3 and 0.4 are checked.
     name: "refuses a 0.2 document, which this validator no longer checks",
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "0.2"))),
     ids: ["version-unsupported"],
@@ -514,8 +514,9 @@ const POPPY_JSON: readonly Fixture[] = [
   {
     name: "chooses rules by protocol_version: none given",
     run: () => text("poppy", withPoppy((d) => delete d.protocol_version)),
-    ids: ["missing-member"],
-    also: (report) => expect(report.checkedAgainst).toBe("Draft 0.3")
+    // The newest version the validator knows.
+    ids: { contains: ["missing-member"] },
+    also: (report) => expect(report.checkedAgainst).toBe("Draft 0.4")
   },
   {
     name: "checks organization: not an object",
