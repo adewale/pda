@@ -62,10 +62,10 @@
     },
     {
       "change": "Conversation state in four fields",
-      "disposition": "Planned",
+      "disposition": "Partly done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F5 migrates the conversation rows, index and protocol-log trigger; C1 reads working, handoff, closed and responder; U1 to U3 update the tools, Activity and protocol log. Kit: conversations.closed-not-working, conversations.working-settles."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C1 is done: a 0.4 conversation stores working, handoff and responder from reads, POST replies, state events and streamed working events, and derives the local status (closed, queued, working or idle); F5 migrated the rows, index and protocol-log trigger. U1 to U3 remain: the tools, Activity and protocol log still show the derived status. Kit: conversations.events-schema, conversations.closed-not-working and conversations.working-settles pass."
     },
     {
       "change": "Requests are accepted, then acted on",
@@ -83,10 +83,10 @@
     },
     {
       "change": "Withdrawing a handoff",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "C3 adds handoff cancel and direct_conversation_open; U1 adds a model tool. Kit: conversations.cancel-without-handoff, conversations.closed-handoff-cancel."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C3: poppy_handoff_cancel sends a request ID to handoff/cancel and reads the result, since the Company may keep looking; a 0.3 conversation refuses it. Kit: conversations.cancel-without-handoff, conversations.closed-handoff-cancel and conversations.request-id-other-url pass."
     },
     {
       "change": "What a message took into account",
@@ -97,10 +97,10 @@
     },
     {
       "change": "Closing doesn't wait its turn",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "C4: close returns 202; the row stays open until closed is true; read until working is false before closing."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C4: under 0.4 a close reads first while the Company is working, then sends the close; the row stays open until a read says closed, and the tool reports closing. Kit: conversations.close, conversations.close-event and conversations.close-again pass."
     },
     {
       "change": "Task coverage per Session",

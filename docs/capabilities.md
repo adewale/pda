@@ -39,6 +39,7 @@ No tool approves anything. A scheduled task's run is a background turn like a Co
 | Use the Company's MCP tools | §7 | `poppy_mcp_list`, `poppy_mcp_call` (`args` checked against the tool's `inputSchema` first) | When the result returns an operation, its exact terms wait on a card (Ops §4–6) | `src/poppy/apis.ts` |
 | Talk to the Company's agent, with replies read in the background or streamed | §8.1–8.8 | `poppy_message`, `poppy_read` | No: a message never authorizes an account action. A Company Agent's operation waits on a terms card | `src/poppy/conversations.ts` |
 | Ask for a person at the Company | §8.9 | `poppy_handoff` | No | `src/poppy/conversations.ts` |
+| Withdraw a request for a person (0.4) | 0.4 §8.9 | `poppy_handoff_cancel` | No | `src/poppy/conversations.ts` |
 | Let the User talk to the Company directly | §8.10 | `poppy_invite_user` | Yes: the User decides whether to start it, and writes their own messages | `src/poppy/conversations.ts`, `src/poppy-ui.tsx` |
 | Sign in during a conversation when the Company asks | §8.11 | None: the client reacts to the challenge, through `poppy_sign_in`'s card | As for signing in | `src/poppy/conversations.ts` |
 | Close a conversation | §8.12 | `poppy_close` | No | `src/poppy/conversations.ts` |

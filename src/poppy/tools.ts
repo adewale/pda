@@ -13,6 +13,7 @@ import { openAtCompanies } from "./activity";
 import { browse, type BrowseAction, type PoppyBrowser } from "./browser";
 import { PoppyClient, PoppyError } from "./client";
 import {
+  cancelHandoff,
   closeConversation,
   conversation,
   handoff,
@@ -319,6 +320,19 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
       ),
       scopedTool(
         {
+          name: "poppy_handoff_cancel",
+          description: "Withdraw a request for a person at the company, once it's no longer needed, such as when its agent solved the problem. The company may still find someone; the conversation's state says which.",
+          parameters: Type.Object({ conversation: Type.String() }),
+          replay: "safe"
+        },
+        async ({ conversation: id }, callKey) => {
+          const row = conversation(client(), id);
+          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          return cancelHandoff(client(), client().companyByIssuer(row.issuer), id, callKey);
+        }
+      ),
+      scopedTool(
+        {
           name: "poppy_invite_user",
           description:
             "Offer the User a Direct Conversation, where they talk with the company themselves, for example when they ask to, or when a decision is theirs to explain. They decide whether to start it.",
@@ -340,8 +354,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-          await closeConversation(client(), client().companyByIssuer(row.issuer), id);
-          return { conversation: id, status: "closed" };
+          const status = await closeConversation(client(), client().companyByIssuer(row.issuer), id);
+          // 0.4: the Company acts on the close later; a read reports it (8.12).
+          return status === "closed" ? { conversation: id, status } : { conversation: id, status: "closing", note: "The company accepted the close; the conversation's state will say when it is closed." };
         }
       ),
       scopedTool(

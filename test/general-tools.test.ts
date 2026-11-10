@@ -957,6 +957,7 @@ describe("the tools the model is offered", () => {
         "poppy_message",
         "poppy_read",
         "poppy_handoff",
+        "poppy_handoff_cancel",
         "poppy_invite_user",
         "poppy_close",
         "poppy_feedback",

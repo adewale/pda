@@ -225,13 +225,14 @@ export class MockCompany extends DurableObject<Env> {
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
     if (path === "/poppy/feedback" && method === "POST") return web.feedbackReport(inbound, context);
-    const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|close))?)?$/.exec(path);
+    const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|handoff\/cancel|close))?)?$/.exec(path);
     if (conversation) {
       const [, id, action] = conversation;
       if (!id && method === "POST") return conversations.start(inbound, context);
       if (id && action === "messages" && method === "POST") return conversations.message(inbound, context, id);
       if (id && action === "events" && method === "GET") return conversations.events(inbound, context, id);
       if (id && action === "handoff" && method === "POST") return conversations.handoff(inbound, context, id);
+      if (id && action === "handoff/cancel" && method === "POST") return conversations.cancelHandoff(inbound, context, id);
       if (id && action === "close" && method === "POST") return conversations.close(inbound, context, id);
       return json({ error: "not_found" }, 404);
     }

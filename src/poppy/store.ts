@@ -488,9 +488,9 @@ export const conversationsTable = table("poppy_conversations", {
   extensions: text,
   /**
    * 0.4's `working` and `handoff` (8.7). `status` stays the local marker
-   * every version shares: 0.3's own value, or under 0.4 `closed`, `working`
-   * or `idle`, from `closed` and `working`, so open conversations are found
-   * the same way for both.
+   * every version shares: 0.3's own value, or under 0.4 `closed`, `queued`
+   * (a pending handoff), `working` or `idle`, derived in conversations.ts
+   * `nextState`, so open conversations are found the same way for both.
    */
   working: integerOf(flag),
   handoff: text

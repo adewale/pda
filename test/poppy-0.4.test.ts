@@ -5,7 +5,7 @@
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
 import { describe, expect, it } from "vitest";
-import { agent, cards, company, requests, signInDirect, tool, until, type Company } from "./agent-helpers";
+import { agent, cards, company, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
 import type { AgentPayload } from "./mock-company/types";
 
@@ -123,5 +123,65 @@ describe("0.4: request IDs (8.3)", () => {
     expect(bodies.every((body) => typeof body.id === "string" && body.message?.id === undefined)).toBe(true);
     expect(new Set(bodies.map((body) => body.id)).size).toBe(bodies.length);
     expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
+  });
+});
+
+describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
+  const state = async (a: Agent, id: string) =>
+    (JSON.parse(await a.stub.poppySql(`SELECT status, responder, working, handoff FROM poppy_conversations WHERE id = '${id}'`)) as Record<string, unknown>[])[0];
+
+  it("reads working, handoff, responder and closed, withdraws a handoff, and closes only when the Company says it has", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const id = first.conversationId as string;
+    await a.stub.poppyReadNow(id);
+    expect(await state(a, id)).toEqual({ status: "idle", responder: "agent", working: 0, handoff: "none" });
+    await tool(a, "poppy_handoff", { conversation: id, summary: "The jacket isn't warm enough; the user wants an exchange." });
+    await a.stub.poppyReadNow(id);
+    expect(await state(a, id)).toEqual({ status: "queued", responder: "agent", working: 0, handoff: "pending" });
+    const cancelled = await tool(a, "poppy_handoff_cancel", { conversation: id });
+    expect(cancelled.isError, cancelled.text).toBe(false);
+    await a.stub.poppyReadNow(id);
+    expect(await state(a, id)).toEqual({ status: "idle", responder: "agent", working: 0, handoff: "none" });
+    const closing = JSON.parse((await tool(a, "poppy_close", { conversation: id })).text);
+    expect(closing.status).toBe("closing");
+    await a.stub.poppyReadNow(id);
+    expect(await state(a, id)).toEqual({ status: "closed", responder: "agent", working: 0, handoff: "none" });
+    expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
+  });
+
+  it("reads while the Company is still working before it closes, since a close may drop requests not yet acted on (8.12)", async () => {
+    // The mock stays working after a handoff it never queues, so the agent's read finds it working.
+    const c = await company({ ...V4, neverQueued: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const id = first.conversationId as string;
+    await tool(a, "poppy_handoff", { conversation: id, summary: "The jacket isn't warm enough; the user wants an exchange." });
+    await a.stub.poppyReadNow(id);
+    expect(await state(a, id)).toMatchObject({ status: "working", working: 1 });
+    const mark = (await requests(c)).length;
+    await tool(a, "poppy_close", { conversation: id });
+    const after = (await requests(c)).slice(mark).map((request) => `${request.method} ${new URL(request.url).pathname.split("/").at(-1)}`);
+    expect(after.indexOf("GET events")).toBeGreaterThanOrEqual(0);
+    expect(after.indexOf("GET events")).toBeLessThan(after.indexOf("POST close"));
+  });
+
+  it("is told when a person joins, from a state event in a stream that also reports working", async () => {
+    const c = await company({ ...V4, streaming: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam. I can help with that.");
+    await a.stub.poppyWaitForNotice("A person at");
+    expect(await state(a, first.conversationId)).toEqual({ status: "idle", responder: "human", working: 0, handoff: "none" });
+  });
+
+  it("can't withdraw a handoff in a 0.3 conversation, which has no way to", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const refused = await tool(a, "poppy_handoff_cancel", { conversation: first.conversationId });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("no way to withdraw");
   });
 });

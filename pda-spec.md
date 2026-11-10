@@ -670,8 +670,9 @@ Tools take a `domain`, resolved to its issuer, and optionally a `session` label 
 | `poppy_message(domain, text?, data?, conversation?)` | Starts or continues a conversation; waits up to 10 s for a reply | safe: the message id is fixed per call |
 | `poppy_read(conversation)` | Recent messages received by the background reader | safe |
 | `poppy_handoff(conversation, summary)` | A summary message, then a handoff | safe |
+| `poppy_handoff_cancel(conversation)` | Withdraws a request for a person (0.4 only); the Company may still find one | safe |
 | `poppy_invite_user(conversation, reason)` | Offers the User a Direct Conversation card | safe |
-| `poppy_close(conversation)` | Closes a conversation | safe |
+| `poppy_close(conversation)` | Closes a conversation; under 0.4 it reads first while the Company is working, and the conversation closes when a read says so | safe |
 | `poppy_feedback(domain, task, description)` | Tells the Company about a task the User couldn't do there (§9.3): once per task per Company, never for a task it lists as excluded; passes on another way to do it when the Company answers with one | safe: sent once per task |
 | `poppy_api_describe(domain, api?, operation?)` | Lists OpenAPI operations, or describes one | safe |
 | `poppy_api_call(domain, operation, params?, body?, bodyValue?, files?)` | Calls an OpenAPI operation; `body` is an object, `bodyValue` a body that isn't one (array, string, number, boolean or null), never both; `files` names the User's attachments for an upload | safe: reads; writes retain their request and outcome before dispatch; uploads freeze their routing per call; only unselected files need a disclosure card |

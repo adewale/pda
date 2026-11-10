@@ -283,8 +283,8 @@ export async function sendMessage(
   client.rememberCompany("conversation", id, company);
   if (!existing) {
     client.sql.exec(
-      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at, protocol_version, extensions)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at, protocol_version, extensions, working)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
       id,
       company.issuer,
       remoteId,
@@ -297,7 +297,9 @@ export async function sendMessage(
       Date.now(),
       // 8.2: the versions it started in, which its later requests need.
       company.protocolVersion,
-      declaration(company).extensions
+      declaration(company).extensions,
+      // 0.4: working from the moment the Company accepts a request (8.7).
+      company.protocolVersion === "0.3" ? 0 : 1
     );
   }
   const bound = conversation(client, id);
@@ -331,11 +333,36 @@ export async function sendMessage(
 function updateState(client: PoppyClient, id: string, response: { [key: string]: Json }, active = false): void {
   const row = conversation(client, id);
   if (!row) return;
-  const status = typeof response.status === "string" ? (STATUSES.has(response.status) ? response.status : "working") : row.status;
-  const responder = typeof response.responder === "string" ? (RESPONDERS.has(response.responder) ? response.responder : "human") : row.responder;
-  const changed = status !== row.status || responder !== row.responder;
+  const next = nextState(row, response);
+  const changed = next.status !== row.status || next.responder !== row.responder || next.working !== row.working || next.handoff !== row.handoff;
   if (!changed && !active) return;
-  client.sql.exec("UPDATE poppy_conversations SET status = ?, responder = ?, last_event_at = ? WHERE id = ?", status, responder, Date.now(), id);
+  client.sql.exec("UPDATE poppy_conversations SET status = ?, responder = ?, working = ?, handoff = ?, last_event_at = ? WHERE id = ?", next.status, next.responder, next.working, next.handoff, Date.now(), id);
+}
+
+/**
+ * A conversation's state after a read, a POST's reply, a `state` event or a
+ * stream's `working` event (8.7). Under 0.3, `status` and `responder`. Under
+ * 0.4, `working`, `handoff`, `responder` and `closed`, from which `status`,
+ * the local marker both versions share, is derived: `closed`, `queued`
+ * while a handoff is pending, `working`, or `idle`. A field the source
+ * leaves out keeps its stored value; an unknown `handoff` counts as
+ * `pending` and an unknown `responder` as `human`.
+ */
+export function nextState(
+  row: Pick<ConversationRow, "protocol_version" | "status" | "responder" | "working" | "handoff">,
+  fields: { readonly [key: string]: Json | undefined }
+): { status: string; responder: string; working: number; handoff: string } {
+  const responder = typeof fields.responder === "string" ? (RESPONDERS.has(fields.responder) ? fields.responder : "human") : row.responder;
+  if (row.protocol_version === "0.3") {
+    const status = typeof fields.status === "string" ? (STATUSES.has(fields.status) ? fields.status : "working") : row.status;
+    return { status, responder, working: row.working, handoff: row.handoff };
+  }
+  const closed = typeof fields.closed === "boolean" ? fields.closed : row.status === "closed";
+  // In a closed conversation, working is false and handoff none (8.7).
+  const working = !closed && (typeof fields.working === "boolean" ? fields.working : row.working === 1);
+  const handoff = closed ? "none" : typeof fields.handoff === "string" ? (fields.handoff === "none" ? "none" : "pending") : row.handoff;
+  const status = closed ? "closed" : handoff === "pending" ? "queued" : working ? "working" : "idle";
+  return { status, responder, working: working ? 1 : 0, handoff };
 }
 
 function saveCursor(client: PoppyClient, id: string, cursor: string): void {
@@ -615,8 +642,7 @@ async function handleEvent(
     case "state": {
       // Notices first, then the stored state: if a notice fails, the event
       // is handled again from the same state.
-      const responder = typeof event.responder === "string" ? event.responder : row.responder;
-      const status = typeof event.status === "string" ? event.status : row.status;
+      const { responder, status } = nextState(row, event);
       if (!row.direct && row.responder !== "human" && responder === "human") {
         await client.host.notifyModel(
           `[system] A person at ${company.name} has joined conversation ${row.id}. Write for a person: plain sentences, details in text.`,
@@ -779,7 +805,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
+      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || !hasState(row, body))) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);
@@ -797,6 +823,13 @@ export async function readConversation(
   const after = conversation(client, id);
   if (!after || after.status === "closed") return null;
   return nextRead(after, Date.now(), idleMinMs);
+}
+
+/** Whether a read has every state field its version requires (8.5, 8.7). */
+function hasState(row: Pick<ConversationRow, "protocol_version">, body: { readonly [key: string]: Json }): boolean {
+  if (typeof body.responder !== "string") return false;
+  if (row.protocol_version === "0.3") return typeof body.status === "string";
+  return typeof body.working === "boolean" && typeof body.handoff === "string" && typeof body.closed === "boolean";
 }
 
 /** How long a busy conversation is read every second after its last activity. */
@@ -853,6 +886,11 @@ async function readStream(
     try {
       payload = parseStrictJson(data.join("\n"));
     } catch {
+      return;
+    }
+    // 0.4: `working` comes as its own event, with no id, and changes only the state (8.6).
+    if (eventType === "working") {
+      if (isObject(payload) && typeof payload.working === "boolean") updateState(client, id, { working: payload.working });
       return;
     }
     if (eventType === "text-delta") {
@@ -973,12 +1011,19 @@ export async function handoff(
   return { status: after.status, responder: after.responder };
 }
 
-/** Close a conversation we're done with (8.12). */
-export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<void> {
+/**
+ * Close a conversation we're done with (8.12). Under 0.3 it is closed at
+ * once. Under 0.4 the Company accepts the close and acts on it later, so the
+ * conversation stays open here until a read says `closed`; the read is
+ * scheduled now. Returns the conversation's status.
+ */
+export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<string> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
   company = await client.resumeCompany(row.issuer, "conversation", id);
+  // 0.4: a close may drop requests the Company hasn't acted on, so read until it isn't working first (8.12).
+  if (row.protocol_version !== "0.3" && row.working === 1) await readConversation(client, id, 10);
   try {
     const { body } = await client.resourceJson(
       company,
@@ -989,9 +1034,38 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   } catch (error) {
     if (!hasCode(error, "conversation_closed")) throw error;
   }
+  // The User can no longer accept an invitation in a conversation we are closing.
+  await endInvitations(client, company, row);
+  if (row.protocol_version !== "0.3") {
+    await scheduleRead(client, id, 0);
+    return conversation(client, id)!.status;
+  }
   client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
   if (row.direct) pushDirect(client, company, id);
-  await endInvitations(client, company, row);
+  return "closed";
+}
+
+/**
+ * Withdraw a request for a person (0.4 8.9). The Company may keep looking,
+ * or a person may join first, so the conversation's state says which; the
+ * read is scheduled now.
+ */
+export async function cancelHandoff(client: PoppyClient, company: Company, id: string, callKey: string): Promise<{ status: string; responder: string }> {
+  const row = conversation(client, id);
+  if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  requireCompany(company, row);
+  if (row.protocol_version === "0.3") {
+    throw new PoppyError("invalid_request", `Conversation ${id} uses Poppy 0.3, which has no way to withdraw a request for a person. Tell the person who joins that it's no longer needed.`, 0);
+  }
+  company = await client.resumeCompany(row.issuer, "conversation", id);
+  await client.resourceJson(
+    company,
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff/cancel`, body: requestBody(client, row, `cancel|${callKey}`) }),
+    tokenOptions(company, row.label)
+  );
+  await scheduleRead(client, id, 0);
+  const after = conversation(client, id)!;
+  return { status: after.status, responder: after.responder };
 }
 
 /**

@@ -77,14 +77,21 @@ jobs:
 
       - name: Pinned upstream Company kit and reviewed findings
         if: steps.scope.outputs.specialist == 'true'
-        run: node scripts/check-company-kit.mjs --reviewed-findings --output "$RUNNER_TEMP/company-kit.json"
+        run: node scripts/check-company-kit.mjs --protocol 0.3 --reviewed-findings --output "$RUNNER_TEMP/company-kit.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-wrangler
 
+      - name: Pinned upstream 0.4 Company kit and reviewed findings
+        if: steps.scope.outputs.specialist == 'true'
+        run: node scripts/check-company-kit.mjs --protocol 0.4 --reviewed-findings --output "$RUNNER_TEMP/company-kit-0.4.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-04-wrangler
+
       - name: Separate DPoP-capable kit copy and independent proof controls
         if: steps.scope.outputs.specialist == 'true'
-        run: node scripts/check-company-kit.mjs --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
+        run: node scripts/check-company-kit.mjs --protocol 0.3 --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-dpop-wrangler
@@ -97,6 +104,7 @@ jobs:
           name: company-kit-results
           path: |
             ${{ runner.temp }}/company-kit.json
+            ${{ runner.temp }}/company-kit-0.4.json
             ${{ runner.temp }}/company-kit-dpop.json
             ${{ runner.temp }}/approval-crashes.json
           if-no-files-found: ignore

@@ -25,7 +25,10 @@ type Conversation = {
   readonly owner: { clientId: string; userId: string; account: string | null };
   readonly parentId: string | null;
   readonly direct: boolean;
+  /** The protocol version it started in (8.2), which sets the shape of its state (8.7). */
+  readonly version: string;
   directChild: string | null;
+  /** 0.3's status. Under 0.4, `working` is `working`, `handoff` is `pending` while `queued`, and `closed` is `closed`. */
   status: Status;
   responder: Responder;
   events: ConversationEvent[];
@@ -145,9 +148,26 @@ export class Conversations {
 
   #setState(conversation: Conversation, status: Status, responder: Responder = conversation.responder): void {
     if (conversation.status === status && conversation.responder === responder) return;
+    if (conversation.version === "0.3") {
+      conversation.status = status;
+      conversation.responder = responder;
+      this.#add(conversation, { type: "state", status, responder });
+      return;
+    }
+    // 0.4: a state event for a change to handoff, responder or closed, never for working alone (8.7).
+    const { handoff: before, closed: wasClosed } = this.#state(conversation) as { handoff: string; closed: boolean };
+    const changed = conversation.responder !== responder;
     conversation.status = status;
     conversation.responder = responder;
-    this.#add(conversation, { type: "state", status, responder });
+    const { handoff, closed } = this.#state(conversation) as { handoff: string; closed: boolean };
+    if (changed || handoff !== before || closed !== wasClosed) this.#add(conversation, { type: "state", handoff, responder, closed });
+  }
+
+  /** The state a read reports (8.7): 0.3's `status` and `responder`, or 0.4's four fields. */
+  #state(conversation: Conversation, working = conversation.status === "working"): Record<string, unknown> {
+    if (conversation.version === "0.3") return { status: working ? "working" : conversation.status, responder: conversation.responder };
+    const closed = conversation.status === "closed";
+    return { working: working && !closed, handoff: conversation.status === "queued" ? "pending" : "none", responder: conversation.responder, closed };
   }
 
   #say(conversation: Conversation, text: string, extra: Record<string, unknown> = {}): void {
@@ -448,8 +468,7 @@ export class Conversations {
       events,
       cursor: events.at(-1)?.id ?? cursor,
       has_more: conversation.events.length > start + events.length,
-      status: conversation.status,
-      responder: conversation.responder
+      ...this.#state(conversation)
     };
   }
 
@@ -459,8 +478,9 @@ export class Conversations {
     if (inbound.url.searchParams.has("wait") && !this.company.config.ignoreWait) {
       return json(await this.#read(conversation, cursor, wait), status);
     }
+    // 0.4: a POST's response has only conversation_id (8.3).
     return json(
-      { conversation_id: conversation.id, status: conversation.status, responder: conversation.responder },
+      conversation.version === "0.3" ? { conversation_id: conversation.id, status: conversation.status, responder: conversation.responder } : { conversation_id: conversation.id },
       status
     );
   }
@@ -504,6 +524,7 @@ export class Conversations {
       owner: { clientId: context.session.clientId, userId: context.session.userId, account: parent.owner.account },
       parentId: parent.id,
       direct: true,
+      version: context.session.declaration?.version ?? "0.3",
       directChild: null,
       status: "idle",
       responder: "agent",
@@ -567,6 +588,7 @@ export class Conversations {
       },
       parentId,
       direct: parent !== null,
+      version: context.session.declaration?.version ?? "0.3",
       directChild: null,
       status: "idle",
       responder: "agent",
@@ -626,8 +648,7 @@ export class Conversations {
         events: [],
         cursor: cursor ?? conversation.events.at(-1)?.id ?? null,
         has_more: true,
-        status: "working",
-        responder: conversation.responder
+        ...this.#state(conversation, true)
       });
     }
     const page = await this.#read(conversation, cursor, wait);
@@ -635,7 +656,8 @@ export class Conversations {
     if (!wantsStream || !this.company.config.streaming) return json(page);
     // SSE comments, which keep idle connections open, carry no event (8.6).
     const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
-    let body = keepAlive;
+    // 0.4: `working` as a `working` event with no id, when the stream opens (8.6).
+    let body = conversation.version === "0.3" ? keepAlive : `${keepAlive}event: working\ndata: ${JSON.stringify({ working: this.#state(conversation).working })}\n\n`;
     for (const event of page.events) {
       const message = event.message as { id?: string; role?: string; text?: string } | undefined;
       if (event.type === "message" && message?.role === "company" && message.text && this.company.config.textDeltas) {
@@ -665,7 +687,7 @@ export class Conversations {
   /** `POST {endpoint}/{id}/handoff` (8.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return json({ status: conversation.status, responder: conversation.responder }, 202);
+    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation, 202);
     if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (conversation.directChild) {
       throw new HttpError(
@@ -677,7 +699,23 @@ export class Conversations {
     if (conversation.responder !== "human") {
       this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
     }
-    return json({ status: conversation.status, responder: conversation.responder }, 202);
+    return this.#accepted(conversation, 202);
+  }
+
+  /** A handoff, cancel or close accepted: 0.3's state, or 0.4's `conversation_id` alone (8.3). */
+  #accepted(conversation: Conversation, status: number): Response {
+    if (conversation.version === "0.3") return json({ status: conversation.status, responder: conversation.responder }, status);
+    return json({ conversation_id: conversation.id }, 202);
+  }
+
+  /** `POST {endpoint}/{id}/handoff/cancel` (0.4 8.9): stop looking for a person; nothing while no handoff is pending. */
+  async cancelHandoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
+    const conversation = this.#owned(context, id);
+    if (conversation.version === "0.3") return json({ error: "not_found" }, 404);
+    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation, 202);
+    if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
+    if (conversation.status === "queued") this.#setState(conversation, "idle");
+    return this.#accepted(conversation, 202);
   }
 
   /** `POST {endpoint}/{id}/close` (8.12). */
@@ -685,7 +723,8 @@ export class Conversations {
     const conversation = this.#owned(context, id);
     this.#emptyBody(inbound, context, conversation, "close.body");
     this.#closeConversation(conversation);
-    return json({ status: conversation.status, responder: conversation.responder });
+    // 0.4: 202, also for a conversation already closed (8.12).
+    return this.#accepted(conversation, 200);
   }
 
   #closeConversation(conversation: Conversation): void {

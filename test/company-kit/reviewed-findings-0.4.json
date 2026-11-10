@@ -1,0 +1,80 @@
+{
+  "catalogChecks": 132,
+  "dpopPrerequisite": {
+    "response": "400 Bad Request, error invalid_dpop_proof",
+    "warningProfiles": [
+      "lenient",
+      "strict"
+    ],
+    "warningIds": [
+      "assertion.ps384",
+      "assertion.signature",
+      "assertion.expired",
+      "assertion.claims",
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.jti-reuse"
+    ],
+    "failureProfiles": [
+      "lenient",
+      "strict"
+    ],
+    "failureId": "mediated.unknown-sign-in",
+    "reason": "The upstream validator omits DPoP from token requests even when the issuer advertises it. The bearer profile supplies accepted controls for all eight checks without disabling any DPoP requirement on the other profiles."
+  },
+  "skips": {
+    "mock": [
+      "discovery.supported-versions",
+      "discovery.versions-same-company",
+      "feedback.accepted",
+      "feedback.alternative-references",
+      "feedback.invalid",
+      "feedback.no-session",
+      "tasks.alternative-references",
+      "tasks.response",
+      "tasks.skill-index"
+    ],
+    "issuerless": [
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.claims",
+      "assertion.expired",
+      "assertion.jti-reuse",
+      "assertion.ps384",
+      "assertion.signature",
+      "discovery.supported-versions",
+      "discovery.versions-same-company",
+      "feedback.accepted",
+      "feedback.alternative-references",
+      "feedback.invalid",
+      "feedback.no-session",
+      "mcp.authorization-servers",
+      "mcp.invalid-token",
+      "mcp.metadata",
+      "mcp.no-token",
+      "mediated.unknown-sign-in",
+      "metadata.authorization-endpoint",
+      "metadata.device-authorization-endpoint",
+      "metadata.grant-types",
+      "metadata.issuer-chosen",
+      "metadata.issuer-matches",
+      "metadata.mediated-grant",
+      "metadata.protected-resources",
+      "metadata.published",
+      "metadata.resource-metadata",
+      "metadata.revocation-endpoint",
+      "metadata.same-auth",
+      "metadata.same-issuer",
+      "metadata.schema",
+      "metadata.scopes-described",
+      "metadata.scopes-supported",
+      "metadata.token-endpoint",
+      "tasks.alternative-references",
+      "tasks.response",
+      "tasks.skill-index",
+      "token.invented"
+    ]
+  },
+  "positiveControlProfile": "bearer",
+  "notes": "The 10 November 0.4 kit against the mock serving 0.4 alone. These are reviewed observations, not rewritten upstream verdicts: any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The DPoP prerequisite findings are the 0.3 kit's, unchanged. Mock skips: discovery.supported-versions and discovery.versions-same-company, because the reviewed run serves one version (docs/readings.md#v04-version-missing); the tasks.* and feedback.* checks until the mock serves tasks.endpoint (T1). The issuerless profile adds the OAuth checks that need an issuer."
+}
