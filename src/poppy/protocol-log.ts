@@ -120,13 +120,15 @@ export function migrateProtocolLog(sql: Sql): void {
           || CASE WHEN new.parent IS NOT NULL THEN ' under ' || substr(new.parent, 1, 64) ELSE '' END,
         'status ' || substr(new.status, 1, 32) || ', responder ' || substr(new.responder, 1, 32));
     END`,
-    poppy_protocol_conversation_status: `AFTER UPDATE OF status, responder ON poppy_conversations
-      WHEN old.status IS NOT new.status OR old.responder IS NOT new.responder BEGIN
+    // 0.4's handoff (8.7) is named only when it changed; 0.3 conversations keep it at `none`.
+    poppy_protocol_conversation_status: `AFTER UPDATE OF status, responder, handoff ON poppy_conversations
+      WHEN old.status IS NOT new.status OR old.responder IS NOT new.responder OR old.handoff IS NOT new.handoff BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'conversation.status', 'info',
         'Conversation ' || substr(new.id, 1, 64),
         'status ' || substr(old.status, 1, 32) || ' → ' || substr(new.status, 1, 32)
-          || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32));
+          || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32)
+          || CASE WHEN old.handoff IS NOT new.handoff THEN ', handoff ' || substr(old.handoff, 1, 32) || ' → ' || substr(new.handoff, 1, 32) ELSE '' END);
     END`,
     // Operations a Company returned, wherever (Ops 4), and the User's answer (Ops 5): ids and revision, never the summary or terms.
     poppy_protocol_operation_new: `AFTER INSERT ON poppy_approvals WHEN new.terms IS NOT NULL BEGIN

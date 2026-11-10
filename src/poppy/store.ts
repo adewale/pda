@@ -96,7 +96,11 @@ CREATE TABLE IF NOT EXISTS poppy_conversations (
   cursor TEXT,
   context TEXT,
   last_event_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  protocol_version TEXT NOT NULL DEFAULT '0.3',
+  extensions TEXT NOT NULL DEFAULT '',
+  working INTEGER NOT NULL DEFAULT 0,
+  handoff TEXT NOT NULL DEFAULT 'none'
 );
 CREATE TABLE IF NOT EXISTS poppy_conversation_quarantine (
   kind TEXT NOT NULL,
@@ -210,6 +214,17 @@ export function migrate(sql: Sql): void {
   // Agents created before 10 November 2026: what a Session declared (0.4, 3.4); null until its first request.
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "declared")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN declared TEXT");
+  }
+  // Agents created before 10 November 2026: the versions a conversation started in (0.4, 8.2), and 0.4's
+  // `working` and `handoff` (8.7). Every earlier conversation is a 0.3 one, and its `status` stays as it was.
+  const conversationColumns = sql.exec("PRAGMA table_info(poppy_conversations)").toArray().map((column) => column.name);
+  for (const [name, definition] of [
+    ["protocol_version", "TEXT NOT NULL DEFAULT '0.3'"],
+    ["extensions", "TEXT NOT NULL DEFAULT ''"],
+    ["working", "INTEGER NOT NULL DEFAULT 0"],
+    ["handoff", "TEXT NOT NULL DEFAULT 'none'"]
+  ] as const) {
+    if (!conversationColumns.includes(name)) sql.exec(`ALTER TABLE poppy_conversations ADD COLUMN ${name} ${definition}`);
   }
   // Local retirement is distinct from the Company confirming a conversation closed.
   if (!sql.exec("PRAGMA table_info(poppy_conversations)").toArray().some(column => column.name === "retired_at")) {
@@ -461,7 +476,22 @@ export const conversationsTable = table("poppy_conversations", {
   cursor: nullable(text),
   context: nullable(text),
   last_event_at: integer,
-  created_at: integer
+  created_at: integer,
+  /**
+   * The versions the conversation started in (0.4, 8.2): its protocol
+   * version, and the `Poppy-Extensions` its Session declared (declaration.ts).
+   * Its requests go in a Session with these while the Company lists them.
+   */
+  protocol_version: text,
+  extensions: text,
+  /**
+   * 0.4's `working` and `handoff` (8.7). `status` stays the local marker
+   * every version shares: 0.3's own value, or under 0.4 `closed`, `working`
+   * or `idle`, from `closed` and `working`, so open conversations are found
+   * the same way for both.
+   */
+  working: integerOf(flag),
+  handoff: text
 });
 export const conversationQuarantineTable = table("poppy_conversation_quarantine", { kind: text, source_id: text, payload: text, quarantined_at: integer });
 export const conversationMigrationTable = table("poppy_conversation_migration", { slot: integer, state: textOf(literal("pending", "done")) });

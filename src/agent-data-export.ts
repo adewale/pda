@@ -28,7 +28,7 @@ const EXPORTED: Readonly<Record<string, readonly string[]>> = {
   poppy_approvals: columns("id issuer label summary request status result created_at terms terms_approval_id action_key action_owner operation_id notification_pending notification notification_batch_id resolution_notification_pending resolution_notification outcome_resolution outcome_resolved_at"),
   poppy_cards: columns("id card open updated_at"),
   poppy_conversation_quarantine: columns("kind source_id payload quarantined_at"),
-  poppy_conversations: columns("id issuer remote_id quarantined retired_at label parent direct status responder cursor context last_event_at created_at"),
+  poppy_conversations: columns("id issuer remote_id quarantined retired_at label parent direct status responder cursor context last_event_at created_at protocol_version extensions working handoff"),
   poppy_inbox: columns("seq conversation_id event created_at"),
   poppy_intents: columns("call_key value created_at"),
   poppy_messages: columns("id issuer conversation_id body created_at"),

@@ -55,6 +55,32 @@ function fixture() {
 }
 
 describe("upgrade state and pending-work compatibility", () => {
+  it("keeps an older agent's open conversations open as 0.3 conversations when it adds the 0.4 columns (F5)", () => {
+    const sql = memorySql();
+    // poppy_conversations as agents before 10 November 2026 created it.
+    sql.exec(`CREATE TABLE poppy_conversations (id TEXT PRIMARY KEY, issuer TEXT NOT NULL, remote_id TEXT NOT NULL DEFAULT '', quarantined INTEGER NOT NULL DEFAULT 0,
+      retired_at INTEGER, label TEXT NOT NULL, parent TEXT, direct INTEGER NOT NULL, status TEXT NOT NULL, responder TEXT NOT NULL, cursor TEXT, context TEXT,
+      last_event_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`);
+    sql.exec(`INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, last_event_at, created_at)
+      VALUES ('cnv_1', '${ISSUER}', 'cnv_1', 'main', 0, 'idle', 'human', 1, 1)`);
+    // Its Company, as the conversation started with it: without one, migration retires a conversation it can't resume.
+    sql.exec("CREATE TABLE poppy_task_contexts (kind TEXT NOT NULL, task_id TEXT NOT NULL, issuer TEXT NOT NULL, company TEXT NOT NULL, PRIMARY KEY (kind, issuer, task_id))");
+    sql.exec("INSERT INTO poppy_task_contexts VALUES ('conversation', 'cnv_1', ?, ?)", ISSUER, JSON.stringify({ issuer: ISSUER, domain: "shop.example", protocolVersion: "0.3", specificationRevision: "2026-11-03" }));
+    migrate(sql);
+    migrate(sql);
+    expect(sql.exec("SELECT status, responder, retired_at, protocol_version, extensions, working, handoff FROM poppy_conversations").toArray()).toEqual([
+      { status: "idle", responder: "human", retired_at: null, protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
+    ]);
+    // The status trigger, recreated after the columns exist, logs as before, and names a handoff only when it changes.
+    sql.exec("UPDATE poppy_conversations SET status = 'working'");
+    sql.exec("UPDATE poppy_conversations SET handoff = 'pending'");
+    expect(sql.exec("SELECT result FROM poppy_protocol_log WHERE step = 'conversation.status' ORDER BY seq").toArray().map((row) => row.result)).toEqual([
+      "status idle → working, responder human → human",
+      "status working → working, responder human → human, handoff none → pending"
+    ]);
+  });
+
+
   it("reruns additive migration and restarts without changing an issuer's User ID or sealed data", async () => {
     const f = fixture();
     const company = await f.client.company("shop.example");

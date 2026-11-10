@@ -3074,6 +3074,17 @@ describe("8.13 conversation errors", () => {
     }
   });
 
+  it("records the versions a conversation started in, for its later requests (0.4, 8.2)", async () => {
+    const { a, id, release } = await started();
+    try {
+      expect(JSON.parse(await a.stub.poppySql("SELECT protocol_version, extensions, working, handoff FROM poppy_conversations WHERE id = ?", id))).toEqual([
+        { protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
+      ]);
+    } finally {
+      await release();
+    }
+  });
+
   it("tells the model a conversation the Company won't continue in this version can't take the message, and keeps it open for reads (0.4 version_mismatch)", async () => {
     const { c, a, id, release } = await started();
     try {

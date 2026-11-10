@@ -11,6 +11,7 @@ import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
 import { conversationsTable, inboxTable, intent, intentsTable } from "./store";
 import type { DirectMessage } from "./wire";
+import { declaration } from "./declaration";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
@@ -274,8 +275,8 @@ export async function sendMessage(
   client.rememberCompany("conversation", id, company);
   if (!existing) {
     client.sql.exec(
-      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at, protocol_version, extensions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
       id,
       company.issuer,
       remoteId,
@@ -285,7 +286,10 @@ export async function sendMessage(
       String(response.status ?? "working"),
       String(response.responder ?? "agent"),
       Date.now(),
-      Date.now()
+      Date.now(),
+      // 8.2: the versions it started in, which its later requests need.
+      company.protocolVersion,
+      declaration(company).extensions
     );
   }
   const bound = conversation(client, id);
