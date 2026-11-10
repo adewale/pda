@@ -303,7 +303,8 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   if (!facts.usesSessions && !auth) c.report("website-only", "", "Nothing here uses Sessions: agents can only browse this Company's website, signed out.");
   const skills = member<Obj>(c, doc, "", "skill_index", "object", false, spec("9.4", "agent-context"));
   if (skills) checkSkillIndex(c, skills);
-  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions", "skill_index"]);
+  // supported_versions is 0.4's (3.4), which validate.ts reads in any version's poppy.json; 0.3 agents ignore it.
+  unknownMembers(c, doc, "", ["protocol_version", "supported_versions", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions", "skill_index"]);
   return facts;
 }
 

@@ -2,10 +2,18 @@ import { summarize, validateCompany, type CompanyReport } from "../validator/ind
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
-import { protocolRevision } from "./protocol-version";
+import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
 
-/** Extensions this client supports, with the major version it implements (3.3): Operations 2 and Mediated Sign-In 1. */
-export const SUPPORTED_EXTENSIONS = { operations: "2", "mediated-sign-in": "1" } as const;
+/**
+ * Extensions this client supports under each protocol version, with the
+ * major version it implements (3.3): Operations 2 under 0.3 and 3 under
+ * 0.4, and Mediated Sign-In 1. Discovery chooses 0.4 only once it is in
+ * PROTOCOL_VERSIONS (P1), after Operations 3 is implemented.
+ */
+export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string }>> = {
+  "0.3": { operations: "2", "mediated-sign-in": "1" },
+  "0.4": { operations: "3", "mediated-sign-in": "1" }
+};
 /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 1). */
 export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
@@ -51,7 +59,10 @@ export type Company = {
   readonly specificationRevision?: string;
   /** Canonical `auth`, so cached state keyed by Company notices when the document's `auth` changes. */
   readonly authFingerprint?: string;
+  /** 0.3's `feedback` (9.3). Under 0.4 it comes from the tasks endpoint instead. */
   readonly feedback?: { readonly endpoint: string };
+  /** 0.4's `tasks.endpoint` (9): excluded tasks, the skill index and feedback, for each Session. */
+  readonly tasks?: { readonly endpoint: string };
   /** The issuer's endpoints; absent for a Company without an issuer (3.2). */
   readonly endpoints?: {
     readonly token: string;
@@ -82,7 +93,7 @@ export type Company = {
   readonly dpop?: boolean;
   /** The issuer's `protected_resources` (3.2). */
   readonly protectedResources?: readonly string[];
-  /** Where the tasks the Company doesn't offer are listed (9.1). */
+  /** Where the tasks the Company doesn't offer are listed (0.3, 9.1). */
   readonly excludedTasks?: { readonly url: string };
   /** The first `poppy` conversation protocol entry, if any. */
   readonly conversations?: { readonly endpoint: string };
@@ -91,11 +102,23 @@ export type Company = {
     readonly url: string;
     readonly description: string;
   }[];
-  readonly web?: { readonly browserSessionEndpoint?: string };
+  readonly web?: {
+    readonly browserSessionEndpoint?: string;
+    /** 0.4's `web.disabled` (6): the Company asks Personal Agents not to use a browser on its website. */
+    readonly disabled?: true;
+    /** 0.4's `web.unscoped` (6): `poppy:browser-sign-in` gives a joined browser the account's full access. */
+    readonly unscoped?: true;
+  };
   /** Supported extensions only; unknown ones are ignored (3.3). */
   readonly extensions: {
-    /** Operations version 2: approvals on the request that returned the operation, no endpoint (Ops 2). */
+    /**
+     * Operations in the version `protocolVersion` uses (SUPPORTED_EXTENSIONS):
+     * 2 under 0.3, approvals on the request that returned the operation; 3
+     * under 0.4, which adds `approver` and `reference`.
+     */
     readonly operations?: true;
+    /** Operations 3's `endpoint` (0.4, Ops 2): where operations a website returned are fetched and approved. */
+    readonly operationsEndpoint?: string;
   };
 };
 
@@ -160,8 +183,9 @@ export type Discovered = {
  * limit or reading of ours the message names); or a document that couldn't
  * be fetched. What follows reads fields the validator has checked.
  */
-export async function discover(fetcher: Fetcher, domain: string): Promise<Discovered> {
-  const checked = await validateCompany(fetcher, domain);
+export async function discover(fetcher: Fetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
+  // 3.4: the newest version both sides speak, from poppy.json or a document its supported_versions links.
+  const checked = await validateCompany(fetcher, domain, { versions });
   if (checked.refused || checked.outcome === "indeterminate" || !isObj(checked.poppy)) {
     throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
   }
@@ -187,8 +211,8 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
   return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, checked.metadata, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
 }
 
-/** The Company Agent, its APIs and its website, skipping types we don't know (7, 8.1). */
-function services(doc: Obj): Pick<Company, "conversations" | "apis" | "web"> {
+/** The Company Agent, its APIs and its website, skipping types we don't know (7, 8.1); `web.disabled` and `web.unscoped` under 0.4 (6). */
+function services(doc: Obj, version: string): Pick<Company, "conversations" | "apis" | "web"> {
   let conversations: Company["conversations"];
   if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
     const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
@@ -204,7 +228,12 @@ function services(doc: Obj): Pick<Company, "conversations" | "apis" | "web"> {
   let web: Company["web"];
   if (isObj(doc.web)) {
     const endpoint = str(doc.web.browser_session_endpoint);
-    web = endpoint ? { browserSessionEndpoint: endpoint } : {};
+    const v04 = version !== "0.3";
+    web = {
+      ...(endpoint ? { browserSessionEndpoint: endpoint } : {}),
+      ...(v04 && doc.web.disabled === true ? { disabled: true as const } : {}),
+      ...(v04 && doc.web.unscoped === true ? { unscoped: true as const } : {})
+    };
   }
   return { ...(conversations ? { conversations } : {}), apis, ...(web ? { web } : {}) };
 }
@@ -213,7 +242,10 @@ function services(doc: Obj): Pick<Company, "conversations" | "apis" | "web"> {
  * A Company (3, 3.2): sign-in types from the issuer's
  * `grant_types_supported`, none when `auth.disabled` is set or there is no
  * issuer (`metadata` null); scopes described in `auth.scopes`, with
- * `auth.scope_hints`; Mediated Sign-In and Operations 2 from `extensions`.
+ * `auth.scope_hints`; Mediated Sign-In and Operations from `extensions`,
+ * in the versions SUPPORTED_EXTENSIONS gives for the protocol version.
+ * Under 0.4, `tasks.endpoint` replaces `feedback` and `excluded_tasks`,
+ * which a 0.4 agent ignores (9).
  * Services name no `resource`: a service's own protected resource metadata
  * says whether it takes only its own tokens (4.5), which the client reads.
  */
@@ -229,9 +261,18 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
   if (!disabled && grants.includes("authorization_code")) signIn.direct = offer;
   if (!disabled && grants.includes(DEVICE_GRANT)) signIn.device = offer;
+  const v03 = known.version === "0.3";
+  const supportedExtensions = SUPPORTED_EXTENSIONS[known.version];
   const extensions = isObj(doc.extensions) ? doc.extensions : {};
-  const mediated = extensions["mediated-sign-in"];
-  if (metadata && !disabled && isObj(mediated) && mediated.version === SUPPORTED_EXTENSIONS["mediated-sign-in"] && grants.includes(MEDIATED_GRANT)) {
+  // 3.3: 0.3 lists one object per extension; 0.4 lists an entry for each major version.
+  const entry = (name: "operations" | "mediated-sign-in"): Obj | undefined => {
+    const want = supportedExtensions?.[name];
+    const listed = extensions[name];
+    const entries = v03 ? [listed] : Array.isArray(listed) ? listed : [];
+    return entries.filter(isObj).find((item) => item.version === want);
+  };
+  const mediated = entry("mediated-sign-in");
+  if (metadata && !disabled && mediated && grants.includes(MEDIATED_GRANT)) {
     signIn.mediated = {
       endpoint: metadata.token_endpoint as string,
       fields: (Array.isArray(mediated.fields) ? mediated.fields.filter(isObj) : []).map((field) => ({ name: field.name as string, label: field.label as string, secret: field.secret === true })),
@@ -251,7 +292,9 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
     })
   );
   const protectedResources = metadata ? strings(metadata.protected_resources) : [];
-  const operations = extensions.operations;
+  const operations = entry("operations");
+  const operationsEndpoint = !v03 ? str(operations?.endpoint) : undefined;
+  const tasks = !v03 && isObj(doc.tasks) ? str(doc.tasks.endpoint) : undefined;
   const organization = isObj(doc.organization) ? doc.organization : {};
   const logo = str(organization.logo_uri);
   return {
@@ -265,7 +308,8 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
     protocolVersion: known.version,
     specificationRevision: protocolRevision(known.version),
     authFingerprint: canonicalAuth(doc.auth ?? null),
-    ...(isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
+    ...(v03 && isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
+    ...(tasks ? { tasks: { endpoint: tasks } } : {}),
     ...(metadata ? {
       endpoints: {
         token: metadata.token_endpoint as string,
@@ -279,9 +323,9 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Iss
     scopeHints,
     dpop: !!metadata && Array.isArray(metadata.dpop_signing_alg_values_supported) && metadata.dpop_signing_alg_values_supported.includes("ES256"),
     protectedResources,
-    ...(isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
-    ...services(doc),
-    extensions: isObj(operations) && operations.version === SUPPORTED_EXTENSIONS.operations ? { operations: true } : {}
+    ...(v03 && isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
+    ...services(doc, known.version),
+    extensions: operations ? { operations: true, ...(operationsEndpoint ? { operationsEndpoint } : {}) } : {}
   };
 }
 
@@ -304,6 +348,8 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
     company.conversations?.endpoint,
     company.web?.browserSessionEndpoint,
     company.feedback?.endpoint,
+    company.tasks?.endpoint,
+    company.extensions.operationsEndpoint,
     ...company.apis.map((api) => api.url)
   ].flatMap((value) => (value && URL.canParse(value) ? [new URL(value).hostname.toLowerCase()] : []));
   if (listed.includes(host)) return true;
@@ -315,9 +361,10 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
 /**
  * The Poppy endpoint `url` is, or is under, if any: sign-in and token
  * endpoints, the conversation endpoint, the browser-session endpoint and
- * its `/authorize`, feedback. Only the client's own code calls them: a
- * message needs our message id and an honest `author` (8.3, 8.8), and an
- * approval only the User gives (Ops 5). A Company's OpenAPI description may list
+ * its `/authorize`, feedback, 0.4's tasks endpoint and the operations
+ * endpoint. Only the client's own code calls them: a message needs our
+ * message id and an honest `author` (8.3, 8.8), and an approval only the
+ * User gives (Ops 5). A Company's OpenAPI description may list
  * them too, so a model calling an API operation must never reach one.
  */
 export function protocolEndpoint(company: Company, url: URL): string | null {
@@ -339,7 +386,9 @@ export function protocolEndpoint(company: Company, url: URL): string | null {
     company.signIn.mediated?.endpoint,
     company.conversations?.endpoint,
     company.web?.browserSessionEndpoint,
-    company.feedback?.endpoint
+    company.feedback?.endpoint,
+    company.tasks?.endpoint,
+    company.extensions.operationsEndpoint
   ];
   for (const endpoint of endpoints) {
     if (!endpoint || !URL.canParse(endpoint)) continue;

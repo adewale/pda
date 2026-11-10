@@ -2,6 +2,15 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — the validator checks 0.4 documents and chooses a version
+
+Nothing changes on the wire: the agent still speaks 0.3 alone.
+
+- The validator has a Draft 0.4 profile beside 0.3's. It checks extensions as lists of version entries, `tasks.endpoint` and the members that moved there, `web.disabled` and `web.unscoped`, website operations and Browser Control with browser join, `poppy:browser-sign-in` in `scopes_supported`, and warns when a Company offers Device Sign-In but not Direct. Messages for rules 0.4 kept from 0.3 link to the 0.4 pages.
+- `validateCompany(fetcher, domain, { versions })` chooses the newest version the caller speaks from poppy.json and its `supported_versions`, as the agent will (3.4). A linked document must be on the same host and is never fetched through a redirect; one that names another version, lists `supported_versions` or names another domain is reported. Without `versions` it chooses among every version the validator has a profile for.
+- Discovery chooses its version through `validateCompany`, with the versions the agent speaks, so a Company whose poppy.json is 0.4 and links a 0.3 document is used at 0.3, and one with no 0.3 document is refused. From a 0.4 document it reads extension version lists, `tasks.endpoint`, `web.disabled`, `web.unscoped` and the Operations 3 endpoint, and keeps a model's API calls off the tasks and operations endpoints. `SUPPORTED_EXTENSIONS` is keyed by protocol version.
+- The new profile agrees with the 10 November kit's `check --file` wherever both check. The kit's offline check doesn't check website operations or Browser Control without join, members moved to `tasks`, or `supported_versions` on another host; the pinned text requires each, so the validator keeps them.
+
 ## Unreleased — the 0.4 pin moves to 10 November: Operations 3, Browser Control, and Session headers on fetched pages
 
 Nothing changes on the wire: the agent still speaks 0.3 alone.

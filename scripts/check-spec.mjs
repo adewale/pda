@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { LEDGER_START, LEDGER_END, ledgerSection } from "./spec-ledger.mjs";
-import { PROTOCOL_COMMIT, PROTOCOL_REVISIONS, PROTOCOL_VERSIONS } from "../src/poppy/protocol-version.ts";
+import { DRAFT_REVISIONS, PROTOCOL_COMMIT, PROTOCOL_REVISIONS, PROTOCOL_VERSIONS } from "../src/poppy/protocol-version.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const { pins } = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
@@ -38,6 +38,14 @@ for (const pin of runtime) {
   if (PROTOCOL_REVISIONS[pin.protocolVersion] !== pin.revision) throw new Error(`Runtime protocol revision disagrees with the ${pin.protocolVersion} pin`);
 }
 if (PROTOCOL_COMMIT !== runtime.at(-1).commit) throw new Error("Runtime protocol commit disagrees with the newest runtime pin");
+// Pinned drafts the validator checks but the agent doesn't speak yet carry their pinned revision too.
+const drafts = pins.filter((pin) => !pin.runtime);
+if (JSON.stringify(drafts.map((pin) => pin.protocolVersion).sort()) !== JSON.stringify(Object.keys(DRAFT_REVISIONS).sort())) {
+  throw new Error("Draft protocol revisions disagree with the non-runtime pins");
+}
+for (const pin of drafts) {
+  if (DRAFT_REVISIONS[pin.protocolVersion] !== pin.revision) throw new Error(`Draft protocol revision disagrees with the ${pin.protocolVersion} pin`);
+}
 
 const checked = [];
 for (const pin of pins) {

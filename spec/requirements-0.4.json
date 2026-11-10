@@ -9,21 +9,21 @@
       "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
       "evidence": "test/properties/poppy.test.ts",
-      "notes": "chooseSignInType already tries Direct, then Device, then Mediated. Still to do: the 0.4 validator profile warns when a Company that offers sign-in offers Device but not Direct (F7)."
+      "notes": "chooseSignInType already tries Direct, then Device, then Mediated. The 0.4 validator profile warns when a Company offers Device Sign-In but not Direct (direct-sign-in-preferred)."
     },
     {
       "change": "Several protocol versions",
       "disposition": "Planned",
       "implementation": "src/poppy/protocol-version.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F1 chooses a version from poppy.json and supported_versions; F2 sends Poppy-Version on every Session request; R1 retries once after version_unsupported; M1 gives the mock linked documents and version checks; F7 validates them. Kit: discovery.supported-versions, discovery.versions-same-company, session.version-missing, session.version-unsupported."
+      "notes": "F1 (done) chooses a version from poppy.json and supported_versions, through the validator; F2 sends Poppy-Version on every Session request; R1 retries once after version_unsupported; M1 gives the mock linked documents and version checks; F7 validates them. Kit: discovery.supported-versions, discovery.versions-same-company, session.version-missing, session.version-unsupported."
     },
     {
       "change": "Extensions declared per request",
       "disposition": "Planned",
       "implementation": "src/poppy/routes.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F1 reads each extension as a list of versions; F2 sends Poppy-Extensions, fixed per Session, and drops extensions from the client metadata; M1 takes the declaration from the header."
+      "notes": "F1 (done) reads each extension as a list of versions; F2 sends Poppy-Extensions, fixed per Session, and drops extensions from the client metadata; M1 takes the declaration from the header."
     },
     {
       "change": "Conversations across versions",
@@ -37,7 +37,7 @@
       "disposition": "Planned",
       "implementation": "src/poppy/browser.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W1 requests the scope only from a Company that lists browser_session_endpoint and falls back on insufficient_scope; the mock requires it; F7 checks scopes_supported."
+      "notes": "W1 requests the scope only from a Company that lists browser_session_endpoint and falls back on insufficient_scope; the mock requires it; the 0.4 validator profile checks scopes_supported (browser-sign-in-unsupported)."
     },
     {
       "change": "`web.unscoped`",

@@ -28,6 +28,8 @@ export type PoppyFacts = {
    * describe the others.
    */
   describedScopes?: readonly string[];
+  /** poppy.json lists `web.browser_session_endpoint` (0.4: the Company then supports `poppy:browser-sign-in`, 6). */
+  browserSession?: boolean;
 };
 
 export type ClientFacts = { jwksUri?: string };

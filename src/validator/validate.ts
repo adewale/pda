@@ -7,8 +7,9 @@ import { protocolRevision } from "../poppy/protocol-version.ts";
  */
 import { fetchDocument, metadataUrl, type Fetched, type Fetcher } from "./fetch.ts";
 import { parseJson } from "./json.ts";
-import { MESSAGES } from "./messages.ts";
+import { MESSAGES, refForVersion } from "./messages.ts";
 import { Checker, isHostname, isObject, type DocumentKind, type Message } from "./primitives.ts";
+import { pointer } from "./json.ts";
 import { LATEST, PROFILES, profileForVersion } from "./profiles/index.ts";
 import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
@@ -62,7 +63,8 @@ export type Report = {
 const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
-  const messages = checkers.flatMap((c) => c.messages);
+  // A rule 0.4 kept from 0.3 links to the same section of the version the documents were checked against.
+  const messages = checkers.flatMap((c) => c.messages).map((m) => ({ ...m, ref: refForVersion(m.ref, profile.version) }));
   const count = (severity: Message["severity"]) => messages.filter((m) => m.severity === severity).length;
   const unreachable = messages.some((m) => UNREACHABLE.has(m.id));
   const outcome: Outcome = unreachable
@@ -225,12 +227,63 @@ export type CompanyReport = Report & {
 
 export { domainFromInput } from "../domain.ts";
 
+/** Who asks for discovery, and so which versions may be chosen. */
+export type CompanyOptions = {
+  /** The protocol versions the caller speaks. By default, every version the validator knows. */
+  readonly versions?: readonly string[];
+};
+
+/** `major.minor`, newest first. */
+function newestFirst(a: string, b: string): number {
+  const [aMajor, aMinor] = a.split(".").map(Number) as [number, number];
+  const [bMajor, bMinor] = b.split(".").map(Number) as [number, number];
+  return bMajor - aMajor || bMinor - aMinor;
+}
+
+const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
 /**
- * Discovery for one domain (spec 3): fetch poppy.json and check it, then the
- * domain's protected resource metadata, which names the issuer, and the
- * issuer's OAuth metadata, checked against poppy.json (3.2).
+ * `supported_versions` (3.4), read in any version's poppy.json: each other
+ * version the Company serves, by the URL of its document, which MUST be
+ * HTTPS on the host that served poppy.json. An entry agents can't use is
+ * reported and left out, as if that version weren't listed (readings.md).
  */
-export async function validateCompany(fetcher: Fetcher, domain: string): Promise<CompanyReport> {
+function linkedVersions(c: Checker, doc: Record<string, unknown>, own: unknown, host: string): Map<string, string> {
+  const linked = new Map<string, string>();
+  if (!("supported_versions" in doc)) return linked;
+  const map = doc.supported_versions;
+  if (!isObject(map)) {
+    c.report("supported-version-unusable", "/supported_versions", "supported_versions must be an object mapping each version to its document's URL.");
+    return linked;
+  }
+  for (const [version, url] of Object.entries(map)) {
+    const at = pointer("/supported_versions", version);
+    const problem = !VERSION.test(version)
+      ? `${JSON.stringify(version)} isn't a version as major.minor`
+      : version === own
+        ? `${version} is this document's own protocol_version`
+        : typeof url !== "string" || !URL.canParse(url)
+          ? `${version}'s document isn't a URL`
+          : new URL(url).protocol !== "https:"
+            ? `${version}'s document ${url} isn't HTTPS`
+            : new URL(url).hostname.toLowerCase() !== host.toLowerCase()
+              ? `${version}'s document is on ${new URL(url).hostname}, not ${host}, which served poppy.json`
+              : undefined;
+    if (problem) c.report("supported-version-unusable", at, `${problem}, so agents skip it.`);
+    else linked.set(version, url as string);
+  }
+  return linked;
+}
+
+/**
+ * Discovery for one domain (spec 3): fetch poppy.json, choose the newest
+ * version the caller speaks among its `protocol_version` and
+ * `supported_versions` (3.4), fetch that version's document when it is
+ * another one, and check it with that version's rules; then the domain's
+ * protected resource metadata, which names the issuer, and the issuer's
+ * OAuth metadata, checked against the chosen document (3.2).
+ */
+export async function validateCompany(fetcher: Fetcher, domain: string, options: CompanyOptions = {}): Promise<CompanyReport> {
   const requested = domainFromInput(domain);
   const poppyChecker = new Checker("poppy");
   const checkers = [poppyChecker];
@@ -239,26 +292,80 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     poppyChecker.report("domain-invalid", "", `${JSON.stringify(domain)} isn't a domain name.`);
     return { ...report(LATEST, documents, checkers, []), maxAgeSeconds: null };
   }
-  const fetched = await fetchDocument(fetcher, `https://${requested}/.well-known/poppy.json`, poppyChecker);
-  const poppy = fetched.text !== undefined ? parse(poppyChecker, fetched.text) : undefined;
-  documents.push(documentResult("poppy", fetched, poppy));
+  const served = await fetchDocument(fetcher, `https://${requested}/.well-known/poppy.json`, poppyChecker);
+  const root = served.text !== undefined ? parse(poppyChecker, served.text) : undefined;
+  documents.push(documentResult("poppy", served, root));
+  const servedHost = new URL(served.finalUrl).hostname;
   let profile = LATEST;
   let facts: PoppyFacts | undefined;
   let metadata: unknown;
-  const ages = [fetched.maxAgeSeconds];
-  if (poppy !== undefined) {
-    const chosen = profileFor(poppyChecker, poppy);
-    if (chosen) {
-      profile = chosen;
-      // The document speaks for the host that served it, after redirects (3).
-      facts = profile.poppy(poppyChecker, poppy, { requestedDomain: new URL(fetched.finalUrl).hostname });
+  let poppy = root;
+  let version: string | undefined;
+  const ages = [served.maxAgeSeconds];
+  if (root !== undefined) {
+    const own = isObject(root) ? root.protocol_version : undefined;
+    const linked = isObject(root) ? linkedVersions(poppyChecker, root, own, servedHost) : new Map<string, string>();
+    const speaks = options.versions ?? PROFILES.map((known) => known.version);
+    const candidates = [...(typeof own === "string" ? [own] : []), ...linked.keys()]
+      .filter((candidate) => VERSION.test(candidate) && speaks.includes(candidate) && profileForVersion(candidate))
+      .sort(newestFirst);
+    for (const candidate of candidates) {
+      if (candidate === own) {
+        version = candidate;
+        break;
+      }
+      const url = linked.get(candidate)!;
+      const at = pointer("/supported_versions", candidate);
+      const linkedChecker = new Checker("poppy");
+      // 3.4: never follow a redirect from a linked document.
+      const linkedFetched = await fetchDocument(fetcher, url, linkedChecker, { followRedirects: false });
+      if (linkedFetched.status !== undefined && linkedFetched.status >= 300 && linkedFetched.status < 400) {
+        poppyChecker.report("supported-version-unusable", at, `${candidate}'s document at ${url} redirects, so agents skip it.`);
+        continue;
+      }
+      checkers.push(linkedChecker);
+      const doc = linkedFetched.text !== undefined ? parse(linkedChecker, linkedFetched.text) : undefined;
+      documents.push(documentResult("poppy", linkedFetched, doc));
+      ages.push(linkedFetched.maxAgeSeconds);
+      poppy = doc;
+      version = candidate;
+      if (doc === undefined) break;
+      if (isObject(doc) && doc.protocol_version !== candidate) {
+        linkedChecker.report("linked-document-version", "/protocol_version", `The document listed for ${candidate} has protocol_version ${JSON.stringify(doc.protocol_version)}.`);
+        version = undefined;
+        break;
+      }
+      if (isObject(doc) && "supported_versions" in doc) {
+        linkedChecker.report("linked-document-supported-versions", "/supported_versions", "Only poppy.json lists supported_versions; agents ignore it here.");
+      }
+      const rootDomain = isObject(root) && isObject(root.organization) ? root.organization.domain : undefined;
+      const linkedDomain = isObject(doc) && isObject(doc.organization) ? doc.organization.domain : undefined;
+      if (typeof rootDomain === "string" && typeof linkedDomain === "string" && rootDomain.toLowerCase() !== linkedDomain.toLowerCase()) {
+        linkedChecker.report("linked-document-domain", "/organization/domain", `The ${candidate} document's organization.domain is ${linkedDomain}, but poppy.json's is ${rootDomain}.`);
+      }
+      profile = profileForVersion(candidate)!;
+      facts = profile.poppy(linkedChecker, doc, { requestedDomain: servedHost });
+      break;
+    }
+    if (version === undefined && poppy === root) {
+      // Nothing the caller speaks: poppy.json's own version decides what is reported.
+      const chosen = profileFor(poppyChecker, root);
+      if (chosen && typeof own === "string" && !speaks.includes(own)) {
+        poppyChecker.report("version-unsupported", "/protocol_version", `poppy.json is protocol version ${own}, and lists no version this agent speaks (${speaks.join(", ")}).`);
+      } else if (chosen) {
+        profile = chosen;
+        facts = profile.poppy(poppyChecker, root, { requestedDomain: servedHost });
+      }
+    } else if (version !== undefined && version === own) {
+      profile = profileForVersion(version)!;
+      facts = profile.poppy(poppyChecker, root, { requestedDomain: servedHost });
     }
   }
   let protectedResource: unknown;
   let issuerless = false;
   if (facts) {
     // A redirect may change the host, never the path (3).
-    const final = new URL(fetched.finalUrl);
+    const final = new URL(served.finalUrl);
     if (final.pathname !== "/.well-known/poppy.json" || final.search !== "") {
       poppyChecker.report("poppy-redirect-path", "", `The document came from ${final.origin}${final.pathname}${final.search ? " with a query" : ""}, not /.well-known/poppy.json.`);
     }
