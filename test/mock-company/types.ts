@@ -91,6 +91,8 @@ export type MockConfig = {
   readonly unknownProtocol: boolean;
   readonly web: boolean;
   readonly browserSession: boolean;
+  /** 0.4's `web.disabled` (6): ask Personal Agents not to browse, listing no `browser_session_endpoint`, and record a form they send. */
+  readonly webDisabled: boolean;
   /** Offer the Operations extension. */
   readonly operations: boolean;
   /** Refuse writes from agents that don't list `operations`, with `extension_required`. */
@@ -339,6 +341,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   unknownProtocol: true,
   web: true,
   browserSession: true,
+  webDisabled: false,
   operations: true,
   requireOperationsExtension: false,
   unknownExtension: true,

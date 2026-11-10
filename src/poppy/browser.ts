@@ -359,6 +359,18 @@ function describeSubmission(company: Company, selector: string, submission: Form
  * domains; never sign-in pages or credential fields. Only links are
  * followed; a form is sent only after the User approves exactly what it sends.
  */
+/**
+ * 0.4's `web.disabled` (6): the Company asks agents not to use a browser on
+ * its website. Pages may still be read, as 5.2 allows a page fetched without
+ * a browser, but a form is a browser's work, so none is filled or sent
+ * ([reading](../../docs/readings.md#v04-web-disabled)).
+ */
+function refuseFormsIfDisabled(company: Company): void {
+  if (company.web?.disabled) {
+    throw new PoppyError("refused", `${company.name} asks agents not to use its website in a browser, so its forms aren't filled or sent; pages can still be read. Use its Company Agent or APIs instead (poppy_discover lists them).`, 0);
+  }
+}
+
 export async function browse(
   client: PoppyClient,
   browser: PoppyBrowser,
@@ -366,6 +378,7 @@ export async function browse(
   label: string,
   action: BrowseAction
 ): Promise<Json> {
+  if (action.kind !== "open" && action.kind !== "click") refuseFormsIfDisabled(company);
   if (action.kind === "open") {
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
@@ -416,6 +429,8 @@ export async function browse(
  * (its page and action checked again; the browser checks every hop too).
  */
 registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
+  // The Company may have set web.disabled since the User approved.
+  refuseFormsIfDisabled(company);
   const guard = pageGuard(company);
   guard(new URL(submission.from));
   guard(new URL(submission.action));

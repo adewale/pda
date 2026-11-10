@@ -235,3 +235,42 @@ describe("0.4: task coverage from the tasks endpoint (9)", () => {
     expect(await tasksRequests(c)).toHaveLength(0);
   });
 });
+
+describe("0.4: a website that asks agents not to browse (6, web.disabled)", () => {
+  it("reads its pages but never fills or sends a form, and points the model to the agent and APIs", async () => {
+    const c = await company({ ...V4, webDisabled: true });
+    const a = await agent();
+    const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
+    expect(found.website).toContain("readable only");
+    const opened = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/" });
+    expect(opened.isError, opened.text).toBe(false);
+    for (const step of [{ action: "fill", selector: "input[name=line1]", value: "1 Main St" }, { action: "submit", selector: "form" }]) {
+      const refused = await tool(a, "poppy_browse", { domain: c.domain, ...step });
+      expect(refused.isError).toBe(true);
+      expect(refused.text).toContain("asks agents not to use its website in a browser");
+    }
+    expect((await requests(c)).some((request) => request.method === "POST" && new URL(request.url).pathname === "/account/address")).toBe(false);
+  });
+
+  it("is a 0.4 member only: a 0.3 Company's website stays browsable", async () => {
+    const c = await company({ protocolVersion: "0.3", webDisabled: true });
+    const a = await agent();
+    expect(JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text).website).toBe("browsable in the session");
+  });
+});
+
+describe("0.4: extension_required in a JSON body (3.3)", () => {
+  it.each([
+    ["an OpenAPI operation", "poppy_api_call", (c: Company) => ({ domain: c.domain, operation: "POST /orders/{order_id}/exchanges", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })],
+    ["an MCP tool", "poppy_mcp_call", (c: Company) => ({ domain: c.domain, tool: "exchange_item", args: EXCHANGE })]
+  ] as const)("tells the model which extension %s requires, from the body rather than WWW-Authenticate", async (_, name, args) => {
+    const c = await company({ ...V4, requiredExtension: "mock.test/gift-wrap" });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, name, args(c));
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.details)).toMatchObject({ error: "extension_required", extension: "mock.test/gift-wrap" });
+    expect(result.text).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support");
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+});

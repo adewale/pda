@@ -200,7 +200,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
             agent: found.conversations ? "available (poppy_message)" : "none",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),
-            website: found.web ? (found.web.browserSessionEndpoint ? "browsable in the session" : "browsable signed out") : "not offered",
+            website: !found.web ? "not offered"
+              : found.web.disabled ? "pages readable only: the company asks agents not to use its website in a browser, so no form is filled or sent; use its agent and APIs"
+              : found.web.browserSessionEndpoint ? "browsable in the session" : "browsable signed out",
             extensions: Object.keys(found.extensions),
             ...excludedForModel(tasks),
             feedback: (await feedbackEndpoint(client(), found, "main")) ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
@@ -494,7 +496,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         {
           name: "poppy_browse",
           description:
-            "Use a company's website in the session: open a URL on its domain, click a link by its selector, fill a form field (never credentials), or submit a form by its selector (waits for the User's approval). No JavaScript runs, and click never sends a form.",
+            "Use a company's website in the session: open a URL on its domain, click a link by its selector, fill a form field (never credentials), or submit a form by its selector (waits for the User's approval). No JavaScript runs, and click never sends a form. Where poppy_discover says pages are readable only, only open and click work.",
           parameters: Type.Object({
             domain: Domain,
             action: Type.Union([Type.Literal("open"), Type.Literal("click"), Type.Literal("fill"), Type.Literal("submit")]),

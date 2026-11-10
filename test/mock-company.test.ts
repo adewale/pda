@@ -1836,6 +1836,16 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   {
+    id: "web.disabled-form",
+    what: "a form sent to a website that sets web.disabled",
+    config: { ...V4, webDisabled: true },
+    detail: /^\[web\.disabled-form\]/,
+    run: async (c) => {
+      expect(((await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { web: unknown }).web).toEqual({ disabled: true });
+      return c.call(`${c.hosts.web}/account/address`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "line1=1+Main+St" });
+    }
+  },
+  {
     id: "browser-join.authorize-body",
     what: "authorize with a form body",
     detail: /^\[browser-join\.authorize-body\]/,

@@ -1,7 +1,7 @@
 /** MCP negotiation, account-partitioned session caches, JSON-RPC transport and tool catalogues. */
 import { type McpEra, modernMeta, modernHeaders, legacyHeaders, eraSignal, MCP_MODERN, MCP_LEGACY, HEADER_MISMATCH, usableTools, headerParameters, parameterHeaders } from "./mcp-wire";
 import { type Json, isObject, parseStrictJson } from "./json";
-import { PoppyClient, PoppyError, withAnswer, answerOf, withUnreadableAnswer } from "./client";
+import { extensionRequiredBody, PoppyClient, PoppyError, withAnswer, answerOf, withUnreadableAnswer } from "./client";
 import { type Company, boundedCacheSeconds } from "./discovery";
 import { type Api, type DispatchGuard, findApi } from "./api-authority";
 import { fetchJson } from "./fetch";
@@ -191,6 +191,8 @@ export async function mcpRequest(
     if (signal.kind === "unsupported") {
       throw withAnswer(new PoppyError("mcp_error", `${api.url} speaks MCP ${signal.supported.join(", ").slice(0, 200) || "versions it didn't name"}; this agent speaks ${MCP_MODERN} and ${MCP_LEGACY}`, response.status, kept), response.status);
     }
+    const required = extensionRequiredBody(company, body, response.status);
+    if (required) throw required;
     const rpcError = isObject(body) && isObject(body.error) ? body.error : null;
     const code = rpcError ? "mcp_error" : companyErrorCode(isObject(body) ? body.error : undefined, response.status);
     const said = rpcError ? `MCP error: ${String(rpcError.message ?? rpcError.code).slice(0, 500)}` : `returned ${code}`;

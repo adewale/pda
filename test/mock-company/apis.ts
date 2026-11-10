@@ -494,7 +494,7 @@ export class Apis {
     };
   }
 
-  /** `extension_required` at an API (3.3): in `WWW-Authenticate` under 0.3, in a JSON body under 0.4. */
+  /** `extension_required` at an API, OpenAPI or MCP (3.3): in `WWW-Authenticate` under 0.3, in a JSON body under 0.4. */
   #extensionRequired(extension: string, context: ResourceContext): HttpError {
     if (context.session.declaration && context.session.declaration.version !== "0.3") return new HttpError(json({ error: "extension_required", extension }, 403));
     return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
@@ -820,6 +820,8 @@ export class Apis {
           structuredContent: { products }
         } };
       }
+      // 3.3: an extension the request doesn't declare refuses the call as at any API, here at the HTTP level.
+      if (name === "exchange_item" && co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
       if (name === "exchange_item" && co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
         const meta = record(params._meta) ?? {};

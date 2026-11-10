@@ -289,6 +289,27 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
 }
 
 /**
+ * `extension_required` (3.3): the Company handles the request only with an
+ * extension it didn't declare. The model and the User are told which, from
+ * the challenge's `extension` under 0.3 or the JSON body's under 0.4.
+ */
+export function extensionRequired(company: Company, extension: string | undefined, status: number, body?: Json): PoppyError {
+  return withAnswer(
+    new PoppyError("extension_required", `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`, status, {
+      ...(body !== undefined ? { body } : {}),
+      ...(extension ? { extension } : {})
+    }),
+    status
+  );
+}
+
+/** 0.4's `extension_required` in a JSON body (3.3), at an API or a protocol endpoint; null for any other answer. */
+export function extensionRequiredBody(company: Company, body: Json | undefined, status: number): PoppyError | null {
+  if (status !== 403 || !isObject(body) || body.error !== "extension_required") return null;
+  return extensionRequired(company, typeof body.extension === "string" ? body.extension : undefined, status, body);
+}
+
+/**
  * Public HTTPS URLs on hosts the Company has already vouched for, or on the
  * origin of the service being asked about, which `poppy.json` or a
  * description it lists names (4.5, 5.2); metadata never carries credentials.
@@ -1572,14 +1593,10 @@ export class PoppyClient {
       log({ status: response.status, error: code ?? (typeof peek?.error === "string" ? peek.error : null) });
       if (code && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
-        // 3.3: the model and the User are told which extension, as a JSON body's `extension` tells them.
-        const said = code === "extension_required"
-          ? `${company.name} requires the extension ${challenge.extension ?? "(unnamed)"}, which this agent doesn't support`
-          : `${company.name}: ${code}`;
+        if (code === "extension_required") throw extensionRequired(company, challenge.extension, response.status);
         throw withAnswer(
-          new PoppyError(companyErrorCode(code, response.status), said, response.status, {
-            ...(challenge.scope ? { scope: challenge.scope } : {}),
-            ...(challenge.extension ? { extension: challenge.extension } : {})
+          new PoppyError(companyErrorCode(code, response.status), `${company.name}: ${code}`, response.status, {
+            ...(challenge.scope ? { scope: challenge.scope } : {})
           }),
           response.status
         );
@@ -1603,6 +1620,8 @@ export class PoppyClient {
       catch { throw new PoppyError("invalid_response", `${company.name} returned malformed JSON`, response.status); }
     } catch (error) { throw withUnreadableAnswer(error, response.status); }
     if (response.status >= 400) {
+      const required = extensionRequiredBody(company, body, response.status);
+      if (required) throw required;
       const code = companyErrorCode(isObject(body) ? body.error : undefined, response.status);
       throw withAnswer(new PoppyError(code, `${company.name} returned ${code}`, response.status, {
         ...(body !== null ? { body } : {})

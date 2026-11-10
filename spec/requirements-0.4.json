@@ -48,10 +48,10 @@
     },
     {
       "change": "`web.disabled`",
-      "disposition": "Planned",
-      "implementation": "src/poppy/discovery.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W2: a Personal Agent SHOULD NOT use a browser on such a Company's website; pages fetched without a browser are not covered (W4). Kit: discovery.web-disabled."
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W2 is done: poppy_discover says pages are readable only, poppy_browse opens pages and follows links but refuses to fill or submit a form, and an approved submit is refused if the Company has set it since. The mock can set it and records a form sent there (web.disabled-form). Pages fetched without a browser get the Session header under W4. Kit: discovery.web-disabled passes."
     },
     {
       "change": "Session header on website pages fetched without a browser",
@@ -153,10 +153,10 @@
     },
     {
       "change": "`extension_required` in a JSON body at APIs",
-      "disposition": "Partly done",
-      "implementation": "src/poppy/openapi-dispatch.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "openapi-dispatch.ts already reads a JSON body; X1 moves the mock's apis.ts to a body and keeps the WWW-Authenticate reading for 0.3 only."
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "X1 is done: one reading of the JSON body names the extension for the model and the User at OpenAPI operations, MCP servers and protocol endpoints, beside 0.3's WWW-Authenticate challenge. The mock answers in a body under 0.4, at its OpenAPI and MCP servers alike."
     },
     {
       "change": "Device sign-in links on the issuer or Company domain",

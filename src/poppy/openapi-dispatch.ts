@@ -3,7 +3,7 @@ import { type Json, parseStrictJson, isObject, canonicalJson, toJson } from "./j
 import { type OperationV2, approvalForModel, parseOperationV2, approvable, operationsVersion, toSend } from "./operations-v2";
 import { type Company } from "./discovery";
 import { UNUSABLE, unusableApproval, proposeApproval, expired } from "./api-approvals";
-import { PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
+import { extensionRequiredBody, PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
 import { CheckedApiRequest, readOnlyScope } from "./openapi-request";
 import { type AuthorityGuard, hasTaskCall, requestGuard, bindingSnapshot, executionGuard } from "./api-authority";
 import { openApi } from "./openapi-document";
@@ -65,18 +65,8 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     }, executingApproval);
     return { kind: "approval", operation, approvalId };
   }
-  if (response.status === 403 && isObject(body) && body.error === "extension_required") {
-    const extension = typeof body.extension === "string" ? body.extension : undefined;
-    throw withAnswer(
-      new PoppyError(
-        "extension_required",
-        `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
-        403,
-        { body, ...(extension ? { extension } : {}) }
-      ),
-      403
-    );
-  }
+  const required = extensionRequiredBody(company, body, response.status);
+  if (required) throw required;
   return { kind: "answered", status: response.status, body };
 }
 

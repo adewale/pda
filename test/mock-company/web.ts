@@ -74,7 +74,8 @@ export class Web {
       protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint });
       document.agent = { protocols };
     }
-    if (config.web) document.web = config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
+    // 6: a Company that sets web.disabled lists no browser_session_endpoint.
+    if (config.web) document.web = v04 && config.webDisabled ? { disabled: true } : config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
     if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
     if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     // 0.4: both come from the tasks endpoint, per Session (9).
@@ -340,6 +341,9 @@ export class Web {
 
   /** `POST /account/address`: the address form, sent with the Session's cookie and its hidden field. */
   saveAddress(inbound: Inbound): Response {
+    if (this.company.config.protocolVersion === "0.4" && this.company.config.webDisabled) {
+      this.company.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    }
     const session = this.#session(inbound);
     const fields = [...new URLSearchParams(inbound.bodyText)];
     const signedIn = session && !session.ended && session.account;

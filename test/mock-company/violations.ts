@@ -246,6 +246,7 @@ export const VIOLATIONS = {
   "browser-join.cookie": "MUST (6, step 3: the Company MUST check \"The request has the cookie from step 1\"): A join form submitted without the cookie set with its code",
   "browser-join.not-authorized": "MUST (6, step 3: the Company MUST check \"The code was authorized in step 2\"): A join form submitted before the agent authorized its code",
   "browser-join.authorize-body": "Rule (6, step 2: a JSON body with the code): An authorize request without the code as JSON",
+  "web.disabled-form": "SHOULD NOT (0.4 6: \"SHOULD NOT use a browser on the website of a Company that sets\" web.disabled; docs/readings.md#v04-web-disabled counts a form as a browser's work): A form sent to a website that sets web.disabled",
 
   // ---- Operations extension, version 2 (Ops 6) ----
   "approval.header": "RFC (Ops 6: a Dictionary Structured Field, RFC 9651, with operation_id and revision as Strings): A malformed Poppy-Approval",
