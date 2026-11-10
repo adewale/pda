@@ -77,7 +77,7 @@ export function approvable(approval: ApprovalV2, now: number): boolean {
 }
 
 /** An RFC 9651 String: printable ASCII, with `"` and `\` escaped (RFC 9651 4.1.6). */
-function sfString(value: string): string {
+export function sfString(value: string): string {
   if (!/^[\x20-\x7e]*$/.test(value)) throw new Error("Not an RFC 9651 String");
   return `"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"`;
 }

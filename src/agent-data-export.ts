@@ -33,7 +33,7 @@ const EXPORTED: Readonly<Record<string, readonly string[]>> = {
   poppy_intents: columns("call_key value created_at"),
   poppy_messages: columns("id issuer conversation_id body created_at"),
   poppy_protocol_log: columns("seq key issuer at step method url status error outcome summary result"),
-  poppy_sessions: columns("issuer label session_id account signed_in scope updated_at used_account authority_generation"),
+  poppy_sessions: columns("issuer label session_id account signed_in scope updated_at used_account authority_generation declared"),
   poppy_signins: columns("id type issuer label account scopes interval_seconds expires_at status created_at"),
   poppy_signouts: columns("id issuer account reason scope expires_at status attempts last_error next_at created_at updated_at"),
   poppy_user_ids: columns("issuer user_id"),

@@ -34,6 +34,8 @@ describe("the kit's schemas judge what the agent sends", () => {
       ...(await approve((a, domain) => tool(a, "poppy_mcp_call", { domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })))
     ];
     expect(kitSchemasApplied(sent)).toEqual([
+      // The client metadata serves Companies of every version, so the 0.4 kit judges it too.
+      "0.4/client-metadata.schema.json",
       "approval.schema.json",
       "client-metadata.schema.json",
       "conversation-message-request.schema.json",
@@ -56,7 +58,7 @@ describe("the kit's schemas judge what the agent sends", () => {
     const tampered: [AgentPayload, RegExp][] = [
       [{ ...jwt, delegation: undefined, sessionJwt: { ...jwt.sessionJwt!, payload: withoutSid } }, /Session JWT .*\(session-jwt\.schema\.json\)/],
       [{ ...jwt, sessionJwt: undefined, delegation: { ...jwt.delegation!, header: { ...jwt.delegation!.header, typ: "JWT" } } }, /delegation .*\(delegation\.schema\.json\)/],
-      [{ ...metadata, clientMetadata: withoutJwks }, /client metadata .*\(client-metadata\.schema\.json\)/],
+      [{ ...metadata, clientMetadata: withoutJwks }, /client metadata .*\((?:0\.4\/)?client-metadata\.schema\.json\)/],
       [{ method: approval.method, url: approval.url, approval: approval.approval!.replace(/revision="[^"]*"/, "revision=7") }, /Poppy-Approval .*\(approval\.schema\.json\) \/revision/],
       [{ method: message.method, url: message.url, json: {} }, /body of POST .*\(conversation-message-request\.schema\.json\)/]
     ];
@@ -65,6 +67,26 @@ describe("the kit's schemas judge what the agent sends", () => {
       expect(errors.length, JSON.stringify(payload)).toBeGreaterThan(0);
       expect(errors.every((line) => error.test(line)), errors.join("\n")).toBe(true);
     }
+  });
+});
+
+describe("the kit for a request is the version it declares (3.4)", () => {
+  const approval: AgentPayload = { method: "POST", url: "https://api.shop.test/orders/exchange", approval: `operation_id="exc_5Rt2", revision="r1"` };
+
+  it("judges a request that declares 0.4 by the 0.4 kit, where an approval names its approver", () => {
+    expect(kitSchemaErrors([approval])).toEqual([]);
+    expect(kitSchemasApplied([{ ...approval, version: "0.4" }])).toEqual(["0.4/approval.schema.json"]);
+    const errors = kitSchemaErrors([{ ...approval, version: "0.4" }]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.every((line) => /^Poppy-Approval .*\(0\.4\/approval\.schema\.json\)/.test(line)), errors.join("\n")).toBe(true);
+    expect(kitSchemaErrors([{ ...approval, version: "0.4", approval: `${approval.approval}, approver=user, reference="apr_1"` }])).toEqual([]);
+  });
+
+  it("checks a 0.4 action body that 0.3's kit has no schema for, and refuses a version with no pinned kit", () => {
+    const close: AgentPayload = { method: "POST", url: "https://api.shop.test/poppy/conversations/conv_1/close", json: {} };
+    expect(kitSchemasApplied([close])).toEqual([]);
+    expect(kitSchemaErrors([{ ...close, version: "0.4" }]).length).toBeGreaterThan(0);
+    expect(kitSchemaErrors([{ ...approval, version: "0.9" }])).toEqual([`Poppy-Approval of POST ${approval.url}: Poppy-Version 0.9 has no pinned kit`]);
   });
 });
 

@@ -16,14 +16,14 @@
       "disposition": "Planned",
       "implementation": "src/poppy/protocol-version.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F1 (done) chooses a version from poppy.json and supported_versions, through the validator; F2 sends Poppy-Version on every Session request; R1 retries once after version_unsupported; M1 gives the mock linked documents and version checks; F7 validates them. Kit: discovery.supported-versions, discovery.versions-same-company, session.version-missing, session.version-unsupported."
+      "notes": "F1 (done) chooses a version from poppy.json and supported_versions, through the validator; F2 (done) sends Poppy-Version on every Session request of a 0.4 Session; R1 retries once after version_unsupported; M1 gives the mock linked documents and version checks; F7 validates them. Kit: discovery.supported-versions, discovery.versions-same-company, session.version-missing, session.version-unsupported."
     },
     {
       "change": "Extensions declared per request",
       "disposition": "Planned",
       "implementation": "src/poppy/routes.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F1 (done) reads each extension as a list of versions; F2 sends Poppy-Extensions, fixed per Session, and drops extensions from the client metadata; M1 takes the declaration from the header."
+      "notes": "F1 (done) reads each extension as a list of versions; F2 (done) sends Poppy-Extensions, fixed per Session, and keeps the client metadata's extensions for 0.3 Companies, which 0.4 ignores; M1 takes the declaration from the header."
     },
     {
       "change": "Conversations across versions",

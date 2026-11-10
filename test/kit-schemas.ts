@@ -1,5 +1,6 @@
 import upstream from "../spec/upstream.json";
-import { validateSchema } from "../spec/company-kit-2026-11-03/kit/validate/schema.ts";
+import { validateSchema as validate03 } from "../spec/company-kit-2026-11-03/kit/validate/schema.ts";
+import { validateSchema as validate04 } from "../spec/company-kit-2026-11-10/kit/validate/schema.ts";
 import type { AgentPayload } from "./mock-company/types";
 
 /**
@@ -13,13 +14,20 @@ import type { AgentPayload } from "./mock-company/types";
  * (the `Poppy-Approval` header, or MCP `_meta`), and the JSON bodies of the
  * protocol's own endpoints. API bodies are the Company's to define, and the
  * kit has no schema for them.
+ *
+ * A request's kit is the version its `Poppy-Version` declares (0.4, 3.4),
+ * else the caller's default: 0.3 sends no such header. The client metadata
+ * serves every Company, whatever its version, so each kit judges it.
  */
 
 /** Schemas by kit, keyed by file name. A glob needs a literal path, so a re-pin updates this map (KIT_PATHS checks it). */
 const SCHEMAS: Record<string, Record<string, object>> = {
-  "0.3": fileNames(import.meta.glob("../spec/company-kit-2026-11-03/kit/schemas/*.schema.json", { eager: true, import: "default" }))
+  "0.3": fileNames(import.meta.glob("../spec/company-kit-2026-11-03/kit/schemas/*.schema.json", { eager: true, import: "default" })),
+  "0.4": fileNames(import.meta.glob("../spec/company-kit-2026-11-10/kit/schemas/*.schema.json", { eager: true, import: "default" }))
 };
-const KIT_PATHS: Record<string, string> = { "0.3": "spec/company-kit-2026-11-03" };
+/** Each kit's own validator, so a kit is judged only by its own files. */
+const VALIDATORS: Record<string, typeof validate03> = { "0.3": validate03, "0.4": validate04 };
+const KIT_PATHS: Record<string, string> = { "0.3": "spec/company-kit-2026-11-03", "0.4": "spec/company-kit-2026-11-10" };
 for (const [version, kit] of Object.entries(KIT_PATHS)) {
   const pin = upstream.pins.find((candidate) => candidate.protocolVersion === version);
   if (pin?.kit !== kit) throw new Error(`test/kit-schemas.ts reads the ${version} kit from ${kit}, but spec/upstream.json pins ${pin?.kit}`);
@@ -29,51 +37,60 @@ function fileNames(modules: Record<string, unknown>): Record<string, object> {
   return Object.fromEntries(Object.entries(modules).map(([path, schema]) => [path.slice(path.lastIndexOf("/") + 1), schema as object]));
 }
 
-/** The protocol endpoints whose JSON bodies the kit describes, by path on a mock Company host. */
+/** The protocol endpoints whose JSON bodies a kit describes, by path on a mock Company host; a kit without the schema skips it. */
 const BODY_SCHEMAS: readonly [RegExp, string][] = [
   [/^\/poppy\/conversations$/, "conversation-request.schema.json"],
   [/^\/poppy\/conversations\/[^/]+\/messages$/, "conversation-message-request.schema.json"],
+  // 0.4 only: handoff, its cancel, and close carry a request ID (8.3).
+  [/^\/poppy\/conversations\/[^/]+\/(?:handoff(?:\/cancel)?|close)$/, "conversation-action-request.schema.json"],
   [/^\/poppy\/feedback$/, "feedback-report.schema.json"],
   [/^\/poppy\/browser-session\/authorize$/, "browser-session-authorize.schema.json"]
 ];
 
-/** Each schema error in what the agent sent, as `<what> (<schema>) <pointer>: <message>`. */
+/** Each schema error in what the agent sent, as `<what> (<schema>) <pointer>: <message>`; 0.4 errors name the kit. */
 export function kitSchemaErrors(sent: readonly AgentPayload[], version = "0.3"): string[] {
   return checkSent(sent, version).errors;
 }
 
-/** The kit schemas that what the agent sent was checked against, so a test can show the check ran. */
+/** The kit schemas that what the agent sent was checked against, so a test can show the check ran; 0.4's are prefixed `0.4/`. */
 export function kitSchemasApplied(sent: readonly AgentPayload[], version = "0.3"): string[] {
   return [...checkSent(sent, version).applied].sort();
 }
 
-function checkSent(sent: readonly AgentPayload[], version: string): { errors: string[]; applied: Set<string> } {
-  const schemas = SCHEMAS[version];
-  if (!schemas) throw new Error(`No pinned kit schemas for ${version}`);
+function checkSent(sent: readonly AgentPayload[], fallback: string): { errors: string[]; applied: Set<string> } {
   const errors: string[] = [];
   const applied = new Set<string>();
-  const check = (what: string, name: string, value: unknown) => {
+  const check = (version: string, what: string, name: string, value: unknown) => {
+    const schemas = SCHEMAS[version];
+    if (!schemas) {
+      errors.push(`${what}: Poppy-Version ${version} has no pinned kit`);
+      return;
+    }
     const schema = schemas[name];
     if (!schema) throw new Error(`The ${version} kit has no ${name}`);
-    applied.add(name);
-    for (const error of validateSchema(schema, value, schemas)) errors.push(`${what} (${name}) ${error.path || "/"}: ${error.message}`);
+    const label = version === "0.3" ? name : `${version}/${name}`;
+    applied.add(label);
+    for (const error of VALIDATORS[version]!(schema, value, schemas)) errors.push(`${what} (${label}) ${error.path || "/"}: ${error.message}`);
   };
   for (const payload of sent) {
     const where = `${payload.method} ${payload.url}`;
-    if (payload.clientMetadata !== undefined) check(`client metadata at ${payload.url}`, "client-metadata.schema.json", payload.clientMetadata);
-    if (payload.sessionJwt) check(`Session JWT of ${where}`, "session-jwt.schema.json", payload.sessionJwt);
-    if (payload.delegation) check(`delegation of ${where}`, "delegation.schema.json", payload.delegation);
+    const version = payload.version ?? fallback;
+    if (payload.clientMetadata !== undefined) {
+      for (const kit of Object.keys(SCHEMAS)) check(kit, `client metadata at ${payload.url}`, "client-metadata.schema.json", payload.clientMetadata);
+    }
+    if (payload.sessionJwt) check(version, `Session JWT of ${where}`, "session-jwt.schema.json", payload.sessionJwt);
+    if (payload.delegation) check(version, `delegation of ${where}`, "delegation.schema.json", payload.delegation);
     if (payload.approval !== undefined) {
       const approval = parseDictionary(payload.approval);
-      if (approval) check(`Poppy-Approval of ${where}`, "approval.schema.json", approval);
+      if (approval) check(version, `Poppy-Approval of ${where}`, "approval.schema.json", approval);
       else errors.push(`Poppy-Approval of ${where}: not an RFC 9651 Dictionary`);
     }
     if (payload.json === undefined || payload.method !== "POST") continue;
     const path = new URL(payload.url).pathname;
-    const body = BODY_SCHEMAS.find(([pattern]) => pattern.test(path));
-    if (body) check(`body of ${where}`, body[1], payload.json);
+    const body = BODY_SCHEMAS.find(([pattern, name]) => pattern.test(path) && SCHEMAS[version]?.[name]);
+    if (body) check(version, `body of ${where}`, body[1], payload.json);
     const meta = mcpApproval(payload.json);
-    if (meta !== undefined) check(`MCP approval in ${where}`, "approval.schema.json", meta);
+    if (meta !== undefined) check(version, `MCP approval in ${where}`, "approval.schema.json", meta);
   }
   return { errors, applied };
 }

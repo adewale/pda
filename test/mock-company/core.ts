@@ -384,8 +384,9 @@ export class Company {
     const sessionJwt = decode(inbound.request.headers.get("Poppy-Session"));
     const delegation = decode(sessionJwt?.header.poppy_dlg);
     const approval = inbound.request.headers.get("Poppy-Approval") ?? undefined;
+    const version = inbound.request.headers.get("Poppy-Version") ?? undefined;
     if (json === undefined && !sessionJwt && approval === undefined) return;
-    this.sent.push({ method: inbound.request.method, url: inbound.url.href, json, sessionJwt, delegation, approval });
+    this.sent.push({ method: inbound.request.method, url: inbound.url.href, json, sessionJwt, delegation, approval, ...(version !== undefined ? { version } : {}) });
   }
 
   /** JTIs are single-use within each kind of JWT. */

@@ -435,6 +435,8 @@ export type AgentPayload = {
   readonly delegation?: DecodedJwt;
   readonly approval?: string;
   readonly clientMetadata?: unknown;
+  /** The request's `Poppy-Version` (0.4, 3.4), which decides the kit whose schemas judge it. */
+  readonly version?: string;
 };
 
 /** One request the mock received, with secrets redacted. */

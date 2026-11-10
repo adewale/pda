@@ -28,6 +28,7 @@ import { found, one, rows, type RowOf } from "../rows";
 import { accountsTable, domainsTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
+import { declaration, declarationHeaders, sameDeclaration, type Declaration } from "./declaration";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
@@ -196,6 +197,7 @@ export const tokenResponse = object({
 type TokenResponse = Decoded<typeof tokenResponse>;
 
 const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope", "authority_generation");
+const declaredRow = sessionsTable.pick("session_id", "declared");
 type SessionRow = RowOf<typeof sessionRow>;
 
 const accountRow = accountsTable.pick("issuer", "account", "token", "scope", "expires_at");
@@ -1160,6 +1162,25 @@ export class PoppyClient {
   }
 
   /**
+   * The Session for `label`, and what its requests declare (3.4). The
+   * values are fixed for a `sid`: when the Company's document now calls for
+   * others, as after it moves to another version or extension version, the
+   * Session restarts, keeping its account, before anything is sent. A
+   * Session from before declarations were kept was a 0.3 Session.
+   */
+  #declaredSession(company: Company, label: string): { session: SessionRow; declared: Declaration } {
+    const wanted = declaration(company);
+    const before = one(this.sql, declaredRow, "SELECT session_id, declared FROM poppy_sessions WHERE issuer = ? AND label = ?", company.issuer, label);
+    const stored = before ? (before.declared ?? declaration({ ...company, protocolVersion: "0.3" })) : null;
+    if (stored && !sameDeclaration(stored, wanted)) this.#restartSession(company.issuer, label);
+    const session = this.sessionFor(company, label);
+    if (!stored || !sameDeclaration(stored, wanted) || before?.declared === null) {
+      this.sql.exec("UPDATE poppy_sessions SET declared = ? WHERE issuer = ? AND label = ? AND session_id = ?", JSON.stringify(wanted), company.issuer, label, session.session_id);
+    }
+    return { session, declared: wanted };
+  }
+
+  /**
    * A Session's row: `account` is the account it is signed in to now,
    * and `used_account` the one it was used with, kept after it continues
    * signed out, so signing in to another account later starts a new
@@ -1168,9 +1189,12 @@ export class PoppyClient {
   #writeSession(issuer: Issuer, label: string, sid: string, account: string | null, scope: string, used: string | null = account, authorityGeneration?: number): void {
     // Reusing a sid/account after sign-out must not restore its earlier approvals.
     const generation = authorityGeneration ?? this.session(issuer, label)?.authority_generation ?? 0;
+    // A declaration belongs to its sid (3.4): kept while the sid is, and made again for a new one.
+    const before = one(this.sql, declaredRow, "SELECT session_id, declared FROM poppy_sessions WHERE issuer = ? AND label = ?", issuer, label);
+    const declared = before?.session_id === sid ? before.declared : null;
     this.sql.exec(
-      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account, authority_generation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account, authority_generation, declared)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       issuer,
       label,
       sid,
@@ -1179,7 +1203,8 @@ export class PoppyClient {
       scope,
       Date.now(),
       used,
-      generation
+      generation,
+      declared === null ? null : JSON.stringify(declared)
     );
   }
 
@@ -1389,7 +1414,7 @@ export class PoppyClient {
     let challengedResource: { readonly value: string | undefined } | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
-      const prepared = this.sessionFor(company, label);
+      const { session: prepared, declared } = this.#declaredSession(company, label);
       let preparedToken: HeldToken | null | undefined;
       const sameSession = () => {
         const current = this.session(company.issuer, label);
@@ -1432,6 +1457,8 @@ export class PoppyClient {
       // Every request carries the Session header, signed for it alone (5.2); `ath` binds it to the token.
       const sid = prepared.session_id;
       headers.set("Poppy-Session", await this.sessionHeader(company, sid, { method: request.method, url: url.href, ...(token ? { accessToken: token.value } : {}) }));
+      // 0.4: the versions the Session declared, on every request that carries its header (3.4).
+      for (const [name, value] of declarationHeaders(declared)) headers.set(name, value);
       if (!token) {
         // Signed out (5): the Session header alone.
       } else if (token.type === "Bearer") {

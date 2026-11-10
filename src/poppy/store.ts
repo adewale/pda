@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS poppy_sessions (
   updated_at INTEGER NOT NULL,
   used_account TEXT,
   authority_generation INTEGER NOT NULL DEFAULT 0,
+  declared TEXT,
   PRIMARY KEY (issuer, label)
 );
 CREATE TABLE IF NOT EXISTS poppy_accounts (
@@ -205,6 +206,10 @@ export function migrate(sql: Sql): void {
   // A sign-out changes local authority even when a later sign-in keeps the protocol's sid.
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "authority_generation")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN authority_generation INTEGER NOT NULL DEFAULT 0");
+  }
+  // Agents created before 10 November 2026: what a Session declared (0.4, 3.4); null until its first request.
+  if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "declared")) {
+    sql.exec("ALTER TABLE poppy_sessions ADD COLUMN declared TEXT");
   }
   // Local retirement is distinct from the Company confirming a conversation closed.
   if (!sql.exec("PRAGMA table_info(poppy_conversations)").toArray().some(column => column.name === "retired_at")) {
@@ -391,7 +396,9 @@ export const sessionsTable = table("poppy_sessions", {
   /** 0.3: the account the Session was used with, kept after it continues signed out (5.4, 5.5); null before 0.3. */
   used_account: nullable(text),
   /** Local authorization epoch, independent of the Session's protocol identity. */
-  authority_generation: integer
+  authority_generation: integer,
+  /** JSON `Declaration` (declaration.ts) its requests carry, fixed for the `sid`; null before its first request. */
+  declared: nullable(textOf(jsonText(object({ version: string, extensions: string }))))
 });
 export const accountsTable = table("poppy_accounts", {
   issuer: issuerColumn,
