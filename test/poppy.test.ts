@@ -3074,6 +3074,37 @@ describe("8.13 conversation errors", () => {
     }
   });
 
+  it("tells the model a conversation the Company won't continue in this version can't take the message, and keeps it open for reads (0.4 version_mismatch)", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.configure({ refuseMessages: { status: 409, body: { error: "version_mismatch", protocol_version: "0.4" } } });
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" });
+      expect(result.isError).toBe(true);
+      expect(result.text).toBe(
+        `Mock Shop ${c.id} won't continue conversation ${id} in this protocol version, so the message wasn't sent. Start a new conversation (poppy_message without conversation) if the task still needs one. Nothing from this conversation is carried over: say what the Company needs again. [version_mismatch]`
+      );
+      // Sent once, and not again in a new conversation.
+      expect(await posts(c, id)).toEqual({ messages: [409], started: 1 });
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+    } finally {
+      await release();
+    }
+  });
+
+  it("treats 0.4's request_id_conflict as message_id_conflict: the agent's bug, never sent under a new id", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.configure({ refuseMessages: { status: 409, body: { error: "request_id_conflict" } } });
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" });
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/^Mock Shop \S+ already has message msg_\S+ with different content\. That is a bug in this agent; the message wasn't sent again under a new id\. Tell the User it may not have arrived\. \[request_id_conflict\]$/);
+      expect(await posts(c, id)).toEqual({ messages: [409], started: 1 });
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+    } finally {
+      await release();
+    }
+  });
+
   it("reports a message id the Company already has with other content as the agent's bug, and never sends it under a new id (message_id_conflict)", async () => {
     const { c, a, id, release } = await started();
     // Our bug, simulated: the replayed call's stored message changed after it was sent.

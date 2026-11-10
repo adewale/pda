@@ -383,9 +383,18 @@ async function sendRefused(
         `The User is talking with ${company.name} directly, so conversation ${row.id} takes no messages until that Direct Conversation ends; you'll be told when it does.`,
         error.status
       );
+    case "version_mismatch":
+      // 8.2: the conversation started in other versions, and the Company won't continue it in this Session's.
+      // It may still be read, so it stays open here; nothing is re-sent in a new one (readings.md, v04-conversations).
+      return new PoppyError(
+        error.code,
+        `${company.name} won't continue conversation ${row.id} in this protocol version, so the message wasn't sent. ${restart} Nothing from this conversation is carried over: say what the Company needs again.`,
+        error.status
+      );
     case "message_id_conflict":
+    case "request_id_conflict":
       // Our ids are fixed per call with their content (8.3), so this is our bug: never "fixed" with a new id.
-      reportError(new PoppyError(error.code, "message_id_conflict: our own message id was refused", error.status), { source: literal("poppy.conversation_send"), code: literal("message_id_conflict") });
+      reportError(new PoppyError(error.code, `${error.code}: our own message id was refused`, error.status), { source: literal("poppy.conversation_send"), code: literal(error.code) });
       return new PoppyError(
         error.code,
         `${company.name} already has message ${messageId} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived.`,

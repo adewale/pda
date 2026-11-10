@@ -548,6 +548,8 @@ export class Conversations {
         json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409)
       );
     }
+    const refusal = this.company.config.refuseMessages;
+    if (refusal) throw new HttpError(json(refusal.body, refusal.status));
     // In a Direct Conversation the agent relays the User's words as written,
     // as `human` (8.10). It may still send context, such as user_available
     // (8.4); its own words have no place there (our reading of S12), so they

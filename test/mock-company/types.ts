@@ -258,6 +258,13 @@ export type MockConfig = {
    * is checked as usual first. 0: accept every one.
    */
   readonly refuseRevocations: number;
+  /**
+   * Refuse each new message to an existing conversation with this JSON
+   * body and status, after the usual checks: a refusal the agent must
+   * handle that the mock has no other way to give yet, such as 0.4's
+   * `version_mismatch` and `request_id_conflict` (8.2, 8.3). null: accept.
+   */
+  readonly refuseMessages: { readonly status: number; readonly body: Readonly<Record<string, string>> } | null;
   /** Company flaws (`COMPANY_FLAWS`); none by default. */
   readonly flaws: readonly CompanyFlaw[];
   /**
@@ -390,6 +397,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   endlessEvents: false,
   errorDescription: null,
   refuseRevocations: 0,
+  refuseMessages: null,
   flaws: [],
   dpopTokens: true,
   authorizationServersOverride: null,
