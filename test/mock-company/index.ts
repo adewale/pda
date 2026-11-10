@@ -224,10 +224,12 @@ export class MockCompany extends DurableObject<Env> {
         ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
         : json({ error: "not_found" }, 404);
     }
+    // A skill artifact is Company content anyone may fetch, with no Session header (9.4).
+    if (path.startsWith("/poppy/skills/") && method === "GET") return web.skillArtifact(inbound);
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
     if (path === "/poppy/feedback" && method === "POST") return web.feedbackReport(inbound, context);
-    if (path === "/poppy/tasks" && method === "GET") return web.tasks(context);
+    if (path === "/poppy/tasks" && method === "GET") return await web.tasks(context);
     const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|handoff\/cancel|close))?)?$/.exec(path);
     if (conversation) {
       const [, id, action] = conversation;

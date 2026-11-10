@@ -1965,6 +1965,13 @@ const TAMPERS: readonly Tamper[] = [
 
   // ---- Feedback (9.3) ----
   {
+    id: "skills.credentials",
+    what: "a skill artifact fetched with a Session header",
+    config: V4,
+    detail: /^\[skills\.credentials\]/,
+    run: async (c) => call(c, await session(), "GET", `${c.hosts.api}/poppy/skills/exchange-an-item/SKILL.md`, { headers: { "Poppy-Version": "0.4" } })
+  },
+  {
     id: "tasks.token",
     what: "GET {tasks.endpoint} with an access token",
     config: { ...V4, feedback: true },
@@ -2585,6 +2592,21 @@ describe("the mock Company's request IDs (0.4 8.3)", () => {
     const state = await c.stub.state();
     expect(state.conversations).toHaveLength(1);
     expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's skill index (0.4 9.4)", () => {
+  it("lists a SKILL.md by a reference relative to tasks.endpoint, whose bytes match its digest", async () => {
+    const c = company();
+    await c.stub.configure(V4);
+    const tasks = (await (await call(c, await session(), "GET", `${c.hosts.api}/poppy/tasks`, { headers: { "Poppy-Version": "0.4" } })).json()) as { skill_index: { $schema: string; skills: { url: string; digest: string; type: string }[] } };
+    expect(tasks.skill_index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
+    const [entry] = tasks.skill_index.skills;
+    expect(entry!.type).toBe("skill-md");
+    const artifact = await c.call(new URL(entry!.url, `${c.hosts.api}/poppy/tasks`).href);
+    expect(artifact.status).toBe(200);
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(await artifact.arrayBuffer())));
+    expect(`sha256:${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`).toBe(entry!.digest);
   });
 });
 

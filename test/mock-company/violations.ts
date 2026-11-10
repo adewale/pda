@@ -264,6 +264,7 @@ export const VIOLATIONS = {
   "approval.reference-reused": "Rule (0.4 Ops 6: reference \"is unique among the User's approvals at least\"): One reference sent for two approvals",
 
   // ---- Feedback (9.3) ----
+  "skills.credentials": "Rule (0.4 9.4: listing an artifact \"does not authorize sending it credentials or Session headers\"): A skill artifact fetched with a token or Session header",
   "tasks.token": "Rule (0.4 9: \"the request carries no access token, even in a signed-in Session\"): GET {tasks.endpoint} with an access token",
   "feedback.fields": "MUST (9.3: task and description are required, at most 200 and 2,000 characters): A malformed feedback report",
   "feedback.kind": "Reading (9.3 has no kind; the changelog: \"kind removed from feedback\"): A feedback report that still carries kind",

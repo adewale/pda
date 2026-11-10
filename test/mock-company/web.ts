@@ -11,6 +11,17 @@ const EXCLUDED: readonly { readonly task: string; readonly alternative?: { reado
 const DEFAULT_CACHING: Readonly<Record<string, string>> = { "Cache-Control": "max-age=300" };
 
 /** Discovery documents, the website, and the browser join (sections 3 and 6). */
+/** The mock's one skill (9.4), in the Agent Skills format. */
+const SKILL_MD = `---
+name: exchange-an-item
+description: Exchange an item on one of the User's orders for another size or model.
+---
+
+1. Find the order with \`GET /orders\` and the item to exchange.
+2. Find the replacement with \`searchProducts\`.
+3. Send \`POST /orders/{order_id}/exchanges\`. The Company returns the terms for the User to approve.
+`;
+
 export class Web {
   /** A report belongs to the verified Personal Agent and User, not every visitor to the Company. */
   readonly #reportedTasks = new Set<string>();
@@ -79,7 +90,7 @@ export class Web {
     if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
     if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     // 0.4: both come from the tasks endpoint, per Session (9).
-    if ((config.excludedTasks || config.feedback) && v04) document.tasks = { endpoint: `${hosts.api}/poppy/tasks` };
+    if ((config.excludedTasks || config.feedback || config.skills) && v04) document.tasks = { endpoint: `${hosts.api}/poppy/tasks` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
@@ -136,14 +147,44 @@ export class Web {
    * endpoint, after the Session header is verified, and with no access
    * token. Marked `private`, as a response a Company may vary by Session.
    */
-  tasks(context: ResourceContext): Response {
+  async tasks(context: ResourceContext): Promise<Response> {
     const co = this.company;
     if (!context.session.declaration || context.session.declaration.version === "0.3") return json({ error: "not_found" }, 404);
     if (context.token) co.violation("tasks.token", "GET {tasks.endpoint} carried an access token");
     return json({
       ...(co.config.excludedTasks ? { excluded_tasks: this.#excluded() } : {}),
+      ...(co.config.skills ? { skill_index: await this.#skillIndex() } : {}),
       ...(co.config.feedback ? { feedback: { endpoint: `${co.hosts.api}/poppy/feedback` } } : {})
     }, 200, { "Cache-Control": "private, max-age=300" });
+  }
+
+  /** The skill index (9.4): one `SKILL.md`, by a reference relative to `tasks.endpoint`, with its digest. */
+  async #skillIndex(): Promise<Record<string, unknown>> {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(SKILL_MD)));
+    return {
+      $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+      skills: [{
+        name: "exchange-an-item",
+        description: "Exchange an item on one of the User's orders for another size or model.",
+        type: "skill-md",
+        url: "skills/exchange-an-item/SKILL.md",
+        digest: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`
+      }]
+    };
+  }
+
+  /**
+   * A skill artifact (9.4). Listing it authorizes no credentials or Session
+   * header, so one sent here is recorded.
+   */
+  skillArtifact(inbound: Inbound): Response {
+    const co = this.company;
+    if (!co.config.skills) return json({ error: "not_found" }, 404);
+    const headers = inbound.request.headers;
+    if (headers.has("Authorization") || headers.has("Poppy-Session") || headers.has("DPoP")) {
+      co.violation("skills.credentials", `a skill artifact fetched with ${["Authorization", "Poppy-Session", "DPoP"].filter((name) => headers.has(name)).join(", ")}`);
+    }
+    return new Response(SKILL_MD, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
   }
 
   /**

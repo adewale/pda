@@ -91,6 +91,8 @@ export type MockConfig = {
   readonly unknownProtocol: boolean;
   readonly web: boolean;
   readonly browserSession: boolean;
+  /** Publish a skill index in 0.4's tasks response, with one `SKILL.md` artifact (9.4). */
+  readonly skills: boolean;
   /** Answer a website page's Session header with `invalid_session`, as a page whose check fails (0.4 5.2). */
   readonly pagesRefuseSession: boolean;
   /** 0.4's `web.disabled` (6): ask Personal Agents not to browse, listing no `browser_session_endpoint`, and record a form they send. */
@@ -345,6 +347,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   browserSession: true,
   webDisabled: false,
   pagesRefuseSession: false,
+  skills: true,
   operations: true,
   requireOperationsExtension: false,
   unknownExtension: true,

@@ -226,7 +226,7 @@ describe("0.4: task coverage from the tasks endpoint (9)", () => {
   });
 
   it("takes no feedback and lists nothing excluded when the Company lists no tasks endpoint", async () => {
-    const c = await company({ ...V4, excludedTasks: false });
+    const c = await company({ ...V4, excludedTasks: false, skills: false });
     const a = await agent();
     const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
     expect(found.feedback).toBe("not offered");
