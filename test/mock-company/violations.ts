@@ -189,6 +189,9 @@ export const VIOLATIONS = {
   "message.sender-field": "Reading (8.4 has author where 0.2 had sender; docs/readings.md): A message that still carries sender",
 
   // ---- The Session header (5.2, 5.3) ----
+  "version.missing": "MUST (0.4 3.4: \"On every request with the Session header, the Personal Agent sends the protocol version it implements ... in Poppy-Version\"): A Session request without Poppy-Version to a Company that never served 0.3",
+  "version.unlisted": "MUST (0.4 3.4: the Personal Agent \"chooses the newest version, among protocol_version and the versions in supported_versions\", and \"If none is, it MUST NOT use any of them\"): Poppy-Version naming a version the Company never listed",
+  "version.changed-in-session": "MUST (0.4 3.4: \"MUST send the same values on every request in a Session, and starts a new Session to change them\"): A Session whose Poppy-Version or Poppy-Extensions changed",
   "session-jwt.missing": "MUST (5.2: \"MUST send a Poppy-Session header on every request\" to APIs, conversations and protocol endpoints): A request to a resource without the Session header",
   "session-jwt.missing-with-token": "MUST (5.2; 5.3: the Company MUST reject an access token without the Session header): An access token sent without the Session header",
   "session-jwt.not-jwt": "MUST (5.2: the header holds a JWT): The Session header isn't a JWT",

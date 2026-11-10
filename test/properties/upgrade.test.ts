@@ -55,6 +55,17 @@ function fixture() {
 }
 
 describe("upgrade state and pending-work compatibility", () => {
+  it("marks an older agent's Sessions as 0.3 Sessions when it adds their declarations (F2)", () => {
+    const sql = memorySql();
+    // poppy_sessions as agents before 10 November 2026 created it.
+    sql.exec(`CREATE TABLE poppy_sessions (issuer TEXT NOT NULL, label TEXT NOT NULL, session_id TEXT NOT NULL, account TEXT, signed_in INTEGER NOT NULL,
+      scope TEXT NOT NULL, updated_at INTEGER NOT NULL, used_account TEXT, authority_generation INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (issuer, label))`);
+    sql.exec(`INSERT INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at) VALUES ('${ISSUER}', 'main', 'sid_1', NULL, 0, '', 1)`);
+    migrate(sql);
+    migrate(sql);
+    expect(sql.exec("SELECT session_id, declared FROM poppy_sessions").toArray()).toEqual([{ session_id: "sid_1", declared: JSON.stringify({ version: "0.3", extensions: "" }) }]);
+  });
+
   it("keeps an older agent's open conversations open as 0.3 conversations when it adds the 0.4 columns (F5)", () => {
     const sql = memorySql();
     // poppy_conversations as agents before 10 November 2026 created it.

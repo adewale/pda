@@ -59,6 +59,12 @@ export type McpVersion = "2025-06-18" | "2026-07-28";
 
 export type MockConfig = {
   readonly protocolVersion: string;
+  /**
+   * Another version this Company also serves (3.4): poppy.json lists it in
+   * `supported_versions`, and the mock serves its document on the same host
+   * at `/poppy/v{version}.json`. null: one version.
+   */
+  readonly linkedVersion: string | null;
   /** Overrides `organization.domain` in poppy.json (to test the agent's check). */
   readonly organizationDomain: string | null;
   /** The well-known URL redirects: to an https host, an http URL, or not at all. */
@@ -314,6 +320,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   mcpDpop: false,
   mcpVersions: ["2025-06-18"],
   protocolVersion: "0.3",
+  linkedVersion: null,
   organizationDomain: null,
   wellKnownRedirect: "none",
   issuerOverride: null,

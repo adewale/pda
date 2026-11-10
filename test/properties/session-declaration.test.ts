@@ -67,16 +67,22 @@ describe("a Session's declaration is fixed for its sid (3.4)", () => {
     expect(headers).not.toHaveProperty("poppy-extensions");
   });
 
-  it("keeps a Session from before declarations were stored, which was a 0.3 Session, and the same Session while nothing changes", async () => {
+  it("keeps the same Session while nothing changes", async () => {
     const { client, company, sql } = await world({ protocolVersion: "0.3" });
     await send(client, company);
     const sid = client.session(company.issuer, "main")!.session_id;
     await send(client, company);
     expect(client.session(company.issuer, "main")!.session_id).toBe(sid);
-    sql.exec("UPDATE poppy_sessions SET declared = NULL");
-    await send(client, company);
-    expect(client.session(company.issuer, "main")!.session_id).toBe(sid);
     expect(sql.exec("SELECT declared FROM poppy_sessions").toArray()).toEqual([{ declared: JSON.stringify({ version: "0.3", extensions: "" }) }]);
+  });
+
+  it("lets a Session started before its first request declare the Company's version, rather than restarting it", async () => {
+    const { client, company } = await world({ protocolVersion: "0.3" });
+    const as04: Company = { ...company, protocolVersion: "0.4", extensions: { operations: true } };
+    // As an authority guard does: the Session exists, bound, before the request is made.
+    const sid = client.sessionFor(as04, "main").session_id;
+    await send(client, as04);
+    expect(client.session(company.issuer, "main")!.session_id).toBe(sid);
   });
 
   it("starts a new Session, keeping its account, before sending values its Session didn't declare", async () => {

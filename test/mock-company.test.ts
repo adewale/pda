@@ -1667,6 +1667,40 @@ const TAMPERS: readonly Tamper[] = [
   { id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", detail: /^\[session-jwt\.ath\]/, run: async (c) => getOrders(c, { jwt: { claims: { ath: await hash("another token") } } }) },
   { id: "session-jwt.oauth-endpoint", what: "a Session header at the revocation endpoint", detail: /^\[session-jwt\.oauth-endpoint\] \/oauth\/revoke got a Poppy-Session header$/, run: async (c) => revoke(c, { headers: { "Poppy-Session": "eyJ.a.session-header" } }) },
   { id: "session-jwt.ath-without-token", what: "ath with no access token", detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => getProducts(c, { claims: { ath: await hash("a token") } }) },
+  // ---- Versions (0.4, 3.4) ----
+  {
+    id: "version.missing",
+    what: "a Session request without Poppy-Version to a Company that serves only 0.4",
+    config: { protocolVersion: "0.4" },
+    detail: /^\[version\.missing\] a request without Poppy-Version to a Company that never served 0\.3 \(GET \/products\)$/,
+    run: async (c) => {
+      const response = await getProducts(c, undefined);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "version_unsupported" });
+    }
+  },
+  {
+    id: "version.unlisted",
+    what: "Poppy-Version 0.4 to a Company that serves only 0.3",
+    detail: "[version.unlisted] Poppy-Version 0.4, which this Company never listed (GET /products)",
+    run: async (c) => {
+      const s = await session();
+      const response = await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4" } });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "version_unsupported" });
+    }
+  },
+  {
+    id: "version.changed-in-session",
+    what: "a Session that declared Operations 3, then nothing",
+    config: { protocolVersion: "0.4" },
+    detail: /^\[version\.changed-in-session\] Session \S+ declared 0\.4 "\\"operations\\";v=\\"3\\"", then 0\.4 "" \(GET \/products\)$/,
+    run: async (c) => {
+      const s = await session();
+      expect((await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` } })).status).toBe(200);
+      return call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4" } });
+    }
+  },
   {
     id: "session-jwt.sub-changed",
     what: "a Session's sid with another User ID",

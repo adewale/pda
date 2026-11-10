@@ -1166,15 +1166,15 @@ export class PoppyClient {
    * values are fixed for a `sid`: when the Company's document now calls for
    * others, as after it moves to another version or extension version, the
    * Session restarts, keeping its account, before anything is sent. A
-   * Session from before declarations were kept was a 0.3 Session.
+   * Session that hasn't declared anything yet (a new `sid`) declares these;
+   * migration marked those stored before declarations as 0.3 Sessions.
    */
   #declaredSession(company: Company, label: string): { session: SessionRow; declared: Declaration } {
     const wanted = declaration(company);
-    const before = one(this.sql, declaredRow, "SELECT session_id, declared FROM poppy_sessions WHERE issuer = ? AND label = ?", company.issuer, label);
-    const stored = before ? (before.declared ?? declaration({ ...company, protocolVersion: "0.3" })) : null;
+    const stored = one(this.sql, declaredRow, "SELECT session_id, declared FROM poppy_sessions WHERE issuer = ? AND label = ?", company.issuer, label)?.declared ?? null;
     if (stored && !sameDeclaration(stored, wanted)) this.#restartSession(company.issuer, label);
     const session = this.sessionFor(company, label);
-    if (!stored || !sameDeclaration(stored, wanted) || before?.declared === null) {
+    if (!stored || !sameDeclaration(stored, wanted)) {
       this.sql.exec("UPDATE poppy_sessions SET declared = ? WHERE issuer = ? AND label = ? AND session_id = ?", JSON.stringify(wanted), company.issuer, label, session.session_id);
     }
     return { session, declared: wanted };

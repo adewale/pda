@@ -39,9 +39,12 @@ export class Web {
    * described in `auth.scopes` with `scope_hints`; Operations 2 and
    * Mediated Sign-In as extensions.
    */
-  poppyJson(requestedDomain: string): Record<string, unknown> {
+  poppyJson(requestedDomain: string, version = this.company.config.protocolVersion): Record<string, unknown> {
     const co = this.company;
     const config = co.config;
+    // 0.4 lists an entry per extension version (3.3), and moved feedback and excluded tasks to tasks.endpoint (9).
+    const v04 = version === "0.4";
+    const entries = (entry: Record<string, unknown>) => (v04 ? [entry] : entry);
     const hosts = co.hosts;
     const { read, write } = co.orderScopes;
     const auth: Record<string, unknown> = {
@@ -56,7 +59,7 @@ export class Web {
       }
     };
     const document: Record<string, unknown> = {
-      protocol_version: config.protocolVersion,
+      protocol_version: version,
       organization: {
         name: config.organizationName ?? `Mock Shop ${co.id}`,
         domain: config.organizationDomain ?? requestedDomain,
@@ -72,8 +75,8 @@ export class Web {
       document.agent = { protocols };
     }
     if (config.web) document.web = config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
-    if (config.excludedTasks) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
-    if (config.feedback) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
+    if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
+    if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
@@ -81,19 +84,19 @@ export class Web {
     if (config.mcp) apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
-    if (config.operations) extensions.operations = { version: "2" };
+    if (config.operations) extensions.operations = entries({ version: v04 ? "3" : "2" });
     const mediated = co.offeredScopes("mediated");
     if (mediated) {
-      extensions["mediated-sign-in"] = {
+      extensions["mediated-sign-in"] = entries({
         version: "1",
         fields: [
           { name: "email", label: "Email", secret: false },
           { name: "password", label: "Password", secret: true }
         ],
         scopes: mediated
-      };
+      });
     }
-    if (config.unknownExtension) extensions["mock.test/gift-wrap"] = { version: "1", endpoint: `${hosts.api}/gift-wrap` };
+    if (config.unknownExtension) extensions["mock.test/gift-wrap"] = entries({ version: "1", endpoint: `${hosts.api}/gift-wrap` });
     if (Object.keys(extensions).length > 0) document.extensions = extensions;
     if (config.unknownField) document.loyalty_program = { name: "Mock Points" };
     // Interop XB: pad the document past an agent's size cap. An unknown field,
@@ -164,7 +167,7 @@ export class Web {
     const host = inbound.url.hostname.replace(/^www\./, "");
     if (host.startsWith("cdn.")) {
       const domain = inbound.url.searchParams.get("for") ?? co.hosts.domain;
-      return json(this.poppyJson(domain), 200, this.#poppyJsonCaching());
+      return json(this.#rootDocument(domain), 200, this.#poppyJsonCaching());
     }
     if (co.config.wellKnownRedirect === "https") {
       return Response.redirect(`https://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
@@ -172,7 +175,21 @@ export class Web {
     if (co.config.wellKnownRedirect === "http") {
       return Response.redirect(`http://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
     }
-    return json(this.poppyJson(host), 200, this.#poppyJsonCaching());
+    return json(this.#rootDocument(host), 200, this.#poppyJsonCaching());
+  }
+
+  /** poppy.json, with `supported_versions` linking the other version's document on the same host (3.4). */
+  #rootDocument(host: string): Record<string, unknown> {
+    const linked = this.company.config.linkedVersion;
+    const document = this.poppyJson(host);
+    return linked ? { ...document, supported_versions: { [linked]: `https://${host}${linkedPath(linked)}` } } : document;
+  }
+
+  /** The linked version's document (3.4): its own `protocol_version`, and no `supported_versions`. */
+  linkedDocument(inbound: Inbound): Response {
+    const linked = this.company.config.linkedVersion;
+    if (!linked || inbound.url.pathname !== linkedPath(linked)) return json({ error: "not_found" }, 404);
+    return json(this.poppyJson(inbound.url.hostname.replace(/^www\./, ""), linked), 200, this.#poppyJsonCaching());
   }
 
   /**
@@ -372,4 +389,9 @@ export class Web {
     }
     return html("<p>Not found</p>", 404);
   }
+}
+
+/** Where the mock serves a linked version's document (3.4: "Its path can be anything"). */
+export function linkedPath(version: string): string {
+  return `/poppy/v${version}.json`;
 }

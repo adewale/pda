@@ -211,9 +211,11 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "authority_generation")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN authority_generation INTEGER NOT NULL DEFAULT 0");
   }
-  // Agents created before 10 November 2026: what a Session declared (0.4, 3.4); null until its first request.
+  // Agents created before 10 November 2026: what a Session declared (0.4, 3.4), null until its first request.
+  // Every Session stored before then spoke 0.3, so it declared 0.3 and no extensions.
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "declared")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN declared TEXT");
+    sql.exec(`UPDATE poppy_sessions SET declared = '{"version":"0.3","extensions":""}'`);
   }
   // Agents created before 10 November 2026: the versions a conversation started in (0.4, 8.2), and 0.4's
   // `working` and `handoff` (8.7). Every earlier conversation is a 0.3 one, and its `status` stays as it was.

@@ -11,7 +11,7 @@ import {
   type MockConfig,
   type MockState
 } from "./types";
-import { Web } from "./web";
+import { linkedPath, Web } from "./web";
 
 export { companyIdFromHost, hostsFor, DEFAULT_CONFIG };
 export { CLOCK_HEADER } from "./core";
@@ -155,6 +155,7 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/poppy.json" || (sub === "cdn" && path === "/poppy.json")) {
         return web.wellKnown(inbound);
       }
+      if (method === "GET" && company.config.linkedVersion && path === linkedPath(company.config.linkedVersion)) return web.linkedDocument(inbound);
       if (path === "/poppy/browser-session") {
         if (method === "GET") company.rateLimit("join", inbound);
         return web.browserSession(inbound);
