@@ -185,3 +185,53 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     expect(refused.text).toContain("no way to withdraw");
   });
 });
+
+describe("0.4: task coverage from the tasks endpoint (9)", () => {
+  const tasksRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/poppy/tasks`);
+
+  it("gets the tasks response with the Session header and no token, even signed in, and reuses it only in its Session", async () => {
+    const c = await company({ ...V4, feedback: true });
+    const a = await agent();
+    const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
+    expect(found.excludedTasks.tasks.map((entry: { task: string }) => entry.task)).toEqual(["Close an account", "Send a gift card"]);
+    expect(found.feedback).toContain("accepted");
+    await tool(a, "poppy_discover", { domain: c.domain });
+    expect(await tasksRequests(c)).toHaveLength(1);
+    expect((await requests(c)).some((request) => request.url.endsWith("/poppy/excluded-tasks.json"))).toBe(false);
+    // Another Session, signed in, gets its own response, still with no token; the mock records a token as a violation.
+    expect((await signInDirect(a, c, ["orders:read"], {}, { session: "parallel" }))?.callback.status).toBe(200);
+    const excluded = { domain: c.domain, task: "Close an account", description: "The User wanted to close their account." };
+    expect(JSON.parse((await tool(a, "poppy_feedback", { ...excluded, session: "parallel" })).text).status).toBe("not sent");
+    expect(JSON.parse((await tool(a, "poppy_feedback", excluded)).text).status).toBe("not sent");
+    const fetched = await tasksRequests(c);
+    expect(fetched).toHaveLength(2);
+    expect(fetched.every((request) => request.headers["poppy-session"] !== undefined && request.headers.authorization === undefined)).toBe(true);
+  });
+
+  it("sends feedback to the endpoint the tasks response names, never about an excluded task", async () => {
+    const c = await company({ ...V4, feedback: true, feedbackAlternative: true });
+    const a = await agent();
+    const excluded = JSON.parse((await tool(a, "poppy_feedback", { domain: c.domain, task: "close an account.", description: "The User wanted to close their account." })).text);
+    expect(excluded.status).toBe("not sent");
+    const args = { domain: c.domain, task: "Pay with a gift card", description: "The User wanted to pay with a gift card; no API or page takes one." };
+    const first = JSON.parse((await tool(a, "poppy_feedback", args)).text);
+    expect(first.status).toBe("sent");
+    expect(first.companySays.alternative.references).toEqual([{ type: "web", url: `${c.hosts.web}/checkout` }]);
+    const reports = (await requests(c)).filter((request) => request.url.endsWith("/poppy/feedback"));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.headers["poppy-session"]).toBeDefined();
+    expect(reports[0]!.headers.authorization).toBeUndefined();
+    expect(await tasksRequests(c)).toHaveLength(1);
+  });
+
+  it("takes no feedback and lists nothing excluded when the Company lists no tasks endpoint", async () => {
+    const c = await company({ ...V4, excludedTasks: false });
+    const a = await agent();
+    const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
+    expect(found.feedback).toBe("not offered");
+    expect(found.excludedTasks).toBeUndefined();
+    const refused = await tool(a, "poppy_feedback", { domain: c.domain, task: "Pay with a gift card", description: "No API or page takes one." });
+    expect(refused.isError).toBe(true);
+    expect(await tasksRequests(c)).toHaveLength(0);
+  });
+});

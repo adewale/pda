@@ -234,6 +234,8 @@ export type TokenOptions = {
    * `resource` is set.
    */
   readonly service?: string;
+  /** The Session header alone, never an access token, even signed in: 0.4's tasks endpoint (9). */
+  readonly noToken?: boolean;
 };
 
 export function scopeSet(scope: string | undefined | null): Set<string> {
@@ -1400,7 +1402,10 @@ export class PoppyClient {
     // Tokens and Session JWTs go only to the Company's own hosts (N10), or to a server a description
     // poppy.json lists names, which 5.2 makes a Session destination; a checked API request carries it.
     const described = "describedServer" in outgoing && outgoing.company.issuer === company.issuer && request.url.startsWith(outgoing.describedServer.replace(/\/*$/, ""));
-    if (!tokenHostAllowed(company, url) && !described) {
+    // An endpoint a Company response named for this Session gets the Session header only (EndpointRequest.listed).
+    const listed = "listed" in outgoing && outgoing.listed;
+    if (listed) options = { ...options, noToken: true };
+    if (!tokenHostAllowed(company, url) && !described && !listed) {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",
@@ -1434,7 +1439,7 @@ export class PoppyClient {
         const resource = await this.serviceResource(company, options.service);
         if (resource) effective = { ...options, resource };
       }
-      const token = await this.token(company, effective);
+      const token = effective.noToken ? null : await this.token(company, effective);
       preparedToken = token;
       if (!sameBinding()) {
         if (sameSession()) throw new PoppyError("approval_changed", "The account's access changed while this request was being prepared. Start it again.", 0);

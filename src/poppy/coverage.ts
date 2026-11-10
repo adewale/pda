@@ -3,11 +3,12 @@
  * the protocol, which the agent reads before a task (9.1), and feedback
  * about a task that couldn't be done, which the Company may answer with
  * another way to do it (9.3). Both bring the Company's words, which are
- * content for the model, never instructions (9.2, 10.1).
+ * content for the model, never instructions (9.2, 10.1). Under 0.3 they
+ * come from `poppy.json`; under 0.4 from the tasks endpoint, per Session.
  */
 import { PoppyClient, PoppyError } from "./client";
 import { boundedCacheSeconds, type Company } from "./discovery";
-import { fetchJson } from "./fetch";
+import { cacheSeconds, fetchJson } from "./fetch";
 import { isObject, type Json } from "./json";
 import { companyErrorCode } from "./error-codes";
 import { EndpointRequest } from "./outgoing";
@@ -96,14 +97,71 @@ export function readAlternative(company: Company, value: unknown): Alternative |
 /** Raw excluded-task documents by URL, per agent; references are filtered for each Company on every read. */
 const caches = new WeakMap<PoppyClient, Map<string, { readonly tasks: readonly Json[]; readonly expiresAt: number }>>();
 
+/** What 0.4's tasks endpoint said to one Session (9): its excluded tasks, as sent, and its feedback endpoint. */
+type TasksAnswer = { readonly excluded: readonly Json[] | null; readonly feedback: string | null };
+
+/** Tasks responses by Company and Session, per agent; never used in another Session (9). */
+const answers = new WeakMap<PoppyClient, Map<string, { readonly answer: TasksAnswer; readonly expiresAt: number }>>();
+
 /**
- * The Company's excluded tasks (9.1), fetched with a GET and no token, as
- * discovery fetches, and kept as long as its caching headers say within
- * discovery's bounds. Null when it lists none; `unavailable` when the
- * document couldn't be read, which the model is told, so it doesn't take
- * the silence for "everything is offered".
+ * `GET {tasks.endpoint}` for this Session (0.4 9): with the Session header
+ * and no access token, even signed in. Kept for the Session as its caching
+ * headers allow, within discovery's bounds. Unavailable when it couldn't be
+ * read, so the agent carries on as if the Company listed nothing and took
+ * no feedback, and the model is told why.
  */
-export async function excludedTasks(client: PoppyClient, company: Company): Promise<readonly ExcludedTask[] | "unavailable" | null> {
+async function tasksAnswer(client: PoppyClient, company: Company, label: string): Promise<TasksAnswer | "unavailable"> {
+  const endpoint = company.tasks!.endpoint;
+  const session = client.session(company.issuer, label);
+  let cache = answers.get(client);
+  if (!cache) answers.set(client, (cache = new Map()));
+  const key = session ? `${company.issuer}|${session.session_id}` : null;
+  const cached = key ? cache.get(key) : undefined;
+  if (cached && cached.expiresAt > Date.now()) return cached.answer;
+  let body: Json;
+  let seconds: number | null;
+  try {
+    const response = await client.resource(company, EndpointRequest.to(company, { method: "GET", url: endpoint }), { label, noToken: true });
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      return "unavailable";
+    }
+    seconds = cacheSeconds(response);
+    body = await client.readJson(response);
+  } catch {
+    return "unavailable";
+  }
+  if (!isObject(body)) return "unavailable";
+  const feedback = isObject(body.feedback) && typeof body.feedback.endpoint === "string" && URL.canParse(body.feedback.endpoint) && new URL(body.feedback.endpoint).protocol === "https:"
+    ? body.feedback.endpoint : null;
+  const answer: TasksAnswer = { excluded: Array.isArray(body.excluded_tasks) ? body.excluded_tasks.slice(0, MOST_TASKS) : null, feedback };
+  // The Session the request went in, which a first request may have started.
+  const sent = client.session(company.issuer, label);
+  if (sent && seconds !== 0) cache.set(`${company.issuer}|${sent.session_id}`, { answer, expiresAt: Date.now() + boundedCacheSeconds(seconds) * 1000 });
+  return answer;
+}
+
+/** Where this Session sends feedback (9.3): `poppy.json`'s endpoint under 0.3, the tasks response's under 0.4. */
+export async function feedbackEndpoint(client: PoppyClient, company: Company, label: string): Promise<string | null> {
+  if (!company.tasks) return company.feedback?.endpoint ?? null;
+  const answer = await tasksAnswer(client, company, label);
+  return answer === "unavailable" ? null : answer.feedback;
+}
+
+/**
+ * The Company's excluded tasks (9.1). Under 0.3, a document fetched with a
+ * GET and no token, as discovery fetches, and kept as long as its caching
+ * headers say within discovery's bounds; under 0.4, the tasks response for
+ * this Session. Null when it lists none; `unavailable` when it couldn't be
+ * read, which the model is told, so it doesn't take the silence for
+ * "everything is offered".
+ */
+export async function excludedTasks(client: PoppyClient, company: Company, label = "main"): Promise<readonly ExcludedTask[] | "unavailable" | null> {
+  if (company.tasks) {
+    const answer = await tasksAnswer(client, company, label);
+    if (answer === "unavailable") return answer;
+    return answer.excluded === null ? null : readTasks(company, answer.excluded);
+  }
   const url = company.excludedTasks?.url;
   if (!url) return null;
   let cache = caches.get(client);
@@ -122,6 +180,11 @@ export async function excludedTasks(client: PoppyClient, company: Company): Prom
     entries = fetched.json.tasks.slice(0, MOST_TASKS);
     cache.set(url, { tasks: entries, expiresAt: Date.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
   }
+  return readTasks(company, entries);
+}
+
+/** Excluded-task entries as the Company sent them, keeping a task phrase and a usable alternative (9.1, 9.2). */
+function readTasks(company: Company, entries: readonly Json[]): ExcludedTask[] {
   const tasks: ExcludedTask[] = [];
   for (const entry of entries) {
     const task = isObject(entry) ? text(entry.task, TASK_LIMIT) : undefined;
@@ -152,7 +215,7 @@ const feedbackInFlight = new WeakMap<PoppyClient, Map<string, Promise<FeedbackAn
  * alternative; either is accepted (9.3 MUST).
  */
 export async function sendFeedback(client: PoppyClient, company: Company, label: string, task: string, description: string): Promise<FeedbackAnswer> {
-  const endpoint = company.feedback?.endpoint;
+  const endpoint = await feedbackEndpoint(client, company, label);
   if (!endpoint) throw new PoppyError("no_feedback", `${company.name} takes no feedback through the protocol`, 0);
   const trimmed = task.trim();
   if (trimmed === "" || trimmed.length > TASK_LIMIT) throw new PoppyError("invalid_request", `task must be a short phrase, at most ${TASK_LIMIT} characters`, 0);
@@ -160,7 +223,7 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
   if (feedbackHasPersonalData(task, description)) {
     throw new PoppyError("invalid_request", "Feedback was not sent. Describe the task in general terms without secrets, contact details or personal identifiers.", 0);
   }
-  const excluded = await excludedTasks(client, company);
+  const excluded = await excludedTasks(client, company, label);
   const listed = Array.isArray(excluded) ? excluded.find((entry) => phrase(entry.task) === phrase(trimmed)) : undefined;
   if (listed) {
     await showAlternative(client, company, `This task is excluded: ${listed.task}`, listed.alternative);
@@ -172,7 +235,10 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
   feedbackInFlight.set(client, pending);
   const send = async (): Promise<FeedbackAnswer> => {
     if (one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key)) return { kind: "already_sent" };
-    const response = await client.resource(company, EndpointRequest.to(company, { method: "POST", url: endpoint, body: { task: trimmed, description: description.trim() } }), { label });
+    const init = { method: "POST", url: endpoint, body: { task: trimmed, description: description.trim() } };
+    // 0.4's endpoint comes from the tasks response, so it is named for this Session only (5.2, 9.3).
+    const request = company.tasks ? EndpointRequest.listed(endpoint, init) : EndpointRequest.to(company, init);
+    const response = await client.resource(company, request, { label });
     if (response.status === 202) {
       await response.body?.cancel();
       intent(client.sql, key, () => "sent");

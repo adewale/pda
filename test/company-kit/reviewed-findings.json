@@ -24,9 +24,7 @@
     "reason": "The upstream validator omits DPoP from token requests even when the issuer advertises it. The bearer profile supplies accepted controls for all eight checks without disabling any DPoP requirement on the other profiles."
   },
   "skips": {
-    "mock": [
-      "feedback.alternative-references"
-    ],
+    "mock": [],
     "hosted": [
       "discovery.excluded-tasks",
       "discovery.alternative-references",
@@ -117,10 +115,9 @@
       "mcp.metadata",
       "mcp.authorization-servers",
       "mcp.no-token",
-      "mcp.invalid-token",
-      "feedback.alternative-references"
+      "mcp.invalid-token"
     ]
   },
   "positiveControlProfile": "bearer",
-  "notes": "These are reviewed observations, not rewritten upstream verdicts. Any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The issuerless profile runs the mock with no OAuth issuer (3.2): its skips are the OAuth checks that need an issuer (metadata, client assertions, tokens, MCP token metadata) and the mock's empty-202 feedback."
+  "notes": "These are reviewed observations, not rewritten upstream verdicts. Any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The issuerless profile runs the mock with no OAuth issuer (3.2): its skips are the OAuth checks that need an issuer (metadata, client assertions, tokens, MCP token metadata)."
 }

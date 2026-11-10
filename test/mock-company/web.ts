@@ -77,6 +77,8 @@ export class Web {
     if (config.web) document.web = config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
     if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
     if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
+    // 0.4: both come from the tasks endpoint, per Session (9).
+    if ((config.excludedTasks || config.feedback) && v04) document.tasks = { endpoint: `${hosts.api}/poppy/tasks` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
@@ -121,7 +123,26 @@ export class Web {
   /** The tasks this Company chose not to offer (9.1), for every User alike. */
   excludedTasks(): Response {
     if (!this.company.config.excludedTasks) return json({ error: "not_found" }, 404);
-    return json({ tasks: EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry) }, 200, DEFAULT_CACHING);
+    return json({ tasks: this.#excluded() }, 200, DEFAULT_CACHING);
+  }
+
+  #excluded() {
+    return EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry);
+  }
+
+  /**
+   * `GET {tasks.endpoint}` (0.4 9): excluded tasks and the feedback
+   * endpoint, after the Session header is verified, and with no access
+   * token. Marked `private`, as a response a Company may vary by Session.
+   */
+  tasks(context: ResourceContext): Response {
+    const co = this.company;
+    if (!context.session.declaration || context.session.declaration.version === "0.3") return json({ error: "not_found" }, 404);
+    if (context.token) co.violation("tasks.token", "GET {tasks.endpoint} carried an access token");
+    return json({
+      ...(co.config.excludedTasks ? { excluded_tasks: this.#excluded() } : {}),
+      ...(co.config.feedback ? { feedback: { endpoint: `${co.hosts.api}/poppy/feedback` } } : {})
+    }, 200, { "Cache-Control": "private, max-age=300" });
   }
 
   /**

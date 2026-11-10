@@ -25,7 +25,7 @@ import { DiscoveryError, isCompany } from "./discovery";
 import { toJson, type Json } from "./json";
 import { json } from "../decode";
 import { startSignIn, describeScopes } from "./signin";
-import { excludedTasks, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
+import { excludedTasks, feedbackEndpoint, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
 import { pendingSignOuts, signOutForModel } from "./signout";
 import { sendAgentMessage } from "./agent-message";
 import { NO_TASK_ACCESS } from "../task-access";
@@ -203,7 +203,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             website: found.web ? (found.web.browserSessionEndpoint ? "browsable in the session" : "browsable signed out") : "not offered",
             extensions: Object.keys(found.extensions),
             ...excludedForModel(tasks),
-            feedback: found.feedback ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
+            feedback: (await feedbackEndpoint(client(), found, "main")) ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
           };
         }
       ),

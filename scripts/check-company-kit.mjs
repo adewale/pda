@@ -131,7 +131,7 @@ try {
     if (profile !== "hosted") {
       // One version only: a mock that also served 0.3 would take a request without Poppy-Version as 0.3,
       // our reading of 0.4 3.4 for a Company serving both (docs/readings.md#v04-version-missing).
-      await mock.configure({ protocolVersion: protocol, strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, issuerless: profile === "issuerless" });
+      await mock.configure({ protocolVersion: protocol, strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, feedbackAlternative: true, issuerless: profile === "issuerless" });
     }
     const target = profile === "hosted" ? companyOrigin : "https://kit.shop.test";
     const run = await command(["--import", path.join(root, "test/company-kit/local-https.mjs"), cli, "check", target, "--allow-private-addresses", "--json", ...(profile === "hosted" ? ["--probe", `${companyOrigin}/products`] : [])], { PDA_COMPANY_KIT_NETWORK: networkFile });

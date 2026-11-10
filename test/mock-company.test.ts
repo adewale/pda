@@ -1943,6 +1943,16 @@ const TAMPERS: readonly Tamper[] = [
 
   // ---- Feedback (9.3) ----
   {
+    id: "tasks.token",
+    what: "GET {tasks.endpoint} with an access token",
+    config: { ...V4, feedback: true },
+    detail: "[tasks.token] GET {tasks.endpoint} carried an access token",
+    run: async (c) => {
+      const answer = await call(c, await signedIn(c), "GET", `${c.hosts.api}/poppy/tasks`, { headers: { "Poppy-Version": "0.4" } });
+      expect(await answer.json()).toMatchObject({ excluded_tasks: expect.any(Array), feedback: { endpoint: `${c.hosts.api}/poppy/feedback` } });
+    }
+  },
+  {
     id: "feedback.fields",
     what: "a feedback report whose task is over 200 characters",
     config: { feedback: true },

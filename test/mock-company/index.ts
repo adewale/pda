@@ -225,6 +225,7 @@ export class MockCompany extends DurableObject<Env> {
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
     if (path === "/poppy/feedback" && method === "POST") return web.feedbackReport(inbound, context);
+    if (path === "/poppy/tasks" && method === "GET") return web.tasks(context);
     const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|handoff\/cancel|close))?)?$/.exec(path);
     if (conversation) {
       const [, id, action] = conversation;
