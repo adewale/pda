@@ -1187,6 +1187,17 @@ export class Company {
   }
 
   /**
+   * The Operations version a request may get operations under (Ops 2): a
+   * 0.4 request only with `operations` version 3 declared, and a 0.3 one
+   * when the agent's client metadata lists version 2. Null: none.
+   */
+  operationsVersion(context: ResourceContext): "2" | "3" | null {
+    const declaration = context.session.declaration;
+    if (declaration && declaration.version !== "0.3") return declaration.declared.get("operations") === "3" ? "3" : null;
+    return context.client.listsOperations ? "2" : null;
+  }
+
+  /**
    * `Poppy-Version` and `Poppy-Extensions` (0.4, 3.4). A request without
    * `Poppy-Version` is a 0.3 request, since 0.3 defines no such header. One
    * for a version the Company doesn't serve gets `version_unsupported`; the

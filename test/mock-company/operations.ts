@@ -13,11 +13,11 @@ function exchangeSummary(price: { amount: string; currency: string }): string {
   return `Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for ${price.currency === "USD" ? `$${price.amount}` : `${price.amount} ${price.currency}`} more, charged to the card used for the order.`;
 }
 
-/** An operation, as the Company returns it (Ops 3). */
+/** An operation, as the Company returns it (Ops 3). Version 3 may leave out `summary`, never `terms`. */
 export type OperationV2 = {
   readonly operation_id: string;
   readonly revision: string;
-  readonly summary: string;
+  readonly summary?: string;
   readonly terms?: Record<string, unknown>;
   readonly expires_at: string;
 };
@@ -49,16 +49,24 @@ type ApprovalRecord = {
   performed: Performed | null;
   /** How many times an approval for it was sent. */
   approvals: number;
+  /** Who approved the revision it was performed for: `approver` under version 3, or the User under version 2. */
+  approvedBy: string | null;
 };
 
+/** An approval as sent: a header's String and Integer members, or a JSON object (Ops 6). */
+export type Approval = Readonly<Record<string, unknown>>;
+
+/** IDs as in 0.4 8.2: 1 to 256 characters of the URL-safe base64 alphabet. */
+const ID = /^[A-Za-z0-9_-]{1,256}$/;
+
 /**
- * `Poppy-Approval` (Ops 6): an RFC 9651 Dictionary, its String members by
- * key; null if the field doesn't parse as a Dictionary (RFC 9651 4.2), so
- * the Company ignores it. Members of other types, and parameters, are kept
- * out: Companies "MUST ignore members … they don't recognize".
+ * `Poppy-Approval` (Ops 6): an RFC 9651 Dictionary, its String and Integer
+ * members by key; null if the field doesn't parse as a Dictionary (RFC 9651
+ * 4.2), so the Company ignores it. Members of other types, and parameters,
+ * are kept out: Companies "MUST ignore members … they don't recognize".
  */
-export function parseApprovalHeader(value: string): Record<string, string> | null {
-  const members: Record<string, string> = {};
+export function parseApprovalHeader(value: string): Record<string, string | number> | null {
+  const members: Record<string, string | number> = {};
   let rest = value.trim();
   while (rest !== "") {
     const key = /^[a-z*][a-z0-9_\-.*]*/.exec(rest)?.[0];
@@ -87,6 +95,7 @@ export function parseApprovalHeader(value: string): Record<string, string> | nul
         const item = /^[^,;\s]+/.exec(rest)?.[0];
         if (!item) return null;
         delete members[key];
+        if (/^-?\d{1,15}$/.test(item)) members[key] = Number(item);
         rest = rest.slice(item.length);
       }
     } else {
@@ -116,6 +125,8 @@ export function parseApprovalHeader(value: string): Record<string, string> | nul
  */
 export class Operations {
   readonly #records = new Map<string, ApprovalRecord>();
+  /** Each `reference` an approval carried, by User, and the revision it approved (Ops 6). */
+  readonly #references = new Map<string, string>();
 
   constructor(readonly company: Company) {}
 
@@ -125,7 +136,7 @@ export class Operations {
       state: record.performed ? "succeeded" : "proposed",
       revision: record.revisions.size,
       confirms: record.approvals,
-      approvedBy: record.performed ? "user" : null
+      approvedBy: record.approvedBy
     }));
   }
 
@@ -157,7 +168,8 @@ export class Operations {
   #revise(record: ApprovalRecord, action: Action, asked: Record<string, unknown>): OperationV2 {
     const expiresAt = Date.now() + 10 * 60_000;
     const { summary, terms } = action.terms(asked);
-    const operation: OperationV2 = { operation_id: record.id, revision: `${Math.floor(expiresAt / 1000)}-${randomId("", 9)}`, summary, ...(terms ? { terms } : {}), expires_at: new Date(expiresAt).toISOString() };
+    const omitSummary = this.company.config.omitOperationSummary && terms !== undefined;
+    const operation: OperationV2 = { operation_id: record.id, revision: `${Math.floor(expiresAt / 1000)}-${randomId("", 9)}`, ...(omitSummary ? {} : { summary }), ...(terms ? { terms } : {}), expires_at: new Date(expiresAt).toISOString() };
     record.revisions.set(operation.revision, { operation, expiresAt });
     record.latest = operation.revision;
     return operation;
@@ -168,9 +180,11 @@ export class Operations {
    * `approval` is what the request carried (null: none). Returns the
    * operation to refuse with, or the performed action's response.
    */
-  #approve(action: Action, context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Record<string, string> | null): { readonly operation: OperationV2 } | { readonly performed: Performed } {
+  #approve(action: Action, context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Approval | null): { readonly operation: OperationV2 } | { readonly performed: Performed } {
     const co = this.company;
     if (approval && typeof approval.operation_id === "string" && typeof approval.revision === "string") {
+      const version3 = co.operationsVersion(context) === "3";
+      if (version3) this.#checkVersion3(context, approval as Approval & { operation_id: string; revision: string });
       const record = this.#records.get(approval.operation_id);
       // Check 1: a Session that can't approve it is handled as if it had sent no approval.
       if (record && record.kind === action.kind && this.#owner(record, context)) {
@@ -180,6 +194,7 @@ export class Operations {
         // Check 3: a revision it returned, unexpired, for exactly this request.
         const revision = record.revisions.get(approval.revision);
         if (revision && revision.expiresAt > Date.now() && record.request === request) {
+          record.approvedBy = version3 && typeof approval.approver === "string" ? approval.approver : "user";
           record.performed = action.perform(record, context);
           return { performed: record.performed };
         }
@@ -205,14 +220,50 @@ export class Operations {
       revisions: new Map(),
       latest: "",
       performed: null,
-      approvals: 0
+      approvals: 0,
+      approvedBy: null
     };
     this.#records.set(record.id, record);
     return { operation: this.#revise(record, action, asked) };
   }
 
+  /**
+   * What version 3 asks of an approval's own members (Ops 6). A Company
+   * MUST NOT reject an approval for an optional member, so these are
+   * recorded and the approval is checked as usual.
+   */
+  #checkVersion3(context: ResourceContext, approval: Approval & { readonly operation_id: string; readonly revision: string }): void {
+    const co = this.company;
+    const { approver, approved_at: approvedAt, input_type: inputType, reference } = approval;
+    if (approver !== "user" && approver !== "agent") {
+      co.violation("approval.approver", `the approval of ${approval.operation_id} has approver ${JSON.stringify(approver)}, not "user" or "agent"`);
+    }
+    if (approvedAt !== undefined && !Number.isSafeInteger(approvedAt)) {
+      co.violation("approval.approved-at", `approved_at ${JSON.stringify(approvedAt)} isn't an Integer of Unix seconds`);
+    }
+    if (inputType !== undefined && approver === "agent") {
+      co.violation("approval.input-type-with-agent", `an agent approval of ${approval.operation_id} has input_type ${JSON.stringify(inputType)}`);
+    }
+    if (inputType !== undefined && typeof inputType !== "string") {
+      co.violation("approval.input-type", `input_type ${JSON.stringify(inputType)} isn't a String`);
+    }
+    if (reference === undefined) return;
+    if (typeof reference !== "string" || !ID.test(reference)) {
+      co.violation("approval.reference", `reference ${JSON.stringify(reference)} isn't 1 to 256 URL-safe base64 characters`);
+      return;
+    }
+    // The same approval sent again keeps its reference; another approval needs its own.
+    const key = `${context.session.clientId}|${context.session.userId}|${reference}`;
+    const approved = `${approval.operation_id} ${approval.revision}`;
+    const earlier = this.#references.get(key);
+    if (earlier !== undefined && earlier !== approved) {
+      co.violation("approval.reference-reused", `reference ${reference} approved ${earlier}, then ${approved}`);
+    }
+    this.#references.set(key, approved);
+  }
+
   /** The jacket exchange, by API, MCP or the Company Agent. */
-  exchange(context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Record<string, string> | null) {
+  exchange(context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Approval | null) {
     return this.#approve(this.#exchange, context, request, asked, approval);
   }
 
@@ -221,7 +272,7 @@ export class Operations {
    * order's, and approved it is placed, to be paid at a checkout link on
    * the Company's website.
    */
-  prints(context: ResourceContext, request: string, terms: Terms, approval: Record<string, string> | null) {
+  prints(context: ResourceContext, request: string, terms: Terms, approval: Approval | null) {
     const co = this.company;
     return this.#approve(
       {

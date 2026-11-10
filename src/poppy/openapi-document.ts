@@ -5,7 +5,7 @@ import { PoppyClient, PoppyError } from "./client";
 import { type Company, boundedCacheSeconds } from "./discovery";
 import { type Api, findApi } from "./api-authority";
 import { fetchJson } from "./fetch";
-import { type ApprovalV2 } from "./operations-v2";
+import { type ApprovalToSend } from "./operations-v2";
 
 // ---------------------------------------------------------------- OpenAPI
 
@@ -312,7 +312,7 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
 export type OpenApiCall = {
   readonly apiUrl: string;
   /** The operation revision the User approved, sent as `Poppy-Approval` (Ops 6). */
-  readonly approval?: ApprovalV2;
+  readonly approval?: ApprovalToSend;
   /** The operation's `operationId`, or `METHOD /path` when it has none. */
   readonly operation: string;
   readonly params: Readonly<Record<string, string | number | boolean>>;

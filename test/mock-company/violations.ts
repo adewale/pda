@@ -176,6 +176,8 @@ export const VIOLATIONS = {
   "message.json-in-text": "Guides (Conversations: put structured details in data, not JSON or other markup in text; 8.4 says the same without a keyword): JSON in a message's text",
   "message.data-type": "Rule (8.4: data is a JSON object): Message data isn't a JSON object",
   "message.context-type": "Rule (8.4: context holds facts about the User's situation, as fields): Message context isn't an object",
+  "request.id": "MUST (0.4 8.3: \"Every POST body has an id\"; 8.2: 1 to 256 URL-safe base64 characters): A conversation request without a valid request id",
+  "request.id-reused": "MUST (0.4 8.3: the request ID is \"unique for the User across all its requests\"; a retry repeats the path and body): A request id reused with a different path or body",
   "message.id-reused": "MUST (8.3: \"MUST make it unique for the User\"): Message id reused with different content",
   "context.locale": "MUST (8.4: \"it MUST use the field and format defined here\", an RFC 5646 tag): context.locale isn't an RFC 5646 tag",
   "context.time-zone": "MUST (8.4: the field and format defined here, an IANA time zone name): context.time_zone isn't an IANA name",
@@ -250,6 +252,12 @@ export const VIOLATIONS = {
   "approval.idempotency-key-reused": "Rule (Ops 6: \"An Idempotency-Key sent with the first request doesn't carry over\"): The approved request reused the first request's Idempotency-Key",
   "approval.mcp-meta": "Rule (Ops 6: the approval as a JSON object in _meta under personalagentprotocol.org/approval): A malformed MCP approval",
   "approval.message": "Rule (Ops 6: the approval as a JSON object in the message's approval): A malformed approval in a message",
+  "approval.approver": "MUST (0.4 Ops 6: \"The Personal Agent MUST include approver\", user or agent): An Operations 3 approval without a valid approver",
+  "approval.approved-at": "Rule (0.4 Ops 6: \"approved_at, in Unix seconds\", an Integer in Poppy-Approval): approved_at that isn't an Integer",
+  "approval.input-type-with-agent": "MUST NOT (0.4 Ops 6: \"The Personal Agent MUST NOT include it with agent\"): input_type in an agent approval",
+  "approval.input-type": "Rule (0.4 Ops 6: input_type \"as a short string\"): input_type that isn't a String",
+  "approval.reference": "Rule (0.4 Ops 6: reference \"has the same characters as the IDs in spec 8.2\"): A malformed reference",
+  "approval.reference-reused": "Rule (0.4 Ops 6: reference \"is unique among the User's approvals at least\"): One reference sent for two approvals",
 
   // ---- Feedback (9.3) ----
   "feedback.fields": "MUST (9.3: task and description are required, at most 200 and 2,000 characters): A malformed feedback report",

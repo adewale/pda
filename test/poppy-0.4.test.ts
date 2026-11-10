@@ -5,8 +5,9 @@
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
 import { describe, expect, it } from "vitest";
-import { agent, company, requests, tool, type Company } from "./agent-helpers";
+import { agent, cards, company, requests, signInDirect, tool, until, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
+import type { AgentPayload } from "./mock-company/types";
 
 const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
 
@@ -36,5 +37,91 @@ describe("0.4: choosing a version and declaring it (3.4)", () => {
     const linked = (await requests(c)).filter((request) => new URL(request.url).pathname.startsWith("/poppy/v"));
     // A 0.4 poppy.json needs no other document; a 0.3 one links the 0.4 document, which is fetched once.
     expect(linked.map((request) => new URL(request.url).pathname)).toEqual(config.protocolVersion === "0.3" ? ["/poppy/v0.4.json"] : []);
+  });
+});
+
+/** What the agent sent the mock, decoded (test/kit-schemas.ts). */
+const sent = async (c: Company): Promise<AgentPayload[]> => (await c.stub.state()).sent.map((payload) => JSON.parse(payload) as AgentPayload);
+const EXCHANGE = { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" };
+
+describe("0.4: approving an operation (Operations 3, 5, 6)", () => {
+  it("sends a User's approval at an API with approver, approved_at, input_type and the approval's ID as reference", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c);
+    const before = Math.floor(Date.now() / 1000);
+    await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.terms.summary).toContain("Exchange the Stormline Jacket (M)");
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "user" })]);
+    const header = (await requests(c)).map((request) => request.headers["poppy-approval"]).find(Boolean)!;
+    const match = /^operation_id="exc_[\w-]+", revision="[\w-]+", approver="user", approved_at=(\d+), input_type="tap", reference="([\w-]+)"$/.exec(header);
+    expect(match, header).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(before);
+    expect(match![2]).toBe(card.approvalId);
+  });
+
+  it("sends the same statement in an MCP tool call's _meta", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: EXCHANGE });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(1);
+    const approvals = (await sent(c)).flatMap((payload) => {
+      const meta = (payload.json as { params?: { _meta?: Record<string, unknown> } } | undefined)?.params?._meta?.["personalagentprotocol.org/approval"];
+      return meta === undefined ? [] : [meta];
+    });
+    expect(approvals).toEqual([{ operation_id: expect.any(String), revision: expect.any(String), approver: "user", approved_at: expect.any(Number), input_type: "tap", reference: card.approvalId }]);
+  });
+
+  it("sends the statement in a conversation's extensions.operations.approval", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_message", { domain: c.domain, text: "Please exchange order ord_7Hk2 for the insulated one." });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    await until(async () => (await c.stub.state()).performs === 1);
+    const approvals = (await sent(c)).flatMap((payload) => {
+      const approval = (payload.json as { message?: { extensions?: { operations?: { approval?: unknown } } } } | undefined)?.message?.extensions?.operations?.approval;
+      return approval === undefined ? [] : [approval];
+    });
+    expect(approvals).toEqual([expect.objectContaining({ approver: "user", input_type: "tap", reference: card.approvalId, approved_at: expect.any(Number) })]);
+  });
+
+  it("shows every value in terms, labelled, when an operation has no summary, and binds the approval to them", async () => {
+    const c = await company({ ...V4, omitOperationSummary: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: EXCHANGE });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.terms.summary).toBe("The terms: order_id: ord_7Hk2; item_id: itm_4Qa; replacement_sku: stormline-insulated-m; price_difference.amount: 70.00; price_difference.currency: USD.");
+    // Nothing to compare an amount with: the terms are what the User reads.
+    expect(card.terms.differences).toBeUndefined();
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+});
+
+describe("0.4: request IDs (8.3)", () => {
+  it("puts an id on every conversation POST, unique for the User, and none on the message, which takes its request's", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." });
+    await tool(a, "poppy_close", { conversation: first.conversationId });
+    const posts = (await sent(c)).filter((payload) => payload.method === "POST" && new URL(payload.url).pathname.includes("/poppy/conversations"));
+    const bodies = posts.map((payload) => payload.json as { id?: string; message?: { id?: string } });
+    expect(posts.map((payload) => new URL(payload.url).pathname.replace(/cnv_[\w-]+/, "{id}"))).toEqual([
+      "/poppy/conversations", "/poppy/conversations/{id}/messages", "/poppy/conversations/{id}/handoff", "/poppy/conversations/{id}/close"
+    ]);
+    expect(bodies.every((body) => typeof body.id === "string" && body.message?.id === undefined)).toBe(true);
+    expect(new Set(bodies.map((body) => body.id)).size).toBe(bodies.length);
+    expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
   });
 });

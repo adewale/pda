@@ -7,7 +7,7 @@ import { assertPublicHost } from "./fetch";
 import { type AttachmentInfo, attachmentInfo, humanSize, readAttachment } from "../attachments";
 import { type Sql } from "./store";
 import { type RequestInit } from "./outgoing";
-import { approvalHeader, type ApprovalV2 } from "./operations-v2";
+import { approvalHeader, type ApprovalToSend } from "./operations-v2";
 import { isObject, type Json } from "./json";
 import { checkParams, checkBody } from "./api-schema";
 
@@ -250,7 +250,7 @@ export class CheckedApiRequest {
       readonly body?: Json;
       readonly files?: OpenApiCall["files"];
       readonly idempotencyKey?: string | (() => string);
-      readonly approval?: ApprovalV2;
+      readonly approval?: ApprovalToSend;
     }
   ): Promise<CheckedApiRequest> {
     const api = findApi(company, "openapi", request.apiUrl);

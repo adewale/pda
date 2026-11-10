@@ -1,6 +1,6 @@
 /** Durable OpenAPI task dispatch, file consent, replay and approval execution. */
 import { type Json, parseStrictJson, isObject, canonicalJson, toJson } from "./json";
-import { type OperationV2, approvalForModel, parseOperationV2, approvable } from "./operations-v2";
+import { type OperationV2, approvalForModel, parseOperationV2, approvable, operationsVersion, toSend } from "./operations-v2";
 import { type Company } from "./discovery";
 import { UNUSABLE, unusableApproval, proposeApproval, expired } from "./api-approvals";
 import { PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
@@ -51,7 +51,7 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
   }
   // The Company wants the User's approval of exact terms first (Ops 4); nothing was done.
   if (response.status === 403 && isObject(body) && body.error === "approval_required" && company.extensions.operations) {
-    const operation = parseOperationV2(body.operation);
+    const operation = parseOperationV2(body.operation, operationsVersion(company) ?? "2");
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
       return { kind: "unusable", body };
@@ -203,7 +203,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   }
   const guard = executionGuard(client, company, label, approval.binding, execution);
   if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
-  const checked = await CheckedApiRequest.check(client, company, approval.call);
+  // Under version 3 the approval says who approved it, when and how (0.4 Ops 6).
+  const sending = approval.call.approval ? { ...approval.call, approval: toSend(company, approval.call.approval, execution) } : approval.call;
+  const checked = await CheckedApiRequest.check(client, company, sending);
   if (checked.method !== approval.method || checked.url !== approval.url) {
     throw new PoppyError(
       "approval_changed",

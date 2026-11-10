@@ -76,10 +76,10 @@
     },
     {
       "change": "Request IDs on every conversation request",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F5 stores request IDs durably for messages, handoff, cancel and close; C2 sends a top-level id. Kit: conversations.missing-request-id, conversations.invalid-request-id, conversations.request-id-boundaries, conversations.request-id-conflict, conversations.request-id-other-conversation, conversations.request-id-other-url."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C2: every 0.4 conversation POST carries an id stored before sending and reused on retry; a message takes its request's ID and has none of its own; handoff and close store theirs. The mock requires the ID and answers request_id_conflict for another path or body. Kit: conversations.missing-request-id, conversations.invalid-request-id, conversations.request-id-boundaries, conversations.request-id-conflict and conversations.request-id-other-conversation pass; conversations.request-id-other-url waits for the cancel endpoint (C3)."
     },
     {
       "change": "Withdrawing a handoff",
@@ -125,17 +125,17 @@
     },
     {
       "change": "Operations version 3: agent approvals",
-      "disposition": "Planned",
+      "disposition": "Partly done",
       "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O3, AG1 and AG2, per decision 44: 0.4 Sessions declare operations version 3 and 0.3 Sessions keep version 2. The agent approves on the User's standing instructions only when a deterministic check finds the revision's terms within one, and otherwise asks the User. approver says which, and reference is the ledger entry's ID, unique per approval. Kit: approval.schema.json through the schema oracle (V0)."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3 is done: 0.4 Sessions declare operations version 3, 0.3 Sessions keep version 2, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2, per decision 44, remain: the agent approves on the User's standing instructions only when a deterministic check finds the revision's terms within one, and otherwise asks the User. Kit: approval.schema.json through the schema oracle (V0)."
     },
     {
       "change": "Operations require terms",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O3: under version 3 an operation needs terms and may omit summary. The card shows the Company's summary when there is one, and otherwise every value in terms, labelled; the approval stays bound to the exact terms. Version 2 keeps its required summary. Kit: operation.schema.json."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3: under version 3 an operation needs terms and may omit summary. The card shows the Company's summary when there is one, and otherwise every value in terms, labelled by its path; the approval stays bound to the exact terms. Version 2 keeps its required summary. Kit: operation.schema.json."
     },
     {
       "change": "`auth.disabled` without other clients",
@@ -230,10 +230,10 @@
     },
     {
       "change": "When and how the User approved",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O1 sends approved_at (Unix seconds; an Integer in the header) and input_type without personal or device data, with approver user under version 3 (O3); the mock parses Integer members."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3 sends approved_at (Unix seconds, when the User's decision claimed the card; an Integer in the header) and input_type \"tap\", which carries no personal or device data, with approver user under version 3. The mock parses Integer members and records a String approved_at."
     },
     {
       "change": "Operations: what counts as the same request",

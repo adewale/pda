@@ -522,6 +522,10 @@ async function refused(c: C, s?: Session) {
   return { s: signed, operation: body.operation };
 }
 
+/** A 0.4 Company, and the headers of a 0.4 Session that declares Operations 3 (3.4). */
+const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
+const V3 = { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` };
+
 function approval(operation: Pick<Operation, "operation_id" | "revision">) {
   return { "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}"` };
 }
@@ -1859,6 +1863,42 @@ const TAMPERS: readonly Tamper[] = [
       return exchange(c, s, { "Idempotency-Key": key, ...approval(first.operation) });
     }
   },
+  // ---- Operations 3 (0.4 Ops 6) ----
+  ...([
+    ["approval.approver", "an approval without approver", ""],
+    ["approval.approved-at", "approved_at as a String", `, approver="user", approved_at="1791487260"`],
+    ["approval.input-type-with-agent", "an agent approval with input_type", `, approver="agent", input_type="tap"`],
+    ["approval.input-type", "input_type as an Integer", `, approver="user", input_type=1`],
+    ["approval.reference", "a reference with a dot", `, approver="user", reference="apr.1"`]
+  ] as const).map(([id, what, members]): Tamper => ({
+    id,
+    what,
+    config: V4,
+    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const { operation_id, revision } = first.operation;
+      const performed = await exchange(c, s, { ...V3, "Poppy-Approval": `operation_id="${operation_id}", revision="${revision}"${members}` });
+      // The Company records it and checks the approval as usual (Ops 6).
+      expect(performed.status).toBe(201);
+    }
+  })),
+  {
+    id: "approval.reference-reused",
+    what: "one reference for two revisions' approvals",
+    config: V4,
+    detail: /^\[approval\.reference-reused\] reference apr_1 approved \S+ \S+, then \S+ \S+$/,
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const approve = (operation: Operation) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user", reference="apr_1"` });
+      // Approved for another request: a new revision, which needs its own approval (Ops 6, check 3).
+      const second = (await (await exchange(c, s, approve(first.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" })).json()) as { operation: Operation };
+      expect(second.operation.revision).not.toBe(first.operation.revision);
+      return exchange(c, s, approve(second.operation));
+    }
+  },
   {
     id: "approval.mcp-meta",
     what: "an MCP approval that isn't an object",
@@ -1876,6 +1916,29 @@ const TAMPERS: readonly Tamper[] = [
     what: "a message whose extensions.operations.approval isn't an object",
     detail: /^\[approval\.message\]/,
     run: async (c) => converse(c, await signedIn(c), message({ text: undefined, extensions: { operations: { approval: "yes" } } }))
+  },
+
+  // ---- Request IDs (0.4 8.3) ----
+  {
+    id: "request.id",
+    what: "a 0.4 conversation request without an id",
+    config: V4,
+    detail: "[request.id] conversation request: id undefined isn't 1-256 base64url characters",
+    run: async (c) => call(c, await session(), "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { message: { author: { type: "agent" }, text: "Hello" } } })
+  },
+  {
+    id: "request.id-reused",
+    what: "a 0.4 request id sent again with another path",
+    config: V4,
+    detail: /^\[request\.id-reused\] request id req_1 reused with a different path or body$/,
+    run: async (c) => {
+      const s = await session();
+      const started = await call(c, s, "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { id: "req_1", message: { author: { type: "agent" }, text: "Hello" } } });
+      const { conversation_id: id } = (await started.json()) as { conversation_id: string };
+      const refused = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/close`, { headers: { "Poppy-Version": "0.4" }, body: { id: "req_1" } });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({ error: "request_id_conflict" });
+    }
   },
 
   // ---- Feedback (9.3) ----
@@ -2470,6 +2533,55 @@ describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
     expect((await orderPrints(c, elsewhere, printOrder(theirPhoto), { "Idempotency-Key": `idk_${jti()}`, ...approval(operation) })).status).toBe(403);
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's request IDs (0.4 8.3)", () => {
+  it("answers a retry with the same id, path and body as it did, and gives the message its request's id", async () => {
+    const c = company();
+    await c.stub.configure(V4);
+    const s = await session();
+    const start = () => call(c, s, "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { id: "msg_first", message: { author: { type: "agent" }, text: "Hello" } } });
+    const first = (await (await start()).json()) as { conversation_id: string };
+    const again = await start();
+    expect(again.status).toBe(201);
+    expect(((await again.json()) as { conversation_id: string }).conversation_id).toBe(first.conversation_id);
+    const events = await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${first.conversation_id}/events`, { headers: { "Poppy-Version": "0.4" } });
+    const { events: read } = (await events.json()) as { events: { type: string; message?: { id: string; role: string } }[] };
+    expect(read.find((event) => event.message?.role === "user")?.message?.id).toBe("msg_first");
+    const state = await c.stub.state();
+    expect(state.conversations).toHaveLength(1);
+    expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's Operations 3 (0.4 Ops 2, 3, 6)", () => {
+  it("returns operations only to a request that declares Operations 3, and otherwise refuses with extension_required in a JSON body (Ops 2, 3.3)", async () => {
+    const c = company();
+    await c.stub.configure({ ...V4, requireOperationsExtension: true });
+    const s = await signedIn(c);
+    const undeclared = await exchange(c, s, { "Poppy-Version": "0.4" });
+    expect(undeclared.status).toBe(403);
+    expect(undeclared.headers.get("WWW-Authenticate")).toBeNull();
+    expect(await undeclared.json()).toEqual({ error: "extension_required", extension: "operations" });
+    const declared = await exchange(c, await signedIn(c), V3);
+    expect(declared.status).toBe(403);
+    expect(await declared.json()).toMatchObject({ error: "approval_required", operation: { operation_id: expect.any(String) } });
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("records who approved, takes approved_at as an Integer, and may leave out summary but never terms (Ops 3, 6)", async () => {
+    const c = company();
+    await c.stub.configure({ ...V4, omitOperationSummary: true });
+    const s = await signedIn(c);
+    const { operation } = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+    expect(operation).not.toHaveProperty("summary");
+    expect(operation.terms).toMatchObject({ order_id: "ord_7Hk2", price_difference: { amount: "70.00", currency: "USD" } });
+    const header = `${approval(operation)["Poppy-Approval"]}, approver="agent", approved_at=1791487255, reference="apr_01JD8ZK3R4"`;
+    expect((await exchange(c, s, { ...V3, "Poppy-Approval": header })).status).toBe(201);
+    const state = await c.stub.state();
+    expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "agent" })]);
     expect(state.recorded).toEqual([]);
   });
 });

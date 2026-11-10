@@ -5,7 +5,7 @@ import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { ActionOutcomePending, approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor } from "./operations";
-import { approvable, approvalCardId, approvalJson, approvalSummary, parseOperationV2 } from "./operations-v2";
+import { approvable, approvalCardId, approvalJson, approvalSummary, operationsVersion, parseOperationV2, toSend } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
@@ -20,7 +20,8 @@ const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
 
 type Message = {
-  id: string;
+  /** 0.3 only: under 0.4 the request carries the ID, and the message takes it (8.3). */
+  id?: string;
   /** Who wrote it (8.4, 8.8). */
   author: { type: "agent" | "human" };
   text?: string;
@@ -127,7 +128,8 @@ export type SendResult = {
  * Send a message: start a conversation, continue one, or start a Direct
  * Conversation (8.3, 8.10). The message id is fixed per tool call and
  * stored before sending, so a replay after a crash resends the same id and
- * content, and the Company returns the original response.
+ * content, and the Company returns the original response. Under 0.4 it is
+ * the request's `id`, which the message takes as its own (8.3).
  */
 export async function sendMessage(
   client: PoppyClient,
@@ -143,7 +145,7 @@ export async function sendMessage(
     contextOnly?: boolean;
     wait?: number;
     /** An approval the User gave on our card, never one the model chose (Ops 5, 6). */
-    approval?: { operation_id: string; revision: string };
+    approval?: ReturnType<typeof approvalJson>;
     /**
      * Accepting the parent's `user_requested` event (8.10). With it, the
      * message is optional: without text, the Company speaks first.
@@ -179,43 +181,49 @@ export async function sendMessage(
     );
   }
   if (request.userRequestedEventId !== undefined && !parent) throw new PoppyError("invalid_request", "Accepting a Company's invitation needs its parent conversation", 0);
+  // A conversation's requests use the version it started in (8.2), and a new one the Company's.
+  const requestIds = ((existing ?? parent)?.protocol_version ?? company.protocolVersion) !== "0.3";
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
+      const id = randomId("msg_");
+      const requestId = requestIds ? { id } : {};
       const accepting = request.userRequestedEventId !== undefined ? { user_requested_event_id: request.userRequestedEventId } : {};
       // 8.10: a request without `message` is valid only when accepting an invitation with both ids.
       if (request.userRequestedEventId !== undefined && request.text === undefined && request.data === undefined) {
-        return JSON.stringify({ parent_conversation_id: parent!.remote_id, ...accepting });
+        return JSON.stringify({ ...requestId, parent_conversation_id: parent!.remote_id, ...accepting });
       }
-      const message: Message = { id: randomId("msg_"), author: { type: request.sender } };
+      const message: Message = { ...(requestIds ? {} : { id }), author: { type: request.sender } };
       if (request.text !== undefined && !request.contextOnly) message.text = request.text;
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
       if (context) message.context = context;
       // 8.4: extension content only to a Company that lists the extension with the same version.
       if (request.approval) {
-        if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list Operations 2, so an approval can't be sent there`, 0);
+        if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list the Operations extension, so an approval can't be sent there`, 0);
         message.extensions = { operations: { approval: request.approval } };
       }
       if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
         throw new PoppyError("invalid_request", "A message needs text, data, context or extensions", 0);
       }
       return JSON.stringify({
+        ...requestId,
         ...(parent ? { parent_conversation_id: parent.remote_id } : {}),
         ...accepting,
         message
       });
     })
-  ) as { parent_conversation_id?: string; user_requested_event_id?: string; message?: Message };
+  ) as { id?: string; parent_conversation_id?: string; user_requested_event_id?: string; message?: Message };
+  const messageId = body.id ?? body.message?.id;
   // A message intent an earlier build stored with Operations 2's approval at the top level, which the
   // 3 November text moved to `extensions.operations` (8.4). Resending it under its id with a new shape
   // would conflict, and in the old shape a current Company ignores it, so it is refused: the User asks again.
   if (body.message && Object.hasOwn(body.message, "approval")) {
     throw new PoppyError("approval_changed", `This approval was saved by an earlier version of the agent in a form ${company.name} no longer reads. Nothing was sent; ask ${company.name} for current terms and approve them again.`, 0);
   }
-  if (body.message) {
+  if (body.message && messageId !== undefined) {
     client.sql.exec(
       "INSERT OR IGNORE INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
-      body.message.id,
+      messageId,
       company.issuer,
       request.conversationId ?? null,
       JSON.stringify(body),
@@ -251,7 +259,7 @@ export async function sendMessage(
       ({ body: response } = await post());
     }
   } catch (error) {
-    if (existing && body.message && error instanceof PoppyError) throw await sendRefused(client, company, existing, body.message.id, error);
+    if (existing && body.message && messageId !== undefined && error instanceof PoppyError) throw await sendRefused(client, company, existing, messageId, error);
     throw error;
   }
   if (!isObject(response) || typeof response.conversation_id !== "string" || !ID.test(response.conversation_id)) {
@@ -415,7 +423,7 @@ async function sendRefused(
  * conversation, in `extensions.operations.approval`; nothing else, and no text, approves it.
  */
 async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
-  const operation = parseOperationV2(value);
+  const operation = parseOperationV2(value, operationsVersion(company) ?? "2");
   if ("problem" in operation) {
     await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${company.name} asked for your approval in a conversation, but its terms couldn't be used (${operation.problem}), so nothing was done.` });
     return;
@@ -470,7 +478,7 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     sender: "agent",
     // In a Direct Conversation only the User's own words are text (8.10), so the approval goes alone.
     ...(row.direct ? {} : { text: "The User approved this." }),
-    approval: approvalJson(approval.approval),
+    approval: approvalJson(toSend(company, approval.approval, execution)),
     beforeDispatch
   });
   throw new OperationOutcomeUnknown(`Sent the User's approval to ${company.name} in conversation ${row.id}. The message was accepted, but the action's outcome has not been confirmed. Check with ${company.name} before asking for the same action again.`);
@@ -926,6 +934,15 @@ export function pushDirect(
   });
 }
 
+/**
+ * A handoff, cancel or close body: `{}` under 0.3, and under 0.4 a request
+ * `id` stored before sending, so a retry repeats it (8.3).
+ */
+function requestBody(client: PoppyClient, row: ConversationRow, key: string): Json {
+  if (row.protocol_version === "0.3") return {};
+  return { id: intent(client.sql, `request|${key}`, () => randomId("req_")) };
+}
+
 /** Ask for a person at the Company, after a summary for them (8.9). */
 export async function handoff(
   client: PoppyClient,
@@ -947,7 +964,7 @@ export async function handoff(
   });
   const { body } = await client.resourceJson(
     company,
-    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: {} }),
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: requestBody(client, row, `handoff|${callKey}`) }),
     tokenOptions(company, row.label)
   );
   if (isObject(body)) updateState(client, id, body, true);
@@ -965,7 +982,7 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   try {
     const { body } = await client.resourceJson(
       company,
-      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: {} }),
+      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: requestBody(client, row, `close|${row.id}`) }),
       tokenOptions(company, row.label)
     );
     if (isObject(body)) updateState(client, id, body);

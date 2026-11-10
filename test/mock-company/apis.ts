@@ -411,7 +411,7 @@ export class Apis {
    */
   #orderPrints(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (!co.config.operations || !context.client.listsOperations) throw this.#extensionRequired("operations");
+    if (!co.config.operations || !co.operationsVersion(context)) throw this.#extensionRequired("operations", context);
     const key = inbound.request.headers.get("Idempotency-Key");
     if (!key) {
       co.violation("idempotency.key-missing", `POST /prints without the Idempotency-Key its description requires`);
@@ -494,8 +494,9 @@ export class Apis {
     };
   }
 
-  /** `extension_required` at an API, in `WWW-Authenticate` (3.3). */
-  #extensionRequired(extension: string): HttpError {
+  /** `extension_required` at an API (3.3): in `WWW-Authenticate` under 0.3, in a JSON body under 0.4. */
+  #extensionRequired(extension: string, context: ResourceContext): HttpError {
+    if (context.session.declaration && context.session.declaration.version !== "0.3") return new HttpError(json({ error: "extension_required", extension }, 403));
     return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
   }
 
@@ -506,10 +507,10 @@ export class Apis {
    */
   #exchange(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
-    const usesOperations = co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing;
+    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
+    const usesOperations = co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing;
     if (!usesOperations) {
-      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations");
+      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations", context);
       co.performExchange(context.account, "direct API call");
       return json({ exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }, 201);
     }
@@ -819,11 +820,11 @@ export class Apis {
           structuredContent: { products }
         } };
       }
-      if (name === "exchange_item" && co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
+      if (name === "exchange_item" && co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
         const meta = record(params._meta) ?? {};
         const given = meta["personalagentprotocol.org/approval"];
-        const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, string>) : null;
+        const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, unknown>) : null;
         if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
           co.violation("approval.mcp-meta", "the approval in _meta isn't an object with operation_id and revision strings");
         }
@@ -831,7 +832,7 @@ export class Apis {
         if ("operation" in result) {
           return { result: {
             isError: true,
-            content: [{ type: "text", text: `Not done yet. This needs the user's approval: ${result.operation.summary}` }],
+            content: [{ type: "text", text: `Not done yet. This needs approval${result.operation.summary ? `: ${result.operation.summary}` : "."}` }],
             structuredContent: { operation: result.operation }
           } };
         }

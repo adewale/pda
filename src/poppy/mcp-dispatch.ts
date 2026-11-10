@@ -2,7 +2,7 @@
 import { PoppyClient, withoutAnswer, withAnswer, PoppyError } from "./client";
 import { type Company } from "./discovery";
 import { type Json, isObject } from "./json";
-import { type ApprovalV2, approvable, approvalJson, parseOperationV2, approvalForModel } from "./operations-v2";
+import { type ApprovalToSend, approvable, approvalJson, parseOperationV2, approvalForModel, operationsVersion, toSend } from "./operations-v2";
 import { type AuthorityGuard, findApi, requestGuard, bindingSnapshot, hasTaskCall, executionGuard } from "./api-authority";
 import { expired, unusableApproval, UNUSABLE, proposeApproval } from "./api-approvals";
 import { prepareMcpCall, mcpRequest, listMcpTools } from "./mcp-transport";
@@ -23,7 +23,7 @@ async function performMcp(
   client: PoppyClient,
   company: Company,
   label: string,
-  call: { apiUrl: string; tool: string; args: Json; approval?: ApprovalV2 },
+  call: { apiUrl: string; tool: string; args: Json; approval?: ApprovalToSend },
   guard: AuthorityGuard,
   executingApproval?: string,
   listed?: Json
@@ -36,7 +36,7 @@ async function performMcp(
   const { result } = await mcpRequest(client, company, label, api, prepared.target, "tools/call", params, guard, prepared.parameters);
   // An error result carrying an operation is a request for the User's approval (Ops 4).
   if (company.extensions.operations && isObject(result) && result.isError === true && isObject(result.structuredContent) && result.structuredContent.operation !== undefined) {
-    const operation = parseOperationV2(result.structuredContent.operation);
+    const operation = parseOperationV2(result.structuredContent.operation, operationsVersion(company) ?? "2");
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
       return { unusable: true, note: UNUSABLE };
@@ -110,7 +110,9 @@ registerExecutor("mcp", async (client, company, approval, label, execution) => {
     throw new PoppyError("approval_changed", "Preliminary MCP approvals are no longer supported. Ask for current Company terms.", 0);
   }
   const guard = executionGuard(client, company, label, approval.binding, execution);
-  const result = await performMcp(client, company, label, approval.call, guard, execution.approvalId);
+  // Under version 3 the approval says who approved it, when and how (0.4 Ops 6).
+  const call = approval.call.approval ? { ...approval.call, approval: toSend(company, approval.call.approval, execution) } : approval.call;
+  const result = await performMcp(client, company, label, call, guard, execution.approvalId);
   // The tool answered with an operation (Ops 4): its card waits, and nothing was done.
   if (isObject(result) && isObject(result.approval_required) && typeof result.proposed === "string") {
     if (approval.call.approval && result.approval_required.operation_id === approval.call.approval.operation_id &&

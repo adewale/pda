@@ -236,6 +236,8 @@ export type MockConfig = {
   readonly operationIdPrefix: string | null;
   /** The exchange operation's summary and terms, in place of the jacket's, for standing-permission tests. */
   readonly exchangeOperation: { readonly summary: string; readonly terms?: Record<string, unknown> } | null;
+  /** Operations leave out `summary`, which version 3 allows when they have `terms` (Ops 3). */
+  readonly omitOperationSummary: boolean;
   /**
    * Interop adversarial options (docs/adversarial-interop.md, Part B; armed
    * by the `evil-company` adapter, never set by a conformance test). Each is
@@ -397,6 +399,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,
   exchangeOperation: null,
+  omitOperationSummary: false,
   padBytes: null,
   nonceLoop: false,
   organizationName: null,

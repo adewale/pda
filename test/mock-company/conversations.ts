@@ -96,7 +96,7 @@ export function canonicalJson(value: unknown): string {
 /** Personal Agent Protocol conversations, Company side (spec section 8). */
 export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
-  /** Message idempotency per User: id → content hash and conversation (8.3). */
+  /** Message idempotency per User, and under 0.4 every request's: id → content hash and conversation (8.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
   /** Accepted `user_requested` events, by parent and event: the Direct Conversation each opened (8.10). */
   readonly #acceptances = new Map<string, string>();
@@ -190,6 +190,57 @@ export class Conversations {
     return conversation;
   }
 
+  /** A request in a 0.4 Session, whose POSTs carry a request `id` (0.4 8.3). */
+  #v04(context: ResourceContext): boolean {
+    return context.session.declaration !== undefined && context.session.declaration.version !== "0.3";
+  }
+
+  /**
+   * A 0.4 request's `id` (8.2, 8.3), which a message takes as its own; null
+   * under 0.3, whose messages carry their own `id`.
+   */
+  #requestId(context: ResourceContext, body: Record<string, unknown>): string | null {
+    if (!this.#v04(context)) return null;
+    if (typeof body.id !== "string" || !ID.test(body.id)) {
+      this.company.violation("request.id", `conversation request: id ${JSON.stringify(body.id)} isn't 1-256 base64url characters`);
+      throw new HttpError(json({ error: "invalid_request", error_description: "id must be 1-256 base64url characters" }, 400));
+    }
+    return body.id;
+  }
+
+  /** The message a request carries, with its request's ID under 0.4 (8.3: "A message's ID is its request's ID"). */
+  #incoming(context: ResourceContext, body: Record<string, unknown>): IncomingMessage | undefined {
+    const requestId = this.#requestId(context, body);
+    const message = body.message as IncomingMessage | undefined;
+    if (requestId === null || typeof message !== "object" || message === null) return message;
+    return { ...message, id: requestId };
+  }
+
+  /**
+   * A 0.4 handoff, cancel or close (8.3): the same `id`, path and body again
+   * is a retry, and true; a different path or body is `request_id_conflict`.
+   */
+  #retried(inbound: Inbound, context: ResourceContext, conversation: Conversation, body: Record<string, unknown>): boolean {
+    const requestId = this.#requestId(context, body);
+    if (requestId === null) return false;
+    const key = `${context.session.clientId}|${context.session.userId}|${requestId}`;
+    const hash = canonicalJson({ path: inbound.url.pathname, body });
+    const seen = this.#messageIds.get(key);
+    if (seen && seen.hash !== hash) this.#conflict(context, requestId);
+    if (seen) return true;
+    this.#messageIds.set(key, { hash, conversationId: conversation.id });
+    return false;
+  }
+
+  #conflict(context: ResourceContext, id: string): never {
+    if (this.#v04(context)) {
+      this.company.violation("request.id-reused", `request id ${id} reused with a different path or body`);
+      throw new HttpError(json({ error: "request_id_conflict" }, 409));
+    }
+    this.company.violation("message.id-reused", `message id ${id} reused with different content`);
+    throw new HttpError(json({ error: "message_id_conflict" }, 409));
+  }
+
   #validate(message: IncomingMessage | undefined): IncomingMessage {
     const co = this.company;
     const bad = (id: ViolationId, why: string) => {
@@ -251,21 +302,22 @@ export class Conversations {
    * (8.3). The same content is the same JSON value, whatever its members'
    * order (RFC 8259 4: an object is an unordered collection).
    */
-  #idempotent(context: ResourceContext, message: IncomingMessage, parent: string | null): Conversation | null {
+  #idempotent(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null): Conversation | null {
     const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    const hash = canonicalJson({ message, parent });
     const seen = this.#messageIds.get(key);
     if (!seen) return null;
-    if (seen.hash !== hash) {
-      this.company.violation("message.id-reused", `message id ${String(message.id)} reused with different content`);
-      throw new HttpError(json({ error: "message_id_conflict" }, 409));
-    }
+    if (seen.hash !== this.#hash(inbound, context, message, parent)) this.#conflict(context, message.id as string);
     return this.#conversations.get(seen.conversationId) ?? null;
   }
 
-  #remember(context: ResourceContext, message: IncomingMessage, parent: string | null, conversation: Conversation): void {
+  #remember(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null, conversation: Conversation): void {
     const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    this.#messageIds.set(key, { hash: canonicalJson({ message, parent }), conversationId: conversation.id });
+    this.#messageIds.set(key, { hash: this.#hash(inbound, context, message, parent), conversationId: conversation.id });
+  }
+
+  /** What a retry must repeat: the message and its parent, and under 0.4 the path (8.3). */
+  #hash(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null): string {
+    return canonicalJson({ message, parent, ...(this.#v04(context) ? { path: inbound.url.pathname } : {}) });
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
@@ -292,7 +344,7 @@ export class Conversations {
       return;
     }
     if (!this.operations) return;
-    const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, given as Record<string, string>);
+    const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, given);
     if ("operation" in result) {
       this.#say(conversation, "Those terms have changed. Here are the current ones.", { extensions: { operations: { operation: result.operation } } });
       return;
@@ -340,7 +392,7 @@ export class Conversations {
       }
       // The conversation now uses the User's account, so it belongs to it (8.2).
       conversation.owner.account = context.account;
-      if (co.config.operations && context.client.listsOperations && this.operations) {
+      if (co.config.operations && co.operationsVersion(context) && this.operations) {
         const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, null);
         if ("operation" in result) {
           this.#say(conversation, "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.", { extensions: { operations: { operation: result.operation } } });
@@ -465,7 +517,7 @@ export class Conversations {
     parent.directChild = conversation.id;
     this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
     if (message) {
-      this.#remember(context, message, parent.id, conversation);
+      this.#remember(inbound, context, message, parent.id, conversation);
       this.#accept(context, conversation, message);
     } else {
       // The Company's first message, recorded as a message event (8.10).
@@ -480,10 +532,10 @@ export class Conversations {
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const eventId = typeof body.user_requested_event_id === "string" ? body.user_requested_event_id : null;
     // 8.10: accepting a user_requested event, with or without the User's first message.
-    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, body.message as IncomingMessage | undefined);
-    const message = this.#validate(body.message as IncomingMessage | undefined);
+    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, this.#incoming(context, body));
+    const message = this.#validate(this.#incoming(context, body));
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
-    const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message, parentId);
+    const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(inbound, context, message, parentId);
     // A retry gets the original response only if it may still read the
     // conversation: once it used the account, 8.11 wins (S8), as in message().
     if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
@@ -524,7 +576,7 @@ export class Conversations {
       context: {}
     };
     this.#conversations.set(conversation.id, conversation);
-    this.#remember(context, message, parentId, conversation);
+    this.#remember(inbound, context, message, parentId, conversation);
     if (parent) {
       parent.directChild = conversation.id;
       this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
@@ -537,8 +589,8 @@ export class Conversations {
   async message(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     const body = this.#body(inbound);
-    const message = this.#validate(body.message as IncomingMessage | undefined);
-    const existing = this.#idempotent(context, message, null);
+    const message = this.#validate(this.#incoming(context, body));
+    const existing = this.#idempotent(inbound, context, message, null);
     if (existing) return this.#answer(inbound, existing, 202);
     if (conversation.status === "closed") {
       throw new HttpError(json({ error: "conversation_closed" }, 409));
@@ -557,7 +609,7 @@ export class Conversations {
     if (conversation.direct && this.#writer(message) !== "human" && (message.text !== undefined || message.data !== undefined)) {
       this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
     }
-    this.#remember(context, message, null, conversation);
+    this.#remember(inbound, context, message, null, conversation);
     this.#accept(context, conversation, message);
     return this.#answer(inbound, conversation, 202);
   }
@@ -600,17 +652,20 @@ export class Conversations {
     });
   }
 
-  #emptyBody(inbound: Inbound, id: "handoff.body" | "close.body"): void {
+  /** A handoff or close body: `{}` under 0.3, and only the request `id` under 0.4 (8.3). True for a 0.4 retry. */
+  #emptyBody(inbound: Inbound, context: ResourceContext, conversation: Conversation, id: "handoff.body" | "close.body"): boolean {
     const body = this.#body(inbound);
-    if (Object.keys(body).length !== 0) {
-      this.company.violation(id, `${id.split(".")[0]} body should be {}, got ${inbound.bodyText}`);
+    const retried = this.#retried(inbound, context, conversation, body);
+    if (Object.keys(body).some((key) => !(key === "id" && this.#v04(context)))) {
+      this.company.violation(id, `${id.split(".")[0]} body should be ${this.#v04(context) ? "only the request id" : "{}"}, got ${inbound.bodyText}`);
     }
+    return retried;
   }
 
   /** `POST {endpoint}/{id}/handoff` (8.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    this.#emptyBody(inbound, "handoff.body");
+    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return json({ status: conversation.status, responder: conversation.responder }, 202);
     if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (conversation.directChild) {
       throw new HttpError(
@@ -628,7 +683,7 @@ export class Conversations {
   /** `POST {endpoint}/{id}/close` (8.12). */
   async close(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    this.#emptyBody(inbound, "close.body");
+    this.#emptyBody(inbound, context, conversation, "close.body");
     this.#closeConversation(conversation);
     return json({ status: conversation.status, responder: conversation.responder });
   }
