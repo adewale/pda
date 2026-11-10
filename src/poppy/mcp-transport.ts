@@ -157,7 +157,8 @@ export async function mcpRequest(
       accept: "application/json, text/event-stream",
       headers: modern ? modernHeaders(method, params, parameters) : legacyHeaders(target.sessionId)
     }),
-    { label, resource: api.url, ...guard }
+    // Without an approval in _meta, the call means the same in any version (3.4).
+    { label, resource: api.url, ...guard, ...(isObject(params._meta) && params._meta["personalagentprotocol.org/approval"] !== undefined ? {} : { versionNeutral: true }) }
   );
   if (response.status === 404 && !modern && target.sessionId) {
     entries.delete(target.key);

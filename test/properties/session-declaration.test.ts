@@ -9,8 +9,9 @@ import { world } from "./client-fixture";
  * What a Session declares (0.4, 3.4; F2 in docs/poppy-0.4-upgrade.md):
  * `Poppy-Version` and `Poppy-Extensions` on every request with the Session
  * header, the same for the whole Session, and a new Session to change them.
- * The 0.4 Company here is the mock's discovered 0.3 Company read as 0.4,
- * since the mock doesn't serve 0.4 yet; it checks the headers with M1.
+ * The 0.4 Company here is the mock's discovered Company read as 0.4. Where
+ * a request goes as 0.4, the mock serves 0.4 beside 0.3, so it accepts both
+ * and checks the headers (M1).
  */
 
 async function send(client: Awaited<ReturnType<typeof world>>["client"], company: Company) {
@@ -37,8 +38,10 @@ describe("what a Session declares (3.4)", () => {
 
 describe("a Session's declaration is fixed for its sid (3.4)", () => {
   it("sends the version and extensions under 0.4, and starts a new Session to change them", async () => {
-    const { client, company, mock } = await world({ protocolVersion: "0.3" });
-    const as04: Company = { ...company, protocolVersion: "0.4", extensions: { operations: true } };
+    const { client, company: served, mock } = await world({ protocolVersion: "0.3", linkedVersion: "0.4" });
+    // The agent chooses 0.4 from a Company serving both; this test moves it between them.
+    const company: Company = { ...served, protocolVersion: "0.3" };
+    const as04: Company = { ...served, protocolVersion: "0.4", extensions: { operations: true } };
     const sid = () => client.session(company.issuer, "main")!.session_id;
     const last = async () => (await mock.state()).requests.at(-1)!.headers;
 
@@ -77,7 +80,7 @@ describe("a Session's declaration is fixed for its sid (3.4)", () => {
   });
 
   it("lets a Session started before its first request declare the Company's version, rather than restarting it", async () => {
-    const { client, company } = await world({ protocolVersion: "0.3" });
+    const { client, company } = await world({ protocolVersion: "0.3", linkedVersion: "0.4" });
     const as04: Company = { ...company, protocolVersion: "0.4", extensions: { operations: true } };
     // As an authority guard does: the Session exists, bound, before the request is made.
     const sid = client.sessionFor(as04, "main").session_id;

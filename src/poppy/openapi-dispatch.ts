@@ -40,7 +40,9 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     label,
     // The server's own protected resource metadata says whether it takes only its own tokens (4.5).
     service: (await openApi(client, api)).base,
-    ...(readOnly ? { scope: readOnly } : {}), ...guard
+    ...(readOnly ? { scope: readOnly } : {}), ...guard,
+    // Without an approval, the call means the same in any version (3.4).
+    ...(checked.call.approval ? {} : { versionNeutral: true })
   });
   const text = await client.readBody(response).catch(error => { throw withUnreadableAnswer(error, response.status); });
   let body: Json = null;

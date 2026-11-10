@@ -236,6 +236,13 @@ export type TokenOptions = {
   readonly service?: string;
   /** The Session header alone, never an access token, even signed in: 0.4's tasks endpoint (9). */
   readonly noToken?: boolean;
+  /**
+   * The request means the same in any protocol version, so after
+   * `version_unsupported` it may be sent again under the version chosen
+   * afresh (3.4): an API call without an approval. A conversation keeps its
+   * versions, and an approval's statement belongs to one, so neither is.
+   */
+  readonly versionNeutral?: boolean;
 };
 
 export function scopeSet(scope: string | undefined | null): Set<string> {
@@ -489,7 +496,7 @@ export class PoppyClient {
    * again (spec 3 and 3.2: SHOULD cache by HTTP caching headers; the bounds
    * are the Guides'). Timed by the host's clock, like the client's waits.
    */
-  async lookup(domain: string): Promise<Company | WebsiteOnly> {
+  async lookup(domain: string, options: { readonly fresh?: boolean } = {}): Promise<Company | WebsiteOnly> {
     const key = domainFromInput(domain);
     const cached = one(
       this.sql,
@@ -497,7 +504,8 @@ export class PoppyClient {
       "SELECT company, expires_at FROM poppy_domains WHERE domain = ?",
       key
     );
-    if (cached && cached.expires_at > this.host.now()) {
+    // `fresh`: discovery again whatever the cache says, as after `version_unsupported` (3.4).
+    if (cached && cached.expires_at > this.host.now() && !options.fresh) {
       const value = JSON.parse(cached.company) as Company | WebsiteOnly;
       if (!isCompany(value) || (supportsProtocol(value.protocolVersion) && value.specificationRevision === protocolRevision(value.protocolVersion))) return value;
     }
@@ -1444,7 +1452,9 @@ export class PoppyClient {
    * checking constructors made: an `EndpointRequest` to an endpoint
    * `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
    */
-  async resource(company: Company, outgoing: EndpointRequest | CheckedApiRequest, options: TokenOptions = {}): Promise<Response> {
+  async resource(chosen: Company, outgoing: EndpointRequest | CheckedApiRequest, options: TokenOptions = {}): Promise<Response> {
+    // The Company's document; after `version_unsupported`, the one chosen afresh (3.4).
+    let company = chosen;
     const request = outgoing.init();
     const url = new URL(request.url);
     if (url.protocol !== "https:") {
@@ -1468,6 +1478,7 @@ export class PoppyClient {
     const label = options.label ?? "main";
     let renewed = false;
     let restarted = false;
+    let rechosen = false;
     let challengedResource: { readonly value: string | undefined } | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
@@ -1617,6 +1628,29 @@ export class PoppyClient {
         this.#restartSession(company.issuer, label);
         options.onSessionRestart?.(sid, this.sessionFor(company, label).session_id);
         restarted = true;
+        continue;
+      }
+      // 3.4: a version the Company doesn't serve, refused unhandled. Fetch poppy.json afresh and choose
+      // again; a new choice takes a new Session, and the request is sent once more only if it means the
+      // same in the new version (readings.md, v04-version-unsupported).
+      if (response.status === 400 && !rechosen && peek?.error === "version_unsupported") {
+        await response.body?.cancel();
+        rechosen = true;
+        const sent = company.protocolVersion;
+        const fresh = await this.lookup(company.domain, { fresh: true }).catch(() => null);
+        const again = fresh && isCompany(fresh) && fresh.issuer === company.issuer && fresh.protocolVersion !== sent ? fresh : null;
+        log({ status: 400, error: "version_unsupported" }, again && options.versionNeutral ? { kind: "restart" } : undefined);
+        if (!again) throw withAnswer(new PoppyError("version_unsupported", `${company.name} refused protocol version ${sent}, and its poppy.json offers no other this agent speaks. Nothing was handled.`, 400), 400);
+        if (!options.versionNeutral) {
+          throw withAnswer(new PoppyError("version_unsupported", `${company.name} no longer serves protocol version ${sent}; the agent now uses ${again.protocolVersion} there. Nothing was handled, and this request wasn't sent again because it belongs to ${sent}. Start it again.`, 400), 400);
+        }
+        checkRetry();
+        company = again;
+        if (!tokenHostAllowed(company, url) && !listed && !("describedServer" in outgoing && outgoing.company.issuer === company.issuer)) {
+          throw new PoppyError("untrusted_host", `${url.hostname} isn't one of ${company.name}'s hosts in its new poppy.json, so the request wasn't sent again`, 0);
+        }
+        // The new declaration starts a new Session (#declaredSession), which a task's guard follows.
+        options.onSessionRestart?.(sid, this.preparedSession(company, label).session_id);
         continue;
       }
       // 7: a 401 with no error code and the scopes needed is handled as insufficient_scope.

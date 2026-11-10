@@ -362,3 +362,33 @@ describe("0.4: approvals across Sessions (Operations 3; decision 43)", () => {
     expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "failed" });
   });
 });
+
+describe("0.4: after version_unsupported (3.4)", () => {
+  it("fetches poppy.json afresh, and sends a read once more in a new Session under the version it chooses", async () => {
+    const c = await company({ ...V4, linkedVersion: "0.3" });
+    const a = await agent();
+    const search = { domain: c.domain, operation: "searchProducts", params: { q: "jacket" } };
+    expect((await tool(a, "poppy_api_call", search)).isError).toBe(false);
+    await c.stub.configure({ protocolVersion: "0.3", linkedVersion: null });
+    const mark = (await requests(c)).length;
+    const again = await tool(a, "poppy_api_call", search);
+    expect(again.isError, again.text).toBe(false);
+    const after = (await requests(c)).slice(mark);
+    const searches = after.filter((request) => new URL(request.url).pathname === "/products");
+    expect(searches.map((request) => [request.status, request.headers["poppy-version"] ?? null])).toEqual([[400, "0.4"], [200, null]]);
+    expect(decodeJwt(searches[1]!.headers["poppy-session"]!).sid).not.toBe(decodeJwt(searches[0]!.headers["poppy-session"]!).sid);
+    expect(after.filter((request) => new URL(request.url).pathname === "/.well-known/poppy.json")).toHaveLength(1);
+  });
+
+  it("doesn't send a conversation message again under another version, and says so", async () => {
+    const c = await company({ ...V4, linkedVersion: "0.3" });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.configure({ protocolVersion: "0.3", linkedVersion: null });
+    const refused = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "and another thing" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("no longer serves protocol version 0.4");
+    const messages = (await requests(c)).filter((request) => request.method === "POST" && /\/messages$/.test(new URL(request.url).pathname));
+    expect(messages.map((request) => request.status)).toEqual([400]);
+  });
+});
