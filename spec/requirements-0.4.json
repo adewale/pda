@@ -104,10 +104,10 @@
     },
     {
       "change": "Task coverage per Session",
-      "disposition": "Partly done",
+      "disposition": "Done",
       "implementation": "src/poppy/coverage.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "T1 is done: the agent gets the tasks response for each Session with the Session header and no token, even signed in, reuses it only in that Session as its caching headers allow, and takes excluded tasks and feedback.endpoint from it. The mock serves it and records a token. Kit: tasks.response, tasks.alternative-references and the feedback checks pass. T2's mock half is done (tasks.skill-index passes); the agent ignores the index for now, which 9.4 allows, until the owner decides how it uses skills."
+      "notes": "T1 is done: the agent gets the tasks response for each Session with the Session header and no token, even signed in, reuses it only in that Session as its caching headers allow, and takes excluded tasks and feedback.endpoint from it. The mock serves it and records a token. Kit: tasks.response, tasks.alternative-references and the feedback checks pass. T2 is done: the mock publishes a skill index (tasks.skill-index passes), and the agent ignores it, which 9.4 allows (decision 46)."
     },
     {
       "change": "Browser Control extension",
