@@ -218,6 +218,23 @@ describe("trace checks", () => {
       expect(checks[0]!.basis).toBe("Reading");
     });
 
+    it("holds a 0.4 read, a request with Poppy-Version, to 0.4's four state fields instead of status (8.5, 8.7)", () => {
+      const at04 = (url: string, response: unknown) => companyChecks(recording({ url, headers: { "Poppy-Version": "0.4" }, response }));
+      const { status: _status, ...shared } = complete;
+      const state = { ...shared, working: false, handoff: "none", closed: false };
+      expect(at04(`${events}?cursor=e1`, state)).toEqual([]);
+      const missing = at04(`${events}?cursor=e1`, complete);
+      expect(ids(missing)).toEqual(["company.events-shape:error"]);
+      expect(missing[0]!.detail).toMatch(/^no working; no handoff; no closed: /);
+      expect(at04(`${events}?cursor=e1`, { ...state, working: "false" })[0]!.detail).toMatch(/^working isn't a boolean: /);
+    });
+
+    it("takes 0.4's working stream event without an id, and only at 0.4 (8.6)", () => {
+      const stream = { url: events, responseHeaders: { "content-type": "text/event-stream" }, response: "event: working\ndata: {\"working\":false}\n\nid: e2\nevent: message\ndata: {}\n\n" };
+      expect(companyChecks(recording({ ...stream, headers: { "Poppy-Version": "0.4" } }))).toEqual([]);
+      expect(ids(companyChecks(recording(stream)))).toEqual(["company.sse-event-id:error"]);
+    });
+
     it("holds a send with wait to the same fields (7.3: it responds as a read would), and a send without wait to none", () => {
       const send = `${API}/poppy/conversations`;
       const later = `${API}/poppy/conversations/c1/messages`;
