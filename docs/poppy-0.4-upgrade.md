@@ -81,7 +81,7 @@ Each item that changes the agent ships with the mock behaviour it needs, a stabl
 - **B4. Marked steps** (Browser Control 4): the agent leaves a step marked `interaction` or `submission` to the User and offers control. The fetch browser, which can't hand over control, refuses marked steps and tells the User to take them on the website.
 - **B5. Declaring `browser-control` version 1** in 0.4 Sessions whose browser is a Browser Run browser.
 
-**Layer 9.** **V1** the Python Hypothesis client, **V2** interop peers and fixtures for 0.4, **V4** the validator documentation.
+**Layer 9.** **V1** the Python Hypothesis client, **V2** interop peers and fixtures for 0.4. **V4** the validator documentation: **done** ([validator.md](validator.md) describes both profiles, how a domain's version is chosen and the 0.4 profile's own rules; the CLI's `--protocol` help names both versions).
 
 - **V3. The 11 November re-pin.** **Done**: the snapshot and kit in their own dated directories, the ledger's six new entries, and these changes:
   - **D1. Declining an approval** (Operations 6). A decline of the approval we sent, from an API, an MCP tool's error result or a later Company message, settles the card as refused and is never resent ([declines.ts](../src/poppy/declines.ts)). The card shows `reason` and `alternative` as the Company's words, and the model is told not to retry. In a conversation it also ends the unknown-outcome hold. A website's decline at `endpoint` is handled the same way (W3). The mock can decline every approval or agent approvals only (`declineApprovals`), and records a declined approval sent again and an agent approval after a decline.
@@ -89,7 +89,7 @@ Each item that changes the agent ships with the mock behaviour it needs, a stabl
   - **D3. A browser-session endpoint on another host** (6): the fetch browser keeps a cookie whose `Domain` is the Company's `organization.domain` or under it ([reading](readings.md#v04-cookie-domain)).
   - **D4. Sign-ins someone else started** (10.8): the callback already reaches only the agent that started the sign-in, now tested. The mock's consent page names the agent and asks the User to continue only if they asked. When a sign-in grants fewer scopes, the model is told the Company may not grant them to this User, and not to send the User to sign in again for them.
 
-**Then:** G1 the design and guides, and L1 the live checks in [deployment-tasks.md](deployment-tasks.md).
+**Then:** **G1** the design: **done** ([pda-spec.md](../pda-spec.md) follows both versions, with 0.4's browsing, website operations and Operations 3 in their sections). **L1** the live checks: **written** in [deployment-tasks.md](deployment-tasks.md), to run once the branch is deployable; none has been run.
 
 **P1. Speaking 0.4.** Done early, on 10 November ([decision 45](decisions.md#45-04-spoken-on-the-branch-before-it-is-finished-and-strict-04-re-pins)): 0.4 is in `PROTOCOL_VERSIONS`, its pin is `runtime`, the validator's default profile is 0.4, and build info reports each version's revision. The agent chooses 0.4 from any Company that offers it, so the branch isn't deployable until the items above are done. A 0.4 re-pin (V3) retires that Company's open conversations and holds its pending approvals, as any revision change does.
 

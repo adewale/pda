@@ -1,5 +1,5 @@
 /**
- * Every protocol version the validator knows: 0.3, and the 0.4 draft. To
+ * Every protocol version the validator knows: 0.3 and 0.4. To
  * support an incompatible new version, add a profile module that imports the
  * rules it still wants from the previous one, and append it here.
  */
