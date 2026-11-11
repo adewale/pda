@@ -65,7 +65,7 @@ export class Web {
       scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => !config.hideScopesFromAuth.includes(scope) && (requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope)))),
       scope_hints: {
         [read]: { changes: "none", personal_data: true },
-        [write]: { changes: "irreversible", personal_data: true },
+        [write]: { changes: config.reversibleWrites ? "reversible" : "irreversible", personal_data: true },
         addresses: { changes: "reversible", personal_data: true }
       }
     };
@@ -130,7 +130,11 @@ export class Web {
     if (co.config.issuerless) return json({ error: "not_found" }, 404);
     const host = inbound.url.hostname;
     return json(
-      { resource: co.config.domainResourceOverride ?? `https://${host}`, authorization_servers: co.config.authorizationServersOverride ?? [co.hosts.issuer] },
+      {
+        resource: co.config.domainResourceOverride ?? `https://${host}`,
+        authorization_servers: co.config.authorizationServersOverride ?? [co.hosts.issuer],
+        ...(co.config.resourceScopes ? { scopes_supported: Object.keys(this.#scopeDescriptions()) } : {})
+      },
       200,
       { ...(co.config.metadataCacheHeaders ?? DEFAULT_CACHING) }
     );

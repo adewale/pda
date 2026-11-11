@@ -15,7 +15,7 @@ import {
 } from "./conversations";
 import type { Fetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
-import { decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
+import { decideAsAgent, decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
 import {
   expireSignIn,
   cancelSignIn,
@@ -29,7 +29,8 @@ import {
 import { pendingSignOuts, recoverSignOuts, retryRevocation, retrySignOut } from "./signout";
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { one, rows } from "../rows";
-import { cardsTable, migrate } from "./store";
+import { approvalsTable, cardsTable, migrate } from "./store";
+import { addInstruction, InstructionRefused, instructions, ledger, newInstructionDecoder, withdrawInstruction } from "./instructions";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 import { issuerDecoder, type Issuer } from "./issuer";
 import { clientFrame } from "./frames";
@@ -364,6 +365,14 @@ export class PoppyCapability extends LifecycleCapability {
         attempts: row.attempts,
         expiresAt: row.expires_at,
         nextAt: row.next_at
+      })),
+      instructions: instructions(client).map((item) => ({
+        ...item,
+        company: name(item.issuer),
+        approvals: ledger(client, item.id).map((entry) => {
+          const approval = one(client.sql, approvalsTable.pick("summary", "status"), "SELECT summary, status FROM poppy_approvals WHERE id = ?", entry.approvalId);
+          return { approvalId: entry.approvalId, summary: approval?.summary ?? "", status: approval?.status ?? "unknown", spend: entry.state, amount: entry.amount, currency: entry.currency, at: entry.at };
+        })
       }))
     };
     if (socket) socket.send(JSON.stringify(frame));
@@ -505,6 +514,23 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.card.dismiss":
         this.retireCard(frame.id);
         return;
+      case "poppy.instruction.add": {
+        // From the User's page only; the model has no way to send this frame.
+        const decoded = tryDecode(newInstructionDecoder, { issuer: frame.issuer, account: frame.account ?? null, text: frame.text, conditions: frame.conditions, budget: frame.budget ?? null }, "instruction");
+        try {
+          if (!decoded.ok) throw new InstructionRefused(`That instruction can't be used: ${decoded.problem}.`);
+          addInstruction(client, decoded.value);
+        } catch (error) {
+          if (!(error instanceof InstructionRefused)) throw error;
+          await this.#showCard({ id: `instruction-refused-${Date.now()}`, kind: "notice", company: "Your agent", open: true, text: error.message });
+        }
+        this.#sendSettings();
+        return;
+      }
+      case "poppy.instruction.withdraw":
+        withdrawInstruction(client, frame.id);
+        this.#sendSettings();
+        return;
     }
   }
 
@@ -562,6 +588,9 @@ export class PoppyCapability extends LifecycleCapability {
         } else if (fn === "poppy-revoke" && payload.id) {
           // A sign-out the Company refused: try again (signout.ts). Its notice resends the Companies page.
           next = await retrySignOut(client, payload.id);
+        } else if (fn === "poppy-agent-approval" && payload.id) {
+          // An operation a standing instruction covers (instructions.ts): approved and sent, unless decided or withdrawn since.
+          await decideAsAgent(client, payload.id);
         }
       } catch (error) {
         event.fail(error);

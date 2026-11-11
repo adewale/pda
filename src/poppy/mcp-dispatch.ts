@@ -11,6 +11,7 @@ import { randomId } from "./jwt";
 import { dispatchTaskRequest, registerExecutor, TermsRequested } from "./operations";
 import { type SchemaDraft, schemaErrors, serialisedJson, leafErrors } from "./api-schema";
 import { isTaskRequest } from "./approval-outcome";
+import { readDecline } from "./declines";
 
 /**
  * Call an MCP tool: its arguments, and the User's approval in `_meta` when
@@ -48,6 +49,9 @@ async function performMcp(
     }, executingApproval);
     return approvalForModel(company, operation, 200, approvalId);
   }
+  // 0.4 Ops 6: an error result declining the approval we sent; nothing was done.
+  const declined = call.approval && isObject(result) && result.isError === true ? readDecline(company, result.structuredContent, call.approval, true) : null;
+  if (declined) throw withAnswer(declined, 200);
   if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", `The MCP tool reported an error: ${JSON.stringify(result).slice(0, 1_000)}`, 200), 200);
   return result;
 }

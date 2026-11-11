@@ -41,6 +41,8 @@ const approvalRow = object({
   outcome_resolution: approvalColumns.outcome_resolution,
   outcome_resolved_at: approvalColumns.outcome_resolved_at,
   terms_approval_id: approvalColumns.terms_approval_id,
+  approver: approvalColumns.approver,
+  instruction: nullable(text),
   kind: nullable(text)
 });
 
@@ -207,7 +209,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   for (const row of rows(
     sql,
     approvalRow,
-    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at, terms_approval_id", "created_at")
+    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at, terms_approval_id, approver, (SELECT text FROM poppy_instructions WHERE id = instruction_id) AS instruction", "created_at")
   )) {
     // The Company's terms own this action's visible lifecycle; its internal dispatch is not another approval.
     if (taskRequested(sql, row.id) && row.terms_approval_id) continue;
@@ -233,7 +235,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       quoteBy: row.terms ? "company" : "agent",
       how: row.kind === "browse-submit" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
       access: "view_and_change",
-      decidedBy: row.status === "pending" || taskRequested(sql, row.id) ? null : "you",
+      // 0.4 Ops 5: approved on a standing instruction, the ledger names it in the User's own words.
+      decidedBy: row.status === "pending" || taskRequested(sql, row.id) ? null : row.approver === "agent" ? "instruction" : "you",
+      ...(row.approver === "agent" && row.instruction ? { instruction: row.instruction } : {}),
       result,
       ...(outcome ? { outcome, outcomeBy: resolution ? "you" as const : "agent" as const } : {})
     });

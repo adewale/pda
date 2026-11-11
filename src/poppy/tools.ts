@@ -29,6 +29,8 @@ import { excludedTasks, feedbackEndpoint, sendFeedback, showExcludedTasks, type 
 import { pendingSignOuts, signOutForModel } from "./signout";
 import { sendAgentMessage } from "./agent-message";
 import { stateForModel } from "./conversation-state";
+import { instructionForModel, instructions } from "./instructions";
+import { operationsVersion } from "./operations-v2";
 import { NO_TASK_ACCESS } from "../task-access";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
@@ -266,7 +268,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
               .filter((row) => row.issuer === found.issuer)
               .map((row) => ({ conversation: row.id, ...stateForModel(row), direct: !!row.direct })),
             // Signed out here; the company hasn't accepted revoking the access, so it is still live there.
-            signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel)
+            signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel),
+            // Read only (0.4 Ops 5): the User writes and withdraws them on the Companies page.
+            ...(operationsVersion(found) === "3" ? { standingInstructions: instructions(c, found.issuer).filter((item) => item.withdrawnAt === null).map(instructionForModel) } : {})
           };
         }
       ),

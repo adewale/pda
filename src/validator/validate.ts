@@ -379,6 +379,10 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
       const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker, { notFoundIsAnswer: true });
       protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
       documents.push(documentResult("protected-resource", prmFetched, protectedResource));
+      // 0.4 (3.2, 4.7): it may list the scopes agents can request, as well as or instead of the issuer.
+      if (isObject(protectedResource) && Array.isArray(protectedResource.scopes_supported)) {
+        facts.resourceScopes = protectedResource.scopes_supported.filter((scope): scope is string => typeof scope === "string");
+      }
       ages.push(prmFetched.maxAgeSeconds);
       const context = { ...facts, ...(named !== undefined ? { issuer: named } : {}) };
       if (prmFetched.status === 404 && prmFetched.text === undefined) {

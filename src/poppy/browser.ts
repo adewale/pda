@@ -61,7 +61,8 @@ export interface BrowserContextHandle {
 export type PageHeaders = (url: URL, method: string) => Promise<Headers | null>;
 
 export interface PoppyBrowser {
-  newContext(guard: PageGuard, pageHeaders?: PageHeaders): Promise<BrowserContextHandle>;
+  /** `cookieDomains`: the Company's own domain, which a cookie's `Domain` may name to cover its hosts (0.4, 6). */
+  newContext(guard: PageGuard, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]): Promise<BrowserContextHandle>;
 }
 
 type ContextEntry = {
@@ -213,7 +214,8 @@ async function sessionContext(
       id: randomId("ctx_"),
       context: browser.newContext(
         (url) => { guard(url); checkContext(client, company, label, fresh); },
-        (url, method) => client.pageHeaders(company, label, { method, url: url.href })
+        (url, method) => client.pageHeaders(company, label, { method, url: url.href }),
+        [company.domain]
       ),
       sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0,
       scope: canonicalScope(session?.scope), accountGeneration: accountGeneration(client, company, session?.account ?? null), joined: false

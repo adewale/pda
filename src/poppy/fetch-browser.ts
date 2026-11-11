@@ -28,8 +28,10 @@ const DEFAULTS = { maxBytes: 1_000_000, timeoutMs: 15_000, maxRedirects: 5 } as 
 type Cookie = {
   readonly name: string;
   readonly value: string;
-  /** Host-only: sent back to exactly this host, never its subdomains or parent. */
+  /** The host that set it, or the `Domain` it covers when `hostOnly` is false. */
   readonly host: string;
+  /** Sent back to exactly `host`; otherwise to `host` and the hosts under it (RFC 6265 5.3). */
+  readonly hostOnly: boolean;
   readonly path: string;
   readonly secure: boolean;
   /** Epoch ms; undefined lasts as long as the context. */
@@ -53,15 +55,22 @@ function pathMatches(requestPath: string, cookiePath: string): boolean {
 }
 
 /**
- * One context's cookies. Simpler than a browser's on purpose: every cookie
- * is host-only (`Domain` never widens it), and cookies go only over HTTPS.
+ * One context's cookies. Simpler than a browser's on purpose: cookies go
+ * only over HTTPS, and a cookie is host-only unless its `Domain` is one of
+ * `domains` or under one. Those are the Company's own domain, so a
+ * browser-session endpoint on another of its hosts, such as
+ * `accounts.example.com`, can set a Session's cookie for the pages agents
+ * browse (0.4, 6), and no list of public suffixes is needed: any other
+ * `Domain` still leaves the cookie host-only.
  */
 export class CookieJar {
   #cookies: Cookie[] = [];
   readonly #now: () => number;
+  readonly #domains: readonly string[];
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, domains: readonly string[] = []) {
     this.#now = now;
+    this.#domains = domains.map((domain) => domain.toLowerCase());
   }
 
   /** Keep the `Set-Cookie` headers of a response from `url`. */
@@ -103,9 +112,10 @@ export class CookieJar {
     const now = this.#now();
     // Max-Age wins over Expires; zero or less, or a past date, deletes it.
     const expiry = maxAge !== undefined ? now + maxAge * 1000 : expires;
-    const cookie: Cookie = { name, value, host, path: path ?? defaultPath(url), secure, expires: expiry };
+    const shared = domain !== undefined && this.#domains.some((allowed) => domain === allowed || domain.endsWith(`.${allowed}`)) ? domain : undefined;
+    const cookie: Cookie = { name, value, host: shared ?? host, hostOnly: shared === undefined, path: path ?? defaultPath(url), secure, expires: expiry };
     this.#cookies = this.#cookies.filter(
-      (old) => !(old.name === cookie.name && old.host === cookie.host && old.path === cookie.path)
+      (old) => !(old.name === cookie.name && old.host === cookie.host && old.hostOnly === cookie.hostOnly && old.path === cookie.path)
     );
     if (expiry !== undefined && expiry <= now) return;
     this.#cookies.push(cookie);
@@ -123,7 +133,7 @@ export class CookieJar {
     this.#cookies = this.#cookies.filter((cookie) => cookie.expires === undefined || cookie.expires > now);
     const host = url.hostname.toLowerCase();
     return this.#cookies
-      .filter((cookie) => cookie.host === host && pathMatches(url.pathname, cookie.path))
+      .filter((cookie) => (cookie.host === host || (!cookie.hostOnly && host.endsWith(`.${cookie.host}`))) && pathMatches(url.pathname, cookie.path))
       .sort((a, b) => b.path.length - a.path.length)
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
@@ -448,7 +458,7 @@ class FetchContext implements BrowserContextHandle {
   #page: Page | undefined;
   #closed = false;
 
-  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions, pageHeaders?: PageHeaders) {
+  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]) {
     this.#fetcher = fetcher;
     this.#guard = guard;
     this.#pageHeaders = pageHeaders;
@@ -457,7 +467,7 @@ class FetchContext implements BrowserContextHandle {
       timeoutMs: options.timeoutMs ?? DEFAULTS.timeoutMs,
       maxRedirects: options.maxRedirects ?? DEFAULTS.maxRedirects
     };
-    this.#jar = new CookieJar(options.now);
+    this.#jar = new CookieJar(options.now, cookieDomains);
   }
 
   /** Every request and every redirect: HTTPS, a public host, and whatever the Company's rules allow. */
@@ -840,7 +850,7 @@ export class FetchBrowser implements PoppyBrowser {
     this.#options = options;
   }
 
-  async newContext(guard: PageGuard, pageHeaders?: PageHeaders): Promise<BrowserContextHandle> {
-    return new FetchContext(this.#fetcher, guard, this.#options, pageHeaders);
+  async newContext(guard: PageGuard, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]): Promise<BrowserContextHandle> {
+    return new FetchContext(this.#fetcher, guard, this.#options, pageHeaders, cookieDomains);
   }
 }

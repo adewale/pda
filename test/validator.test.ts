@@ -315,7 +315,7 @@ const POPPY_04: readonly Fixture[] = [
     outcome: "valid",
     also: (report) => {
       expect(report.checkedAgainst).toBe("Draft 0.4");
-      expect(report.specificationRevision).toBe("2026-11-10");
+      expect(report.specificationRevision).toBe("2026-11-11");
     }
   },
   {

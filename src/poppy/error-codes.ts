@@ -48,11 +48,12 @@ export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
  * Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449). 0.4 adds
  * `version_unsupported` (3.4), `version_mismatch` (8.2) and
  * `request_id_conflict`, 0.3's `message_id_conflict` for every request
- * (8.3). A Company's code outside the list is still read, as a short token
+ * (8.3), and Operations 3 `approval_declined` (Ops 6). A Company's code outside the list is still read, as a short token
  * (`companyErrorCode`).
  */
 export const PROTOCOL_ERROR_CODES = [
   "access_denied",
+  "approval_declined",
   "approval_required",
   "authorization_pending",
   "code_required",

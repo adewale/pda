@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-it("reports drift per pin: a frozen version's own pages and changelog entries, every page of a draft", () => {
+it("reports drift per pin: a frozen version's own pages and changelog entries, the shared pages once, for the newest pin", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "pda-spec-drift-"));
   try {
     const preload = path.join(directory, "fetch.mjs");
@@ -36,13 +36,14 @@ globalThis.fetch=async input=>{
     expect(moved.stdout).toContain("CHANGED 0.4-spec");
     expect(moved.stdout).toContain("CHANGED 0.3-guides");
 
-    // The shared changelog: the draft compares its whole text, the frozen version only its own entry titles.
+    // The shared changelog: each published version compares only its own entry titles (a draft would compare the whole text).
     const changelog = run("changed:changelog");
     expect(changelog.status).toBe(1);
-    expect(changelog.stdout).toContain("CHANGED changelog");
+    expect(changelog.stdout).not.toContain("CHANGED changelog ");
     expect(changelog.stdout).toContain("CHANGED 0.3 changelog entries");
+    expect(changelog.stdout).toContain("CHANGED 0.4 changelog entries");
 
-    // A shared page is checked once, for the draft; the frozen version ignores it.
+    // A shared page is checked once, for the newest pin (a draft if there is one); the older version ignores it.
     const shared = run("changed:introduction");
     expect(shared.status).toBe(1);
     expect(shared.stdout.match(/CHANGED introduction/g)).toHaveLength(1);

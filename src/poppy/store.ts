@@ -151,8 +151,31 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   resolution_notification_pending INTEGER NOT NULL DEFAULT 0,
   resolution_notification TEXT,
   outcome_resolution TEXT,
-  outcome_resolved_at INTEGER
+  outcome_resolved_at INTEGER,
+  approver TEXT,
+  instruction_id TEXT
 );
+-- The User's standing instructions (0.4 Operations 5, instructions.ts): written only from their page.
+CREATE TABLE IF NOT EXISTS poppy_instructions (
+  id TEXT PRIMARY KEY,
+  issuer TEXT NOT NULL,
+  account TEXT,
+  text TEXT NOT NULL,
+  conditions TEXT NOT NULL,
+  budget TEXT,
+  created_at INTEGER NOT NULL,
+  withdrawn_at INTEGER
+);
+-- Each approval an instruction decided, and what it counts against the instruction's budget.
+CREATE TABLE IF NOT EXISTS poppy_instruction_spend (
+  approval_id TEXT PRIMARY KEY,
+  instruction_id TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  state TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS poppy_instruction_spend_by_instruction ON poppy_instruction_spend (instruction_id, at);
 -- Approvals decided together on one card (operations.ts decideLocalBatch): the model is told once, when every one is done.
 -- A row with told = 0 after a restart is told then, from what its approvals' rows say.
 CREATE TABLE IF NOT EXISTS poppy_approval_batches (
@@ -232,6 +255,9 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_conversations)").toArray().some(column => column.name === "retired_at")) {
     sql.exec("ALTER TABLE poppy_conversations ADD COLUMN retired_at INTEGER");
   }
+  // Agents created before 11 November 2026: who approved, and the instruction an agent approval rested on (0.4 Ops 5, 6).
+  const approvalColumns = sql.exec("PRAGMA table_info(poppy_approvals)").toArray().map((column) => column.name);
+  for (const name of ["approver", "instruction_id"]) if (!approvalColumns.includes(name)) sql.exec(`ALTER TABLE poppy_approvals ADD COLUMN ${name} TEXT`);
   // Agents created before 28 October 2026: what an approval card shows of a Company's terms (Ops 5).
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms TEXT");
@@ -521,7 +547,17 @@ export const approvalsTable = table("poppy_approvals", {
   resolution_notification_pending: integerOf(flag),
   resolution_notification: nullable(savedApprovalNotification),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),
-  outcome_resolved_at: nullable(integer)
+  outcome_resolved_at: nullable(integer),
+  /** Who approved (0.4 Ops 6): null until decided, and for every approval before agent approvals. */
+  approver: nullable(textOf(literal("user", "agent"))),
+  /** The standing instruction an agent approval rested on. */
+  instruction_id: nullable(text)
+});
+export const instructionsTable = table("poppy_instructions", {
+  id: text, issuer: issuerColumn, account: nullable(text), text: text, conditions: text, budget: nullable(text), created_at: integer, withdrawn_at: nullable(integer)
+});
+export const instructionSpendTable = table("poppy_instruction_spend", {
+  approval_id: text, instruction_id: text, amount: text, currency: text, state: textOf(literal("reserved", "used", "released")), at: integer
 });
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer, notification: nullable(savedApprovalNotification) });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });

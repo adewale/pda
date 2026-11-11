@@ -16,6 +16,7 @@ import { taskProjection, resumeRecordedTask, proposeLocal, dispatchTaskRequest, 
 import { TaskFiles } from "./task-files";
 import { isTaskRequest } from "./approval-outcome";
 import { companyErrorCode } from "./error-codes";
+import { readDecline } from "./declines";
 
 /** What a sent API call got back. */
 type ApiAnswer =
@@ -218,6 +219,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   if (answer.kind === "approval") {
     throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
   }
+  // 0.4 Ops 6: the Company declined the approval we sent; nothing was done.
+  const declined = answer.kind === "answered" && answer.status === 403 && approval.call.approval ? readDecline(company, answer.body, approval.call.approval, true) : null;
+  if (declined) throw withAnswer(declined, 403);
   if (answer.kind === "answered" && (answer.status < 200 || answer.status >= 300)) {
     const { status, body } = answer;
     const code = companyErrorCode(isObject(body) ? body.error : undefined, status);

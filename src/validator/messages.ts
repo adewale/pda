@@ -572,7 +572,7 @@ export const MESSAGES = define({
   "scopes-supported-missing": {
     basis: "SHOULD",
     title: "No scopes_supported",
-    explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata and include every scope a Personal Agent can request (3.2, 4.7). Without it, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it.)",
+    explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata and include every scope a Personal Agent can request (3.2, 4.7); from 0.4, its protected resource metadata may list them instead. Without it, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it.)",
     fix: "Add scopes_supported, listing the scopes Personal Agents may request.",
     ref: spec("3.2", "oauth-server")
   },
@@ -754,7 +754,7 @@ export const MESSAGES = define({
     fix: "Give each key a unique kid.",
     ref: guides("Rotating keys", "both-key-rotation")
   },
-  // Draft 0.4 (spec/draft-0.4-retrieved-2026-11-10)
+  // 0.4, the 1.0 release candidate (spec/draft-0.4-retrieved-2026-11-11)
   "supported-version-unusable": {
     basis: "MUST",
     refuses: false,

@@ -103,6 +103,8 @@ export type MockConfig = {
    * description says so.
    */
   readonly webUnscoped: boolean;
+  /** Describe orders:write as reversible in `scope_hints` (3.1), as a Company whose exchanges can be undone would. */
+  readonly reversibleWrites: boolean;
   /** Offer the Operations extension. */
   readonly operations: boolean;
   /** Refuse writes from agents that don't list `operations`, with `extension_required`. */
@@ -155,6 +157,10 @@ export type MockConfig = {
    * endpoints don't move. Null: no path.
    */
   readonly issuerPath: string | null;
+  /** Answer the approval of an operation's first revision with a new revision, as a Company whose terms moved would (Ops 6). */
+  readonly reviseOnFirstApproval: boolean;
+  /** 0.4 Ops 6: decline approvals that pass the checks, every one or only agent approvals, instead of performing them. */
+  readonly declineApprovals: "all" | "agent" | null;
   /** The exchange's price difference, in its proposal's terms. */
   readonly exchangePrice: { readonly amount: string; readonly currency: string };
   /** Overrides the OpenAPI entry's `url` in poppy.json. */
@@ -324,6 +330,8 @@ export type MockConfig = {
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
   readonly omitScopesSupported: boolean;
+  /** 0.4 (3.2, 4.7): list the scopes in the domain's protected resource metadata, as a Company whose issuer serves others would. */
+  readonly resourceScopes: boolean;
   /** Refuse this agent these sign-in types with `unauthorized_client`, while accepting it for signed-out Sessions (4.1). */
   readonly refuseSignInTypes: readonly ("device")[];
   /** `organization.logo_uri` (3.1): a PNG, an SVG (which agents must not show), or none. */
@@ -360,6 +368,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   browserSession: true,
   webDisabled: false,
   webUnscoped: false,
+  reversibleWrites: false,
   pagesRefuseSession: false,
   skills: true,
   operations: true,
@@ -378,6 +387,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   nonceScope: "company",
   issuerTrailingSlash: false,
   issuerPath: null,
+  reviseOnFirstApproval: false,
+  declineApprovals: null,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,
@@ -444,6 +455,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   openapiOnAltDomainOnly: false,
   authDisabled: false,
   omitScopesSupported: false,
+  resourceScopes: false,
   refuseSignInTypes: [],
   logo: null,
   protectedResourcesOverride: null,

@@ -1,8 +1,8 @@
 {
   "protocolVersion": "0.4",
-  "revision": "2026-11-10",
-  "commit": "a2f16ec4c38e111289c12d7fbd8fec57b8aba06e",
-  "scope": "Disposition of every entry in the 0.4 draft changelog as retrieved on 10 November 2026 (upstream commit a2f16ec). Planned names the work item in the upgrade plan that implements it; Done records implementation with the stated evidence and limits. A newer 0.4 snapshot changes this list.",
+  "revision": "2026-11-11",
+  "commit": "ed474089d0fdeafae9584a95cfcc485209d8b124",
+  "scope": "Disposition of every entry in the 0.4 changelog as retrieved on 11 November 2026 (upstream commit ed47408), when 0.4 was published as the 1.0 release candidate. Planned names the work item in the upgrade plan that implements it; Done records implementation with the stated evidence and limits. A fix in a draft 1.0 gets its own pin.",
   "changes": [
     {
       "change": "Direct Sign-In preferred",
@@ -10,6 +10,13 @@
       "implementation": "src/poppy/signin.ts",
       "evidence": "test/properties/poppy.test.ts",
       "notes": "chooseSignInType already tries Direct, then Device, then Mediated. The 0.4 validator profile warns when a Company offers Device Sign-In but not Direct (direct-sign-in-preferred)."
+    },
+    {
+      "change": "Sign-ins someone else started",
+      "disposition": "Done",
+      "implementation": "src/index.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Already so before 11 November. The Direct Sign-In redirect goes to our own callback, which reaches only the agent of the person signed in to PDA in that browser, and only the agent that recorded the state can finish it (4.2): a link forwarded to someone else fails, whether their browser is signed in to PDA as another person or to no one. Links open in the User's own browser; Device Sign-In keeps RFC 10027's practices (short-lived requests, the User's own approval). The mock's consent page now names the agent, worded as connecting, and says to continue only if the User just asked it to."
     },
     {
       "change": "Several protocol versions",
@@ -125,10 +132,10 @@
     },
     {
       "change": "Operations version 3: agent approvals",
-      "disposition": "Partly done",
-      "implementation": "src/poppy/operations-v2.ts",
+      "disposition": "Done",
+      "implementation": "src/poppy/instructions.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "O3 is done: 0.4 Sessions declare operations version 3, 0.3 Sessions keep version 2, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2, per decision 44, remain: the agent approves on the User's standing instructions only when a deterministic check finds the revision's terms within one, and otherwise asks the User. Kit: approval.schema.json through the schema oracle (V0)."
+      "notes": "O3: 0.4 Sessions declare operations version 3, 0.3 Sessions keep version 2, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2 (decision 44): the User writes standing instructions on the Companies page, never the model; when an operation arrives, a deterministic check approves it as the agent (approver agent, no input_type) only if every condition of one instruction holds on its terms, in exact decimal arithmetic and the same currency, its budget has room, and the Session holds no scope that can make changes that can't be undone. Otherwise the User's card stays. A withdrawn instruction stops approvals not yet sent; Activity shows each one and the instruction it rested on. A revision answering an agent approval, or after a decline, goes to the User (11 November text). Kit: approval.schema.json through the schema oracle (V0)."
     },
     {
       "change": "Operations require terms",
@@ -136,6 +143,13 @@
       "implementation": "src/poppy/operations-v2.ts",
       "evidence": "test/poppy-0.4.test.ts",
       "notes": "O3: under version 3 an operation needs terms and may omit summary. The card shows the Company's summary when there is one, and otherwise every value in terms, labelled by its path; the approval stays bound to the exact terms. Version 2 keeps its required summary. Kit: operation.schema.json."
+    },
+    {
+      "change": "Operations: declining an approval",
+      "disposition": "Done",
+      "implementation": "src/poppy/declines.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Under Operations 3 a decline of the approval we sent (its operation_id and revision) at an API (403 approval_declined), an MCP tool (an error result's structuredContent) or in a later Company message (extensions.operations.declined) settles the approval as refused, never resent; the card shows the reason and alternative as the Company's words and the model is told not to retry. A decline in a message clears the unknown-outcome hold. After a decline, and after the Company answers an agent approval with a new revision, only the User approves that operation again. Website operations, where a decline arrives at endpoint, wait for W3. Mock: declineApprovals and reviseOnFirstApproval; TAMPERS rows approval.declined-resent, approval.agent-after-decline and approval.agent-after-revision. Kit: approval-declined.schema.json."
     },
     {
       "change": "`auth.disabled` without other clients",
@@ -150,6 +164,13 @@
       "implementation": "test/mock-company/auth.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
       "notes": "K1: the mock may skip assertion checks while it has issued no refresh token."
+    },
+    {
+      "change": "Scopes in the protected resource metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "0.4 only: discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's; a 0.3 Company's issuer list stays the only one. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. Mock: resourceScopes."
     },
     {
       "change": "`extension_required` in a JSON body at APIs",
@@ -206,6 +227,13 @@
       "implementation": "test/mock-company/core.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
       "notes": "K1 keys mock Sessions by client_id, sid and User ID, keeping the violation for an agent that changes sub or agent_id within a Session. No change on the wire."
+    },
+    {
+      "change": "Where the browser-session endpoint can be",
+      "disposition": "Done",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "test/fetch-browser.test.ts",
+      "notes": "The endpoint's host was already allowed for the token (tokenHostAllowed). The fetch browser's cookies were all host-only, so a cookie set at accounts.example.com never reached www.example.com. Now a cookie whose Domain is the Company's organization.domain, or under it, covers that domain's hosts; any other Domain still leaves it host-only, which stands in for a public suffix list (readings.md#v04-cookie-domain)."
     },
     {
       "change": "Operations: what a revision covers",
@@ -269,6 +297,20 @@
       "implementation": "src/poppy/routes.ts",
       "evidence": "docs/poppy-0.4-upgrade.md",
       "notes": "Company guidance for clients other than Personal Agents."
+    },
+    {
+      "change": "Scopes the Company doesn't grant",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "When a sign-in grants fewer scopes than requested, the model is told the Company may not grant them to this User at all, not to send the User to sign in again just for them, and to say someone else on the account may need to do the task. The User's own card is unchanged."
+    },
+    {
+      "change": "Passkeys on the consent page",
+      "disposition": "Guidance",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "spec/draft-0.4-retrieved-2026-11-11/pages/0.4-guides.md",
+      "notes": "Company guidance for its own sign-in pages. PDA never collects a password or passkey for Direct or Device Sign-In; the User signs in on the Company's page in their own browser, where a passkey works. Mediated Sign-In, where it can't, is unchanged."
     }
   ]
 }

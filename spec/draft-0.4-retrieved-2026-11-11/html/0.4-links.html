@@ -1,0 +1,17 @@
+<!-- https://personalagentprotocol.org/docs/0.4/extensions/links, content only; see ../README.md -->
+<article id="article"><h1>Links extension</h1><h2 id="intro">1 Introduction</h2><p>A Company&#x27;s message can refer to web pages, such as a return policy or an order&#x27;s tracking page. With this extension, the Company sends them as links the Personal Agent can show, rather than as URLs written into <code>text</code>.</p><p>This page defines version 1 of the <code>links</code> extension. It uses the terms in the <a href="/docs/0.4/spec">specification</a>.</p><h2 id="support">2 Advertising support</h2><p>A Company that sends links lists the extension in <code>extensions</code> in its <code>poppy.json</code> (<a href="/docs/0.4/spec#extensions">spec 3.3</a>):</p>Excerpt from poppy.json<pre><code>"extensions": {
+  "links": [{ "version": "1" }]
+}</code></pre><p>A Personal Agent that can show them declares it in <code>Poppy-Extensions</code> (<a href="/docs/0.4/spec#versions">spec 3.4</a>):</p>Request header: Personal Agent → Company<pre><code>Poppy-Extensions: "links";v="1"</code></pre><p>The Company sends links only in response to a request that declares this version (<a href="/docs/0.4/spec#message-fields">spec 8.4</a>).</p><h2 id="links">3 Links in messages</h2><p>A Company message carries its links in <code>extensions.links</code> (<a href="/docs/0.4/spec#message-fields">spec 8.4</a>):</p>Message: Company → Personal Agent<pre><code>{
+  "id": "msg_t4Wm",
+  "role": "company",
+  "author": { "type": "agent" },
+  "text": "Your jacket shipped this morning and should arrive Thursday.",
+  "extensions": {
+    "links": {
+      "items": [
+        { "url": "https://example.com/orders/ord_7Hk2/tracking", "title": "Tracking for order ord_7Hk2" },
+        { "url": "https://example.com/help/returns", "title": "Return policy" }
+      ]
+    }
+  }
+}</code></pre><table><thead><tr><th>Field</th><th>Req.</th><th>Description</th></tr></thead><tbody><tr><td><code>items</code></td><td>Yes</td><td>The links, in the order the message refers to them.</td></tr><tr><td><code>items[].url</code></td><td>Yes</td><td>The page&#x27;s HTTPS URL.</td></tr><tr><td><code>items[].title</code></td><td>No</td><td>The page&#x27;s name, as the message refers to it.</td></tr></tbody></table><p>Only Company messages carry links. The JSON Schema is <a href="https://personalagentprotocol.org/kit/company/schemas/links-content.schema.json">links-content.schema.json</a>.</p><p>The Personal Agent decides whether and how to show the links. A link&#x27;s <code>title</code> and <code>url</code> are content from the Company (<a href="/docs/0.4/spec#untrusted-content">spec 10.1</a>), and a title can name a page other than the one at its URL. The <a href="/docs/0.4/guides#agent-conversations">guides</a> suggest showing each link&#x27;s domain.</p></article>

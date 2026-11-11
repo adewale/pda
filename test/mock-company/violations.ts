@@ -265,6 +265,9 @@ export const VIOLATIONS = {
   "approval.input-type": "Rule (0.4 Ops 6: input_type \"as a short string\"): input_type that isn't a String",
   "approval.reference": "Rule (0.4 Ops 6: reference \"has the same characters as the IDs in spec 8.2\"): A malformed reference",
   "approval.reference-reused": "Rule (0.4 Ops 6: reference \"is unique among the User's approvals at least\"): One reference sent for two approvals",
+  "approval.declined-resent": "MUST NOT (0.4 Ops 6: \"the Personal Agent MUST NOT send that approval again\"): A declined approval sent again",
+  "approval.agent-after-decline": "MUST NOT (0.4 Ops 6: it \"MUST NOT approve a new revision for the same action without asking the User\"): An agent approval after a decline",
+  "approval.agent-after-revision": "MUST NOT (0.4 Ops 5: \"the Personal Agent MUST NOT approve the new one on the same instruction\"): An agent approval of a revision that answered an agent approval",
 
   // ---- Feedback (9.3) ----
   "skills.credentials": "Rule (0.4 9.4: listing an artifact \"does not authorize sending it credentials or Session headers\"): A skill artifact fetched with a token or Session header",

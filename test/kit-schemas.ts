@@ -1,6 +1,6 @@
 import upstream from "../spec/upstream.json";
 import { validateSchema as validate03 } from "../spec/company-kit-2026-11-03/kit/validate/schema.ts";
-import { validateSchema as validate04 } from "../spec/company-kit-2026-11-10/kit/validate/schema.ts";
+import { validateSchema as validate04 } from "../spec/company-kit-2026-11-11/kit/validate/schema.ts";
 import type { AgentPayload } from "./mock-company/types";
 
 /**
@@ -23,11 +23,11 @@ import type { AgentPayload } from "./mock-company/types";
 /** Schemas by kit, keyed by file name. A glob needs a literal path, so a re-pin updates this map (KIT_PATHS checks it). */
 const SCHEMAS: Record<string, Record<string, object>> = {
   "0.3": fileNames(import.meta.glob("../spec/company-kit-2026-11-03/kit/schemas/*.schema.json", { eager: true, import: "default" })),
-  "0.4": fileNames(import.meta.glob("../spec/company-kit-2026-11-10/kit/schemas/*.schema.json", { eager: true, import: "default" }))
+  "0.4": fileNames(import.meta.glob("../spec/company-kit-2026-11-11/kit/schemas/*.schema.json", { eager: true, import: "default" }))
 };
 /** Each kit's own validator, so a kit is judged only by its own files. */
 const VALIDATORS: Record<string, typeof validate03> = { "0.3": validate03, "0.4": validate04 };
-const KIT_PATHS: Record<string, string> = { "0.3": "spec/company-kit-2026-11-03", "0.4": "spec/company-kit-2026-11-10" };
+const KIT_PATHS: Record<string, string> = { "0.3": "spec/company-kit-2026-11-03", "0.4": "spec/company-kit-2026-11-11" };
 for (const [version, kit] of Object.entries(KIT_PATHS)) {
   const pin = upstream.pins.find((candidate) => candidate.protocolVersion === version);
   if (pin?.kit !== kit) throw new Error(`test/kit-schemas.ts reads the ${version} kit from ${kit}, but spec/upstream.json pins ${pin?.kit}`);

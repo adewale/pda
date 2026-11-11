@@ -51,6 +51,18 @@ type ApprovalRecord = {
   approvals: number;
   /** Who approved the revision it was performed for: `approver` under version 3, or the User under version 2. */
   approvedBy: string | null;
+  /** Revisions whose approval it declined (0.4 Ops 6, "Declining an approval"). */
+  readonly declined: Set<string>;
+  /** Revisions it returned in answer to an agent approval, which only the User may approve (Ops 5). */
+  readonly afterAgent: Set<string>;
+};
+
+/** A decline's members (Ops 6): no reason codes, and nothing the Session couldn't already see. */
+export type Declined = {
+  readonly operation_id: string;
+  readonly revision: string;
+  readonly reason: string;
+  readonly alternative: { readonly instructions: string; readonly references: readonly { readonly type: "web"; readonly url: string }[] };
 };
 
 /** An approval as sent: a header's String and Integer members, or a JSON object (Ops 6). */
@@ -180,7 +192,7 @@ export class Operations {
    * `approval` is what the request carried (null: none). Returns the
    * operation to refuse with, or the performed action's response.
    */
-  #approve(action: Action, context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Approval | null): { readonly operation: OperationV2 } | { readonly performed: Performed } {
+  #approve(action: Action, context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Approval | null): { readonly operation: OperationV2 } | { readonly performed: Performed } | { readonly declined: Declined } {
     const co = this.company;
     if (approval && typeof approval.operation_id === "string" && typeof approval.revision === "string") {
       const version3 = co.operationsVersion(context) === "3";
@@ -191,15 +203,31 @@ export class Operations {
         record.approvals += 1;
         // Check 2: performed already: the first response again (Ops 7).
         if (record.performed) return { performed: record.performed };
+        const agent = version3 && approval.approver === "agent";
+        if (version3) this.#checkAfterDecline(record, approval as Approval & { operation_id: string; revision: string }, agent);
         // Check 3: a revision it returned, unexpired, for exactly this request.
         const revision = record.revisions.get(approval.revision);
         if (revision && revision.expiresAt > Date.now() && record.request === request) {
+          // A Company whose terms moved since the first revision answers its approval with a new one (Ops 6).
+          if (co.config.reviseOnFirstApproval && record.revisions.size === 1) {
+            const next = this.#revise(record, action, asked);
+            if (agent) record.afterAgent.add(next.revision);
+            return { operation: next };
+          }
+          // 0.4 Ops 6: once the checks pass, a Company may decline, for its own reasons, such as `approver`.
+          const declines = co.config.declineApprovals;
+          if (version3 && (declines === "all" || (declines === "agent" && agent))) {
+            record.declined.add(approval.revision);
+            return { declined: this.#decline(record, approval.revision) };
+          }
           record.approvedBy = version3 && typeof approval.approver === "string" ? approval.approver : "user";
           record.performed = action.perform(record, context);
           return { performed: record.performed };
         }
         // Never the revision it names, so an approval can't loop (Ops 6).
-        return { operation: this.#revise(record, action, asked) };
+        const next = this.#revise(record, action, asked);
+        if (agent) record.afterAgent.add(next.revision);
+        return { operation: next };
       }
     }
     for (const record of this.#records.values()) {
@@ -221,7 +249,9 @@ export class Operations {
       latest: "",
       performed: null,
       approvals: 0,
-      approvedBy: null
+      approvedBy: null,
+      declined: new Set(),
+      afterAgent: new Set()
     };
     this.#records.set(record.id, record);
     return { operation: this.#revise(record, action, asked) };
@@ -260,6 +290,33 @@ export class Operations {
       co.violation("approval.reference-reused", `reference ${reference} approved ${earlier}, then ${approved}`);
     }
     this.#references.set(key, approved);
+  }
+
+  #decline(record: ApprovalRecord, revision: string): Declined {
+    const co = this.company;
+    return {
+      operation_id: record.id,
+      revision,
+      reason: "Only the account holder can approve this.",
+      alternative: { instructions: "The account holder can do this on our website.", references: [{ type: "web", url: `${co.hosts.web}/orders/ord_7Hk2` }] }
+    };
+  }
+
+  /**
+   * What a Personal Agent may not do after a decline, or after its own
+   * approval was answered with a new revision (0.4 Ops 5, 6): send a
+   * declined approval again, or approve the action again without the User.
+   */
+  #checkAfterDecline(record: ApprovalRecord, approval: Approval & { readonly operation_id: string; readonly revision: string }, agent: boolean): void {
+    const co = this.company;
+    if (record.declined.has(approval.revision)) {
+      co.violation("approval.declined-resent", `the declined approval of ${approval.operation_id} revision ${approval.revision} was sent again`);
+    } else if (agent && record.declined.size > 0) {
+      co.violation("approval.agent-after-decline", `after a decline, the agent approved a new revision of ${approval.operation_id} itself, without the User`);
+    }
+    if (agent && record.afterAgent.has(approval.revision)) {
+      co.violation("approval.agent-after-revision", `the agent approved revision ${approval.revision} of ${approval.operation_id}, which answered its own approval, instead of asking the User`);
+    }
   }
 
   /** The jacket exchange, by API, MCP or the Company Agent. */

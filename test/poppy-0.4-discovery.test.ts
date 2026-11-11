@@ -82,7 +82,7 @@ describe("choosing a version (3.4)", () => {
   it("this agent uses 0.4, the newest it speaks, without fetching the 0.3 document", async () => {
     const { fetcher, requests } = serving({ poppy: POPPY_04, linked: { "https://shop.test/poppy/0.3.json": POPPY_03 } });
     const { result } = await discover(fetcher, "shop.test");
-    expect(result).toMatchObject({ protocolVersion: "0.4", specificationRevision: "2026-11-10" });
+    expect(result).toMatchObject({ protocolVersion: "0.4", specificationRevision: "2026-11-11" });
     expect(requests).not.toContain("https://shop.test/poppy/0.3.json");
   });
 

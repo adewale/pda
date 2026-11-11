@@ -1,5 +1,5 @@
 /**
- * Rules for the 0.4 draft (spec/draft-0.4-retrieved-2026-11-10), beside
+ * Rules for 0.4, the 1.0 release candidate (spec/draft-0.4-retrieved-2026-11-11), beside
  * 0.3's. What changed in discovery: `extensions` lists an entry for each
  * major version (3.3); `supported_versions` links the documents for other
  * versions (3.4, read by validate.ts for any version); `web.disabled` and
@@ -172,12 +172,18 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   return facts;
 }
 
-/** The issuer's metadata: 0.3's rules, `poppy:browser-sign-in` with browser join (6), and Direct Sign-In preferred (4). */
+/**
+ * The issuer's metadata: 0.3's rules, with the scopes the domain's protected
+ * resource metadata lists counted as listed (3.2, 4.7), `poppy:browser-sign-in`
+ * with browser join (6), and Direct Sign-In preferred (4).
+ */
 export function checkOAuthMetadata04(c: Checker, doc: unknown, poppy: PoppyFacts | undefined): void {
-  checkOAuthMetadata(c, doc, poppy);
+  const resourceScopes = poppy?.resourceScopes;
+  checkOAuthMetadata(c, doc, poppy, resourceScopes);
   if (!isObject(doc) || poppy?.disabled) return;
-  if (poppy?.browserSession && Array.isArray(doc.scopes_supported) && !doc.scopes_supported.includes(BROWSER_SIGN_IN)) {
-    c.report("browser-sign-in-unsupported", "/scopes_supported", `poppy.json lists web.browser_session_endpoint, but scopes_supported doesn't include ${BROWSER_SIGN_IN}.`);
+  const lists = [doc.scopes_supported, resourceScopes].filter(Array.isArray);
+  if (poppy?.browserSession && lists.length && !lists.some((list) => list.includes(BROWSER_SIGN_IN))) {
+    c.report("browser-sign-in-unsupported", "/scopes_supported", `poppy.json lists web.browser_session_endpoint, but neither scopes_supported in the issuer's metadata nor in the protected resource metadata includes ${BROWSER_SIGN_IN}.`);
   }
   if (!Array.isArray(doc.grant_types_supported)) return;
   const grants = doc.grant_types_supported;

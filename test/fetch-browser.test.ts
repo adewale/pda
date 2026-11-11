@@ -22,6 +22,20 @@ describe("the fetch browser's cookie jar", () => {
     expect(jar.header(new URL("https://api.shop.example/orders"))).toBe("");
   });
 
+  it("lets a cookie's Domain cover the Company's hosts, and only at or under the Company's domain (0.4, 6)", () => {
+    const jar = new CookieJar(Date.now, ["shop.example"]);
+    jar.store(new URL("https://accounts.shop.example/poppy/browser-session"), [
+      "session=1; Domain=shop.example; Path=/; Secure",
+      "wide=1; Domain=example; Path=/; Secure",
+      "__Host-join=1; Path=/; Secure"
+    ]);
+    expect(jar.header(new URL("https://www.shop.example/orders"))).toBe("session=1");
+    expect(jar.header(new URL("https://shop.example/"))).toBe("session=1");
+    expect(jar.header(new URL("https://accounts.shop.example/poppy/browser-session"))).toBe("session=1; wide=1; __Host-join=1");
+    expect(jar.header(new URL("https://other.example/"))).toBe("");
+    expect(jar.header(new URL("https://shop.example.evil.test/"))).toBe("");
+  });
+
   it("sends cookies only over HTTPS, and keeps none from plain HTTP", () => {
     const jar = new CookieJar();
     jar.store(new URL("http://shop.example/"), ["plain=1; Path=/"]);

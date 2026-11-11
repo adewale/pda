@@ -64,17 +64,21 @@ export function approvesAcrossSessions(company: Company): boolean {
 
 /**
  * The statement a version 3 approval carries (0.4 Ops 6), or nothing under
- * version 2. Every approval so far is the User's, given by pressing the
- * card's button; `reference` is the approval's own ID, unique per approval
- * and derived per Company or random, so it never reaches two Companies.
+ * version 2: the User's, given by pressing the card's button, or the
+ * agent's, on a standing instruction the User wrote (instructions.ts), with
+ * no `input_type`. `reference` is the approval's own ID, the ledger entry
+ * the User sees, unique per approval and derived per Company or random, so
+ * it never reaches two Companies.
  */
-export function approvalStatement(company: Company, approval: { readonly approvalId: string; readonly approvedAt: number }): Partial<ApprovalStatement> {
+export function approvalStatement(company: Company, approval: { readonly approvalId: string; readonly approvedAt: number; readonly approver?: "user" | "agent" }): Partial<ApprovalStatement> {
   if (operationsVersion(company) !== "3") return {};
-  return { approver: "user", approved_at: Math.floor(approval.approvedAt / 1000), input_type: "tap", reference: approval.approvalId };
+  const approvedAt = Math.floor(approval.approvedAt / 1000);
+  if (approval.approver === "agent") return { approver: "agent", approved_at: approvedAt, reference: approval.approvalId };
+  return { approver: "user", approved_at: approvedAt, input_type: "tap", reference: approval.approvalId };
 }
 
 /** A stored approval as it is sent: with the statement under version 3 (0.4 Ops 6). */
-export function toSend(company: Company, approval: ApprovalV2, execution: { readonly approvalId: string; readonly approvedAt: number }): ApprovalToSend {
+export function toSend(company: Company, approval: ApprovalV2, execution: { readonly approvalId: string; readonly approvedAt: number; readonly approver?: "user" | "agent" }): ApprovalToSend {
   return { ...approval, ...approvalStatement(company, execution) };
 }
 

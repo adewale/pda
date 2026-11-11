@@ -16,7 +16,8 @@ export const ACCESS: Record<ActivityAccess, string> = {
 };
 
 export const DECIDED: Record<NonNullable<ActivityEntry["decidedBy"]>, string> = {
-  you: "You"
+  you: "You",
+  instruction: "Your instruction"
 };
 
 export const RESULT: Record<ActivityResult, string> = {

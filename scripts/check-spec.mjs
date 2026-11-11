@@ -100,14 +100,19 @@ if (process.argv.includes("--drift")) {
     if (typeof body === "number") throw new Error(`${source}: HTTP ${body}`);
     return body;
   };
+  // The shared pages follow the newest draft, or the newest version once every pinned version is published.
+  const byVersion = (a, b) => a.localeCompare(b, "en", { numeric: true });
+  const inProgress = checked.filter(({ pin }) => pin.status === "draft");
+  const newest = (inProgress.length ? inProgress : checked).map(({ pin }) => pin.protocolVersion).sort(byVersion).at(-1);
   for (const { pin, manifest, section } of checked) {
     // The site serves each page's Markdown source; the snapshot hashed it when it was stored.
-    // A frozen version owns only its own pages and its changelog entries; the shared pages follow the newest draft.
+    // A frozen version owns only its own pages and its changelog entries.
     const frozen = pin.status === "published";
+    const shared = pin.protocolVersion === newest;
     for (const page of manifest.pages) {
       const source = page.markdown.fetched?.url;
       if (!source) continue;
-      if (frozen && !page.name.startsWith(`${pin.protocolVersion}-`) && page.name !== "changelog") continue;
+      if (frozen && !shared && !page.name.startsWith(`${pin.protocolVersion}-`) && page.name !== "changelog") continue;
       const body = await fetchText(source);
       if (body === null) {
         failed = true;

@@ -333,9 +333,11 @@ export async function expireSignIn(client: PoppyClient, id: string): Promise<voi
 function signedInText(company: Company, row: SignInRow, scope: string, who: "you" | "the User"): string {
   const granted = scopeSet(scope);
   const missing = row.scopes.split(" ").filter((item) => !granted.has(item));
-  return missing.length
-    ? `Signed in to ${company.name}, but ${who} approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`
-    : `Signed in to ${company.name} with "${scope}".`;
+  if (!missing.length) return `Signed in to ${company.name} with "${scope}".`;
+  const fewer = `Signed in to ${company.name}, but ${who} approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`;
+  // 0.4 Guides, "Choosing how to sign in": the Company may not grant a scope to this User at all, which looks the same.
+  return who === "you" ? fewer
+    : `${fewer} The Company may not grant those to this User at all, such as an action only the account holder can allow, which looks the same. If the task needs them, don't ask the User to sign in again just for them: tell the User the access wasn't granted, and that if they didn't leave it out, someone else on the account, such as the account holder, may need to do the task.`;
 }
 
 /** Close the sign-in's card with how it ended, and tell the model, once; the card can word it for the User. */

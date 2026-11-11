@@ -539,9 +539,12 @@ describe.each(PROFILES)("4.2 Direct Sign-In ($name)", ({ config: profile }) => {
     const a = await agent();
     await signInDirect(a, c, ["orders:read", "orders:write"], { scopes: ["orders:read"] });
     // The model is told about "the User"; the User's own card says "you".
-    expect((await a.stub.poppyNotices()).some((n) => n.includes('the User approved fewer scopes than requested: granted "orders:read", not granted "orders:write"'))).toBe(true);
+    const told = (await a.stub.poppyNotices()).find((n) => n.includes('the User approved fewer scopes than requested: granted "orders:read", not granted "orders:write"'));
+    // 0.4 Guides: the Company may not grant it to this User at all, so the model doesn't send the User to sign in again for it.
+    expect(told).toContain("don't ask the User to sign in again just for them");
     const notice = (await cards(a)).find((item) => item.kind === "notice" && item.text.includes('not granted "orders:write"'))!;
     expect(notice.text).toContain("but you approved fewer scopes than requested");
+    expect(notice.text).not.toContain("account holder");
   });
 
   it("handles a declined sign-in", async () => {

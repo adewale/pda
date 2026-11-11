@@ -394,6 +394,11 @@ export class Conversations {
       this.#say(conversation, "Those terms have changed. Here are the current ones.", { extensions: { operations: { operation: result.operation } } });
       return;
     }
+    if ("declined" in result) {
+      // 0.4 Ops 6: said in a later message, the members without `error`.
+      this.#say(conversation, `I can't do that exchange. ${result.declined.reason}`, { extensions: { operations: { declined: result.declined } } });
+      return;
+    }
     this.#say(conversation, "Done. The insulated jacket ships today, and a return label for the original was emailed.");
   }
 

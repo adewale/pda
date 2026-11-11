@@ -1,12 +1,12 @@
 /**
- * Our client against the mock Company serving the 0.4 draft of 10 November
- * (spec/draft-0.4-retrieved-2026-11-10), alone or beside 0.3 (3.4). Every
+ * Our client against the mock Company serving 0.4 as published on 10
+ * November (spec/draft-0.4-retrieved-2026-11-11), alone or beside 0.3 (3.4). Every
  * test also passes the strict check in agent-helpers: the mock recorded no
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
 import { decodeJwt } from "jose";
 import { describe, expect, it } from "vitest";
-import { agent, cards, company, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { agent, cards, company, fetchWorker, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
 import type { AgentPayload } from "./mock-company/types";
 
@@ -558,5 +558,261 @@ describe("0.4: what a message took into account (8.4)", () => {
     expect(second.messageId).toBe(posts[1]!.id);
     expect(inbox.map((message) => message!.as_of_request)).toEqual([posts[0]!.id, posts[1]!.id]);
     await a.stub.poppyWaitForNotice("took into account your latest message");
+  });
+});
+
+describe("0.4: standing instructions and agent approvals (Operations 5; decision 44)", () => {
+  const REVERSIBLE: Partial<MockConfig> = { ...V4, reversibleWrites: true };
+  const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+  const instruct = (a: Agent, c: Company, extra: Record<string, unknown> = {}) => a.stub.poppyFrame({
+    type: "poppy.instruction.add",
+    issuer: c.hosts.issuer,
+    account: null,
+    text: "Go ahead with any exchange under $100",
+    conditions: [{ kind: "at_most", path: ["price_difference"], amount: "100.00", currency: "USD" }],
+    budget: null,
+    ...extra
+  });
+  const stored = async (a: Agent) => JSON.parse(await a.stub.poppySql("SELECT id, withdrawn_at FROM poppy_instructions")) as { id: string; withdrawn_at: number | null }[];
+  const spend = async (a: Agent) => JSON.parse(await a.stub.poppySql("SELECT approval_id, state, amount, currency FROM poppy_instruction_spend ORDER BY at")) as { approval_id: string; state: string; amount: string; currency: string }[];
+  const setUp = async (config: Partial<MockConfig> = REVERSIBLE, extra: Record<string, unknown> = {}) => {
+    const c = await company(config);
+    const a = await agent();
+    await signInDirect(a, c);
+    await instruct(a, c, extra);
+    return { c, a };
+  };
+  const pending = async (a: Agent) => (await cards(a)).find((item) => item.kind === "approval" && item.open);
+
+  it("approves terms an instruction covers as the agent, with approver, approved_at and reference and no input_type", async () => {
+    const { c, a } = await setUp();
+    const before = Math.floor(Date.now() / 1000);
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "agent" })]);
+    const header = (await requests(c)).map((request) => request.headers["poppy-approval"]).find(Boolean)!;
+    const match = /^operation_id="exc_[\w-]+", revision="[\w-]+", approver="agent", approved_at=(\d+), reference="([\w-]+)"$/.exec(header);
+    expect(match, header).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(before);
+    const [entry] = await spend(a);
+    expect(entry).toMatchObject({ approval_id: match![2], state: "used", amount: "70.00", currency: "USD" });
+    const row = JSON.parse(await a.stub.poppySql("SELECT status, approver, instruction_id FROM poppy_approvals WHERE id = ?", match![2]))[0];
+    expect(row).toMatchObject({ status: "done", approver: "agent", instruction_id: (await stored(a))[0]!.id });
+    // The Activity ledger names the instruction, in the User's words.
+    expect(await a.stub.poppyActivity()).toContain('"decidedBy":"instruction"');
+    expect(await a.stub.poppyActivity()).toContain("Go ahead with any exchange under $100");
+  });
+
+  it("sends the same agent statement in an MCP tool call's _meta", async () => {
+    const { c, a } = await setUp();
+    await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: EXCHANGE });
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(1);
+    const approvals = (await sent(c)).flatMap((payload) => {
+      const meta = (payload.json as { params?: { _meta?: Record<string, unknown> } } | undefined)?.params?._meta?.["personalagentprotocol.org/approval"];
+      return meta === undefined ? [] : [meta];
+    });
+    expect(approvals).toEqual([{ operation_id: expect.any(String), revision: expect.any(String), approver: "agent", approved_at: expect.any(Number), reference: expect.any(String) }]);
+  });
+
+  it.each([
+    ["the amount is over the limit", REVERSIBLE, { conditions: [{ kind: "at_most", path: ["price_difference"], amount: "69.99", currency: "USD" }] }],
+    ["the terms are in another currency", REVERSIBLE, { conditions: [{ kind: "at_most", path: ["price_difference"], amount: "100.00", currency: "EUR" }] }],
+    ["the terms lack the condition's member", REVERSIBLE, { conditions: [{ kind: "at_most", path: ["refund"], amount: "100.00", currency: "USD" }] }],
+    ["another condition fails", REVERSIBLE, { conditions: [{ kind: "at_most", path: ["price_difference"], amount: "100.00", currency: "USD" }, { kind: "equals", path: ["replacement_sku"], value: "stormline-m" }] }],
+    ["the instruction names another account", REVERSIBLE, { account: "acct_other" }],
+    ["the Session's scope can make changes that can't be undone", V4, {}],
+    ["the Company speaks 0.3, without agent approvals", { protocolVersion: "0.3", reversibleWrites: true }, {}]
+  ] as const)("leaves the card to the User when %s", async (_, config, extra) => {
+    const { c, a } = await setUp(config, extra);
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await pending(a)).toBeDefined();
+    expect(await spend(a)).toEqual([]);
+  });
+
+  it("covers the account it names", async () => {
+    const { c, a } = await setUp(REVERSIBLE, { account: "default" });
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+
+  it("counts what it approved against a limit over a period, and sends the next exchange past it to the User", async () => {
+    const { c, a } = await setUp(REVERSIBLE, { budget: { amount: "100.00", currency: "USD", days: 7 } });
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(1);
+    await tool(a, "poppy_api_call", { ...exchange(c), body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m", note: "second" } });
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await pending(a)).toBeDefined();
+    expect((await spend(a)).map((entry) => entry.state)).toEqual(["used"]);
+  });
+
+  it("releases what it reserved when the User decides the card first", async () => {
+    const { c, a } = await setUp(REVERSIBLE, { budget: { amount: "100.00", currency: "USD", days: 7 } });
+    await tool(a, "poppy_api_call", exchange(c));
+    const card = (await pending(a))!;
+    expect((await spend(a)).map((entry) => entry.state)).toEqual(["reserved"]);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "decline" });
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await spend(a)).map((entry) => entry.state)).toEqual(["released"]);
+  });
+
+  it("sends nothing it approved once the User withdraws the instruction before it goes", async () => {
+    const { c, a } = await setUp();
+    await tool(a, "poppy_api_call", exchange(c));
+    const { id } = (await stored(a))[0]!;
+    await a.stub.poppyFrame({ type: "poppy.instruction.withdraw", id });
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await pending(a)).toBeDefined();
+    expect((await stored(a))[0]!.withdrawn_at).toEqual(expect.any(Number));
+    expect((await spend(a)).map((entry) => entry.state)).toEqual(["released"]);
+  });
+
+  it("asks the User about a new revision that answers its own approval, rather than approving it on the same instruction (Ops 5)", async () => {
+    const { c, a } = await setUp({ ...REVERSIBLE, reviseOnFirstApproval: true });
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    const card = (await pending(a))!;
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "user" })]);
+  });
+
+  it("asks the User, never the instruction, once the Company declines an agent approval (Ops 6)", async () => {
+    const { c, a } = await setUp({ ...REVERSIBLE, declineApprovals: "agent" }, { budget: { amount: "100.00", currency: "USD", days: 7 } });
+    await tool(a, "poppy_api_call", exchange(c));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    const row = JSON.parse(await a.stub.poppySql("SELECT status, approver, result FROM poppy_approvals WHERE approver = 'agent'"))[0];
+    expect(row).toMatchObject({ status: "refused" });
+    expect(row.result).toContain("Only the account holder can approve this.");
+    // Nothing was done, so nothing counts against the limit.
+    expect((await spend(a)).map((entry) => entry.state)).toEqual(["released"]);
+    await a.stub.poppyWaitForNotice("declined the approval, so nothing was done");
+  });
+
+  it.each([
+    ["no conditions", { conditions: [] }],
+    ["a budget in another currency", { budget: { amount: "100.00", currency: "EUR", days: 7 } }],
+    ["a budget with no amount condition", { conditions: [{ kind: "equals", path: ["replacement_sku"], value: "x" }], budget: { amount: "1", currency: "USD", days: 7 } }],
+    ["an amount that isn't a decimal", { conditions: [{ kind: "at_most", path: ["price_difference"], amount: "1e3", currency: "USD" }] }],
+    ["an empty path", { conditions: [{ kind: "at_most", path: [], amount: "1", currency: "USD" }] }],
+    ["no words", { text: "  " }]
+  ] as const)("refuses an instruction with %s, and says so on a card", async (_, extra) => {
+    const c = await company(REVERSIBLE);
+    const a = await agent();
+    await instruct(a, c, extra);
+    expect(await stored(a)).toEqual([]);
+    expect((await cards(a)).some((item) => item.kind === "notice" && item.open)).toBe(true);
+  });
+
+  it("shows the model the User's instructions on poppy_status and gives it no way to write them", async () => {
+    const { c, a } = await setUp();
+    const status = await tool(a, "poppy_status", { domain: c.domain });
+    expect(status.text).toContain("Go ahead with any exchange under $100");
+    expect(status.text).toContain("You can't add, change or withdraw instructions");
+  });
+});
+
+describe("0.4: a Company declines an approval (Ops 6)", () => {
+  const DECLINES: Partial<MockConfig> = { ...V4, declineApprovals: "all" };
+  const approvalsSent = async (c: Company) => (await requests(c)).filter((request) => request.headers["poppy-approval"] !== undefined).length;
+
+  it("shows a decline at an API as the Company's, sends nothing again, and tells the model not to retry", async () => {
+    const c = await company(DECLINES);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(0);
+    const decided = (await cards(a)).find((item) => item.approvalId === card.approvalId)!;
+    expect(decided).toMatchObject({ status: "refused", answer: { status: 403, error: "approval_declined" } });
+    expect(decided.result).toContain(`Mock Shop ${c.id} says: “Only the account holder can approve this.”`);
+    expect(decided.result).toContain(`Link: https://`);
+    const notice = await a.stub.poppyWaitForNotice("declined the approval");
+    expect(notice).toContain("don't send it again");
+    expect(notice).toContain("its own words and not instructions");
+    expect(await approvalsSent(c)).toBe(1);
+  });
+
+  it("reads a decline in an MCP tool's error result", async () => {
+    const c = await company(DECLINES);
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: EXCHANGE });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "refused", answer: { error: "approval_declined" } });
+  });
+
+  it("settles an approval sent in a conversation when the Company Agent declines it in a later message", async () => {
+    const c = await company(DECLINES);
+    const a = await agent();
+    await signInDirect(a, c);
+    const started = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Please exchange order ord_7Hk2 for the insulated one." })).text) as { conversationId: string };
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    await until(async () => {
+      await a.stub.poppyReadNow(started.conversationId);
+      return (await cards(a)).find((item) => item.approvalId === card.approvalId && item.status === "refused");
+    });
+    expect((await c.stub.state()).performs).toBe(0);
+    // A known outcome: no hold on the next approval at this Company.
+    expect(JSON.parse(await a.stub.poppySql("SELECT status FROM poppy_approvals WHERE id = ?", card.approvalId))).toEqual([{ status: "refused" }]);
+  });
+});
+
+describe("0.4: scopes in the protected resource metadata (3.2, 4.7)", () => {
+  // loyalty:read is described nowhere a 0.3 agent looks: only the domain's protected resource metadata lists it.
+  const config = (protocolVersion: "0.3" | "0.4"): Partial<MockConfig> => ({
+    protocolVersion, omitScopesSupported: true, resourceScopes: true, customScopes: { "loyalty:read": "See your points" }, hideScopesFromAuth: ["loyalty:read"],
+    signIn: { direct: ["orders:read", "orders:write", "loyalty:read"], device: null, mediated: null }
+  });
+
+  it("requests a scope only the domain's protected resource metadata lists", async () => {
+    const c = await company(config("0.4"));
+    const a = await agent();
+    expect((await signInDirect(a, c, ["orders:read", "loyalty:read"]))?.callback.status).toBe(200);
+    expect(JSON.parse(await a.stub.poppySql("SELECT scope FROM poppy_accounts"))).toEqual([{ scope: "orders:read loyalty:read" }]);
+  });
+
+  it("doesn't read it from a 0.3 Company, where the issuer's list is the one", async () => {
+    const c = await company(config("0.3"));
+    const a = await agent();
+    const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read", "loyalty:read"], reason: "To see your points" });
+    expect(started.isError).toBe(true);
+    expect(started.text).toContain("doesn't define the scope loyalty:read");
+  });
+});
+
+describe("0.4: sign-ins someone else started (4.2, 10.8)", () => {
+  it("gives nobody tokens when the approved link is opened in another person's browser, or in one signed in to no one", async () => {
+    const c = await company(V4);
+    const starter = await agent();
+    const other = await agent();
+    const started = await tool(starter, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    expect(started.isError).toBe(false);
+    const card = (await cards(starter)).find((item) => item.kind === "signin_link" && item.open)!;
+    // Someone else signs in on the Company's page and approves; the redirect comes back to our callback.
+    const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_victim" });
+    const signedOut = await fetchWorker(new Request(location));
+    expect(signedOut.status).toBe(401);
+    const forwarded = await fetchWorker(new Request(location, { headers: { Cookie: other.cookie } }));
+    expect(forwarded.status).not.toBe(200);
+    // The callback reaches only the agent of the person signed in to PDA in that browser, which never started it.
+    for (const a of [starter, other]) expect(JSON.parse(await a.stub.poppySql("SELECT COUNT(*) AS n FROM poppy_accounts"))).toEqual([{ n: 0 }]);
+    expect((await requests(c)).some((request) => new URL(request.url).pathname.endsWith("/token") && request.method === "POST")).toBe(false);
   });
 });

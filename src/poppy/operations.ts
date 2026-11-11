@@ -13,6 +13,8 @@ import { canonicalJson, isObject, toJson, type Json } from "./json";
 import { json, jsonText } from "../decode";
 import { randomId, sha256 } from "./jwt";
 import { described, type OperationV2 } from "./operations-v2";
+import { settleSpend, standingInstructionFor, type Instruction } from "./instructions";
+import { ApprovalDeclined, declineForModel, declineText, recordDecline } from "./declines";
 import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
 import { approvalBatchesTable, approvalsTable, cardsTable, intent, taskCallsTable } from "./store";
@@ -239,7 +241,13 @@ export class ActionOutcomePending extends PoppyError {
 
 /** How an approved local action of one kind is carried out (registered by the APIs and browser). */
 /** One approved request being carried out: its approval's ID, when it was approved (epoch ms), and the check before each send. */
-export type ApprovalExecution = { readonly approvalId: string; readonly approvedAt: number; readonly beforeDispatch: () => void };
+export type ApprovalExecution = {
+  readonly approvalId: string;
+  readonly approvedAt: number;
+  readonly beforeDispatch: () => void;
+  /** Who approved (0.4 Ops 6): the User, or the agent on a standing instruction. */
+  readonly approver?: "user" | "agent";
+};
 export type ApprovalExecutor<K extends ApprovalKind> = (client: PoppyClient, company: Company, approval: ApprovalOf<K>, label: string, execution: ApprovalExecution) => Promise<string>;
 const executors: { [K in ApprovalKind]?: ApprovalExecutor<K> } = {};
 
@@ -749,15 +757,23 @@ async function settleTermsApprovals(client: PoppyClient): Promise<void> {
  * be told, or null when it was already decided; the caller tells the model,
  * once for one card and once for a batch (`decideLocal`, `decideLocalBatch`).
  */
-async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline", batch?: string, task?: { failed(error: unknown): void; beforeDispatch?: (() => void) | undefined; showReceipt?: boolean }): Promise<string | null> {
+async function decideOne(
+  client: PoppyClient,
+  id: string,
+  decision: "approve" | "decline",
+  batch?: string,
+  task?: { failed(error: unknown): void; beforeDispatch?: (() => void) | undefined; showReceipt?: boolean },
+  /** The agent approves on this standing instruction (0.4 Ops 5), instead of the User's tap. */
+  agent?: Instruction
+): Promise<string | null> {
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return null;
   const company = await client.resumeCompany(row.issuer, "approval", id);
   // Discovery may have yielded to another decision. Only one handler may
   // claim this exact pending request, including a decline racing an approval.
   const claimed = client.sql.exec(
-    "UPDATE poppy_approvals SET status = ?, notification_pending = 1, notification = NULL, notification_batch_id = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
-    decision === "decline" ? "declined" : "executing", batch ?? null, id, row.issuer, row.label, row.request, row.summary
+    "UPDATE poppy_approvals SET status = ?, notification_pending = 1, notification = NULL, notification_batch_id = ?, approver = ?, instruction_id = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
+    decision === "decline" ? "declined" : "executing", batch ?? null, agent ? "agent" : "user", agent?.id ?? null, id, row.issuer, row.label, row.request, row.summary
   ).toArray();
   if (claimed.length === 0) return null;
   const approvedAt = Date.now();
@@ -798,13 +814,19 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   }
   // The card says it is being sent, so a page shows each one's progress (a batch's tiles, the step that asked).
   await card("approved");
-  const sent = task ? "Sent for your task" : "Sent as you approved";
+  const sent = task ? "Sent for your task" : agent ? `Sent on your instruction "${agent.text}"` : "Sent as you approved";
+  // What the model is told approved it.
+  const approvedBy = agent ? `the agent approved on the User's standing instruction "${agent.text}"` : "the User approved";
   let result: string;
   try {
-    result = await run(client, company, read.value, row.label, { approvalId: id, approvedAt, beforeDispatch: () => {
+    result = await run(client, company, read.value, row.label, { approvalId: id, approvedAt, ...(agent ? { approver: "agent" as const } : {}), beforeDispatch: () => {
       const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
       if (!current || current.status !== "executing" || current.request !== row.request || current.issuer !== row.issuer || current.label !== row.label) {
         throw new PoppyError("approval_changed", "The stored approval changed; no further attempt will be sent", 0);
+      }
+      // Ops 5: an instruction withdrawn before the approval is sent stops it.
+      if (agent && !standingInstructionFor(client, id)) {
+        throw new PoppyError("approval_changed", `The User withdrew the instruction "${agent.text}", so this approval wasn't sent`, 0);
       }
       task?.beforeDispatch?.();
       if (current.action_key && current.action_owner) requireKnownOutcome(client, current.issuer, { key: current.action_key, owner: current.action_owner, operationId: current.operation_id }, [id]);
@@ -812,14 +834,25 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   } catch (error) {
     task?.failed(error);
     if (error instanceof OperationOutcomeUnknown) {
+      // A Company message read while sending may already have settled it, as a decline does (0.4 Ops 6).
+      const settled = one(client.sql, approvalsTable.pick("status"), "SELECT status FROM poppy_approvals WHERE id = ?", id);
+      if (settled && settled.status !== "executing") return null;
       client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", error.message, id);
       await card("unknown", error.message);
       return `[system] ${error.message} Check with ${company.name} before approving this action again.`;
     }
+    if (error instanceof ApprovalDeclined) {
+      // 0.4 Ops 6: not a failure and never resent; after it, only the User approves this action again.
+      recordDecline(client, row.issuer, error.operationId);
+      const result = `${sent}. ${declineText(company, error)}`;
+      client.sql.exec("UPDATE poppy_approvals SET status = 'refused', result = ? WHERE id = ?", result, id);
+      await card("refused", result, { status: 403, error: "approval_declined" });
+      return declineForModel(company, error, row.summary);
+    }
     if (error instanceof TermsRequested) {
       client.sql.exec("UPDATE poppy_approvals SET status = 'terms', result = ?, terms_approval_id = ? WHERE id = ?", error.result, error.approvalId, id);
       await card("terms", error.result);
-      return `[system] Sent as the User approved, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
+      return `[system] Sent as ${approvedBy}, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
     }
     // A Company's refusal keeps its code, as tool failures show it.
     const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
@@ -837,7 +870,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       const result = `${sent}, but no answer came from ${name}, so it may or may not have reached them. Check with ${name} before asking again.`;
       client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", result, id);
       await card("unknown", result);
-      return `[system] Sent as the User approved, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`;
+      return `[system] Sent as ${approvedBy}, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`;
     }
     if (typeof answer === "number" && answer >= 500) {
       const result = `${sent}; ${name} answered HTTP ${answer}, which does not establish whether the action took effect. Check with ${name} before approving further writes there.`;
@@ -852,7 +885,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       const result = `${sent}, but ${name} answered ${answered}. Nothing changed unless ${name} says otherwise.`;
       client.sql.exec("UPDATE poppy_approvals SET status = 'refused', result = ? WHERE id = ?", result, id);
       await card("refused", result, { status: answer, ...(code ? { error: code } : {}) });
-      return `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`;
+      return `[system] Sent as ${approvedBy}, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`;
     }
     // No answer marked: the agent refused it before sending, couldn't get an access token, or couldn't read the answer.
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
@@ -862,7 +895,30 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   // A receipt failure cannot change a completed business action into a failed one.
   client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
   await card("done", result);
-  return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
+  return `[system] Done, as ${approvedBy}: ${row.summary}. Result: ${result}`;
+}
+
+/**
+ * The `poppy-agent-approval` job: approve a revision on the standing
+ * instruction the check found for it (instructions.ts), unless the User has
+ * decided it since or withdrawn the instruction, and tell the model what
+ * happened. Never run inside the request that returned the operation.
+ */
+export async function decideAsAgent(client: PoppyClient, id: string): Promise<void> {
+  const instruction = standingInstructionFor(client, id);
+  const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!instruction || !row || row.status !== "pending") {
+    settleSpend(client, id);
+    return;
+  }
+  let notice: string | null;
+  try {
+    notice = await decideOne(client, id, "approve", undefined, undefined, instruction);
+  } finally {
+    settleSpend(client, id);
+  }
+  await settleTermsApprovals(client);
+  if (notice) await notifyApprovalDecision(client, id, notice);
 }
 
 /** Decide one local approval, from its own card, and tell the model what happened. */

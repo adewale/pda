@@ -9,9 +9,11 @@ import { approvable, approvalCardId, approvalJson, approvalSummary, approvesAcro
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
-import { conversationsTable, inboxTable, intent, intentsTable, messagesTable } from "./store";
+import { approvalsTable, conversationsTable, inboxTable, intent, intentsTable, messagesTable } from "./store";
+import { declineForModel, declineText, readDecline, recordDecline } from "./declines";
 import type { DirectMessage } from "./wire";
 import { declaration } from "./declaration";
+import { considerAgentApproval } from "./instructions";
 import { stateForModel, type ModelState } from "./conversation-state";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
@@ -493,7 +495,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   }
   const session = client.session(company.issuer, row.label);
   if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
-  try { await proposeLocal(
+  try { const proposed = await proposeLocal(
     client,
     company,
     row.label,
@@ -507,7 +509,9 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
     await approvalCardId(company, operation),
     // What the agent asked for was words, so the terms are checked against the summary only.
     approvalTerms(company, operation, undefined)
-  ); } catch (error) {
+  );
+  // 0.4 Ops 5: a standing instruction of the User's may approve it instead of the card.
+  await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
     if (!(error instanceof ActionOutcomePending)) throw error;
     // Process this event once, then keep reading: later Company messages may
     // establish the earlier outcome. A new terms card cannot bypass that hold.
@@ -517,6 +521,34 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
       text: "Another approved action at this Company has an unknown outcome. Check with the Company and record its outcome on the original receipt before approving another action. These new terms were not approved or sent."
     });
   }
+}
+
+/**
+ * 0.4 Ops 6: the Company Agent says, in `extensions.operations.declined`,
+ * that it declined an approval we sent in this conversation. Its outcome was
+ * waiting; now it is known: nothing was done, and it is never sent again.
+ * Returns what the model is told, or null when it declines nothing we sent.
+ */
+async function settleDeclinedMessage(client: PoppyClient, company: Company, row: ConversationRow, value: Json | undefined): Promise<string | null> {
+  if (!isObject(value) || typeof value.operation_id !== "string" || typeof value.revision !== "string") return null;
+  const declined = readDecline(company, value, { operation_id: value.operation_id, revision: value.revision }, false);
+  if (!declined) return null;
+  const sent = rows(client.sql, approvalsTable.pick("id", "summary", "terms"),
+    `SELECT id, summary, terms FROM poppy_approvals WHERE issuer = ? AND operation_id = ? AND status IN ('executing', 'unknown') AND outcome_resolution IS NULL
+       AND json_extract(request, '$.kind') = 'message-approval' AND json_extract(request, '$.conversationId') = ? AND json_extract(request, '$.approval.revision') = ?`,
+    company.issuer, declined.operationId, row.id, declined.revision);
+  if (sent.length === 0) return null;
+  recordDecline(client, company.issuer, declined.operationId);
+  const result = `Sent in conversation ${row.id}. ${declineText(company, declined)}`;
+  for (const approval of sent) {
+    client.sql.exec("UPDATE poppy_approvals SET status = 'refused', result = ? WHERE id = ?", result, approval.id);
+    await client.host.showCard({
+      id: `approval-${approval.id}`, kind: "approval", company: company.name, domain: company.domain, open: false,
+      approvalId: approval.id, summary: approval.summary, status: "refused", result, answer: { status: 200, error: "approval_declined" },
+      ...(approval.terms ? { terms: approval.terms } : {})
+    });
+  }
+  return declineForModel(company, declined, sent[0]!.summary);
 }
 
 /** An approved operation from a conversation: one message with the approval, in that conversation (Ops 6). */
@@ -672,6 +704,7 @@ async function handleEvent(
         // The Direct Conversation is the User's, so the model isn't told.
         const offered = message.role === "company" ? extensionContent(message, "operations")?.operation : undefined;
         if (isObject(offered) && company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
+        if (message.role === "company") await settleDeclinedMessage(client, company, row, extensionContent(message, "operations")?.declined);
         return;
       }
       if (message.role !== "company") return;
@@ -689,7 +722,8 @@ async function handleEvent(
         // can't be approved through it, so its operation is only content.
         if (company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
       }
-      if (!options.quietModel) await client.host.notifyModel(describe(client, company, row, message), operationId);
+      const declined = await settleDeclinedMessage(client, company, row, extensionContent(message, "operations")?.declined);
+      if (!options.quietModel) await client.host.notifyModel(`${describe(client, company, row, message)}${declined ? `\n${declined}` : ""}`, operationId);
       return;
     }
     case "state": {

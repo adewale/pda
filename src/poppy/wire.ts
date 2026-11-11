@@ -139,6 +139,36 @@ export type DirectUpdate = {
   readonly closed?: boolean;
 };
 
+/** A condition of a standing instruction on an operation's `terms` (0.4 Ops 5; instructions.ts). */
+export type InstructionCondition =
+  | { readonly kind: "at_most"; readonly path: readonly string[]; readonly amount: string; readonly currency: string }
+  | { readonly kind: "one_of"; readonly path: readonly string[]; readonly values: readonly (string | number | boolean)[] }
+  | { readonly kind: "equals"; readonly path: readonly string[]; readonly value: string | number | boolean };
+export type InstructionBudget = { readonly amount: string; readonly currency: string; readonly days: number };
+
+/** A standing instruction as the Companies page shows it, with its ledger: each approval it decided. */
+export type StandingInstruction = {
+  readonly id: string;
+  readonly issuer: Issuer;
+  readonly company: string;
+  readonly account: string | null;
+  readonly text: string;
+  readonly conditions: readonly InstructionCondition[];
+  readonly budget: InstructionBudget | null;
+  readonly createdAt: number;
+  readonly withdrawnAt: number | null;
+  readonly approvals: readonly {
+    readonly approvalId: string;
+    readonly summary: string;
+    /** The approval's own status, and what it counts against the budget. */
+    readonly status: string;
+    readonly spend: "reserved" | "used" | "released";
+    readonly amount: string;
+    readonly currency: string;
+    readonly at: number;
+  }[];
+};
+
 export type ConnectedAccount = {
   readonly issuer: Issuer;
   readonly company: string;
@@ -194,8 +224,10 @@ export type ActivityEntry = {
   readonly quoteBy?: "company" | "agent" | "you";
   readonly how: ActivityChannel | null;
   readonly access: ActivityAccess | null;
-  /** Who decided: the User. Null when no decision was needed. */
-  readonly decidedBy: "you" | null;
+  /** Who decided: the User, or the agent on a standing instruction of theirs (0.4 Ops 5). Null when no decision was needed. */
+  readonly decidedBy: "you" | "instruction" | null;
+  /** The standing instruction, in the User's own words, when one decided. */
+  readonly instruction?: string;
   readonly result: ActivityResult;
   /** The outcome in words: the Company's account of it, or why it failed. */
   readonly outcome?: string;
@@ -280,6 +312,8 @@ export type PoppyServerFrame =
       readonly accounts: readonly ConnectedAccount[];
       /** Sign-outs the Company hasn't accepted yet. */
       readonly signOuts: readonly PendingSignOut[];
+      /** The User's standing instructions, withdrawn ones too, newest first. */
+      readonly instructions: readonly StandingInstruction[];
     }
   | {
       readonly type: "poppy.activity";
@@ -318,6 +352,16 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.code"; readonly signInId: string; readonly code: string }
   | { readonly type: "poppy.signin.cancel"; readonly signInId: string }
   | { readonly type: "poppy.approval"; readonly approvalId: string; readonly decision: "approve" | "decline" }
+  /** Only the User's page writes standing instructions (0.4 Ops 5); the agent checks them again before storing. */
+  | {
+      readonly type: "poppy.instruction.add";
+      readonly issuer: Issuer;
+      readonly account?: string | null;
+      readonly text: string;
+      readonly conditions: readonly InstructionCondition[];
+      readonly budget?: InstructionBudget | null;
+    }
+  | { readonly type: "poppy.instruction.withdraw"; readonly id: string }
   /** Only the User's page can record a checked outcome; this never sends or retries an action. */
   | { readonly type: "poppy.approval.resolve"; readonly approvalId: string; readonly outcome: "performed" | "not_performed" }
   /**

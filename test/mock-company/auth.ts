@@ -470,7 +470,9 @@ export class AuthServer {
     const scopes = result.scope.map((scope) => `<li>${scope}</li>`).join("");
     return new Response(
       `<!doctype html><title>Sign in to ${co.hosts.domain}</title>` +
-        `<main data-request-id="${result.id}"><h1>${client.name}</h1>` +
+        // 0.4 Guides, "Consent pages": name the agent, worded as connecting, and warn about sign-ins someone else started (10.8).
+        `<main data-request-id="${result.id}"><h1>${client.name} wants to connect to your ${co.config.organizationName ?? `Mock Shop ${co.id}`} account</h1>` +
+        `<p>Only continue if you asked ${client.name} to do this just now.</p>` +
         `<p>${domain} wants access to your account:</p><ul>${scopes}</ul>` +
         `<form method="post"><button name="decision" value="approve">Approve</button>` +
         `<button name="decision" value="deny">Decline</button></form></main>`,

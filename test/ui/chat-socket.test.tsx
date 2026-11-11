@@ -550,7 +550,7 @@ describe("settings actions and the socket", () => {
     window.history.replaceState(null, "", `/companies?company=${encodeURIComponent(issuer)}`);
     render(<Page />);
     socket.open();
-    socket.receive({ type: "poppy.settings", accounts: [{ issuer, company: "Acme", account: "a***@example.com", scope: "orders:read", expiresAt: null }], signOuts: [] });
+    socket.receive({ type: "poppy.settings", accounts: [{ issuer, company: "Acme", account: "a***@example.com", scope: "orders:read", expiresAt: null }], signOuts: [], instructions: [] });
     const signOut = () => screen.getByRole("button", { name: "Sign out of Acme" }) as HTMLButtonElement;
 
     socket.close();

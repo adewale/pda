@@ -1928,6 +1928,42 @@ const TAMPERS: readonly Tamper[] = [
       return exchange(c, s, approve(second.operation));
     }
   },
+  ...([
+    ["approval.declined-resent", "a declined approval sent again", "all", "user"],
+    ["approval.agent-after-decline", "an agent approval of a new revision after a decline", "all", "agent"]
+  ] as const).map(([id, what, declineApprovals, approver]): Tamper => ({
+    id,
+    what,
+    config: { ...V4, declineApprovals },
+    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const approve = (operation: Operation, who: string) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="${who}"` });
+      const declined = await exchange(c, s, approve(first.operation, "user"));
+      expect(declined.status).toBe(403);
+      expect(await declined.json()).toMatchObject({ error: "approval_declined", operation_id: first.operation.operation_id, revision: first.operation.revision });
+      if (id === "approval.declined-resent") return exchange(c, s, approve(first.operation, approver));
+      // A revision it never returned fails check 3, so the Company returns a new revision of the same operation.
+      const second = (await (await exchange(c, s, approve({ ...first.operation, revision: "rev_unknown" }, "user"))).json()) as { operation: Operation };
+      expect(second.operation.operation_id).toBe(first.operation.operation_id);
+      return exchange(c, s, approve(second.operation, approver));
+    }
+  })),
+  {
+    id: "approval.agent-after-revision",
+    what: "an agent approval of the revision that answered the agent's own approval",
+    config: V4,
+    detail: /^\[approval\.agent-after-revision\]/,
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const agent = (operation: Operation) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="agent"` });
+      // Approved for another request: the Company answers with a new revision (Ops 6, check 3).
+      const second = (await (await exchange(c, s, agent(first.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" })).json()) as { operation: Operation };
+      return exchange(c, s, agent(second.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" });
+    }
+  },
   {
     id: "approval.mcp-meta",
     what: "an MCP approval that isn't an object",

@@ -472,6 +472,7 @@ export class Apis {
     const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname} ${inbound.bodyText}`;
     const result = this.operations.prints(context, request, { summary, terms }, approval);
     if ("operation" in result) return json({ error: "approval_required", operation: result.operation }, 403);
+    if ("declined" in result) return json({ error: "approval_declined", ...result.declined }, 403);
     // Only a performed order is kept: an approval_required answer is decided afresh each time.
     this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result.performed });
     return json(result.performed.body, result.performed.status);
@@ -537,9 +538,10 @@ export class Apis {
     const result = this.operations.exchange(context, request, asked, approval);
     const answer = "operation" in result
       ? { status: 403, body: { error: "approval_required", operation: result.operation } }
+      : "declined" in result ? { status: 403, body: { error: "approval_declined", ...result.declined } }
       : result.performed;
-    // An approval_required answer isn't kept: the next request decides afresh.
-    if (scoped && !("operation" in result)) this.#idempotency.set(scoped, { hash: inbound.bodyText, ...answer });
+    // Only a performed request is kept: approval_required and approval_declined are decided afresh.
+    if (scoped && "performed" in result) this.#idempotency.set(scoped, { hash: inbound.bodyText, ...answer });
     return json(answer.body, answer.status);
   }
 
@@ -836,6 +838,14 @@ export class Apis {
             isError: true,
             content: [{ type: "text", text: `Not done yet. This needs approval${result.operation.summary ? `: ${result.operation.summary}` : "."}` }],
             structuredContent: { operation: result.operation }
+          } };
+        }
+        if ("declined" in result) {
+          // 0.4 Ops 6: an error result, the decline's members and error in structuredContent.
+          return { result: {
+            isError: true,
+            content: [{ type: "text", text: `Not done: ${result.declined.reason}` }],
+            structuredContent: { error: "approval_declined", ...result.declined }
           } };
         }
         return { result: { content: [{ type: "text", text: "Exchange placed." }], structuredContent: result.performed.body as Record<string, unknown> } };

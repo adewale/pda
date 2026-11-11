@@ -202,7 +202,7 @@ export async function discover(fetcher: Fetcher, domain: string, versions: reado
   // The validator settles an identifier only for a document that lists something using Sessions, as for one with an issuer.
   if (checked.issuerless && checked.identifier) {
     const identifier = parseIssuer(checked.identifier);
-    if (identifier) return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, null, { issuer: identifier, name, domain: orgDomain, version }), cacheSeconds, report: checked };
+    if (identifier) return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, null, null, { issuer: identifier, name, domain: orgDomain, version }), cacheSeconds, report: checked };
   }
   // The issuer is the one the domain's protected resource metadata names (3.2); `auth` is optional.
   if (!isObj(checked.metadata) || !checked.issuer) {
@@ -211,7 +211,8 @@ export async function discover(fetcher: Fetcher, domain: string, versions: reado
   const issuer = parseIssuer(checked.issuer);
   // The validator has refused anything else already; this keeps the type honest.
   if (!issuer) throw new DiscoveryError("The issuer isn't an https URL without a query or fragment", checked);
-  return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, checked.metadata, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
+  const resource = isObj(checked.protectedResource) ? checked.protectedResource : null;
+  return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, checked.metadata, resource, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
 }
 
 /** The Company Agent, its APIs and its website, skipping types we don't know (7, 8.1); `web.disabled` and `web.unscoped` under 0.4 (6). */
@@ -252,11 +253,13 @@ function services(doc: Obj, version: string): Pick<Company, "conversations" | "a
  * Services name no `resource`: a service's own protected resource metadata
  * says whether it takes only its own tokens (4.5), which the client reads.
  */
-function company(doc: Obj, auth: Obj, metadata: Obj | null, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
+function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
   const grants = metadata ? strings(metadata.grant_types_supported) : [];
-  const supported = metadata ? strings(metadata.scopes_supported) : [];
+  // 0.4 (3.2, 4.7): the domain's protected resource metadata may list scopes too, and the agent uses either list.
+  const resourceListed = known.version !== "0.3" && !!resource && Array.isArray(resource.scopes_supported);
+  const supported = [...new Set([...(metadata ? strings(metadata.scopes_supported) : []), ...(resourceListed ? strings(resource!.scopes_supported) : [])])];
   // 3.2: scopes_supported is a SHOULD; without it, the Company's documented scopes may be requested (4.7).
-  const listed = !!metadata && Array.isArray(metadata.scopes_supported);
+  const listed = (!!metadata && Array.isArray(metadata.scopes_supported)) || resourceListed;
   const documented = isObj(auth.scopes) ? Object.keys(auth.scopes) : [];
   const offer = { scopes: listed ? supported : documented };
   // 3.2: with auth.disabled, a Personal Agent MUST NOT start Direct, Device or Mediated Sign-In.

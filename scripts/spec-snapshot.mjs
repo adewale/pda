@@ -571,9 +571,14 @@ const fetchedFields = ({ url, status, retrieved_at, content_type, last_modified,
   sha256: hash
 });
 
+/** The version a specification page states: "This is draft version 0.4" for a draft, "This is version 0.4" once published. */
+function statedVersion(spec) {
+  const match = spec?.markdownText.match(/\bThis is (draft )?version (\d+\.\d+)/);
+  return match ? { version: match[2], draft: match[1] !== undefined } : undefined;
+}
+
 function manifestOf(site, rendered, dir) {
-  const spec = latestSpecPage(rendered.pages);
-  const version = spec?.markdownText.match(/draft version (\d+\.\d+)/)?.[1];
+  const version = statedVersion(latestSpecPage(rendered.pages))?.version;
   return {
     site: ORIGIN,
     directory: dir,
@@ -603,14 +608,14 @@ function manifestOf(site, rendered, dir) {
   };
 }
 
-function readme(manifest, licenseText) {
+function readme(manifest, licenseText, draft) {
   const date = manifest.sitemap.retrieved_at.slice(0, 10);
   const rows = manifest.pages.map(
     (p) =>
       `| [${p.name}](${p.url}) | ${p.status} | ${p.retrieved_at} | ${p.updated ?? "(none shown)"} | \`${p.sha256}\` | [${p.markdown.file}](${p.markdown.file}) |`
   );
   const w = manifest.walkthrough_bundle;
-  return `# Personal Agent Protocol, Draft ${manifest.protocol_version}: snapshot of ${date}
+  return `# Personal Agent Protocol, ${draft ? "Draft" : "Version"} ${manifest.protocol_version}: snapshot of ${date}
 
 A copy of [personalagentprotocol.org](${ORIGIN}) as published on ${date}, so that what we say about the specification can be checked against the text it was written against. Made by \`scripts/spec-snapshot.mjs --save\`; \`node scripts/spec-snapshot.mjs\` compares the live site with the newest snapshot.
 
@@ -651,7 +656,8 @@ function licenseOf(rendered) {
 function save(site) {
   const rendered = render(site);
   const spec = latestSpecPage(rendered.pages);
-  const version = spec?.markdownText.match(/draft version (\d+\.\d+)/)?.[1] ?? "unknown";
+  const stated = statedVersion(spec);
+  const version = stated?.version ?? "unknown";
   // A draft in progress shows no "Updated" date, so its snapshot is named by the day it was retrieved.
   const retrieved = `retrieved-${site.sitemap.retrieved_at.slice(0, 10)}`;
   let dir = spec?.updated ? `draft-${version}-${new Date(`${spec.updated} UTC`).toISOString().slice(0, 10)}` : `draft-${version}-${retrieved}`;
@@ -668,7 +674,7 @@ function save(site) {
   writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   const license = licenseOf(rendered);
   if (license) writeFileSync(path.join(out, "LICENSE"), license);
-  writeFileSync(path.join(out, "README.md"), readme(manifest, license));
+  writeFileSync(path.join(out, "README.md"), readme(manifest, license, stated?.draft ?? true));
   console.log(`saved spec/${dir}`);
   summary(manifest);
 }

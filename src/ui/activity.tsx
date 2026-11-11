@@ -41,6 +41,7 @@ function how(entry: ActivityEntry): string {
 }
 
 function decided(entry: ActivityEntry): string {
+  if (entry.decidedBy === "instruction" && entry.instruction) return `${DECIDED.instruction}: “${entry.instruction}”`;
   return entry.decidedBy ? DECIDED[entry.decidedBy] : "Not needed";
 }
 
