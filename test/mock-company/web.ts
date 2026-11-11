@@ -1,4 +1,5 @@
 import { Company, HttpError, json, MEDIATED_GRANT, randomId, resourceError, type Inbound, type ResourceContext, type Session } from "./core";
+import { parseApprovalHeader, type Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
 /** The tasks the mock chose not to offer (9.1); the web reference is filled in per Company. */
@@ -32,7 +33,7 @@ export class Web {
   /** The browser join's codes (6, steps 1 to 3). */
   readonly #joins = new Map<string, { readonly cookie: string; readonly expiresAt: number; authorized: { readonly sessionId: string; readonly account: string | null; readonly scope: readonly string[]; readonly grant: string | null } | null; used: boolean }>();
 
-  constructor(readonly company: Company) {}
+  constructor(readonly company: Company, readonly operations: Operations) {}
 
   /** poppy.json's caching headers: the configured ones (`{}` for none), or the default. */
   #poppyJsonCaching(): Record<string, string> {
@@ -102,7 +103,9 @@ export class Web {
     if (config.mcp) apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
-    if (config.operations) extensions.operations = entries({ version: v04 ? "3" : "2" });
+    // 0.4 Ops 2: a website that returns operations lists `endpoint`, and only beside browser join.
+    const operationsEndpoint = v04 && config.webOperations && config.browserSession && !config.webDisabled;
+    if (config.operations) extensions.operations = entries({ version: v04 ? "3" : "2", ...(operationsEndpoint ? { endpoint: `${hosts.web}/poppy/operations` } : {}) });
     const mediated = co.offeredScopes("mediated");
     if (mediated) {
       extensions["mediated-sign-in"] = entries({
@@ -409,6 +412,61 @@ export class Web {
   }
 
   /**
+   * `POST /orders/ord_7Hk2/exchange`: the website's exchange form. A browser
+   * joined to a Session that declares Operations 3, signed in to the order's
+   * account, gets 403 and `Poppy-Operation` until the operation's approval
+   * is recorded at `endpoint`; then the same request performs it, once
+   * (0.4 Ops 4, 6). Anyone else gets the website's own approval step.
+   */
+  exchangeForm(inbound: Inbound): Response {
+    const co = this.company;
+    const page = (body: string, status: number, headers: Record<string, string> = {}) =>
+      new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers } });
+    if (co.config.protocolVersion === "0.4" && co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    if (inbound.request.headers.has("Poppy-Approval")) co.violation("web-operation.approval-in-browser", "the exchange form came with Poppy-Approval");
+    const session = this.#session(inbound);
+    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to exchange an item.</p>", 403);
+    const declared = session.declaration?.version === "0.4" && session.declaration.declared.get("operations") === "3";
+    if (!co.config.webOperations || !declared) return page("<p>Confirm this exchange on our website: we'll email you a link.</p>", 403);
+    const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
+    const request = JSON.stringify({ order_id: "ord_7Hk2", item_id: asked.item_id ?? "", replacement_sku: asked.replacement_sku ?? "" });
+    const answer = this.operations.websiteExchange(session, request, asked);
+    if ("performed" in answer) {
+      if (co.config.webErrorAfterPerforming) return page("<p>Something went wrong. Please try again later.</p>", 503);
+      return new Response(null, { status: 303, headers: { Location: "/orders/ord_7Hk2?exchanged=1", "Cache-Control": "no-store" } });
+    }
+    // The body doesn't carry the operation (Ops 4); this reference, in the page's words, is not one to take.
+    return page(
+      `<h1>Waiting for approval</h1><p>This exchange is waiting for your approval in your personal agent.</p><p>Reference: ${answer.ref.split(".")[0]}.page</p><form method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="${asked.item_id ?? ""}"><input type="hidden" name="replacement_sku" value="${asked.replacement_sku ?? ""}"><button id="continue">Continue</button></form>`,
+      403,
+      { "Poppy-Operation": `sid="${session.sid}", ref="${answer.ref}"` }
+    );
+  }
+
+  /** `POST {operations endpoint}` (0.4 Ops 4, 6): the agent's own request, with the Session header and token. */
+  async operationsEndpoint(inbound: Inbound): Promise<Response> {
+    const co = this.company;
+    if (co.config.protocolVersion !== "0.4" || !co.config.webOperations || !co.config.browserSession) return json({ error: "not_found" }, 404);
+    const context = await co.authorizeResource(inbound);
+    let body: unknown;
+    try {
+      body = JSON.parse(inbound.bodyText);
+    } catch {
+      body = null;
+    }
+    const ref = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as { ref?: unknown }).ref : undefined;
+    if (typeof ref !== "string" || !/^[A-Za-z0-9_.-]{1,2048}$/.test(ref)) return json({ error: "invalid_request" }, 400);
+    const header = inbound.request.headers.get("Poppy-Approval");
+    const approval = header === null ? null : parseApprovalHeader(header);
+    if (header !== null && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
+      co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
+      return json({ error: "invalid_request" }, 400);
+    }
+    const answer = this.operations.atEndpoint(context, ref, approval);
+    return answer.body ? json(answer.body, answer.status) : new Response(null, { status: answer.status });
+  }
+
+  /**
    * A website page's Session header (0.4 5.2): a page the agent fetches
    * without a browser may carry one, signed out, on `organization.domain`
    * only. Verified as at any endpoint, so a failed check is answered with
@@ -486,7 +544,11 @@ export class Web {
     if (inbound.url.pathname === "/orders" || inbound.url.pathname.startsWith("/orders/")) {
       // The cookie follows the Session's current state (6).
       if (session && !session.ended && session.account && session.scope.includes(co.orderScopes.read)) {
-        return html(`<p>Signed in as ${session.account}</p><ul><li>Order ord_7Hk2: Stormline Jacket (M)</li></ul>`);
+        if (inbound.url.pathname === "/orders/ord_7Hk2/exchange") {
+          return html(`<h1>Exchange an item</h1><form id="exchange" method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="itm_4Qa"><label>Replacement <select name="replacement_sku"><option value="stormline-insulated-m" selected>Stormline Insulated Jacket (M)</select></label><button>Exchange</button></form>`);
+        }
+        const exchanged = inbound.url.searchParams.has("exchanged") ? "<p>Exchange placed.</p>" : "";
+        return html(`<p>Signed in as ${session.account}</p>${exchanged}<ul><li>Order ord_7Hk2: Stormline Jacket (M) <a id="exchange" href="/orders/ord_7Hk2/exchange">Exchange</a></li></ul>`);
       }
       return html("<p>Signed out</p><p>Sign in to see your orders.</p>");
     }

@@ -103,8 +103,9 @@ export class HostedCompany extends DurableObject<HostedEnv> {
     // A test-only placement, on one public HTTPS origin. No URL/header rewriting weakens strict checks.
     company.hosts = hostedHosts(env.COMPANY_ORIGIN);
     this.#auth = new AuthServer(company);
-    this.#web = new Web(company);
-    this.#apis = new Apis(company, new Operations(company));
+    const operations = new Operations(company);
+    this.#web = new Web(company, operations);
+    this.#apis = new Apis(company, operations);
   }
 
   override async fetch(request: Request): Promise<Response> {

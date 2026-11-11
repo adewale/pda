@@ -161,6 +161,14 @@ export type MockConfig = {
   readonly reviseOnFirstApproval: boolean;
   /** 0.4 Ops 6: decline approvals that pass the checks, every one or only agent approvals, instead of performing them. */
   readonly declineApprovals: "all" | "agent" | null;
+  /**
+   * 0.4 Ops 4: the website's exchange form returns an operation to a browser
+   * joined to a Session that declares Operations 3, and poppy.json lists the
+   * extension's `endpoint`. Needs `browserSession`.
+   */
+  readonly webOperations: boolean;
+  /** The website's exchange form answers 503 after performing, as a Company whose own system timed out would (0.4 Ops 7). */
+  readonly webErrorAfterPerforming: boolean;
   /** The exchange's price difference, in its proposal's terms. */
   readonly exchangePrice: { readonly amount: string; readonly currency: string };
   /** Overrides the OpenAPI entry's `url` in poppy.json. */
@@ -389,6 +397,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   issuerPath: null,
   reviseOnFirstApproval: false,
   declineApprovals: null,
+  webOperations: false,
+  webErrorAfterPerforming: false,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,

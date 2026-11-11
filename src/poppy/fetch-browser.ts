@@ -413,12 +413,13 @@ type Page = {
   readonly url: URL;
   readonly status: number;
   readonly retryAfter: string | undefined;
+  readonly operationHeader: string | undefined;
   readonly parsed: ParsedPage;
   /** What `fill` set, by control. */
   readonly filled: Map<Control, string>;
 };
 
-type Fetched = { url: URL; status: number; retryAfter: string | undefined; contentType: string; body: Uint8Array };
+type Fetched = { url: URL; status: number; retryAfter: string | undefined; operationHeader: string | undefined; contentType: string; body: Uint8Array };
 
 const CREDENTIAL_AUTOCOMPLETE = /^(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp(-month|-year)?)$/;
 const CREDENTIAL_NAME = /pass(word|code)?|\bpin\b|otp|one.?time|verification.?code|cvv|cvc|card.?number|security.?code/i;
@@ -550,6 +551,7 @@ class FetchContext implements BrowserContextHandle {
           url: current,
           status: response.status,
           retryAfter: response.headers.get("Retry-After") ?? undefined,
+          operationHeader: response.headers.get("Poppy-Operation") ?? undefined,
           contentType: (response.headers.get("Content-Type") ?? "").toLowerCase(),
           body: bytes
         };
@@ -581,7 +583,7 @@ class FetchContext implements BrowserContextHandle {
     } else {
       parsed = { title: "", text: `(A ${mime} file, which this browser doesn't show.)`, base: undefined, links: [], forms: [], scripts: 0 };
     }
-    this.#page = { url: fetched.url, status: fetched.status, retryAfter: fetched.retryAfter, parsed, filled: new Map() };
+    this.#page = { url: fetched.url, status: fetched.status, retryAfter: fetched.retryAfter, operationHeader: fetched.operationHeader, parsed, filled: new Map() };
     return this.#snapshot();
   }
 
@@ -636,7 +638,8 @@ class FetchContext implements BrowserContextHandle {
           )
         ]
       })),
-      ...(page.retryAfter ? { retryAfter: page.retryAfter } : {})
+      ...(page.retryAfter ? { retryAfter: page.retryAfter } : {}),
+      ...(page.operationHeader !== undefined ? { operationHeader: page.operationHeader } : {})
     };
   }
 

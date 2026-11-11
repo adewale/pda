@@ -25,7 +25,8 @@ export async function proposeApproval(client: PoppyClient, company: Company, lab
   const revisionKey = await approvalCardId(company, operation);
   const source = executingApproval ? one(client.sql, approvalsTable.pick("request"), "SELECT request FROM poppy_approvals WHERE id = ?", executingApproval) : undefined;
   const saved = source ? readApproval(source.request) : undefined;
-  const previous = saved?.ok && (saved.value.kind === "openapi" || saved.value.kind === "mcp") ? saved.value.call.approval : undefined;
+  const previous = !saved?.ok ? undefined : saved.value.kind === "openapi" || saved.value.kind === "mcp" ? saved.value.call.approval
+    : saved.value.kind === "web-operation" ? saved.value.approval : undefined;
   // An unchanged approved revision is a refusal, not a fresh decision. Every
   // new request/revision otherwise owns an immutable local decision ID, so a
   // delayed click cannot approve a later attempt that reused the same terms.

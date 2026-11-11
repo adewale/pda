@@ -267,6 +267,9 @@ export const VIOLATIONS = {
   "approval.reference-reused": "Rule (0.4 Ops 6: reference \"is unique among the User's approvals at least\"): One reference sent for two approvals",
   "approval.declined-resent": "MUST NOT (0.4 Ops 6: \"the Personal Agent MUST NOT send that approval again\"): A declined approval sent again",
   "approval.agent-after-decline": "MUST NOT (0.4 Ops 6: it \"MUST NOT approve a new revision for the same action without asking the User\"): An agent approval after a decline",
+  "web-operation.unknown-ref": "MUST (0.4 Ops 4: \"MUST take a reference only from the Poppy-Operation header of a response that its own browser received\"): A reference at endpoint that the website never returned",
+  "web-operation.approval-in-browser": "Rule (0.4 Ops 6: \"The approval never passes through the browser\"): A browser request to the website carrying Poppy-Approval",
+  "web-operation.approved-elsewhere": "Rule (0.4 Ops 6: \"an operation returned on a website is approved only at endpoint\"): An approval of a website's operation sent to an API, MCP server or conversation",
   "approval.agent-after-revision": "MUST NOT (0.4 Ops 5: \"the Personal Agent MUST NOT approve the new one on the same instruction\"): An agent approval of a revision that answered an agent approval",
 
   // ---- Feedback (9.3) ----

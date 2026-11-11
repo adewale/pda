@@ -175,6 +175,103 @@ export function approvalHeader(approval: SentApproval): string {
     .join(", ");
 }
 
+/** One RFC 9651 bare item: a String's value, or null for another type, which a reader ignores. Undefined: not an item. */
+function bareItem(rest: string): { readonly value: string | null; readonly rest: string } | undefined {
+  if (rest.startsWith('"')) {
+    let text = "";
+    for (let i = 1; i < rest.length; i++) {
+      const char = rest[i]!;
+      if (char === "\\") {
+        const next = rest[i + 1];
+        if (next !== '"' && next !== "\\") return undefined;
+        text += next;
+        i++;
+      } else if (char === '"') return { value: text, rest: rest.slice(i + 1) };
+      else if (char < " " || char > "~") return undefined;
+      else text += char;
+    }
+    return undefined;
+  }
+  const other = /^(?:\?[01]|:[A-Za-z0-9+/=]*:|-?\d{1,15}(?:\.\d{1,3})?|[A-Za-z*][!#$%&'*+\-.^_`|~:/\w]*|@-?\d{1,15}|%"(?:[^"\\]|\\.)*")/.exec(rest)?.[0];
+  return other ? { value: null, rest: rest.slice(other.length) } : undefined;
+}
+
+/** Parameters after an item or inner list, which carry nothing a reader needs here. */
+function skipParameters(rest: string): string | undefined {
+  while (rest.startsWith(";")) {
+    const key = /^;[ ]*[a-z*][a-z0-9_\-.*]*/.exec(rest)?.[0];
+    if (!key) return undefined;
+    rest = rest.slice(key.length);
+    if (rest.startsWith("=")) {
+      const item = bareItem(rest.slice(1));
+      if (!item) return undefined;
+      rest = item.rest;
+    }
+  }
+  return rest;
+}
+
+/**
+ * An RFC 9651 Dictionary's String members, by key, the last of a repeated
+ * key winning (RFC 9651 4.2.2); members of other types are left out. Null
+ * when the field doesn't parse, so it is ignored as a whole.
+ */
+export function dictionaryStrings(field: string): Record<string, string> | null {
+  const members: Record<string, string> = {};
+  let rest = field.replace(/^[ \t]+/, "");
+  while (rest !== "") {
+    const key = /^[a-z*][a-z0-9_\-.*]*/.exec(rest)?.[0];
+    if (!key) return null;
+    rest = rest.slice(key.length);
+    let value: string | null = null;
+    if (rest.startsWith("=")) {
+      rest = rest.slice(1);
+      if (rest.startsWith("(")) {
+        rest = rest.slice(1);
+        for (;;) {
+          rest = rest.replace(/^ +/, "");
+          if (rest.startsWith(")")) { rest = rest.slice(1); break; }
+          const item = bareItem(rest);
+          const after = item && skipParameters(item.rest);
+          if (after === undefined || !/^[ )]/.test(after)) return null;
+          rest = after;
+        }
+      } else {
+        const item = bareItem(rest);
+        if (!item) return null;
+        value = item.value;
+        rest = item.rest;
+      }
+    }
+    const after = skipParameters(rest);
+    if (after === undefined) return null;
+    rest = after;
+    delete members[key];
+    if (value !== null) members[key] = value;
+    rest = rest.replace(/^[ \t]*/, "");
+    if (rest === "") break;
+    if (!rest.startsWith(",")) return null;
+    rest = rest.slice(1).replace(/^[ \t]*/, "");
+    if (rest === "") return null;
+  }
+  return members;
+}
+
+/** A website's reference to an operation (0.4 Ops 4): at most 2048 of these characters. */
+const OPERATION_REF = /^[A-Za-z0-9_.-]{1,2048}$/;
+
+/**
+ * `Poppy-Operation` (0.4 Ops 4): the Session the website handled the
+ * request as, and the reference. Null for a header that isn't one, which
+ * is ignored.
+ */
+export function parseOperationHeader(field: string): { readonly sid: string; readonly ref: string } | null {
+  const members = dictionaryStrings(field);
+  const sid = members?.sid;
+  const ref = members?.ref;
+  return sid !== undefined && ref !== undefined && sid !== "" && OPERATION_REF.test(ref) ? { sid, ref } : null;
+}
+
 /** The approval as JSON, for MCP's `_meta` and a message's `approval` (Ops 6). */
 export function approvalJson(approval: SentApproval): { operation_id: string; revision: string } & Partial<ApprovalStatement> {
   const { operation_id, revision, approver, approved_at, input_type, reference } = approval;

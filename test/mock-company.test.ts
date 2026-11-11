@@ -526,6 +526,39 @@ async function refused(c: C, s?: Session) {
 const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
 const V3 = { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` };
 
+/** A 0.4 Company whose website returns operations to a joined browser (0.4 Ops 4). */
+const WEB_OPERATIONS: Partial<MockConfig> = { ...V4, webOperations: true };
+
+/** A browser joined to a 0.4 Session that declares Operations 3, signed in on the website (0.4 6): the Session and its cookie. */
+async function webSession(c: C) {
+  const s = await signedIn(c, { scope: "orders:read orders:write poppy:browser-sign-in" });
+  const { code, cookie } = await joinPage(c);
+  expect((await call(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers: V3 })).status).toBe(204);
+  const submitted = await submitJoin(c, code, cookie);
+  expect(submitted.status).toBe(303);
+  return { s, cookie: /mock_sid=[^;]+/.exec(submitted.headers.get("Set-Cookie")!)![0] };
+}
+
+/** The browser submits the website's exchange form. */
+function exchangeForm(c: C, cookie: string, headers: Record<string, string> = {}) {
+  return c.call(`${c.hosts.web}/orders/ord_7Hk2/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookie, ...headers },
+    body: "item_id=itm_4Qa&replacement_sku=stormline-insulated-m"
+  });
+}
+
+/** The agent's own request to the operations endpoint with a reference (0.4 Ops 4, 6). */
+function operationsAt(c: C, s: Session, ref: string, headers: Record<string, string> = {}) {
+  return call(c, s, "POST", `${c.hosts.web}/poppy/operations`, { body: { ref }, headers: { ...V3, ...headers } });
+}
+
+/** `Poppy-Operation`'s two Strings. */
+function poppyOperation(response: Response): { sid: string; ref: string } {
+  const header = response.headers.get("Poppy-Operation") ?? "";
+  return { sid: /sid="([^"]*)"/.exec(header)?.[1] ?? "", ref: /ref="([^"]*)"/.exec(header)?.[1] ?? "" };
+}
+
 function approval(operation: Pick<Operation, "operation_id" | "revision">) {
   return { "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}"` };
 }
@@ -1864,6 +1897,48 @@ const TAMPERS: readonly Tamper[] = [
       return c.call(`${c.hosts.web}/account/address`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "line1=1+Main+St" });
     }
   },
+  // ---- Operations on websites (0.4 Ops 4, 6) ----
+  {
+    id: "web-operation.unknown-ref",
+    what: "a reference at endpoint that the website never returned",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.unknown-ref\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const waiting = await exchangeForm(c, cookie);
+      // The page's own words name a reference too; only the header's counts.
+      const shown = /Reference: ([^<]+)/.exec(await waiting.text())![1]!;
+      return operationsAt(c, s, shown);
+    }
+  },
+  {
+    id: "web-operation.approval-in-browser",
+    what: "the browser's request carrying Poppy-Approval",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.approval-in-browser\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const { ref } = poppyOperation(await exchangeForm(c, cookie));
+      const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+      return exchangeForm(c, cookie, approval(operation));
+    }
+  },
+  {
+    id: "web-operation.approved-elsewhere",
+    what: "a website's operation approved at the API",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.approved-elsewhere\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const { ref } = poppyOperation(await exchangeForm(c, cookie));
+      const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+      const answered = await exchange(c, s, { ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user"` });
+      // Handled as if no approval came: an operation of the API's own, and nothing performed.
+      expect(answered.status).toBe(403);
+      expect(((await answered.clone().json()) as { operation: Operation }).operation.operation_id).not.toBe(operation.operation_id);
+      return answered;
+    }
+  },
   {
     id: "browser-join.authorize-body",
     what: "authorize with a form body",
@@ -2698,6 +2773,71 @@ describe("the mock Company's Operations 3 (0.4 Ops 2, 3, 6)", () => {
     const state = await c.stub.state();
     expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "agent" })]);
     expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's operations on its website (0.4 Ops 2, 4, 6, 7)", () => {
+  it("returns a reference to a joined browser, the operation at endpoint, and performs once the approval is recorded, at most once", async () => {
+    const c = company();
+    await c.stub.configure(WEB_OPERATIONS);
+    const document = (await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { extensions: { operations: { endpoint: string }[] } };
+    expect(document.extensions.operations[0]!.endpoint).toBe(`${c.hosts.web}/poppy/operations`);
+    const { s, cookie } = await webSession(c);
+    const waiting = await exchangeForm(c, cookie);
+    expect(waiting.status).toBe(403);
+    expect(await waiting.text()).toContain("waiting for your approval in your personal agent");
+    const { sid, ref } = poppyOperation(waiting);
+    expect(sid).toBe(s.sid);
+    const asked = await operationsAt(c, s, ref);
+    expect(asked.status).toBe(403);
+    const { operation } = (await asked.json()) as { error: string; operation: Operation };
+    expect(operation.terms).toMatchObject({ order_id: "ord_7Hk2", replacement_sku: "stormline-insulated-m" });
+    const approve = { "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user", approved_at=${Math.floor(Date.now() / 1000)}` };
+    expect((await operationsAt(c, s, ref, approve)).status).toBe(204);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await (await operationsAt(c, s, ref)).json()).toEqual({ operation_id: operation.operation_id, status: "approved" });
+    // The browser makes the request again, and the recorded approval performs it.
+    const performed = await exchangeForm(c, cookie);
+    expect(performed.status).toBe(303);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await (await operationsAt(c, s, ref)).json()).toEqual({ operation_id: operation.operation_id, status: "performed" });
+    // The same approval again changes nothing, and the next request for it is a new operation.
+    expect((await operationsAt(c, s, ref, approve)).status).toBe(204);
+    const again = poppyOperation(await exchangeForm(c, cookie));
+    expect(again.ref.split(".")[0]).not.toBe(operation.operation_id);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("declines at endpoint without recording, so the website never finds the approval (Ops 6)", async () => {
+    const c = company();
+    await c.stub.configure({ ...WEB_OPERATIONS, declineApprovals: "all" });
+    const { s, cookie } = await webSession(c);
+    const { ref } = poppyOperation(await exchangeForm(c, cookie));
+    const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+    const declined = await operationsAt(c, s, ref, { "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user"` });
+    expect(declined.status).toBe(403);
+    expect(await declined.json()).toMatchObject({ error: "approval_declined", operation_id: operation.operation_id, revision: operation.revision, reason: expect.any(String) });
+    expect((await operationsAt(c, s, ref)).status).toBe(403);
+    expect((await exchangeForm(c, cookie)).status).toBe(403);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("leaves approval to the website for a browser whose Session didn't declare Operations 3, and takes no reference from another Session", async () => {
+    const c = company();
+    await c.stub.configure(WEB_OPERATIONS);
+    const { cookie } = await webSession(c);
+    const { ref } = poppyOperation(await exchangeForm(c, cookie));
+    const other = await signedIn(c, { account: "acct_grace" });
+    expect((await operationsAt(c, other, ref)).status).toBe(400);
+    const undeclared = await signedIn(c, { scope: "orders:read orders:write poppy:browser-sign-in" });
+    const { code, cookie: joining } = await joinPage(c);
+    expect((await call(c, undeclared, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers: { "Poppy-Version": "0.4" } })).status).toBe(204);
+    const joined = /mock_sid=[^;]+/.exec((await submitJoin(c, code, joining)).headers.get("Set-Cookie")!)![0];
+    const own = await exchangeForm(c, joined);
+    expect(own.status).toBe(403);
+    expect(own.headers.get("Poppy-Operation")).toBeNull();
+    expect((await c.stub.state()).violations).toEqual([]);
   });
 });
 

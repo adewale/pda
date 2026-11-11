@@ -148,6 +148,17 @@ describe("the fetch browser", () => {
     expect(seen[1]!.get("cookie")).toBe("sid=1");
   });
 
+  it("keeps the final response's Poppy-Operation for the agent's own code, and none from a redirect on the way (0.4 Ops 4)", async () => {
+    const pages: Record<string, () => Response> = {
+      "https://shop.example/hop": () => new Response(null, { status: 302, headers: { Location: "/waiting", "Poppy-Operation": 'sid="s", ref="from-redirect"' } }),
+      "https://shop.example/waiting": () => html("<p>Waiting</p>", { "Poppy-Operation": 'sid="s", ref="final"' }),
+      "https://shop.example/plain": () => html("<p>Plain</p>")
+    };
+    const context = await new FetchBrowser(async (request) => pages[request.url]!()).newContext(allowAll);
+    expect((await context.goto("https://shop.example/hop")).operationHeader).toBe('sid="s", ref="final"');
+    expect(await context.goto("https://shop.example/plain")).not.toHaveProperty("operationHeader");
+  });
+
   it("says when a page shows nothing without JavaScript, and doesn't show files that aren't pages", async () => {
     const pages: Record<string, Response> = {
       "https://shop.example/app": html('<div id="root"></div><script src="/app.js"></script><noscript>Enable JavaScript</noscript>'),

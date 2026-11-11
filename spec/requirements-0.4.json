@@ -125,10 +125,10 @@
     },
     {
       "change": "Operations on websites",
-      "disposition": "Planned",
-      "implementation": "src/poppy/fetch-browser.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "Adopted (decision 43), with Operations version 3 under 0.4 (O3). W3 surfaces Poppy-Operation from the agent's own browser, approves at the operations endpoint, repeats the browser's request with its own replay safety, and keeps the local form-consent card. Needs A1."
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W3 is done, per decisions 43 and 44. A form submit the User approved that a joined browser's website answers with 403 and Poppy-Operation becomes an exact-terms card: the reference comes only from the final response's own header, read by our code and never shown to the model, and only when sid names the Session that browser joined at a Company listing the operations endpoint with browser join. The agent fetches the operation at endpoint in that Session, and the card (or a standing instruction) approves it there with Poppy-Approval, never through the browser; the browser then repeats exactly the approved submission. A repeated request that fails, or comes back with a new reference, is followed by a lookup: performed is done, performing is unknown, an approval still waiting did nothing. A decline at endpoint is shown and never resent. The local form-consent card stays in front. Mock: webOperations (exchange form, endpoint, recorded approvals used once, status lookups) and webErrorAfterPerforming; TAMPERS rows web-operation.unknown-ref, web-operation.approval-in-browser and web-operation.approved-elsewhere."
     },
     {
       "change": "Operations version 3: agent approvals",
@@ -149,7 +149,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/declines.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "Under Operations 3 a decline of the approval we sent (its operation_id and revision) at an API (403 approval_declined), an MCP tool (an error result's structuredContent) or in a later Company message (extensions.operations.declined) settles the approval as refused, never resent; the card shows the reason and alternative as the Company's words and the model is told not to retry. A decline in a message clears the unknown-outcome hold. After a decline, and after the Company answers an agent approval with a new revision, only the User approves that operation again. Website operations, where a decline arrives at endpoint, wait for W3. Mock: declineApprovals and reviseOnFirstApproval; TAMPERS rows approval.declined-resent, approval.agent-after-decline and approval.agent-after-revision. Kit: approval-declined.schema.json."
+      "notes": "Under Operations 3 a decline of the approval we sent (its operation_id and revision) at an API (403 approval_declined), an MCP tool (an error result's structuredContent) or in a later Company message (extensions.operations.declined) settles the approval as refused, never resent; the card shows the reason and alternative as the Company's words and the model is told not to retry. A decline in a message clears the unknown-outcome hold. After a decline, and after the Company answers an agent approval with a new revision, only the User approves that operation again. A website's operation is declined at endpoint, as at an API (W3). Mock: declineApprovals and reviseOnFirstApproval; TAMPERS rows approval.declined-resent, approval.agent-after-decline and approval.agent-after-revision. Kit: approval-declined.schema.json."
     },
     {
       "change": "`auth.disabled` without other clients",

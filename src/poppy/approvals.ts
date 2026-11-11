@@ -49,11 +49,19 @@ const submission = object({
   fields: array(object({ name: string, value: string, hidden: boolean }))
 });
 
+/** A website's browser context, for one Session of one User (browser.ts). */
+const browserBinding = object({ account: nullable(string), sessionId: nullable(string), contextId: string, authorityGeneration: integer });
+
 const approval = tagged("kind", {
   /** `method` and `url` are what the card showed; the call is checked again and must still make exactly them. */
   openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, binding, attachments: optional(array(attachment)) }),
   mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall, binding }),
-  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: object({ account: nullable(string), sessionId: nullable(string), contextId: string, authorityGeneration: integer }) }),
+  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: browserBinding }),
+  /**
+   * 0.4: an operation the Company's website returned to our joined browser, by its `ref` (Ops 4). Approved,
+   * it is sent to the operations endpoint, and the browser then makes `submission` again (Ops 6).
+   */
+  "web-operation": object({ v: literal(APPROVAL_VERSION), kind: literal("web-operation"), ref: string, approval: approvalV2, submission, binding: browserBinding }),
   /** 0.3: an operation a Company Agent returned in a conversation; approved, it goes back in a message's `approval` (Ops 6). */
   "message-approval": object({ v: literal(APPROVAL_VERSION), kind: literal("message-approval"), conversationId: string, approval: approvalV2, binding })
 });

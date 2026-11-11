@@ -94,7 +94,7 @@ export class MockCompany extends DurableObject<Env> {
     const operations = new Operations(company);
     conversations.operations = operations;
     const apis = new Apis(company, operations);
-    const web = new Web(company);
+    const web = new Web(company, operations);
     this.#parts = { company, auth, conversations, operations, apis, web };
     return this.#parts;
   }
@@ -161,6 +161,7 @@ export class MockCompany extends DurableObject<Env> {
         return web.browserSession(inbound);
       }
       if (path === "/poppy/browser-session/authorize" && method === "POST") return web.authorizeBrowserJoin(inbound);
+      if (path === "/poppy/operations" && method === "POST") return web.operationsEndpoint(inbound);
       if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
       // An issuer of exactly https://{domain} publishes its metadata on the domain (RFC 8414 3.1).
       if (company.config.issuerOnDomain && !company.config.issuerless && path === company.hosts.metadataPath && method === "GET") return web.authorizationServerMetadata();
@@ -178,6 +179,10 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/account/address" && method === "POST") {
         company.rateLimit("page", inbound);
         return web.saveAddress(inbound);
+      }
+      if (path === "/orders/ord_7Hk2/exchange" && method === "POST") {
+        company.rateLimit("page", inbound);
+        return web.exchangeForm(inbound);
       }
       if (method === "GET") {
       company.rateLimit("page", inbound);

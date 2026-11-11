@@ -14,7 +14,7 @@
 import { array, DecodeError, integer, jsonText, literal, nullable, object, optional, string, tagged, tryDecode, type Decoder } from "../decode";
 import { one, rows } from "../rows";
 import { scopeSet, type PoppyClient } from "./client";
-import type { Company } from "./discovery";
+import { BROWSER_SIGN_IN, type Company } from "./discovery";
 import type { Issuer } from "./issuer";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -194,10 +194,13 @@ function meets(terms: Json, condition: Condition): boolean {
  * Whether the Session's access could make an irreversible change (4.7
  * `scope_hints`): a scope the Company marks irreversible, or describes with
  * no hint, which counts as irreversible as on sign-in cards. An agent never
- * approves where one is held.
+ * approves where one is held. `poppy:browser-sign-in` allows nothing beyond
+ * the other scopes unless the website is `web.unscoped` (0.4 6), when it is
+ * the account's full access there.
  */
 function irreversible(company: Company, scope: string): boolean {
   for (const name of scopeSet(scope)) {
+    if (name === BROWSER_SIGN_IN && !company.web?.unscoped) continue;
     const hint = Object.hasOwn(company.scopeHints ?? {}, name) ? company.scopeHints![name] : undefined;
     if (!hint || hint.changes === "irreversible") return true;
   }

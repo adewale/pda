@@ -271,8 +271,8 @@ type ActionIdentity = { readonly key: string; readonly owner: string; readonly o
 async function actionIdentity(approval: NewApproval): Promise<ActionIdentity> {
   const binding = approval.binding;
   const owner = canonicalJson(binding.account !== null ? ["account", binding.account]
-    : approval.kind === "browse-submit" && binding.sessionId === null ? ["context", approval.binding.contextId] : ["session", binding.sessionId]);
-  const operationId = approval.kind === "message-approval" ? approval.approval.operation_id
+    : (approval.kind === "browse-submit" || approval.kind === "web-operation") && binding.sessionId === null ? ["context", approval.binding.contextId] : ["session", binding.sessionId]);
+  const operationId = approval.kind === "message-approval" || approval.kind === "web-operation" ? approval.approval.operation_id
     : approval.kind === "openapi" || approval.kind === "mcp" ? approval.call.approval?.operation_id ?? null : null;
   let action: Json;
   switch (approval.kind) {
@@ -282,6 +282,8 @@ async function actionIdentity(approval: NewApproval): Promise<ActionIdentity> {
     case "mcp": action = ["mcp", approval.call.apiUrl, approval.call.tool, approval.call.args]; break;
     case "message-approval": action = ["operation", approval.approval.operation_id]; break;
     case "browse-submit": action = toJson(["browse-submit", approval.submission]); break;
+    // The browser's request that returned it: approving the operation repeats exactly that (0.4 Ops 6).
+    case "web-operation": action = toJson(["browse-submit", approval.submission]); break;
   }
   return { key: await sha256(canonicalJson(action)), owner, operationId };
 }

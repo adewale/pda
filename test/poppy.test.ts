@@ -4,7 +4,7 @@ import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { checkParams, openApi, outsidePoppySession, tokenSchemes, type OpenApiOperation } from "../src/poppy/apis";
 import { tokenResponse } from "../src/poppy/client";
-import { parseOperationV2 } from "../src/poppy/operations-v2";
+import { parseOperationHeader, parseOperationV2 } from "../src/poppy/operations-v2";
 import { clientFrame, serverFrame } from "../src/poppy/frames";
 import type { Json } from "../src/poppy/json";
 import { BUSY_WINDOW_MS, nextRead } from "../src/poppy/conversations";
@@ -3477,6 +3477,22 @@ describe("parsed once at the edge", () => {
     expect(parseOperationV2({ ...base, terms: ["70.00"] })).toEqual({ problem: "its terms aren't an object" });
     expect(parseOperationV2({ ...base, expires_at: "tomorrow" })).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
     expect(parseOperationV2([base])).toEqual({ problem: "it isn't an object" });
+  });
+
+  it("reads Poppy-Operation as an RFC 9651 Dictionary with sid and ref Strings, and ignores any other field (0.4 Ops 4)", () => {
+    expect(parseOperationHeader('sid="ses_1", ref="exc_5Rt2.1791487200.k3Jd"')).toEqual({ sid: "ses_1", ref: "exc_5Rt2.1791487200.k3Jd" });
+    // Order, parameters, other members and a repeated key (the last wins) are all as RFC 9651 reads them.
+    expect(parseOperationHeader('ref="old", other=?1;x=1, list=(1 "a");p, sid="ses_1";q="r", ref="new"')).toEqual({ sid: "ses_1", ref: "new" });
+    for (const field of [
+      'sid="ses_1"',
+      'sid="ses_1", ref=exc_token',
+      'sid="ses_1", ref="has space"',
+      `sid="ses_1", ref="${"a".repeat(2049)}"`,
+      'sid="ses_1", ref="ok" garbage',
+      'sid="ses_1", ref="ok",',
+      'sid="", ref="ok"',
+      'Sid="ses_1", ref="ok"'
+    ]) expect(parseOperationHeader(field), field).toBeNull();
   });
 
   it("decodes the page's frames to the agent member by member, and the agent's to the page by type", () => {

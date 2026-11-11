@@ -4,7 +4,7 @@ Drafts for the owner's review. **Nothing here has been submitted**, and nothing 
 
 From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.3 and 0.4. These are issues in the upstream text and its company kit, found while implementing 0.4; how PDA reads each one meanwhile is in [readings](readings.md#04-readings-11-november-text).
 
-**What we read.** Version 0.4 as published on 11 November 2026, the 1.0 release candidate ([pin](../spec/draft-0.4-retrieved-2026-11-11/README.md)), and the company kit of the same day ([pin](../spec/company-kit-2026-11-11/README.md)). Quotations are verbatim from those files. All three issues were first found in the 10 November draft and are unchanged in the published text.
+**What we read.** Version 0.4, published on 10 November 2026 as the 1.0 release candidate and retrieved on 11 November ([pin](../spec/draft-0.4-retrieved-2026-11-11/README.md)), and the company kit of the same day ([pin](../spec/company-kit-2026-11-11/README.md)). Quotations are verbatim from those files. All three issues were first found in the 10 November draft and are unchanged in the published text.
 
 ## 1. A Company serving 0.3 and 0.4 can't reject a request for lacking `Poppy-Version`
 

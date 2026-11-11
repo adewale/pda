@@ -221,7 +221,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     // words on its approval card and out of the Activity/diagnostics surface.
     const outcome = resolution ? checkedOutcomeText(company, resolution.outcome) : row.status === "failed"
       ? "The approved request could not be completed. See its approval card for details."
-      : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
+      : row.result && (result !== "done" || row.kind === "browse-submit" || row.kind === "web-operation") ? clip(row.result) : undefined;
     log.push({
       id: `approval-${row.id}`,
       at: row.created_at,
@@ -233,7 +233,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       what: row.terms ? `${company} asked for your approval` : taskRequested(sql, row.id) ? "Requested for your task" : "Asked you to approve",
       quote: row.terms ? row.terms.summary : row.summary,
       quoteBy: row.terms ? "company" : "agent",
-      how: row.kind === "browse-submit" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
+      how: row.kind === "browse-submit" || row.kind === "web-operation" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
       access: "view_and_change",
       // 0.4 Ops 5: approved on a standing instruction, the ledger names it in the User's own words.
       decidedBy: row.status === "pending" || taskRequested(sql, row.id) ? null : row.approver === "agent" ? "instruction" : "you",

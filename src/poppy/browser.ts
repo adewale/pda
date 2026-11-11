@@ -1,11 +1,15 @@
-import { hasCode, PoppyClient, PoppyError, scopeSet } from "./client";
+import { answerOf, hasCode, PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { BROWSER_SIGN_IN, type Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
-import { toJson, type Json } from "./json";
+import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { sameAuthority, sessionAuthority } from "./authority";
-import { proposeLocal, registerExecutor } from "./operations";
+import { OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import { EndpointRequest } from "./outgoing";
+import { expired, proposeApproval, unusableApproval } from "./api-approvals";
+import { approvable, approvalHeader, operationsVersion, parseOperationHeader, parseOperationV2, toSend, type SentApproval } from "./operations-v2";
+import { readDecline } from "./declines";
+import { companyErrorCode } from "./error-codes";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
 export type PageSnapshot = {
@@ -19,6 +23,8 @@ export type PageSnapshot = {
   readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[] }[];
   /** The response's `Retry-After`, if any, which a 429 must be waited out by (spec 4.3, MUST) and a 503 too (Guides, "Retries"). */
   readonly retryAfter?: string;
+  /** 0.4: the final response's `Poppy-Operation` field, as received (Ops 4). Read by our own code, never shown to the model. */
+  readonly operationHeader?: string;
 };
 
 /** Exactly what a form submit sends, worked out before the User approves it. */
@@ -458,12 +464,15 @@ export async function browse(
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
+type BrowserBinding = { readonly account: string | null; readonly sessionId: string | null; readonly contextId: string; readonly authorityGeneration: number };
+
 /**
- * An approved form submit: exactly the fields the User approved, in the same
- * Session's context, and only where the browser may go for the Company now
- * (its page and action checked again; the browser checks every hop too).
+ * The context an approved submission was prepared in, still open and bound
+ * to the same account and Session, and only where the browser may go for
+ * the Company now (its page and action checked again; the browser checks
+ * every hop too).
  */
-registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
+async function approvedContext(client: PoppyClient, company: Company, label: string, submission: FormSubmission, binding: BrowserBinding | undefined) {
   // The Company may have set web.disabled since the User approved.
   refuseFormsIfDisabled(company);
   const guard = pageGuard(company);
@@ -473,8 +482,161 @@ registerExecutor("browse-submit", async (client, company, { submission, binding 
   if (!entry) throw new Error("The page is no longer open");
   if (!binding || binding.contextId !== entry.id || !sameAuthority(binding, entry)) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
   checkContext(client, company, label, entry);
+  return { entry, handle: await entry.context };
+}
+
+/**
+ * 0.4 Ops 4: the operation a website returned to our browser, taken only
+ * from the final response's own `Poppy-Operation`, never from anything a
+ * page says, and only when `sid` names the Session this browser joined at a
+ * Company that lists its operations endpoint. Any other header is ignored.
+ */
+function websiteOperation(company: Company, entry: ContextEntry, snapshot: PageSnapshot): { readonly ref: string; readonly endpoint: string } | null {
+  const endpoint = company.extensions.operationsEndpoint;
+  if (snapshot.operationHeader === undefined || !endpoint || operationsVersion(company) !== "3" || !company.web?.browserSessionEndpoint) return null;
+  if (!entry.joined || entry.sessionId === null) return null;
+  const header = parseOperationHeader(snapshot.operationHeader);
+  return header && header.sid === entry.sessionId ? { ref: header.ref, endpoint } : null;
+}
+
+/**
+ * Our own request to the Company's operations endpoint with a reference
+ * (0.4 Ops 4, 6): in the browser's Session, never another, with the
+ * Session header and, signed in, the access token; with the approval when
+ * sending one.
+ */
+async function atOperationsEndpoint(
+  client: PoppyClient, company: Company, label: string, entry: ContextEntry, endpoint: string, ref: string, approval: SentApproval | null, beforeDispatch: () => void
+): Promise<{ readonly status: number; readonly body: Json }> {
+  const request = EndpointRequest.to(company, { method: "POST", url: endpoint, body: { ref }, ...(approval ? { headers: { "Poppy-Approval": approvalHeader(approval) } } : {}) });
+  const response = await client.resource(company, request, {
+    label,
+    beforeDispatch: () => {
+      beforeDispatch();
+      if (client.session(company.issuer, label)?.session_id !== entry.sessionId) {
+        throw new PoppyError("approval_changed", "The Session changed since the website returned this operation. Open the page and submit again.", 0);
+      }
+    }
+  });
+  const text = await client.readBody(response);
+  let body: Json = null;
+  try {
+    body = text ? parseStrictJson(text) : null;
+  } catch {
+    body = text.slice(0, 2_000);
+  }
+  return { status: response.status, body };
+}
+
+/** The values the User could see in the form, which the operation's terms are compared with (0.4 Ops 8.2). */
+function formAsked(submission: FormSubmission): Json {
+  return Object.fromEntries(submission.fields.filter((field) => !field.hidden).map((field) => [field.name, field.value]));
+}
+
+/**
+ * The card for the operation the endpoint returned for a reference (0.4
+ * Ops 4, 5): the Company's terms, exactly, approved by the User or by the
+ * agent on the User's standing instruction. Throws for any other answer.
+ */
+async function proposeWebOperation(
+  client: PoppyClient, company: Company, label: string, ref: string, submission: FormSubmission, binding: BrowserBinding,
+  answer: { readonly status: number; readonly body: Json }, executingApproval: string
+): Promise<string> {
+  const { status, body } = answer;
+  if (status === 403 && isObject(body) && body.error === "approval_required") {
+    const operation = parseOperationV2(body.operation, "3");
+    if ("problem" in operation) {
+      await unusableApproval(client, company, operation.problem);
+      throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
+    }
+    const approval = { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at };
+    return proposeApproval(client, company, label, operation, formAsked(submission), { kind: "web-operation", ref, approval, submission, binding }, executingApproval);
+  }
+  // The reference expired, or the Session can't use it (Ops 4): the browser has to make the request again.
+  if (status === 400) {
+    throw withAnswer(new PoppyError("invalid_request", `${company.name} no longer has the operation its website returned, so nothing was done. Submit the form again for current terms.`, 400), 400);
+  }
+  const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
+  throw withAnswer(new PoppyError(code, `${company.name}'s operations endpoint answered ${status}: ${JSON.stringify(body).slice(0, 500)}`, status), status);
+}
+
+const ASKS_FOR_TERMS = (company: Company) => `${company.name}'s website asks you to approve its exact terms first, on the next card. Nothing has happened yet.`;
+
+/**
+ * An approved form submit: exactly the fields the User approved, in the same
+ * Session's context. Under 0.4 the website may answer with an operation
+ * instead of doing it (Ops 4), which then waits on its own card.
+ */
+registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
+  const { entry, handle } = await approvedContext(client, company, label, submission, binding);
   await client.beforeRequest(company);
-  const handle = await entry.context;
-  const snapshot = await handle.submit(submission, () => { execution.beforeDispatch(); checkContext(client, company, label, entry); });
+  const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
+  const snapshot = await handle.submit(submission, check);
+  const operation = websiteOperation(company, entry, snapshot);
+  if (operation) {
+    const answer = await atOperationsEndpoint(client, company, label, entry, operation.endpoint, operation.ref, null, check);
+    throw new TermsRequested(ASKS_FOR_TERMS(company), await proposeWebOperation(client, company, label, operation.ref, submission, binding, answer, execution.approvalId));
+  }
   return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;
+});
+
+/**
+ * An approved operation of the website's (0.4 Ops 6): the approval goes to
+ * the operations endpoint, never through the browser, and is recorded
+ * there; then the browser makes the same request again, which performs it.
+ * A new reference, or no answer, means looking the earlier one up before
+ * anything else (Ops 7): performed is done, performing is unknown, and an
+ * approval still waiting did nothing.
+ */
+registerExecutor("web-operation", async (client, company, approval, label, execution) => {
+  if (!approvable(approval.approval, Date.now())) throw expired(company);
+  const { entry, handle } = await approvedContext(client, company, label, approval.submission, approval.binding);
+  const endpoint = company.extensions.operationsEndpoint;
+  if (!endpoint || operationsVersion(company) !== "3") {
+    throw new PoppyError("approval_changed", `${company.name} no longer lists where its website's operations are approved, so the approval wasn't sent.`, 0);
+  }
+  const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
+  const recorded = await atOperationsEndpoint(client, company, label, entry, endpoint, approval.ref, toSend(company, approval.approval, execution), check);
+  if (recorded.status === 403) {
+    const declined = readDecline(company, recorded.body, approval.approval, true);
+    if (declined) throw withAnswer(declined, 403);
+    const operation = isObject(recorded.body) ? parseOperationV2(recorded.body.operation, "3") : null;
+    // An approved revision returned unchanged is a refusal, never a new card (Ops 6).
+    if (operation && !("problem" in operation) && operation.operation_id === approval.approval.operation_id && operation.revision === approval.approval.revision) {
+      throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first; nothing was done`, 403), 403);
+    }
+    throw new TermsRequested(ASKS_FOR_TERMS(company), await proposeWebOperation(client, company, label, approval.ref, approval.submission, approval.binding, recorded, execution.approvalId));
+  }
+  if (recorded.status !== 204) {
+    const code = companyErrorCode(isObject(recorded.body) ? recorded.body.error : undefined, recorded.status);
+    const why = recorded.status === 400 ? "the operation expired or can't be approved in this Session" : JSON.stringify(recorded.body).slice(0, 500);
+    throw withAnswer(new PoppyError(code, `${company.name} didn't take the approval (${why}), so nothing was done`, recorded.status), recorded.status);
+  }
+  // Recorded, and nothing performed yet: the browser makes the request again, and once more if no answer came (Ops 7).
+  let snapshot: PageSnapshot | undefined;
+  for (let attempt = 0; attempt < 2 && !snapshot; attempt++) {
+    try {
+      await client.beforeRequest(company);
+      snapshot = await handle.submit(approval.submission, check);
+    } catch (error) {
+      if (answerOf(error) !== "none" || attempt === 1) break;
+    }
+  }
+  if (snapshot && snapshot.status < 400 && snapshot.operationHeader === undefined) {
+    return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;
+  }
+  let state: Json | undefined;
+  try {
+    const looked = await atOperationsEndpoint(client, company, label, entry, endpoint, approval.ref, null, check);
+    if (looked.status === 200 && isObject(looked.body) && looked.body.operation_id === approval.approval.operation_id) state = looked.body.status;
+  } catch {
+    // Unknown below.
+  }
+  const page = snapshot ? ` The website now shows ${snapshot.url} (HTTP ${snapshot.status}).` : "";
+  if (state === "performed") return `${company.name} says it performed the operation.${page}`;
+  if (state === "approved") {
+    const why = `${company.name}'s website didn't use the recorded approval for the repeated request, so nothing was done. Open the page and submit the form again before it expires.`;
+    throw snapshot ? withAnswer(new PoppyError("approval_changed", why, snapshot.status), snapshot.status) : new PoppyError("approval_changed", why, 0);
+  }
+  throw new OperationOutcomeUnknown(`${company.name} recorded the approval, but whether its website performed the operation isn't known yet.${page} Check with ${company.name} before approving it again.`);
 });

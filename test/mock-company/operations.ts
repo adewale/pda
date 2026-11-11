@@ -1,4 +1,4 @@
-import { Company, randomId, type ResourceContext } from "./core";
+import { Company, randomId, type ResourceContext, type Session } from "./core";
 
 function exchangeTerms(price: { amount: string; currency: string }) {
   return {
@@ -30,8 +30,14 @@ type Performed = { readonly status: number; readonly body: unknown };
 type Action = {
   readonly kind: "exchange" | "prints";
   readonly terms: (asked: Record<string, unknown>) => Terms;
-  readonly perform: (record: ApprovalRecord, context: ResourceContext) => Performed;
+  readonly perform: (record: ApprovalRecord, context: Owner) => Performed;
 };
+
+/** Who is asking: enough of a request's context to say whether its Session can approve an operation (Ops 3). */
+type Owner = Pick<ResourceContext, "session" | "signedIn" | "account">;
+
+/** What the operations endpoint answers (0.4 Ops 4, 6): a status, and a JSON body unless 204. */
+export type EndpointAnswer = { readonly status: number; readonly body?: Record<string, unknown> };
 
 type ApprovalRecord = {
   readonly id: string;
@@ -55,6 +61,14 @@ type ApprovalRecord = {
   readonly declined: Set<string>;
   /** Revisions it returned in answer to an agent approval, which only the User may approve (Ops 5). */
   readonly afterAgent: Set<string>;
+  /** Returned on the website (0.4 Ops 4): approved only at `endpoint`, and performed by the browser's request. */
+  readonly web: boolean;
+  /** What the request asked, for the terms of a later revision. */
+  readonly asked: Record<string, unknown>;
+  /** Website only: the references it returned in `Poppy-Operation`. */
+  readonly refs: Set<string>;
+  /** Website only: revisions whose approval `endpoint` recorded and no request has used up, oldest first (Ops 6). */
+  readonly recorded: string[];
 };
 
 /** A decline's members (Ops 6): no reason codes, and nothing the Session couldn't already see. */
@@ -172,7 +186,7 @@ export class Operations {
     };
   }
 
-  #owner(record: ApprovalRecord, context: ResourceContext): boolean {
+  #owner(record: ApprovalRecord, context: Owner): boolean {
     return record.clientId === context.session.clientId && record.userId === context.session.userId &&
       (record.account ? context.signedIn && context.account === record.account : record.sessionId === context.session.id);
   }
@@ -198,8 +212,10 @@ export class Operations {
       const version3 = co.operationsVersion(context) === "3";
       if (version3) this.#checkVersion3(context, approval as Approval & { operation_id: string; revision: string });
       const record = this.#records.get(approval.operation_id);
+      // A website's operation is approved only at `endpoint` (0.4 Ops 6): here, as if no approval came.
+      if (record?.web) co.violation("web-operation.approved-elsewhere", `the website's operation ${record.id} was approved at ${action.kind === "prints" ? "the print API" : "an API, MCP server or conversation"}`);
       // Check 1: a Session that can't approve it is handled as if it had sent no approval.
-      if (record && record.kind === action.kind && this.#owner(record, context)) {
+      if (record && !record.web && record.kind === action.kind && this.#owner(record, context)) {
         record.approvals += 1;
         // Check 2: performed already: the first response again (Ops 7).
         if (record.performed) return { performed: record.performed };
@@ -231,11 +247,17 @@ export class Operations {
       }
     }
     for (const record of this.#records.values()) {
-      if (record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, context)) continue;
+      if (record.web || record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, context)) continue;
       const latest = record.revisions.get(record.latest)!;
       if (latest.expiresAt > Date.now()) return { operation: latest.operation };
       return { operation: this.#revise(record, action, asked) };
     }
+    const record = this.#create(action, context, request, asked, false);
+    return { operation: this.#revise(record, action, asked) };
+  }
+
+  #create(action: Action, context: Owner, request: string, asked: Record<string, unknown>, web: boolean): ApprovalRecord {
+    const co = this.company;
     const prefix = action.kind === "prints" ? "prt_" : (co.config.operationIdPrefix ?? "exc_");
     const record: ApprovalRecord = {
       id: randomId(prefix, 6).replace(/[^A-Za-z0-9_-]/g, "_"),
@@ -251,10 +273,14 @@ export class Operations {
       approvals: 0,
       approvedBy: null,
       declined: new Set(),
-      afterAgent: new Set()
+      afterAgent: new Set(),
+      asked,
+      web,
+      refs: new Set(),
+      recorded: []
     };
     this.#records.set(record.id, record);
-    return { operation: this.#revise(record, action, asked) };
+    return record;
   }
 
   /**
@@ -346,6 +372,96 @@ export class Operations {
       {},
       approval
     );
+  }
+
+  /**
+   * The website's exchange form, from a browser joined to `session`
+   * (0.4 Ops 4, 6): performed with the oldest recorded approval that matches
+   * the request, which it uses up; otherwise a reference to the operation,
+   * for `Poppy-Operation`. A performed operation is never reused, so the next
+   * request for it is a new one.
+   */
+  websiteExchange(session: Session, request: string, asked: Record<string, unknown>): { readonly performed: Performed } | { readonly ref: string } {
+    const owner: Owner = { session, signedIn: session.account !== null, account: session.account };
+    const action = this.#exchange;
+    const now = Date.now();
+    for (const record of this.#records.values()) {
+      if (!record.web || record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, owner)) continue;
+      const index = record.recorded.findIndex((revision) => record.revisions.get(revision)!.expiresAt > now);
+      if (index >= 0) {
+        const [revision] = record.recorded.splice(index, 1);
+        record.approvedBy = this.#approvers.get(`${record.id} ${revision}`) ?? "user";
+        record.performed = action.perform(record, owner);
+        return { performed: record.performed };
+      }
+      const latest = record.revisions.get(record.latest)!;
+      const revision = latest.expiresAt > now ? record.latest : this.#revise(record, action, asked).revision;
+      return { ref: this.#ref(record, revision) };
+    }
+    const record = this.#create(action, owner, request, asked, true);
+    return { ref: this.#ref(record, this.#revise(record, action, asked).revision) };
+  }
+
+  /** Who approved each recorded website revision, until a request uses it up. */
+  readonly #approvers = new Map<string, string>();
+
+  #ref(record: ApprovalRecord, revision: string): string {
+    const ref = `${record.id}.${revision}`;
+    record.refs.add(ref);
+    return ref;
+  }
+
+  /**
+   * `POST {endpoint}` (0.4 Ops 4, 6): a reference the website returned gets
+   * its operation; with `Poppy-Approval`, the approval is recorded (204) or
+   * declined, and performs nothing; once recorded, the reference alone gets
+   * the operation's state. Anything else is `invalid_request`.
+   */
+  atEndpoint(context: ResourceContext, ref: string, approval: Approval | null): EndpointAnswer {
+    const co = this.company;
+    const record = this.#records.get(ref.split(".")[0] ?? "");
+    if (!record?.web || !record.refs.has(ref)) {
+      co.violation("web-operation.unknown-ref", `the reference ${JSON.stringify(ref.slice(0, 80))} came to endpoint, but the website never returned it`);
+      return { status: 400, body: { error: "invalid_request" } };
+    }
+    if (!this.#owner(record, context)) return { status: 400, body: { error: "invalid_request" } };
+    const now = Date.now();
+    const action = this.#exchange;
+    const named = record.revisions.get(ref.slice(record.id.length + 1));
+    if (approval && typeof approval.operation_id === "string" && typeof approval.revision === "string") {
+      const sent = approval as Approval & { operation_id: string; revision: string };
+      this.#checkVersion3(context, sent);
+      record.approvals += 1;
+      if (record.performed) return { status: 204 };
+      const agent = sent.approver === "agent";
+      this.#checkAfterDecline(record, sent, agent);
+      const revision = record.revisions.get(sent.revision);
+      // Check 3: a revision it returned for this operation, unexpired.
+      if (sent.operation_id === record.id && revision && revision.expiresAt > now) {
+        const declines = co.config.declineApprovals;
+        if (declines === "all" || (declines === "agent" && agent)) {
+          // Never recorded, so the website never finds it (Ops 6).
+          record.declined.add(sent.revision);
+          return { status: 403, body: { error: "approval_declined", ...this.#decline(record, sent.revision) } };
+        }
+        if (!record.recorded.includes(sent.revision)) record.recorded.push(sent.revision);
+        this.#approvers.set(`${record.id} ${sent.revision}`, typeof sent.approver === "string" ? sent.approver : "user");
+        return { status: 204 };
+      }
+      // Failing check 3: what section 4 gives the reference, never the revision the approval names.
+      if (!named || named.expiresAt <= now) return { status: 400, body: { error: "invalid_request" } };
+      const latest = record.revisions.get(record.latest)!;
+      const operation = latest.expiresAt > now && record.latest !== sent.revision ? latest.operation : this.#revise(record, action, record.asked);
+      if (agent) record.afterAgent.add(operation.revision);
+      return { status: 403, body: { error: "approval_required", operation } };
+    }
+    // Looking up an approved operation (Ops 6).
+    if (record.performed || record.recorded.length > 0) {
+      return { status: 200, body: { operation_id: record.id, status: record.performed ? "performed" : "approved" } };
+    }
+    if (!named || named.expiresAt <= now) return { status: 400, body: { error: "invalid_request" } };
+    const latest = record.revisions.get(record.latest)!;
+    return { status: 403, body: { error: "approval_required", operation: latest.expiresAt > now ? latest.operation : this.#revise(record, action, record.asked) } };
   }
 
   /** A revision's operation, for a test playing the Company Agent. */

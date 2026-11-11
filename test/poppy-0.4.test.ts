@@ -774,6 +774,99 @@ describe("0.4: a Company declines an approval (Ops 6)", () => {
   });
 });
 
+describe("0.4: operations on a website (Operations 4, 6, 7; decision 44)", () => {
+  const WEB: Partial<MockConfig> = { ...V4, webOperations: true };
+  const websitePosts = async (c: Company) => (await requests(c)).filter((request) => new URL(request.url).pathname === "/orders/ord_7Hk2/exchange" && request.method === "POST");
+  const atEndpoint = async (c: Company) => (await requests(c)).filter((request) => new URL(request.url).pathname === "/poppy/operations");
+  /** The User approves the exchange form; the website answers with an operation, whose card is returned. */
+  const submitted = async (config: Partial<MockConfig> = WEB, before?: (a: Agent, c: Company) => Promise<unknown>) => {
+    const c = await company(config);
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read", "orders:write", "poppy:browser-sign-in"]);
+    await before?.(a, c);
+    const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
+    expect((await browse({ action: "open", url: "/orders/ord_7Hk2/exchange" })).text).toContain("Exchange an item");
+    expect((await browse({ action: "submit", selector: "#exchange" })).text).toContain("Waiting for the User's approval");
+    const form = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: form.approvalId, decision: "approve" });
+    return { c, a, form };
+  };
+
+  it("takes the operation from the browser's own response, approves it at the endpoint, and has the browser repeat the request", async () => {
+    const { c, a, form } = await submitted();
+    expect((await cards(a)).find((item) => item.approvalId === form.approvalId)).toMatchObject({ status: "terms" });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.summary).toContain("Exchange the Stormline Jacket (M) on order ord_7Hk2");
+    expect(card.terms).toBeDefined();
+    expect((await c.stub.state()).performs).toBe(0);
+    // Fetched with the reference alone, and no approval, before the User decides.
+    expect((await atEndpoint(c)).map((request) => [request.status, request.headers["poppy-approval"] ?? null])).toEqual([[403, null]]);
+    // A handoff to the terms card doesn't wake the model; that card's decision does.
+    expect((await a.stub.poppyNotices()).some((text) => text.includes("exchange"))).toBe(false);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(1);
+    const sentApproval = (await atEndpoint(c)).at(-1)!;
+    expect(sentApproval.status).toBe(204);
+    expect(sentApproval.headers["poppy-approval"]).toMatch(/^operation_id="exc_[\w-]+", revision="[\w-]+", approver="user", approved_at=\d+, input_type="tap", reference="[\w-]+"$/);
+    // The approval never went through the browser, which made the same request twice.
+    const posts = await websitePosts(c);
+    expect(posts.map((request) => request.status)).toEqual([403, 303]);
+    expect(posts.every((request) => request.headers["poppy-approval"] === undefined && request.headers.authorization === undefined)).toBe(true);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "done", result: expect.stringContaining("exchanged=1") });
+    expect((await cards(a)).find((item) => item.approvalId === form.approvalId)).toMatchObject({ status: "done" });
+    expect(await a.stub.poppyActivity()).toContain('"how":"website"');
+    expect(await a.stub.poppyWaitForNotice("Done, as the User approved")).toContain("Exchange the Stormline Jacket");
+  });
+
+  it("approves a website's operation on a standing instruction that covers its terms", async () => {
+    const { c, a } = await submitted({ ...WEB, reversibleWrites: true }, (a, c) => a.stub.poppyFrame({
+      type: "poppy.instruction.add", issuer: c.hosts.issuer, account: null, text: "Exchanges under $100 are fine",
+      conditions: [{ kind: "at_most", path: ["price_difference"], amount: "100.00", currency: "USD" }], budget: null
+    }));
+    await a.stub.poppyAdvance(0);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "agent" })]);
+    expect((await atEndpoint(c)).at(-1)!.headers["poppy-approval"]).toContain('approver="agent"');
+  });
+
+  it("shows a decline at the endpoint, and the browser doesn't make the request again", async () => {
+    const { c, a } = await submitted({ ...WEB, declineApprovals: "all" });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "refused", answer: { status: 403, error: "approval_declined" } });
+    expect((await websitePosts(c)).length).toBe(1);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("looks the reference up when the repeated request fails, and takes performed as done (Ops 7)", async () => {
+    const { c, a } = await submitted({ ...WEB, webErrorAfterPerforming: true });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(1);
+    expect((await websitePosts(c)).map((request) => request.status)).toEqual([403, 503]);
+    expect((await atEndpoint(c)).map((request) => request.status)).toEqual([403, 204, 200]);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "done", result: expect.stringContaining("says it performed the operation") });
+  });
+
+  it("leaves approval to the website when the browser's Session didn't declare Operations 3", async () => {
+    const { c, a, form } = await submitted({ ...V4, webOperations: true, operations: false });
+    expect((await cards(a)).find((item) => item.approvalId === form.approvalId)).toMatchObject({ status: "done", result: expect.stringContaining("(HTTP 403)") });
+    expect(await atEndpoint(c)).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("doesn't approve a website's operation on an instruction when the website is unscoped, since the browser then has the account's full access", async () => {
+    const { c, a } = await submitted({ ...WEB, reversibleWrites: true, webUnscoped: true }, (a, c) => a.stub.poppyFrame({
+      type: "poppy.instruction.add", issuer: c.hosts.issuer, account: null, text: "Exchanges under $100 are fine",
+      conditions: [{ kind: "at_most", path: ["price_difference"], amount: "100.00", currency: "USD" }], budget: null
+    }));
+    await a.stub.poppyAdvance(0);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await cards(a)).find((item) => item.kind === "approval" && item.open)?.terms).toBeDefined();
+  });
+});
+
 describe("0.4: scopes in the protected resource metadata (3.2, 4.7)", () => {
   // loyalty:read is described nowhere a 0.3 agent looks: only the domain's protected resource metadata lists it.
   const config = (protocolVersion: "0.3" | "0.4"): Partial<MockConfig> => ({
