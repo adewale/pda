@@ -2,7 +2,7 @@ import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
 import { flag, jsonText, literal, object, string } from "../decode";
-import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
+import { integer, integerOf, nullable, one, table, text, textOf, type RowOf } from "../rows";
 import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
 import { protocolRevision, supportsProtocol } from "./protocol-version";
@@ -154,6 +154,22 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   outcome_resolved_at INTEGER,
   approver TEXT,
   instruction_id TEXT
+);
+-- Steps a Company marked for the User, and the browser handed to them for each (0.4 Browser Control 5,
+-- handover.ts). Never a cookie or a live view link: those stay in memory and in the User's page.
+CREATE TABLE IF NOT EXISTS poppy_handovers (
+  id TEXT PRIMARY KEY,
+  issuer TEXT NOT NULL,
+  label TEXT NOT NULL,
+  url TEXT NOT NULL,
+  step TEXT NOT NULL,
+  state TEXT NOT NULL,
+  browser TEXT,
+  binding TEXT NOT NULL,
+  looked INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  ended_at INTEGER
 );
 -- The User's standing instructions (0.4 Operations 5, instructions.ts): written only from their page.
 CREATE TABLE IF NOT EXISTS poppy_instructions (
@@ -559,6 +575,12 @@ export const instructionsTable = table("poppy_instructions", {
 export const instructionSpendTable = table("poppy_instruction_spend", {
   approval_id: text, instruction_id: text, amount: text, currency: text, state: textOf(literal("reserved", "used", "released")), at: integer
 });
+export const handoversTable = table("poppy_handovers", {
+  id: text, issuer: issuerColumn, label: text, url: text, step: text,
+  state: textOf(literal("offered", "user", "returned", "cancelled", "declined", "ended")),
+  browser: nullable(text), binding: text, looked: integer, created_at: integer, started_at: nullable(integer), ended_at: nullable(integer)
+});
+export type HandoverRow = RowOf<typeof handoversTable.row>;
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer, notification: nullable(savedApprovalNotification) });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
 export const taskCallsTable = table("poppy_task_calls", { call_id: text, request_id: text, request_hash: text });

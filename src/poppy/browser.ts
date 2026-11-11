@@ -10,6 +10,15 @@ import { expired, proposeApproval, unusableApproval } from "./api-approvals";
 import { approvable, approvalHeader, operationsVersion, parseOperationHeader, parseOperationV2, toSend, type SentApproval } from "./operations-v2";
 import { readDecline } from "./declines";
 import { companyErrorCode } from "./error-codes";
+import { beforeModelAction, describeStep, handsOver, offerControl, type HandoverStart } from "./handover";
+
+/**
+ * A step the Company marks for the User (Browser Control 4): `interaction`
+ * leaves changing or activating a control, or a form's controls and its
+ * submit, to the User; `submission`, only on a form, lets the agent fill it
+ * in but leaves submitting it to the User.
+ */
+export type UserStep = "interaction" | "submission";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
 export type PageSnapshot = {
@@ -18,9 +27,13 @@ export type PageSnapshot = {
   readonly title: string;
   readonly text: string;
   /** `selector` is what `click` takes. */
-  readonly links: readonly { text: string; href: string; selector: string }[];
-  /** `selector` is what `submit` takes; `fields` are the names `fill` takes. */
-  readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[] }[];
+  readonly links: readonly { text: string; href: string; selector: string; userStep?: UserStep }[];
+  /**
+   * `selector` is what `submit` takes; `fields` are the names `fill` takes.
+   * `userStep` is the form's mark and `userFields` the fields marked for the
+   * User (Browser Control 4).
+   */
+  readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[]; userStep?: UserStep; userFields?: readonly string[] }[];
   /** The response's `Retry-After`, if any, which a 429 must be waited out by (spec 4.3, MUST) and a 503 too (Guides, "Retries"). */
   readonly retryAfter?: string;
   /** 0.4: the final response's `Poppy-Operation` field, as received (Ops 4). Read by our own code, never shown to the model. */
@@ -36,6 +49,24 @@ export type FormSubmission = {
   readonly enctype: "application/x-www-form-urlencoded" | "multipart/form-data";
   /** In order; `hidden` ones (hidden inputs, password fields) are sent but not shown on the approval card. */
   readonly fields: readonly { readonly name: string; readonly value: string; readonly hidden: boolean }[];
+};
+
+/**
+ * A cookie of a context's, as a second browser for the same Session needs it
+ * (Browser Control 5): never shown to the model, a card, a log or the page.
+ */
+export type BrowserCookie = {
+  readonly name: string;
+  readonly value: string;
+  /** The host that set it, or the domain it covers when `hostOnly` is false. */
+  readonly host: string;
+  readonly hostOnly: boolean;
+  readonly path: string;
+  readonly secure: boolean;
+  readonly httpOnly: boolean;
+  readonly sameSite?: "Strict" | "Lax" | "None";
+  /** Epoch ms; absent for a cookie that lasts as long as the browser. */
+  readonly expires?: number;
 };
 
 /** Throws for a URL the browser must not request; called for every request and every redirect. */
@@ -59,6 +90,10 @@ export interface BrowserContextHandle {
   prepareSubmit(selector: string): Promise<FormSubmission>;
   /** Sends an approved submission, as it was approved. */
   submit(submission: FormSubmission, beforeDispatch?: () => void): Promise<PageSnapshot>;
+  /** The context's live cookies, for the handover browser (handover.ts) and nothing else. */
+  cookies(): readonly BrowserCookie[];
+  /** The page open now, if any. */
+  pageUrl(): string | null;
   close(): Promise<void>;
 }
 
@@ -419,6 +454,8 @@ export async function browse(
   action: BrowseAction
 ): Promise<Json> {
   if (action.kind !== "open" && action.kind !== "click") refuseFormsIfDisabled(company);
+  // Never while the User holds control of the browser, and after they hand back, a fresh look first (Browser Control 5).
+  beforeModelAction(client, company, label, action.kind === "open");
   if (action.kind === "open") {
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
@@ -438,6 +475,33 @@ export async function browse(
   checkContext(client, company, label, entry);
   const handle = await entry.context;
   checkContext(client, company, label, entry);
+  try {
+    return await act(client, company, label, entry, handle, action);
+  } catch (error) {
+    if (!hasCode(error, "user_step")) throw error;
+    return await userStep(client, company, label, handle, action, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * A step the website marks for the User (Browser Control 4, 5): left undone,
+ * and the User offered control of the browser on a card, where the agent can
+ * hand it over. Nothing waits on the User's answer.
+ */
+async function userStep(client: PoppyClient, company: Company, label: string, handle: BrowserContextHandle, action: Exclude<BrowseAction, { kind: "open" }>, why: string): Promise<Json> {
+  const url = handle.pageUrl();
+  if (!url || !handsOver(client, company)) {
+    return { user_step: true, note: `${why}. Tell the User this step is theirs: they can take it on ${company.domain} themselves.` };
+  }
+  const offered = await offerControl(client, company, label, describeStep(action), { url });
+  return {
+    user_step: true,
+    offered,
+    note: `${why}. The User has been offered control of the browser on a card, to take the step themselves. Tell them, then carry on with other work: don't wait for them. You'll be told when they hand the browser back.`
+  };
+}
+
+async function act(client: PoppyClient, company: Company, label: string, entry: ContextEntry, handle: BrowserContextHandle, action: Exclude<BrowseAction, { kind: "open" }>): Promise<Json> {
   if (action.kind === "click") {
     await client.beforeRequest(company);
     checkContext(client, company, label, entry);
@@ -464,6 +528,18 @@ export async function browse(
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
+/**
+ * What a handover browser starts from (handover.ts): this Session's joined
+ * context, its cookies, and the authority it was joined with. Joins first
+ * when the context has gone, as any page would.
+ */
+export function handoverStart(client: PoppyClient, browser: PoppyBrowser): HandoverStart {
+  return async (company, label) => {
+    const { entry, context } = await sessionContext(client, browser, company, label);
+    return { cookies: context.cookies(), binding: { sessionId: entry.sessionId, account: entry.account, authorityGeneration: entry.authorityGeneration } };
+  };
+}
+
 type BrowserBinding = { readonly account: string | null; readonly sessionId: string | null; readonly contextId: string; readonly authorityGeneration: number };
 
 /**
@@ -475,6 +551,8 @@ type BrowserBinding = { readonly account: string | null; readonly sessionId: str
 async function approvedContext(client: PoppyClient, company: Company, label: string, submission: FormSubmission, binding: BrowserBinding | undefined) {
   // The Company may have set web.disabled since the User approved.
   refuseFormsIfDisabled(company);
+  // Not while the User holds the browser, nor on a page they changed since (Browser Control 5).
+  beforeModelAction(client, company, label, false);
   const guard = pageGuard(company);
   guard(new URL(submission.from));
   guard(new URL(submission.action));

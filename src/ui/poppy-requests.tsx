@@ -22,6 +22,8 @@ function requestLabel(card: Card | undefined): string {
       return card.status === "unknown" ? "Check the outcome" : "Approval request";
     case "direct_invite":
       return "Conversation request";
+    case "browser_control":
+      return "A step for you";
     case "notice":
       return card.id.startsWith("reminder-") ? "Reminder" : card.id.startsWith("error-") ? "Request failed" : "Notice";
   }

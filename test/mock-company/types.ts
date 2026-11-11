@@ -169,6 +169,11 @@ export type MockConfig = {
   readonly webOperations: boolean;
   /** The website's exchange form answers 503 after performing, as a Company whose own system timed out would (0.4 Ops 7). */
   readonly webErrorAfterPerforming: boolean;
+  /**
+   * 0.4 Browser Control 3, 4: poppy.json lists `browser-control` version 1,
+   * and the return page marks its steps for the User. Needs `browserSession`.
+   */
+  readonly browserControl: boolean;
   /** The exchange's price difference, in its proposal's terms. */
   readonly exchangePrice: { readonly amount: string; readonly currency: string };
   /** Overrides the OpenAPI entry's `url` in poppy.json. */
@@ -399,6 +404,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   declineApprovals: null,
   webOperations: false,
   webErrorAfterPerforming: false,
+  browserControl: false,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,
@@ -586,6 +592,8 @@ export type MockState = {
   readonly browserJoins: number;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { readonly account: string | null; readonly fields: [string, string][] }[];
+  /** Returns the website's marked form received (0.4 Browser Control 6): the account, and the controller the page sent. */
+  readonly returns: { readonly account: string; readonly controller: string; readonly reason: string; readonly cardLast4: string }[];
   /** The feedback reports received (9.3): their task phrase, and whether they came signed in. */
   readonly feedback: readonly { readonly task: string; readonly signedIn: boolean }[];
 };

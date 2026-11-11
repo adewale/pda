@@ -184,6 +184,10 @@ export class MockCompany extends DurableObject<Env> {
         company.rateLimit("page", inbound);
         return web.exchangeForm(inbound);
       }
+      if (path === "/orders/ord_7Hk2/return" && method === "POST") {
+        company.rateLimit("page", inbound);
+        return web.returnForm(inbound);
+      }
       if (method === "GET") {
       company.rateLimit("page", inbound);
       return web.page(inbound);
@@ -291,7 +295,8 @@ export class MockCompany extends DurableObject<Env> {
       operations: operations.summary(),
       browserJoins: company.browserJoins,
       feedback: company.feedback.map((entry) => ({ ...entry })),
-      formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
+      formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) })),
+      returns: company.returns.map((entry) => ({ ...entry }))
     };
   }
 

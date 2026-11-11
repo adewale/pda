@@ -253,6 +253,7 @@ export const VIOLATIONS = {
   "page.session-0.3": "Reading (5.2 defines no Session header on website pages before 0.4; docs/readings.md#v04-fetch-browser): A Session header on a page in a request without Poppy-Version",
   "browser-sign-in.no-endpoint": "Rule (0.4 6: \"A Personal Agent requests poppy:browser-sign-in only from a Company that lists browser_session_endpoint\"): A sign-in asking for poppy:browser-sign-in from a Company without browser join",
   "web.disabled-form": "SHOULD NOT (0.4 6: \"SHOULD NOT use a browser on the website of a Company that sets\" web.disabled; docs/readings.md#v04-web-disabled counts a form as a browser's work): A form sent to a website that sets web.disabled",
+  "browser-control.marked-step": "SHOULD NOT (0.4 Browser Control 5: a Personal Agent that declares the extension \"SHOULD NOT take a marked step\"): A marked form submitted while the page read a controller other than \"user\"",
 
   // ---- Operations extension, version 2 (Ops 6) ----
   "approval.header": "RFC (Ops 6: a Dictionary Structured Field, RFC 9651, with operation_id and revision as Strings): A malformed Poppy-Approval",

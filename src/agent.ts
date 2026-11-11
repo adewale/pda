@@ -44,6 +44,8 @@ import type { PoppyBrowser } from "./poppy/browser";
 import { PoppyCapability } from "./poppy/capability";
 import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
+import { browserRunHandover } from "./poppy/browser-run";
+import type { HandoverLauncher } from "./poppy/handover";
 import { poppyExtension } from "./poppy/tools";
 import { Scheduler, type PushMessage, type TaskStart } from "./schedules";
 import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetcher, type Subscription } from "./web-push";
@@ -213,11 +215,13 @@ export class PersonalAgent extends DurableObject<Env> {
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
+    let handover: HandoverLauncher | null | undefined;
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
       fetcher: this.#stoppedByDeletion(this.poppyFetcher()),
       browser: () => (browser ??= this.poppyBrowser()),
+      handover: () => (handover === undefined ? (handover = this.poppyHandover()) : handover),
       framesRefused: () => this.data.deleting || this.#deleting !== undefined,
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
       units: this.log,
@@ -529,6 +533,15 @@ export class PersonalAgent extends DurableObject<Env> {
   async removePushSubscription(identity: Profile, endpoint: string): Promise<boolean> {
     await this.recordIdentity(identity);
     return this.pushSubscriptions.remove(endpoint);
+  }
+
+  /**
+   * The browser handed to the User at a step a Company marks for them (0.4
+   * Browser Control; src/poppy/handover.ts): Browser Run, on the same switch
+   * and binding as read_url's renders, or null without them. Tests hand in a fake.
+   */
+  protected poppyHandover(): HandoverLauncher | null {
+    return renderAvailability(this.env) === "on" ? browserRunHandover(this.env.BROWSER) : null;
   }
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */

@@ -12,7 +12,6 @@ import { found, one, rows, type RowOf } from "../rows";
 import { approvalsTable, conversationsTable, inboxTable, intent, intentsTable, messagesTable } from "./store";
 import { declineForModel, declineText, readDecline, recordDecline } from "./declines";
 import type { DirectMessage } from "./wire";
-import { declaration } from "./declaration";
 import { considerAgentApproval } from "./instructions";
 import { stateForModel, type ModelState } from "./conversation-state";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
@@ -333,7 +332,7 @@ export async function sendMessage(
       Date.now(),
       // 8.2: the versions it started in, which its later requests need.
       company.protocolVersion,
-      declaration(company).extensions,
+      client.declaration(company).extensions,
       // 0.4: working from the moment the Company accepts a request (8.7).
       company.protocolVersion === "0.3" ? 0 : 1
     );

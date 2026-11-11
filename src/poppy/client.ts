@@ -67,9 +67,11 @@ export type PoppyHost = {
   readonly now: () => number;
   /** How long to wait on a Company; `POPPY_TIMEOUTS` unless a test shortens them. */
   readonly timeouts?: PoppyTimeouts;
+  /** Browsers to hand a website to the User in (handover.ts); null while Browser Run is off. */
+  readonly handover?: () => import("./handover").HandoverLauncher | null;
 };
 
-export type JobName = "poppy-read" | "poppy-device" | "poppy-revoke" | "poppy-signin-expiry" | "poppy-agent-approval";
+export type JobName = "poppy-read" | "poppy-device" | "poppy-revoke" | "poppy-signin-expiry" | "poppy-agent-approval" | "poppy-handover";
 
 /**
  * An OAuth or Poppy error from a Company, with its code (4.7, 7, 8.13).
@@ -1304,8 +1306,13 @@ export class PoppyClient {
    * Session that hasn't declared anything yet (a new `sid`) declares these;
    * migration marked those stored before declarations as 0.3 Sessions.
    */
+  /** What this agent's Sessions with `company` declare (3.4): Browser Control only where it can hand over a browser. */
+  declaration(company: Company): Declaration {
+    return declaration(company, this.host.handover?.() != null);
+  }
+
   #declaredSession(company: Company, label: string): { session: SessionRow; declared: Declaration } {
-    const wanted = declaration(company);
+    const wanted = this.declaration(company);
     const stored = one(this.sql, declaredRow, "SELECT session_id, declared FROM poppy_sessions WHERE issuer = ? AND label = ?", company.issuer, label)?.declared ?? null;
     if (stored && !sameDeclaration(stored, wanted)) this.#restartSession(company.issuer, label);
     const session = this.sessionFor(company, label);

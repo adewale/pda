@@ -9,6 +9,7 @@ import { UserMessage, type TimelineEvent, Transcript } from "./transcript";
 import { approvalsOnSteps, stepDecisions } from "./steps";
 import { APPROVAL_READ_LIMIT } from "../poppy/approval-outcome";
 import { receipts, PoppyCard, openDirect, NeedsYouPanel, HiddenDirectRow, DirectConversations } from "../poppy-ui";
+import { BrowserViews } from "./poppy-browser";
 import { Composer, type ComposerHandle } from "./composer";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -173,6 +174,7 @@ export function ChatPage({
   const sheetView = { ...poppy, direct: Object.fromEntries(shown.map((update) => [update.conversationId, update])) };
 
   return (
+    <BrowserViews.Provider value={poppy.browserViews ?? {}}>
     <div className={cn("grid h-full min-h-0", shown.length ? "lg:grid-cols-[minmax(0,1fr)_minmax(22rem,30rem)]" : "grid-cols-1")}>
       <section aria-labelledby="chat-title" className="flex min-h-0 min-w-0 flex-col">
         <h1 id="chat-title" tabIndex={-1} className="sr-only">
@@ -225,5 +227,6 @@ export function ChatPage({
         />
       ) : null}
     </div>
+    </BrowserViews.Provider>
   );
 }

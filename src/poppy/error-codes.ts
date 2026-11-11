@@ -38,7 +38,9 @@ export const AGENT_ERROR_CODES = [
   "too_large",
   "unusable_proposal",
   "untrusted_host",
-  "untrusted_server"
+  "untrusted_server",
+  "user_has_control",
+  "user_step"
 ] as const;
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 

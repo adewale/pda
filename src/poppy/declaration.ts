@@ -11,10 +11,26 @@ import { sfString } from "./operations-v2";
  */
 export type Declaration = { readonly version: string; readonly extensions: string };
 
-export function declaration(company: Company): Declaration {
+/**
+ * Whether Browser Control 1 is used with this Company (B5): it lists the
+ * extension with a browser-session endpoint (Browser Control 3), its
+ * website isn't `web.disabled`, and this agent can hand a browser to the
+ * User (`canHandOver`: Browser Run is on). Declaring it promises all three
+ * of 3's "Support means": marked steps left to the User, control handed
+ * over, and `navigator.poppy.controller` (handover.ts).
+ */
+export function usesBrowserControl(company: Company, canHandOver: boolean): boolean {
+  return canHandOver && company.protocolVersion !== "0.3" && company.extensions.browserControl === true
+    && !!company.web?.browserSessionEndpoint && !company.web.disabled;
+}
+
+export function declaration(company: Company, canHandOver = false): Declaration {
   if (company.protocolVersion === "0.3") return { version: "0.3", extensions: "" };
   // Mediated Sign-In isn't declared: the Company recognizes its grant type from the request itself (3.3).
-  const used: [string, string][] = company.extensions.operations ? [["operations", "3"]] : [];
+  const used: [string, string][] = [
+    ...(company.extensions.operations ? [["operations", "3"] as [string, string]] : []),
+    ...(usesBrowserControl(company, canHandOver) ? [["browser-control", "1"] as [string, string]] : [])
+  ];
   return { version: company.protocolVersion, extensions: used.map(([name, version]) => `${sfString(name)};v=${sfString(version)}`).join(", ") };
 }
 

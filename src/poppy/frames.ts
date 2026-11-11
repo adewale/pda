@@ -58,6 +58,10 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
     budget: optional(nullable(built<NonNullable<Extract<PoppyClientFrame, { type: "poppy.instruction.add" }>["budget"]>>()))
   }),
   "poppy.instruction.withdraw": object({ type: literal("poppy.instruction.withdraw"), id: string }),
+  "poppy.browser.take": object({ type: literal("poppy.browser.take"), handoverId: string }),
+  "poppy.browser.view": object({ type: literal("poppy.browser.view"), handoverId: string }),
+  "poppy.browser.return": object({ type: literal("poppy.browser.return"), handoverId: string }),
+  "poppy.browser.cancel": object({ type: literal("poppy.browser.cancel"), handoverId: string }),
   "poppy.protocol": object({ type: literal("poppy.protocol"), key: string }),
   "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), flowId: optional(flowId) }),
   "poppy.result_links.checked": object({ type: literal("poppy.result_links.checked"), cardId: string, checks: linkChecks })
@@ -105,7 +109,8 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
     issuer: nullable(issuerDecoder),
     entries: array(built<Extract<PoppyServerFrame, { type: "poppy.protocol" }>["entries"][number]>())
   }),
-  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) })
+  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) }),
+  "poppy.browser.view": object({ type: literal("poppy.browser.view"), handoverId: string, url: string, expiresAt: number })
 });
 
 /** The answer to the page's `history.before`. */

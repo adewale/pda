@@ -10,9 +10,9 @@ import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
  * 0.4, and Mediated Sign-In 1. Operations 3 is still being built
  * (docs/poppy-0.4-upgrade.md, O3; decision 45).
  */
-export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string }>> = {
+export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string; readonly "browser-control"?: string }>> = {
   "0.3": { operations: "2", "mediated-sign-in": "1" },
-  "0.4": { operations: "3", "mediated-sign-in": "1" }
+  "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
 };
 /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 1). */
 export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
@@ -119,6 +119,8 @@ export type Company = {
     readonly operations?: true;
     /** Operations 3's `endpoint` (0.4, Ops 2): where operations a website returned are fetched and approved. */
     readonly operationsEndpoint?: string;
+    /** Browser Control 1 (0.4), listed with a browser-session endpoint, as it must be (3). */
+    readonly browserControl?: true;
   };
 };
 
@@ -271,7 +273,7 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
   const supportedExtensions = SUPPORTED_EXTENSIONS[known.version];
   const extensions = isObj(doc.extensions) ? doc.extensions : {};
   // 3.3: 0.3 lists one object per extension; 0.4 lists an entry for each major version.
-  const entry = (name: "operations" | "mediated-sign-in"): Obj | undefined => {
+  const entry = (name: "operations" | "mediated-sign-in" | "browser-control"): Obj | undefined => {
     const want = supportedExtensions?.[name];
     const listed = extensions[name];
     const entries = v03 ? [listed] : Array.isArray(listed) ? listed : [];
@@ -331,7 +333,10 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
     protectedResources,
     ...(v03 && isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
     ...services(doc, known.version),
-    extensions: operations ? { operations: true, ...(operationsEndpoint ? { operationsEndpoint } : {}) } : {}
+    extensions: {
+      ...(operations ? { operations: true as const, ...(operationsEndpoint ? { operationsEndpoint } : {}) } : {}),
+      ...(!v03 && entry("browser-control") && isObj(doc.web) && typeof doc.web.browser_session_endpoint === "string" ? { browserControl: true as const } : {})
+    }
   };
 }
 

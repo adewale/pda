@@ -106,6 +106,8 @@ export class Web {
     // 0.4 Ops 2: a website that returns operations lists `endpoint`, and only beside browser join.
     const operationsEndpoint = v04 && config.webOperations && config.browserSession && !config.webDisabled;
     if (config.operations) extensions.operations = entries({ version: v04 ? "3" : "2", ...(operationsEndpoint ? { endpoint: `${hosts.web}/poppy/operations` } : {}) });
+    // 0.4 Browser Control 3: listed only beside browser join.
+    if (v04 && config.browserControl && config.browserSession && !config.webDisabled) extensions["browser-control"] = entries({ version: "1" });
     const mediated = co.offeredScopes("mediated");
     if (mediated) {
       extensions["mediated-sign-in"] = entries({
@@ -443,6 +445,31 @@ export class Web {
     );
   }
 
+  /**
+   * `POST /orders/ord_7Hk2/return`: the return form, which the page marks for
+   * the User to submit (0.4 Browser Control 4). The page posts who controlled
+   * the browser in its `controller` field (6). A browser joined to a Session
+   * that declared the extension, posting without `"user"`, took a marked step
+   * (5); the Company still decides by its own rules (8.1), so the return is
+   * recorded either way.
+   */
+  returnForm(inbound: Inbound): Response {
+    const co = this.company;
+    const page = (body: string, status: number) =>
+      new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    if (co.config.protocolVersion === "0.4" && co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    const session = this.#session(inbound);
+    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to return an item.</p>", 403);
+    const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
+    const controller = asked.controller ?? "";
+    const declared = session.declaration?.version === "0.4" && session.declaration.declared.get("browser-control") === "1";
+    if (co.config.browserControl && declared && controller !== "user") {
+      co.violation("browser-control.marked-step", `the return form, marked submission, came with controller ${JSON.stringify(controller)} from Session ${session.sid}`);
+    }
+    co.returns.push({ account: session.account, controller, reason: asked.reason ?? "", cardLast4: asked.card_last4 ?? "" });
+    return new Response(null, { status: 303, headers: { Location: "/orders/ord_7Hk2?returned=1", "Cache-Control": "no-store" } });
+  }
+
   /** `POST {operations endpoint}` (0.4 Ops 4, 6): the agent's own request, with the Session header and token. */
   async operationsEndpoint(inbound: Inbound): Promise<Response> {
     const co = this.company;
@@ -547,8 +574,26 @@ export class Web {
         if (inbound.url.pathname === "/orders/ord_7Hk2/exchange") {
           return html(`<h1>Exchange an item</h1><form id="exchange" method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="itm_4Qa"><label>Replacement <select name="replacement_sku"><option value="stormline-insulated-m" selected>Stormline Insulated Jacket (M)</select></label><button>Exchange</button></form>`);
         }
+        if (inbound.url.pathname === "/orders/ord_7Hk2/return") {
+          // 0.4 Browser Control 4: the form is the User's to submit, the card digits theirs to type, the policy theirs to accept.
+          const marks = co.config.browserControl;
+          const mark = (value: string) => (marks ? ` data-poppy-user-step="${value}"` : "");
+          return html(
+            `<h1>Return an item</h1>
+<form id="return" method="post" action="/orders/ord_7Hk2/return"${mark("submission")}>
+<input type="hidden" name="item_id" value="itm_4Qa">
+<input type="hidden" name="controller" value="">
+<label>Reason <select name="reason"><option value="size" selected>Wrong size<option value="fault">Faulty</select></label>
+<label>Last four digits of the card you paid with <input id="card" name="card_last4"${mark("interaction")}></label>
+<button id="send-return" type="submit">Return</button>
+</form>
+<script>document.getElementById("return").addEventListener("submit", (event) => { event.target.elements.controller.value = navigator.poppy?.controller ?? ""; });</script>
+<a id="policy" href="/orders/ord_7Hk2/return?policy=accepted"${mark("consent")}>Accept the returns policy</a>`
+          );
+        }
         const exchanged = inbound.url.searchParams.has("exchanged") ? "<p>Exchange placed.</p>" : "";
-        return html(`<p>Signed in as ${session.account}</p>${exchanged}<ul><li>Order ord_7Hk2: Stormline Jacket (M) <a id="exchange" href="/orders/ord_7Hk2/exchange">Exchange</a></li></ul>`);
+        const returned = inbound.url.searchParams.has("returned") ? "<p>Return started.</p>" : "";
+        return html(`<p>Signed in as ${session.account}</p>${exchanged}${returned}<ul><li>Order ord_7Hk2: Stormline Jacket (M) <a id="exchange" href="/orders/ord_7Hk2/exchange">Exchange</a> <a id="return" href="/orders/ord_7Hk2/return">Return</a></li></ul>`);
       }
       return html("<p>Signed out</p><p>Sign in to see your orders.</p>");
     }

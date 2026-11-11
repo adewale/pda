@@ -2,7 +2,8 @@ import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome
 import { code, currentEvent, id, literal, origin, plainUnits, recordCard, reportError, type Fields, type Units } from "../log";
 import { buildActivity } from "./activity";
 import { apiOperationFor } from "./apis";
-import type { PoppyBrowser } from "./browser";
+import { handoverStart, type PoppyBrowser } from "./browser";
+import { endChangedHandovers, endControl, heartbeat, liveView, takeControl, type HandoverLauncher } from "./handover";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "./client";
 import {
   closeConversation,
@@ -44,6 +45,8 @@ export type PoppyOptions = {
   readonly storage: DurableObjectStorage;
   readonly fetcher: Fetcher;
   readonly browser: () => PoppyBrowser;
+  /** Browsers to hand a website to the User in (handover.ts): Browser Run, or null while it is off. */
+  readonly handover?: () => HandoverLauncher | null;
   /** While true, the page's frames do nothing: its approvals and sign-ins could otherwise start new Company work. */
   readonly framesRefused?: () => boolean;
   /** Hand a notice to the model, at most once per `operationId`. */
@@ -195,7 +198,8 @@ export class PoppyCapability extends LifecycleCapability {
       }),
       sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
       now: options.now ?? Date.now,
-      ...(options.timeouts ? { timeouts: options.timeouts } : {})
+      ...(options.timeouts ? { timeouts: options.timeouts } : {}),
+      ...(options.handover ? { handover: options.handover } : {})
     };
   }
 
@@ -505,7 +509,23 @@ export class PoppyCapability extends LifecycleCapability {
       }
       case "poppy.signout":
         await signOut(client, frame.issuer, frame.account);
+        // A browser handed to the User for that account closes with it.
+        await endChangedHandovers(client);
         this.#sendSettings();
+        return;
+      case "poppy.browser.take":
+      case "poppy.browser.view": {
+        // The live view goes to this page alone: whoever holds the link controls the browser.
+        const start = handoverStart(client, this.browser);
+        const view = frame.type === "poppy.browser.take" ? await takeControl(client, start, frame.handoverId) : await liveView(client, start, frame.handoverId);
+        socket.send(JSON.stringify({ type: "poppy.browser.view", handoverId: frame.handoverId, url: view.url, expiresAt: view.expiresAt } satisfies PoppyServerFrame));
+        return;
+      }
+      case "poppy.browser.return":
+        await endControl(client, frame.handoverId, "returned");
+        return;
+      case "poppy.browser.cancel":
+        await endControl(client, frame.handoverId, "cancelled");
         return;
       case "poppy.revoke.retry":
         await retryRevocation(client, frame.id);
@@ -591,6 +611,9 @@ export class PoppyCapability extends LifecycleCapability {
         } else if (fn === "poppy-agent-approval" && payload.id) {
           // An operation a standing instruction covers (instructions.ts): approved and sent, unless decided or withdrawn since.
           await decideAsAgent(client, payload.id);
+        } else if (fn === "poppy-handover" && payload.id) {
+          // A browser the User controls: still connected, navigator.poppy in place, its Session unchanged (handover.ts).
+          next = await heartbeat(client, payload.id);
         }
       } catch (error) {
         event.fail(error);

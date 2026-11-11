@@ -12,6 +12,7 @@ import { isTaskRequest, approvalResult } from "../poppy/approval-outcome";
 import { resultFacts, redactQueries } from "./result-facts";
 import { money, ApprovalCard } from "./poppy-approval";
 import { SignInLinkCard, DeviceCard, CredentialsCard, CodeCard, DirectInvite } from "./poppy-signin";
+import { BrowserControlCard, browserOutcome } from "./poppy-browser";
 import { type PoppyView } from "../use-pi-session";
 
 /** A one-line record of something resolved: its state's mark and word, what happened, and where. */
@@ -135,6 +136,16 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
         </Receipt>
       );
     }
+    case "browser_control":
+      return (
+        <div className={cn("flex min-h-10 items-start gap-2 text-[13px] text-kumo-subtle", inPanel ? "px-4 py-3" : "enter py-1")}>
+          <InfoIcon size={16} aria-hidden className="mt-0.5 shrink-0" />
+          <p className="min-w-0 flex-1 text-pretty break-words">
+            <span className="font-medium">{card.company} · </span>{browserOutcome(card)}{note}
+          </p>
+          {dismiss}
+        </div>
+      );
     default:
       // Sign-in and invitation cards become notices when they close.
       return null;
@@ -157,6 +168,8 @@ export function PoppyCard({ card, send, onAsk }: { card: Card; send: Send; onAsk
       return <ApprovalCard card={card} send={send} />;
     case "direct_invite":
       return <DirectInvite card={card} send={send} />;
+    case "browser_control":
+      return <BrowserControlCard card={card} send={send} />;
     case "notice":
       return <ClosedCard card={card} send={send} />;
   }

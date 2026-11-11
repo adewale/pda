@@ -530,10 +530,10 @@ const V3 = { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` };
 const WEB_OPERATIONS: Partial<MockConfig> = { ...V4, webOperations: true };
 
 /** A browser joined to a 0.4 Session that declares Operations 3, signed in on the website (0.4 6): the Session and its cookie. */
-async function webSession(c: C) {
+async function webSession(c: C, headers: Record<string, string> = V3) {
   const s = await signedIn(c, { scope: "orders:read orders:write poppy:browser-sign-in" });
   const { code, cookie } = await joinPage(c);
-  expect((await call(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers: V3 })).status).toBe(204);
+  expect((await call(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers })).status).toBe(204);
   const submitted = await submitJoin(c, code, cookie);
   expect(submitted.status).toBe(303);
   return { s, cookie: /mock_sid=[^;]+/.exec(submitted.headers.get("Set-Cookie")!)![0] };
@@ -1937,6 +1937,26 @@ const TAMPERS: readonly Tamper[] = [
       expect(answered.status).toBe(403);
       expect(((await answered.clone().json()) as { operation: Operation }).operation.operation_id).not.toBe(operation.operation_id);
       return answered;
+    }
+  },
+  // ---- Browser Control (0.4) ----
+  {
+    id: "browser-control.marked-step",
+    what: "the marked return form submitted with the agent in control",
+    config: { ...V4, browserControl: true },
+    detail: /^\[browser-control\.marked-step\] the return form, marked submission, came with controller "agent"/,
+    run: async (c) => {
+      const { cookie } = await webSession(c, { "Poppy-Version": "0.4", "Poppy-Extensions": `"browser-control";v="1"` });
+      const post = (controller: string) =>
+        c.call(`${c.hosts.web}/orders/ord_7Hk2/return`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookie },
+          body: `item_id=itm_4Qa&controller=${controller}&reason=size&card_last4=4242`
+        });
+      // The User's own submission is the one the mark asks for.
+      expect((await post("user")).status).toBe(303);
+      expect((await c.stub.state()).recorded).toEqual([]);
+      return post("agent");
     }
   },
   {

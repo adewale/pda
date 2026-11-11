@@ -29,6 +29,7 @@ const EXPORTED: Readonly<Record<string, readonly string[]>> = {
   poppy_cards: columns("id card open updated_at"),
   poppy_conversation_quarantine: columns("kind source_id payload quarantined_at"),
   poppy_conversations: columns("id issuer remote_id quarantined retired_at label parent direct status responder cursor context last_event_at created_at protocol_version extensions working handoff"),
+  poppy_handovers: columns("id issuer label url step state binding looked created_at started_at ended_at"),
   poppy_inbox: columns("seq conversation_id event created_at"),
   poppy_instruction_spend: columns("approval_id instruction_id amount currency state at"),
   poppy_instructions: columns("id issuer account text conditions budget created_at withdrawn_at"),
@@ -49,6 +50,8 @@ const EXPORTED: Readonly<Record<string, readonly string[]>> = {
 /** Secrets, or values that act like them, marked as left out so the file doesn't look incomplete. */
 const CREDENTIALS: Readonly<Record<string, readonly string[]>> = {
   poppy_accounts: ["token"],
+  // A Browser Run session holding the Session's cookies, while the User has control (Browser Control 5).
+  poppy_handovers: ["browser"],
   poppy_signins: ["state_hash", "secret"],
   poppy_signouts: ["token"],
   // A push endpoint is an unguessable address that reaches the device.

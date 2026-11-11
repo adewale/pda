@@ -63,6 +63,8 @@ export type PoppyView = {
   readonly direct: Readonly<Record<string, DirectUpdate>>;
   readonly activity: ActivityView | null;
   readonly protocol: ProtocolView;
+  /** Live views of browsers the User controls, by handover (Browser Control 5): this page's only, never stored. */
+  readonly browserViews?: Readonly<Record<string, { readonly url: string; readonly expiresAt: number }>>;
 };
 
 export const EMPTY_PROTOCOL: ProtocolView = { companies: null, logs: {} };
@@ -170,6 +172,8 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, protocol: { ...view.protocol, logs: { ...view.protocol.logs, [frame.key]: frame } } };
     case "poppy.diagnostics":
       return { ...view, protocol: { ...view.protocol, diagnostics: { text: frame.text, at: frame.at, ...(frame.flowId ? { flowId: frame.flowId } : {}) } } };
+    case "poppy.browser.view":
+      return { ...view, browserViews: { ...view.browserViews, [frame.handoverId]: { url: frame.url, expiresAt: frame.expiresAt } } };
     default:
       return view;
   }

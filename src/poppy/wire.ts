@@ -94,6 +94,21 @@ export type Card =
       /** The Company's `user_requested` event this card answers (8.10); absent when the agent offered. Only then can the Company speak first. */
       readonly eventId?: string;
     })
+  /**
+   * A step a Company's website marks for the User, and the browser handed to
+   * them for it (0.4 Browser Control 5; handover.ts). Never the live view
+   * link, which goes in its own frame to the page that asked.
+   */
+  | (CardBase & {
+      readonly kind: "browser_control";
+      readonly handoverId: string;
+      /** Our words for the step. */
+      readonly step: string;
+      /** The page with the step, on the Company's website. */
+      readonly url: string;
+      readonly state: "offered" | "user" | "returned" | "cancelled" | "declined" | "ended";
+      readonly note?: string;
+    })
   | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
 /**
@@ -321,6 +336,12 @@ export type PoppyServerFrame =
       /** Newest first. */
       readonly log: readonly ActivityEntry[];
     }
+  /**
+   * The live view of a browser the User controls (Browser Control 5), to the
+   * page that asked only: whoever holds the link controls the browser, so it
+   * is never stored, logged or shown to the model.
+   */
+  | { readonly type: "poppy.browser.view"; readonly handoverId: string; readonly url: string; readonly expiresAt: number }
   /** The Companies with a protocol log, newest first: sent on connect and whenever one changes. */
   | { readonly type: "poppy.protocol.index"; readonly companies: readonly ProtocolCompany[] }
   /** One Company's protocol log, oldest first, to the page that asked for it. */
@@ -380,6 +401,12 @@ export type PoppyClientFrame =
   /** Try again: one revocation the Company hasn't accepted (`PendingSignOut.id`), never an account still in use. */
   | { readonly type: "poppy.revoke.retry"; readonly id: string }
   | { readonly type: "poppy.card.dismiss"; readonly id: string }
+  /**
+   * The User takes control of a browser offered on a card, asks for a fresh
+   * live view of it, hands it back, or cancels (Browser Control 5). Only the
+   * User's page sends these; the model has no way to.
+   */
+  | { readonly type: "poppy.browser.take" | "poppy.browser.view" | "poppy.browser.return" | "poppy.browser.cancel"; readonly handoverId: string }
   /** Ask for one Company's protocol log; the answer goes to this page only. */
   | { readonly type: "poppy.protocol"; readonly key: string }
   /** Ask for the agent's diagnostics; the answer goes to this page only. Answered by the agent's log, never Poppy. */

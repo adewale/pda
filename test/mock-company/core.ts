@@ -271,6 +271,7 @@ export class Company {
   browserJoins = 0;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { account: string | null; fields: [string, string][] }[] = [];
+  readonly returns: { account: string; controller: string; reason: string; cardLast4: string }[] = [];
   readonly feedback: { task: string; signedIn: boolean }[] = [];
   tokenRequestCount = 0;
   otherRequestCount = 0;
