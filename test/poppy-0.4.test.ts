@@ -416,6 +416,19 @@ describe("0.4: a conversation keeps its versions (8.2)", () => {
   const sid = (request: MockRequest) => decodeJwt(request.headers["poppy-session"]!).sid;
   const conversationRequests = async (c: Company) => (await requests(c)).filter((request) => /\/conversations/.test(new URL(request.url).pathname));
 
+  it("continues a 0.3 conversation that a read has already moved to its own Session", async () => {
+    const c = await company({ protocolVersion: "0.3", keepsConversationVersions: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.configure({ protocolVersion: "0.4", linkedVersion: "0.3" });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    // The background read runs first, and moves the conversation to main@0.3.
+    await a.stub.poppyReadNow(first.conversationId);
+    expect(JSON.parse(await a.stub.poppySql("SELECT label FROM poppy_conversations WHERE id = ?", first.conversationId))).toEqual([{ label: "main@0.3" }]);
+    const again = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "and another thing" });
+    expect(again.isError, again.text).toBe(false);
+  });
+
   it("finishes a 0.3 conversation in a 0.3 Session of its own after the Company moves to 0.4, and leaves other work in 0.4", async () => {
     const c = await company({ protocolVersion: "0.3", keepsConversationVersions: true });
     const a = await agent();

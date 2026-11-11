@@ -1,6 +1,6 @@
 import { literal } from "../decode";
 import { one } from "../rows";
-import { PoppyError, type PoppyClient } from "./client";
+import { baseLabel, PoppyError, type PoppyClient } from "./client";
 import { conversation, recentMessages, sendMessage } from "./conversations";
 import type { Company } from "./discovery";
 import type { Json } from "./json";
@@ -34,7 +34,8 @@ export async function sendAgentMessage(client: PoppyClient, company: Company, re
     return { kind: "withheld", status: "not sent", note: "Your proposed reply was not sent. An authorization request was already attempted for this verification prompt. Wait for the Company's authorization event or continue without verification details." };
   }
   const result = await sendMessage(client, company, {
-    label: request.label ?? (id ? conversation(client, id)?.label ?? "main" : "main"),
+    // The conversation's account Session, not the versioned one a read may have moved it to (`continuing`).
+    label: request.label ?? (id ? baseLabel(conversation(client, id)?.label ?? "main") : "main"),
     callKey: authorizationKey,
     ...(request.beforeDispatch ? { beforeDispatch: request.beforeDispatch } : {}),
     ...(id ? { conversationId: id } : {}), sender: "agent", wait: 10,
