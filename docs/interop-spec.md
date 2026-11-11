@@ -1,6 +1,6 @@
 # Poppy interop harness specification
 
-The runner checks Poppy 0.3, the 28 October text, alone (section 14 lists what spoke 0.1 or 0.2). Each cell records the common `protocolVersion` and local `specificationRevision`; a pair with no common version is unsupported, except two of our own builds (`owner: "self"`), which always speak the same version: for them it is an `error` blamed on the harness. A run in which no cell passed or failed fails (exit 1), so a grid that ran nothing can't pass empty, as CI's did from 28 to 29 October. Retries preserve the version context. A known failure without a version applies to the version we speak. Registry entries marked `vectorsOnly` are explicit provisioning helpers excluded from the default M×N grid.
+The runner checks Poppy 0.3, the 28 October text, and 0.4, published 10 November (pinned in [`spec/upstream.json`](../spec/upstream.json); section 14 lists what spoke 0.1 or 0.2). Each cell records the common `protocolVersion` and local `specificationRevision`; a pair with no common version is unsupported, except two of our own builds (`owner: "self"`), which always speak the same version: for them it is an `error` blamed on the harness. A run in which no cell passed or failed fails (exit 1), so a grid that ran nothing can't pass empty, as CI's did from 28 to 29 October. Retries preserve the version context. A known failure without a version applies to the version we speak. Registry entries marked `vectorsOnly` are explicit provisioning helpers excluded from the default M×N grid.
 
 
 Version 1. What an implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) provides to join the M×N interop grid, and what the runner does with it. The rationale and plan are in [interop-testing.md](history/interop-testing.md); the code is in [`interop/`](../interop).
@@ -51,7 +51,7 @@ The key words MUST, SHOULD and MAY are used as in RFC 2119.
 
 ### 2.1 The fake implementations
 
-Our own code with a profile, each set with a lenient and a strict member, both sets an evil one, and the agents a sloppy one. All speak 0.3 alone since 28 October 2026 (section 14). Renamed on 23 October 2026 (`pda-mock` → `lenient-company`, `pda-mock-strict` → `strict-company`, `pda-mock-v02` → `lenient-company-v02`, `evil-agent` → `evil-personal-agent`); results from before then use the old names.
+Our own code with a profile, each set with a lenient and a strict member, both sets an evil one, and the agents a sloppy one. All spoke 0.3 alone from 28 October 2026 (section 14). Since 11 November the agents speak 0.3 and 0.4, and both mocks serve 0.4 with 0.3 linked from `supported_versions` (3.4), so our honest pairs run at 0.4 and a 0.3-only peer still pairs at 0.3; `evil-personal-agent` keeps its raw 0.3 requests, which the mocks take as 0.3 because they carry no `Poppy-Version`. Renamed on 23 October 2026 (`pda-mock` → `lenient-company`, `pda-mock-strict` → `strict-company`, `pda-mock-v02` → `lenient-company-v02`, `evil-agent` → `evil-personal-agent`); results from before then use the old names.
 
 | | Personal Agent (`interop/impls/pda-agent`, `INTEROP_AGENT_PROFILE`) | Company (`interop/impls/pda-mock`, `INTEROP_MOCK_PROFILE`) |
 | --- | --- | --- |

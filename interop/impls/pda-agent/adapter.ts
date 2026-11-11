@@ -28,6 +28,7 @@ import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../
 import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
 import { browse } from "../../../src/poppy/browser.ts";
 import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
+import { PROTOCOL_VERSIONS } from "../../../src/poppy/protocol-version.ts";
 import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
 import type { Fetcher } from "../../../src/poppy/fetch.ts";
 import type { Json } from "../../../src/poppy/json.ts";
@@ -81,7 +82,8 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  poppy: ["0.3"],
+  // Every version src/poppy speaks; the adversarial agent's raw requests are 0.3 only (attacks.ts).
+  poppy: ADVERSARY ? ["0.3"] : [...PROTOCOL_VERSIONS],
   extensions: ["operations"],
   scenarios: ADVERSARY ? [...ATTACKS] : [
     "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
