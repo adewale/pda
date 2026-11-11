@@ -451,7 +451,9 @@ describe("0.4: a conversation keeps its versions (8.2)", () => {
     // A new conversation starts in the version the agent now chooses.
     const fresh = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "a new question" })).text);
     expect(fresh.conversationId).not.toBe(first.conversationId);
-    expect((await conversationRequests(c)).at(-1)!.headers["poppy-version"]).toBe("0.4");
+    // Its opening POST, not whatever came last: a background read of the old conversation may follow it.
+    const opened = (await conversationRequests(c)).filter((request) => request.method === "POST" && new URL(request.url).pathname.endsWith("/conversations"));
+    expect(opened.at(-1)!.headers["poppy-version"]).toBe("0.4");
   });
 
   it("keeps the conversation's Session signed in to the account its label uses", async () => {
