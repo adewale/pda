@@ -1940,6 +1940,24 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => converse(c, await signedIn(c), message({ text: undefined, extensions: { operations: { approval: "yes" } } }))
   },
 
+  // ---- What a message took into account (0.4 8.4) ----
+  ...([
+    ["message.as-of-human", "as_of_cursor on a message the User wrote", "human", (id: string) => id],
+    ["message.as-of-cursor", "as_of_cursor that the conversation never gave", "agent", () => "evt_unknown"]
+  ] as const).map(([id, what, author, cursor]) => ({
+    id,
+    what,
+    config: V4,
+    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    run: async (c: C) => {
+      const s = await session();
+      const headers = { "Poppy-Version": "0.4" };
+      const started = await call(c, s, "POST", c.hosts.conversationsEndpoint, { headers, body: { id: "req_1", message: { author: { type: "agent" }, text: "Hello" } } });
+      const { conversation_id: conversation } = (await started.json()) as { conversation_id: string };
+      const read = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${conversation}/events`, { headers })).json()) as { cursor: string };
+      return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${conversation}/messages`, { headers, body: { id: "req_2", message: { author: { type: author }, as_of_cursor: cursor(read.cursor), text: "And another thing" } } });
+    }
+  })),
   // ---- Request IDs (0.4 8.3) ----
   {
     id: "request.id",

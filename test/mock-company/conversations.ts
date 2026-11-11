@@ -36,6 +36,8 @@ type Conversation = {
   readonly expired: Set<string>;
   readonly sent: string[];
   context: Record<string, unknown>;
+  /** 0.4: the latest request the Company accepted, which its agent's messages take into account (`as_of_request`, 8.4). */
+  lastRequest?: string;
 };
 
 type IncomingMessage = {
@@ -172,13 +174,17 @@ export class Conversations {
 
   #say(conversation: Conversation, text: string, extra: Record<string, unknown> = {}): void {
     // `author`, naming the person when one writes (8.4, 8.7).
-    const writer = { author: conversation.responder === "human" ? { type: "human", id: "aut_alex", name: "Alex" } : { type: "agent" } };
+    const human = conversation.responder === "human";
+    const writer = { author: human ? { type: "human", id: "aut_alex", name: "Alex" } : { type: "agent" } };
+    // 0.4 8.4: the Company Agent's message names the latest request it took into account; a person's never does.
+    const asOf = conversation.version !== "0.3" && !human && conversation.lastRequest ? { as_of_request: conversation.lastRequest } : {};
     this.#add(conversation, {
       type: "message",
       message: {
         id: randomId("msg_", 8),
         role: "company",
         ...writer,
+        ...asOf,
         text,
         ...extra
       }
@@ -249,6 +255,7 @@ export class Conversations {
     if (seen && seen.hash !== hash) this.#conflict(context, requestId);
     if (seen) return true;
     this.#messageIds.set(key, { hash, conversationId: conversation.id });
+    conversation.lastRequest = requestId;
     return false;
   }
 
@@ -342,6 +349,10 @@ export class Conversations {
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
     conversation.sent.push(`${String(this.#writer(message))}:${typeof message.text === "string" ? message.text : ""}`);
+    if (conversation.version !== "0.3") {
+      this.#asOfCursor(conversation, message);
+      conversation.lastRequest = message.id as string;
+    }
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
@@ -349,6 +360,20 @@ export class Conversations {
     const approval = operationsContent(message.extensions)?.approval;
     if (approval !== undefined) this.#approved(context, conversation, approval);
     else if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
+  }
+
+  /**
+   * 0.4's `as_of_cursor` (8.4): only on a message the agent wrote, and only a
+   * cursor this conversation gave it. Optional, so its absence is fine.
+   */
+  #asOfCursor(conversation: Conversation, message: IncomingMessage): void {
+    const value = (message as Record<string, unknown>).as_of_cursor;
+    if (value === undefined) return;
+    if (this.#writer(message) !== "agent") {
+      this.company.violation("message.as-of-human", "conversation message: as_of_cursor on a message with author.type human (8.4)");
+    } else if (typeof value !== "string" || (!conversation.events.some((event) => event.id === value) && !conversation.expired.has(value))) {
+      this.company.violation("message.as-of-cursor", `conversation message: as_of_cursor ${JSON.stringify(value)} isn't a cursor of this conversation (8.4)`);
+    }
   }
 
   /**

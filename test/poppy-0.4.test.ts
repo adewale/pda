@@ -392,3 +392,26 @@ describe("0.4: after version_unsupported (3.4)", () => {
     expect(messages.map((request) => request.status)).toEqual([400]);
   });
 });
+
+describe("0.4: what a message took into account (8.4)", () => {
+  it("sends the last cursor it handled on its messages, and reads as_of_request as a hint about the reply", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const id = first.conversationId as string;
+    await a.stub.poppyReadNow(id);
+    const cursor = (JSON.parse(await a.stub.poppySql(`SELECT cursor FROM poppy_conversations WHERE id = '${id}'`)) as { cursor: string }[])[0]!.cursor;
+    expect(cursor).toBeTruthy();
+    const second = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "hello again" })).text);
+    const posts = (await sent(c)).map((payload) => payload.json as { id?: string; message?: { as_of_cursor?: string } } | undefined).filter((body) => body?.message);
+    // The first message had read nothing; the second names the cursor it had handled.
+    expect(posts.map((body) => body!.message!.as_of_cursor ?? null)).toEqual([null, cursor]);
+    await a.stub.poppyReadNow(id);
+    const inbox = (JSON.parse(await a.stub.poppySql(`SELECT event FROM poppy_inbox WHERE conversation_id = '${id}' ORDER BY seq`)) as { event: string }[])
+      .map(({ event }) => (JSON.parse(event) as { message?: { role: string; as_of_request?: string } }).message)
+      .filter((message) => message?.role === "company");
+    expect(second.messageId).toBe(posts[1]!.id);
+    expect(inbox.map((message) => message!.as_of_request)).toEqual([posts[0]!.id, posts[1]!.id]);
+    await a.stub.poppyWaitForNotice("took into account your latest message");
+  });
+});

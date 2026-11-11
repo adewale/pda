@@ -177,6 +177,8 @@ export const VIOLATIONS = {
   "message.data-type": "Rule (8.4: data is a JSON object): Message data isn't a JSON object",
   "message.context-type": "Rule (8.4: context holds facts about the User's situation, as fields): Message context isn't an object",
   "request.id": "MUST (0.4 8.3: \"Every POST body has an id\"; 8.2: 1 to 256 URL-safe base64 characters): A conversation request without a valid request id",
+  "message.as-of-human": "MUST NOT (0.4 8.4: a message \"with author.type human, MUST NOT include either field\"): as_of_cursor on a message the User wrote",
+  "message.as-of-cursor": "Rule (0.4 8.4: as_of_cursor is \"the cursor of the last read it had handled\"): as_of_cursor that isn't a cursor of the conversation",
   "request.id-reused": "MUST (0.4 8.3: the request ID is \"unique for the User across all its requests\"; a retry repeats the path and body): A request id reused with a different path or body",
   "message.id-reused": "MUST (8.3: \"MUST make it unique for the User\"): Message id reused with different content",
   "context.locale": "MUST (8.4: \"it MUST use the field and format defined here\", an RFC 5646 tag): context.locale isn't an RFC 5646 tag",

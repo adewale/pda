@@ -90,10 +90,10 @@
     },
     {
       "change": "What a message took into account",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "C5: as_of_cursor only on messages with author.type agent; as_of_request read as a hint."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C5 is done: the agent's own messages carry as_of_cursor, the cursor of the last read it handled, frozen with the request so a retry repeats it; never on the User's words. A Company Agent message's as_of_request is shown to the model as a hint, saying whether it covers our latest message. The mock sends as_of_request and records as_of_cursor on a human message or naming a cursor it never gave."
     },
     {
       "change": "Closing doesn't wait its turn",
