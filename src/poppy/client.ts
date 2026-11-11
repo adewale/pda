@@ -114,6 +114,27 @@ export function issuerEndpoints(company: Company): NonNullable<Company["endpoint
 }
 
 /** Whether `error` is a `PoppyError` with one of these codes. */
+/** Whether `after` has everything `before` has: a list may gain items, an object members. */
+function keeps(before: unknown, after: unknown): boolean {
+  if (Array.isArray(before)) return Array.isArray(after) && before.every((item) => after.some((other) => keeps(item, other)));
+  if (before !== null && typeof before === "object") {
+    if (after === null || typeof after !== "object" || Array.isArray(after)) return false;
+    const other = after as Record<string, unknown>;
+    return Object.entries(before).every(([key, value]) => value === undefined || (key in other && keeps(value, other[key])));
+  }
+  return before === after;
+}
+
+/** A Session label for work kept in an older version (8.2): `label` and the version, apart from the label's own Session. */
+export function versionLabel(label: string, version: string): string {
+  return `${label}@${version}`;
+}
+
+/** The label a task was given, without the version `versionLabel` added. */
+export function baseLabel(label: string): string {
+  return label.replace(/@\d+\.\d+$/, "");
+}
+
 export function hasCode(error: unknown, ...codes: readonly KnownErrorCode[]): error is PoppyError {
   return error instanceof PoppyError && error.is(...codes);
 }
@@ -652,7 +673,14 @@ export class PoppyClient {
     return domains.size === 1 ? [...domains][0] : undefined;
   }
 
-  async resumeCompany(issuer: Issuer, kind: string, id: string): Promise<Company> {
+  /**
+   * `keepVersion`: the task keeps the versions it began in, as a conversation
+   * does (8.2). When the Company has since chosen another version but still
+   * serves the old one, its document for the old one is used; when it no
+   * longer does, `version_mismatch` is thrown and no card shown, for the
+   * caller to say what that means for its task.
+   */
+  async resumeCompany(issuer: Issuer, kind: string, id: string, options: { readonly keepVersion?: boolean } = {}): Promise<Company> {
     let context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
     if (!context) {
       const candidates = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer);
@@ -662,15 +690,60 @@ export class PoppyClient {
     }
     if (!context) throw new DiscoveryError("No discovery context for this task");
     const original = JSON.parse(context.company) as Company;
-    const current = await this.company(original.domain);
-    const interfaces = (company: Company) => JSON.stringify([company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url])]);
-    if (current.issuer !== issuer || current.protocolVersion !== original.protocolVersion || (original.authFingerprint && current.authFingerprint !== original.authFingerprint) || interfaces(current) !== interfaces(original) ||
+    let current = await this.company(original.domain);
+    const moved = options.keepVersion && current.issuer === issuer && current.protocolVersion !== original.protocolVersion;
+    if (moved) {
+      const kept = await this.#companyAt(original.domain, original.protocolVersion);
+      if (!kept) throw new PoppyError("version_mismatch", `${current.name} no longer serves Poppy ${original.protocolVersion}, the version this began in`, 0);
+      current = kept;
+    }
+    const interfaces = (company: Company) => [company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url])];
+    // A Company that moved to another version may add to what it shares across versions, such as the
+    // poppy:browser-sign-in scope (6); work kept in the old version needs only that nothing it had changed.
+    const same = (before: unknown, after: unknown) => moved ? keeps(before, after) : JSON.stringify(before) === JSON.stringify(after);
+    if (current.issuer !== issuer || current.protocolVersion !== original.protocolVersion ||
+        (original.authFingerprint && !same(JSON.parse(original.authFingerprint), current.authFingerprint ? JSON.parse(current.authFingerprint) : null)) || interfaces(original).some((part, index) => !same(part, interfaces(current)[index])) ||
         (original.specificationRevision && current.specificationRevision !== original.specificationRevision)) {
       await this.host.showCard({ id: `company-changed-${kind}-${id}`, kind: "notice", company: original.name, domain: original.domain, open: false, text: "This Company changed its protocol or interfaces while work was pending. Review its current status before starting a new task; an uncertain action must not be repeated." });
       throw new PoppyError("company_changed", "The Company's issuer, protocol or interfaces changed while this task was pending; reconcile it before continuing", 0);
     }
     this.rememberCompany(kind, id, current);
     return current;
+  }
+
+  /**
+   * The Company's document for one version it still serves (3.4), from its
+   * `supported_versions`; null when it serves it no longer. Fetched afresh
+   * and not cached: the domain's cache holds the version the agent chooses.
+   */
+  async #companyAt(domain: string, version: string): Promise<Company | null> {
+    try {
+      const { result } = await discover(this.host.fetcher, domain, [version]);
+      return isCompany(result) && result.protocolVersion === version ? result : null;
+    } catch (error) {
+      if (error instanceof DiscoveryError) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The Session label for work that keeps versions the Company no longer
+   * chooses (8.2): `label` while they are its choice; otherwise a Session of
+   * its own declaring them, signed in to the account `label` is, so the
+   * agent's other work in `label` keeps the Company's current versions.
+   */
+  async versionSession(company: Company, label: string): Promise<string> {
+    const chosen = await this.company(company.domain);
+    if (chosen.protocolVersion === company.protocolVersion) return label;
+    const own = versionLabel(label, company.protocolVersion);
+    const session = this.session(company.issuer, label);
+    const kept = this.session(company.issuer, own);
+    if (session?.signed_in && session.account) {
+      if (!kept?.signed_in || kept.account !== session.account) this.#bindAccount(company, own, session.account, session.scope);
+    } else if (kept?.signed_in) {
+      this.signOutSession(company.issuer, own);
+    }
+    return own;
   }
 
   /**

@@ -1848,6 +1848,13 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c: C) => call(c, await session(), "GET", url(c), options)
   })),
   {
+    id: "browser-sign-in.no-endpoint",
+    what: "a sign-in asking for poppy:browser-sign-in from a Company without browser join",
+    config: { ...V4, browserSession: false },
+    detail: /^\[browser-sign-in\.no-endpoint\] direct sign-in asked for poppy:browser-sign-in/,
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ scope: "orders:read poppy:browser-sign-in" })))
+  },
+  {
     id: "web.disabled-form",
     what: "a form sent to a website that sets web.disabled",
     config: { ...V4, webDisabled: true },

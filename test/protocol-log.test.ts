@@ -130,6 +130,20 @@ describe("the protocol log", () => {
     expect(index).toEqual([expect.objectContaining({ key: c.hosts.issuer, issuer: c.hosts.issuer, count: log.length, lastSeq: log.at(-1)!.seq })]);
   });
 
+  it("records a 0.4 conversation's state as its four fields, naming those that changed", async () => {
+    const c = await company({ protocolVersion: "0.4" });
+    const a = await agent();
+    const sent = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await tool(a, "poppy_handoff", { conversation: sent.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." });
+    await a.stub.poppyReadNow(sent.conversationId);
+    const log = await a.stub.poppyProtocol(c.hosts.issuer);
+    expect(log.find((entry) => entry.step === "conversation.opened")!.result).toBe("working true, handoff none, responder agent");
+    const changes = log.filter((entry) => entry.step === "conversation.status").map((entry) => entry.result);
+    expect(changes).toContain("handoff none → pending");
+    expect(changes.every((change) => !/status|closed (?!false → true)/.test(change ?? ""))).toBe(true);
+    expect(log.find((entry) => entry.step === "conversation.status")).toMatchObject({ section: "§8.7", title: "State" });
+  });
+
   it("records a Company discovery refused under its domain, with the validator's verdict and what it refused", async () => {
     const c = await company({ organizationDomain: "other.shop.test" });
     const a = await agent();

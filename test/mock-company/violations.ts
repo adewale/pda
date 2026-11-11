@@ -251,6 +251,7 @@ export const VIOLATIONS = {
   "page.session-off-host": "Rule (0.4 5.2: the header \"covers only HTTPS URLs whose host is exactly organization.domain\", and a redirect is signed again \"only if its host is still organization.domain\"): A Session header on a page on another host",
   "page.token": "MUST NOT (0.4 5.2: \"MUST NOT send an access token with these requests\"): An access token with a website page",
   "page.session-0.3": "Reading (5.2 defines no Session header on website pages before 0.4; docs/readings.md#v04-fetch-browser): A Session header on a page in a request without Poppy-Version",
+  "browser-sign-in.no-endpoint": "Rule (0.4 6: \"A Personal Agent requests poppy:browser-sign-in only from a Company that lists browser_session_endpoint\"): A sign-in asking for poppy:browser-sign-in from a Company without browser join",
   "web.disabled-form": "SHOULD NOT (0.4 6: \"SHOULD NOT use a browser on the website of a Company that sets\" web.disabled; docs/readings.md#v04-web-disabled counts a form as a browser's work): A form sent to a website that sets web.disabled",
 
   // ---- Operations extension, version 2 (Ops 6) ----

@@ -1,4 +1,4 @@
-import { Company, HttpError, json, MEDIATED_GRANT, randomId, type Inbound, type ResourceContext, type Session } from "./core";
+import { Company, HttpError, json, MEDIATED_GRANT, randomId, resourceError, type Inbound, type ResourceContext, type Session } from "./core";
 import type { ViolationId } from "./violations";
 
 /** The tasks the mock chose not to offer (9.1); the web reference is filled in per Company. */
@@ -86,7 +86,11 @@ export class Web {
       document.agent = { protocols };
     }
     // 6: a Company that sets web.disabled lists no browser_session_endpoint.
-    if (config.web) document.web = v04 && config.webDisabled ? { disabled: true } : config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
+    if (config.web) {
+      const web: Record<string, unknown> = v04 && config.webDisabled ? { disabled: true } : config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
+      if (v04 && config.webUnscoped && config.browserSession && !config.webDisabled) web.unscoped = true;
+      document.web = web;
+    }
     if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
     if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     // 0.4: both come from the tasks endpoint, per Session (9).
@@ -362,6 +366,10 @@ export class Web {
     const join = this.#joins.get(code);
     if (join?.authorized) co.violation("browser-join.code-reused", "browser join: the code was authorized before");
     if (!join || join.authorized || join.used || join.expiresAt <= co.now()) return json({ error: "invalid_request" }, 400);
+    // 0.4: a token without poppy:browser-sign-in is refused as at an API, and the code stays unauthorized (6).
+    if (context.token && context.session.declaration?.version === "0.4" && !context.scope.includes("poppy:browser-sign-in")) {
+      throw resourceError(context.token.kind === "dpop" ? "DPoP" : "Bearer", 403, "insufficient_scope", { scope: "poppy:browser-sign-in" });
+    }
     join.authorized = { sessionId: context.session.id, account: context.account, scope: context.scope, grant: context.token?.grant ?? null };
     return new Response(null, { status: 204 });
   }

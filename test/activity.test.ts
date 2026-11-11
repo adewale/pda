@@ -115,6 +115,23 @@ describe("poppy.activity", () => {
     p.socket.close();
   });
 
+  it("describes a 0.4 conversation from its four state fields, which can hold at once", async () => {
+    const c = await company({ protocolVersion: "0.4" });
+    const a = await agent();
+    const sent = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" })).text);
+    const note = async () => {
+      const p = await page(a);
+      const task = p.latest().inProgress.find((item) => item.kind === "conversation");
+      p.socket.close();
+      return task && "note" in task ? task.note : undefined;
+    };
+    const shop = `Mock Shop ${c.id}`;
+    await a.stub.poppySql("UPDATE poppy_conversations SET working = 1, handoff = 'pending', responder = 'agent' WHERE id = ?", sent.conversationId);
+    expect(await note()).toBe(`${shop}'s agent is working on it. A person at ${shop} has been asked to join.`);
+    await a.stub.poppySql("UPDATE poppy_conversations SET working = 0, handoff = 'none', responder = 'human' WHERE id = ?", sent.conversationId);
+    expect(await note()).toBe(`A person at ${shop} is waiting for the next message.`);
+  });
+
   it("shows a device sign-in in progress, with its expiry and a cancel frame, but never its codes", async () => {
     const c = await company({ signIn: { direct: null, device: ["orders:read"], mediated: null }, deviceInterval: 30, deviceExpiresIn: 600 });
     const a = await agent();

@@ -97,6 +97,12 @@ export type MockConfig = {
   readonly pagesRefuseSession: boolean;
   /** 0.4's `web.disabled` (6): ask Personal Agents not to browse, listing no `browser_session_endpoint`, and record a form they send. */
   readonly webDisabled: boolean;
+  /**
+   * 0.4's `web.unscoped` (6): the website gives a browser signed in with
+   * `poppy:browser-sign-in` the account's full access, and the scope's
+   * description says so.
+   */
+  readonly webUnscoped: boolean;
   /** Offer the Operations extension. */
   readonly operations: boolean;
   /** Refuse writes from agents that don't list `operations`, with `extension_required`. */
@@ -279,6 +285,13 @@ export type MockConfig = {
    * `version_mismatch` and `request_id_conflict` (8.2, 8.3). null: accept.
    */
   readonly refuseMessages: { readonly status: number; readonly body: Readonly<Record<string, string>> } | null;
+  /**
+   * Refuse a new message on a conversation from a Session declaring other
+   * versions than the one that started it, with `version_mismatch` (8.2,
+   * which allows it): a Company that can't carry conversations over. Reads
+   * are still answered. false: continue them.
+   */
+  readonly keepsConversationVersions: boolean;
   /** Company flaws (`COMPANY_FLAWS`); none by default. */
   readonly flaws: readonly CompanyFlaw[];
   /**
@@ -346,6 +359,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   web: true,
   browserSession: true,
   webDisabled: false,
+  webUnscoped: false,
   pagesRefuseSession: false,
   skills: true,
   operations: true,
@@ -417,6 +431,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   errorDescription: null,
   refuseRevocations: 0,
   refuseMessages: null,
+  keepsConversationVersions: false,
   flaws: [],
   dpopTokens: true,
   authorizationServersOverride: null,

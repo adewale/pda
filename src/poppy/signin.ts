@@ -1,7 +1,7 @@
 import { literal, reportError } from "../log";
 import { covers, grantedScope, issuerEndpoints, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
 import { tryDecode } from "../decode";
-import { MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
+import { BROWSER_SIGN_IN, MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
 import { one, rows, type RowOf } from "../rows";
@@ -32,8 +32,10 @@ export function describeScopes(company: Company, scopes: readonly string[], from
     const hint = own(company.scopeHints, scope);
     // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
     // Guides, "Choosing how to sign in": use the conservative default (upstream audit 30; docs/readings.md).
+    // 6: web.unscoped means the website gives a signed-in browser the account's full access, whatever else is granted.
+    const unscoped = scope === BROWSER_SIGN_IN && company.web?.unscoped;
     return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope,
-      hint: hintText(hint ?? { changes: "irreversible", personalData: true }) };
+      hint: unscoped ? "On the website: anything your account can do there" : hintText(hint ?? { changes: "irreversible", personalData: true }) };
   });
 }
 
@@ -133,6 +135,10 @@ export async function startSignIn(
 ): Promise<SignInStart> {
   const requested = [...new Set(request.scopes)];
   if (requested.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
+  // 6: requested only from a Company that lists browser_session_endpoint.
+  if (requested.includes(BROWSER_SIGN_IN) && !company.web?.browserSessionEndpoint) {
+    throw new PoppyError("invalid_scope", `${company.name} has no browser join, so ${BROWSER_SIGN_IN} can't be requested there; its website is used signed out`, 0);
+  }
   if (Object.keys(company.signIn).length === 0) {
     // 3.2: with auth.disabled, refresh tokens the Company issued earlier keep working until it revokes
     // them, so one that covers the scopes is used; only a new Direct, Device or Mediated Sign-In is refused.

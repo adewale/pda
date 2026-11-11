@@ -101,7 +101,7 @@ describe("conversation SSE transport chunk boundaries", () => {
         restoreRemote = () => remote.mockRestore();
         await expect(readConversation(client, opened.conversationId, 0)).rejects.toMatchObject({ code: "invalid_response" });
         expect(cancelled).toBe(1);
-        expect(conversation(client, opened.conversationId)).toMatchObject({ cursor: saved.id, status: opened.status });
+        expect(conversation(client, opened.conversationId)).toMatchObject({ cursor: saved.id, ...("status" in opened ? { status: opened.status } : {}) });
         expect(recentMessages(client, opened.conversationId)).toMatchObject([{ text: saved.message.text }]);
         expect(pushed.mock.calls.at(-1)?.[0]).toMatchObject({ conversationId: opened.conversationId, partial: null });
         if (kind === "unfinished message") expect(pushed.mock.calls.some(([update]) => update.partial?.text.length === MAX_SSE_CHARS / 2 + 1)).toBe(true);

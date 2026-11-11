@@ -164,6 +164,9 @@ const str = (value: unknown): string | undefined => (typeof value === "string" ?
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
+/** The one scope 0.4 defines: the agent's browser joins signed in (6). */
+export const BROWSER_SIGN_IN = "poppy:browser-sign-in";
+
 export type Discovered = {
   readonly result: Company | WebsiteOnly;
   /** Seconds both documents may be cached for, bounded. */

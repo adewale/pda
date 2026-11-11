@@ -649,6 +649,10 @@ export class Conversations {
     }
     const refusal = this.company.config.refuseMessages;
     if (refusal) throw new HttpError(json(refusal.body, refusal.status));
+    const declared = context.session.declaration;
+    if (this.company.config.keepsConversationVersions && (declared?.version ?? "0.3") !== conversation.version) {
+      throw new HttpError(json({ error: "version_mismatch", protocol_version: conversation.version }, 409));
+    }
     // In a Direct Conversation the agent relays the User's words as written,
     // as `human` (8.10). It may still send context, such as user_available
     // (8.4); its own words have no place there (our reading of S12), so they

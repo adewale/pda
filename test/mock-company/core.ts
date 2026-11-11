@@ -457,8 +457,9 @@ export class Company {
   scopeDescriptions(): Record<string, string> {
     const { read, write } = this.orderScopes;
     // 0.4: a Company with browser join and sign-in supports poppy:browser-sign-in (6).
+    // Unscoped, it MUST be described as the account's full access on the website (6).
     const browserSignIn: Record<string, string> = this.servedVersions.includes("0.4") && this.config.web && this.config.browserSession
-      ? { "poppy:browser-sign-in": "Use the website signed in, with the other access you approve" } : {};
+      ? { "poppy:browser-sign-in": this.config.webUnscoped ? "Browse the website, and see and do anything your account can do there" : "Use the website signed in, with the other access you approve" } : {};
     return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...browserSignIn, ...this.config.customScopes };
   }
 
@@ -470,7 +471,10 @@ export class Company {
   /** Scopes a sign-in type can grant, or null when it isn't offered. */
   offeredScopes(type: "direct" | "device" | "mediated"): readonly string[] | null {
     if (this.config.issuerless || (type === "mediated" && this.config.authDisabled)) return null;
-    return this.config.signIn[type];
+    const offered = this.config.signIn[type];
+    // 0.4: a Company with browser join and sign-in MUST support poppy:browser-sign-in (6); Mediated Sign-In keeps its own list.
+    return offered && type !== "mediated" && "poppy:browser-sign-in" in this.scopeDescriptions() && !offered.includes("poppy:browser-sign-in")
+      ? [...offered, "poppy:browser-sign-in"] : offered;
   }
 
   /** The Company's identifier (3.2): its issuer, or `https://{domain}` without one. Session JWTs' audience. */

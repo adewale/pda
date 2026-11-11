@@ -152,6 +152,25 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
   });
 
+  it("gives the model the four fields as the Company sent them, and 0.3's status and responder in a 0.3 conversation", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const id = first.conversationId as string;
+    expect(first).not.toHaveProperty("status");
+    expect(first).toMatchObject({ closed: false, handoff: "none", responder: "agent" });
+    const handed = JSON.parse((await tool(a, "poppy_handoff", { conversation: id, summary: "The jacket isn't warm enough; the user wants an exchange." })).text);
+    expect(Object.keys(handed).sort()).toEqual(["closed", "handoff", "responder", "working"]);
+    await a.stub.poppyReadNow(id);
+    const read = JSON.parse((await tool(a, "poppy_read", { conversation: id })).text);
+    expect(read).toMatchObject({ conversation: id, closed: false, working: false, handoff: "pending", responder: "agent" });
+    const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
+    expect(status.conversations).toEqual([{ conversation: id, closed: false, working: false, handoff: "pending", responder: "agent", direct: false }]);
+    const old = await company();
+    const earlier = JSON.parse((await tool(a, "poppy_message", { domain: old.domain, text: "hello" })).text);
+    expect(Object.keys(JSON.parse((await tool(a, "poppy_read", { conversation: earlier.conversationId })).text)).sort()).toEqual(["conversation", "messages", "responder", "status"]);
+  });
+
   it("reads while the Company is still working before it closes, since a close may drop requests not yet acted on (8.12)", async () => {
     // The mock stays working after a handoff it never queues, so the agent's read finds it working.
     const c = await company({ ...V4, neverQueued: true });
@@ -390,6 +409,132 @@ describe("0.4: after version_unsupported (3.4)", () => {
     expect(refused.text).toContain("no longer serves protocol version 0.4");
     const messages = (await requests(c)).filter((request) => request.method === "POST" && /\/messages$/.test(new URL(request.url).pathname));
     expect(messages.map((request) => request.status)).toEqual([400]);
+  });
+});
+
+describe("0.4: a conversation keeps its versions (8.2)", () => {
+  const sid = (request: MockRequest) => decodeJwt(request.headers["poppy-session"]!).sid;
+  const conversationRequests = async (c: Company) => (await requests(c)).filter((request) => /\/conversations/.test(new URL(request.url).pathname));
+
+  it("finishes a 0.3 conversation in a 0.3 Session of its own after the Company moves to 0.4, and leaves other work in 0.4", async () => {
+    const c = await company({ protocolVersion: "0.3", keepsConversationVersions: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.configure({ protocolVersion: "0.4", linkedVersion: "0.3" });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const search = { domain: c.domain, operation: "searchProducts", params: { q: "jacket" } };
+    expect((await tool(a, "poppy_api_call", search)).isError).toBe(false);
+    const mark = (await conversationRequests(c)).length;
+    const again = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "and another thing" });
+    expect(again.isError, again.text).toBe(false);
+    expect((await tool(a, "poppy_api_call", search)).isError).toBe(false);
+    const messages = (await conversationRequests(c)).slice(mark).filter((request) => request.method === "POST");
+    expect(messages.map((request) => [request.status, request.headers["poppy-version"] ?? null])).toEqual([[202, null]]);
+    const searches = (await requests(c)).filter((request) => new URL(request.url).pathname === "/products");
+    expect(searches.map((request) => request.headers["poppy-version"])).toEqual(["0.4", "0.4"]);
+    // The 0.4 work kept its Session: the conversation's Session is another one, not a restart of it.
+    expect(sid(searches[1]!)).toBe(sid(searches[0]!));
+    expect(sid(messages[0]!)).not.toBe(sid(searches[0]!));
+    // A new conversation starts in the version the agent now chooses.
+    const fresh = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "a new question" })).text);
+    expect(fresh.conversationId).not.toBe(first.conversationId);
+    expect((await conversationRequests(c)).at(-1)!.headers["poppy-version"]).toBe("0.4");
+  });
+
+  it("keeps the conversation's Session signed in to the account its label uses", async () => {
+    const c = await company({ protocolVersion: "0.3", keepsConversationVersions: true });
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read"]);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "where is my order?" })).text);
+    await c.stub.configure({ protocolVersion: "0.4", linkedVersion: "0.3" });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const mark = (await conversationRequests(c)).length;
+    const again = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "thanks" });
+    expect(again.isError, again.text).toBe(false);
+    const [message] = (await conversationRequests(c)).slice(mark).filter((request) => request.method === "POST");
+    expect(message!.headers.authorization).toBeTruthy();
+    const sessions = JSON.parse(await a.stub.poppySql("SELECT label, account, signed_in FROM poppy_sessions ORDER BY label")) as { label: string; account: string | null; signed_in: number }[];
+    const main = sessions.find((session) => session.label === "main")!;
+    expect(sessions.find((session) => session.label === "main@0.3")).toMatchObject({ account: main.account, signed_in: 1 });
+  });
+
+  it("closes a conversation whose versions the Company no longer serves, and sends nothing in other versions", async () => {
+    const c = await company({ protocolVersion: "0.3", keepsConversationVersions: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.configure({ protocolVersion: "0.4", linkedVersion: null });
+    await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
+    const mark = (await conversationRequests(c)).length;
+    const refused = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "and another thing" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("no longer serves, so it can't continue");
+    // A read already under way may still be answered version_unsupported; no message goes.
+    expect((await conversationRequests(c)).slice(mark).filter((request) => request.method === "POST")).toEqual([]);
+    const [row] = JSON.parse(await a.stub.poppySql(`SELECT status FROM poppy_conversations WHERE id = '${first.conversationId}'`)) as { status: string }[];
+    expect(row!.status).toBe("closed");
+  });
+});
+
+describe("0.4: poppy:browser-sign-in (6)", () => {
+  const authorizations = async (c: Company) => (await requests(c)).filter((request) => new URL(request.url).pathname === "/poppy/browser-session/authorize");
+  const open = (a: Agent, c: Company, url: string) => tool(a, "poppy_browse", { domain: c.domain, action: "open", url });
+
+  it("joins the browser signed out when the sign-in lacks the scope, and says how to sign the website in", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read"]);
+    const page = await open(a, c, "/orders");
+    expect(page.isError, page.text).toBe(false);
+    expect(page.text).toContain("Signed out");
+    expect(JSON.parse(page.text).note).toContain("poppy:browser-sign-in");
+    const sent = await authorizations(c);
+    expect(sent.map((request) => [request.status, request.headers.authorization ?? null])).toEqual([[204, null]]);
+  });
+
+  it("joins signed in with a sign-in that includes it", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read", "poppy:browser-sign-in"]);
+    const page = await open(a, c, "/orders");
+    expect(page.text).toContain("Signed in as acct_ada");
+    expect(JSON.parse(page.text)).not.toHaveProperty("note");
+    const sent = await authorizations(c);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.headers.authorization).toBeTruthy();
+  });
+
+  it("authorizes the same code again without the token when the Company refuses it for insufficient_scope", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read"]);
+    // The agent believes it holds the scope; the token doesn't.
+    await a.stub.poppySql("UPDATE poppy_sessions SET scope = scope || ' poppy:browser-sign-in'");
+    const page = await open(a, c, "/orders");
+    expect(page.isError, page.text).toBe(false);
+    expect(page.text).toContain("Signed out");
+    const attempts = await authorizations(c);
+    expect(attempts.map((request) => [request.status, !!request.headers.authorization])).toEqual([[403, true], [204, false]]);
+    const codes = (await sent(c)).filter((payload) => payload.url.endsWith("/poppy/browser-session/authorize")).map((payload) => (payload.json as { code: string }).code);
+    expect(codes).toHaveLength(2);
+    expect(codes[1]).toBe(codes[0]);
+  });
+
+  it("never requests it from a Company without browser join", async () => {
+    const c = await company({ ...V4, browserSession: false });
+    const a = await agent();
+    const refused = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read", "poppy:browser-sign-in"], reason: "to see orders" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("no browser join");
+  });
+
+  it("reads web.unscoped before the scope is requested, and tells the model and the User what it gives", async () => {
+    const c = await company({ ...V4, webUnscoped: true });
+    const a = await agent();
+    const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
+    expect(found.website).toContain("gives everything the account can do there");
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read", "poppy:browser-sign-in"], reason: "to change the address on the website" });
+    const card = (await cards(a)).find((item) => item.kind === "signin_link");
+    expect(JSON.stringify(card)).toContain("On the website: anything your account can do there");
   });
 });
 

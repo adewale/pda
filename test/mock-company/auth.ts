@@ -13,6 +13,9 @@ import {
   type Inbound
 } from "./core";
 
+/** The one scope 0.4 defines: a joined browser signed in (6). */
+const BROWSER_SIGN_IN = "poppy:browser-sign-in";
+
 type AuthorizationRequest = {
   readonly id: string;
   readonly clientId: string;
@@ -103,6 +106,9 @@ export class AuthServer {
       throw oauthError(400, "invalid_scope", "scope is required");
     }
     const requested = parseScope(raw);
+    if (requested.includes(BROWSER_SIGN_IN) && !(this.company.config.web && this.company.config.browserSession)) {
+      this.company.violation("browser-sign-in.no-endpoint", `${type} sign-in asked for ${BROWSER_SIGN_IN} from a Company that lists no browser_session_endpoint`);
+    }
     const supported = Object.keys(this.company.scopeDescriptions());
     const unknown = requested.filter((entry) => !supported.includes(entry));
     if (unknown.length > 0) throw oauthError(400, "invalid_scope", `unknown scope ${unknown.join(" ")}`);

@@ -1,6 +1,6 @@
 import { authorName, writtenBy } from "./message-author";
 import { literal, reportError } from "../log";
-import { hasCode, PoppyClient, PoppyError } from "./client";
+import { baseLabel, hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -12,6 +12,7 @@ import { found, one, rows, type RowOf } from "../rows";
 import { conversationsTable, inboxTable, intent, intentsTable, messagesTable } from "./store";
 import type { DirectMessage } from "./wire";
 import { declaration } from "./declaration";
+import { stateForModel, type ModelState } from "./conversation-state";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
@@ -63,6 +64,32 @@ function remoteConversation(client: PoppyClient, company: Company, remoteId: str
 
 function requireCompany(company: Company, row: ConversationRow): void {
   if (row.issuer !== company.issuer) throw new PoppyError("conversation_not_found", `That conversation doesn't belong to ${company.name}`, 404);
+}
+
+/**
+ * The Company and Session a conversation continues in: the versions it
+ * started in (8.2; readings.md, v04-conversations). While the Company still
+ * lists them they get a Session of their own if it now chooses others, and
+ * the conversation's label follows that Session. When it lists them no
+ * more, the conversation ends here: nothing is sent in other versions, and
+ * nothing is carried over.
+ */
+async function continuing(client: PoppyClient, row: ConversationRow): Promise<{ company: Company; label: string }> {
+  let company: Company;
+  try {
+    company = await client.resumeCompany(row.issuer, "conversation", row.id, { keepVersion: true });
+  } catch (error) {
+    if (!hasCode(error, "version_mismatch")) throw error;
+    client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
+    throw new PoppyError(
+      "version_mismatch",
+      `Conversation ${row.id} started in Poppy ${row.protocol_version}, which this Company no longer serves, so it can't continue and nothing was sent. Start a new conversation (poppy_message without conversation) if the task still needs one, say again what the Company needs, and tell the User if they were waiting on something in the old one.`,
+      0
+    );
+  }
+  const label = await client.versionSession(company, baseLabel(row.label));
+  if (label !== row.label) client.sql.exec("UPDATE poppy_conversations SET label = ? WHERE id = ?", label, row.id);
+  return { company, label };
 }
 
 export function openConversations(client: PoppyClient): ConversationRow[] {
@@ -117,11 +144,9 @@ function rememberContext(client: PoppyClient, id: string, context: Record<string
   client.sql.exec("UPDATE poppy_conversations SET context = ? WHERE id = ?", JSON.stringify(merged), id);
 }
 
-export type SendResult = {
+export type SendResult = ModelState & {
   /** Stable local handle; the Company's wire ID stays in remote_id. */
   readonly conversationId: string;
-  readonly status: string;
-  readonly responder: string;
   /** Company messages that arrived in the same request, when `wait` was given. */
   readonly replies: readonly { sender: string; text?: string; data?: Json; asOfRequest?: string }[];
   /** Our message's ID, which a Company Agent's `as_of_request` may name (0.4 8.4). */
@@ -167,14 +192,16 @@ export async function sendMessage(
     throw new PoppyError("conversation_not_found", `No conversation ${request.conversationId}`, 404);
   }
   if (existing) requireCompany(company, existing);
-  if (existing && existing.label !== request.label) throw new PoppyError("invalid_request", "That conversation belongs to another Session", 0);
+  if (existing && baseLabel(existing.label) !== request.label) throw new PoppyError("invalid_request", "That conversation belongs to another Session", 0);
   const parent = request.parentConversationId ? conversation(client, request.parentConversationId) : undefined;
   if (request.parentConversationId && (!parent || parent.direct || parent.status === "closed")) {
     throw new PoppyError("conversation_not_found", "No open parent conversation for this Direct Conversation", 404);
   }
   if (parent) requireCompany(company, parent);
-  const contextId = existing?.id ?? parent?.id;
-  if (contextId) company = await client.resumeCompany(company.issuer, "conversation", contextId);
+  // A Direct Conversation starts in its parent's versions and Session.
+  const context = existing ?? parent;
+  let label = request.label;
+  if (context) ({ company, label } = await continuing(client, context));
   const endpoint = endpointOf(company);
   // A Direct Conversation carries the User's own words, as written (8.10); ours stay out of it.
   if (existing?.direct && request.sender === "agent" && !request.contextOnly && (request.text !== undefined || request.data !== undefined)) {
@@ -247,7 +274,7 @@ export async function sendMessage(
       if (cursor) url.searchParams.set("cursor", cursor);
     }
     return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: toJson(body) }), {
-      ...tokenOptions(company, request.label),
+      ...tokenOptions(company, label),
       ...(request.beforeDispatch ? { beforeDispatch: request.beforeDispatch } : {})
     });
   };
@@ -277,7 +304,7 @@ export async function sendMessage(
     throw new PoppyError("invalid_response", `${company.name} answered for a different conversation`, 0);
   }
   const mapped = existing ?? remoteConversation(client, company, remoteId);
-  if (mapped && mapped.label !== request.label) {
+  if (mapped && baseLabel(mapped.label) !== request.label) {
     throw new PoppyError("invalid_response", `${company.name} reused a conversation ID from another Session`, 0);
   }
   if (mapped && (mapped.parent !== (parent?.id ?? null) || mapped.direct !== (parent ? 1 : 0)) && !existing) {
@@ -295,7 +322,7 @@ export async function sendMessage(
       id,
       company.issuer,
       remoteId,
-      request.label,
+      label,
       parent?.id ?? null,
       parent ? 1 : 0,
       String(response.status ?? "working"),
@@ -329,7 +356,7 @@ export async function sendMessage(
     if (typeof response.cursor === "string") saveCursor(client, id, response.cursor);
   }
   const row = conversation(client, id)!;
-  return { conversationId: id, status: row.status, responder: row.responder, replies, ...(body.message && messageId !== undefined ? { messageId } : {}) };
+  return { conversationId: id, ...stateForModel(row), replies, ...(body.message && messageId !== undefined ? { messageId } : {}) };
 }
 
 /**
@@ -688,7 +715,8 @@ async function handleEvent(
       const scope = typeof event.scope === "string" ? event.scope : undefined;
       const needed = scope ? scope.split(" ").filter(Boolean) : [];
       // A refresh token that already covers it signs the Session in without asking (4.4).
-      if (await client.signInWithAccount(company, row.label, needed)) {
+      // The conversation's own label: a Session kept in older versions follows its account (continuing).
+      if (await client.signInWithAccount(company, baseLabel(row.label), needed)) {
         await client.host.notifyModel(
           `[system] ${company.name} asked for ${error}${scope ? ` (${scope})` : ""} in conversation ${row.id}; the Session is now signed in with access the User granted earlier. Continue the conversation.`,
           operationId
@@ -763,7 +791,15 @@ export async function readConversation(
   const moreKey = `read-more|${id}`;
   const more = () => one(client.sql, found, "SELECT 1 AS found FROM poppy_intents WHERE call_key = ?", moreKey);
   if (!row || (row.status === "closed" && !more())) return null;
-  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
+  let continued: Awaited<ReturnType<typeof continuing>>;
+  try {
+    continued = await continuing(client, row);
+  } catch (error) {
+    if (!hasCode(error, "version_mismatch")) throw error;
+    await client.host.notifyModel(`[system] ${error.message}`, `poppy-read-version-${id}`);
+    return null;
+  }
+  const { company, label } = continued;
   const endpoint = endpointOf(company);
   let hasMore = false;
   for (let round = 0; round < 10; round++) {
@@ -782,7 +818,7 @@ export async function readConversation(
           waitMs: waitSeconds * 1000,
           ...(current.cursor ? { headers: { "Last-Event-ID": current.cursor } } : {})
         }),
-        tokenOptions(company, row.label)
+        tokenOptions(company, label)
       );
     } catch (error) {
       if (hasCode(error, "rate_limited")) {
@@ -1014,13 +1050,14 @@ export async function handoff(
   id: string,
   summary: string,
   callKey: string
-): Promise<{ status: string; responder: string }> {
+): Promise<ModelState> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
-  company = await client.resumeCompany(row.issuer, "conversation", id);
+  let label: string;
+  ({ company, label } = await continuing(client, row));
   await sendMessage(client, company, {
-    label: row.label,
+    label: baseLabel(label),
     callKey: `${callKey}|summary`,
     conversationId: id,
     sender: "agent",
@@ -1029,12 +1066,11 @@ export async function handoff(
   const { body } = await client.resourceJson(
     company,
     EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: requestBody(client, row, `handoff|${callKey}`) }),
-    tokenOptions(company, row.label)
+    tokenOptions(company, label)
   );
   if (isObject(body)) updateState(client, id, body, true);
   await scheduleRead(client, id, 0);
-  const after = conversation(client, id)!;
-  return { status: after.status, responder: after.responder };
+  return stateForModel(conversation(client, id)!);
 }
 
 /**
@@ -1047,14 +1083,15 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
-  company = await client.resumeCompany(row.issuer, "conversation", id);
+  let label: string;
+  ({ company, label } = await continuing(client, row));
   // 0.4: a close may drop requests the Company hasn't acted on, so read until it isn't working first (8.12).
   if (row.protocol_version !== "0.3" && row.working === 1) await readConversation(client, id, 10);
   try {
     const { body } = await client.resourceJson(
       company,
       EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: requestBody(client, row, `close|${row.id}`) }),
-      tokenOptions(company, row.label)
+      tokenOptions(company, label)
     );
     if (isObject(body)) updateState(client, id, body);
   } catch (error) {
@@ -1076,22 +1113,22 @@ export async function closeConversation(client: PoppyClient, company: Company, i
  * or a person may join first, so the conversation's state says which; the
  * read is scheduled now.
  */
-export async function cancelHandoff(client: PoppyClient, company: Company, id: string, callKey: string): Promise<{ status: string; responder: string }> {
+export async function cancelHandoff(client: PoppyClient, company: Company, id: string, callKey: string): Promise<ModelState> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
   if (row.protocol_version === "0.3") {
     throw new PoppyError("invalid_request", `Conversation ${id} uses Poppy 0.3, which has no way to withdraw a request for a person. Tell the person who joins that it's no longer needed.`, 0);
   }
-  company = await client.resumeCompany(row.issuer, "conversation", id);
+  let label: string;
+  ({ company, label } = await continuing(client, row));
   await client.resourceJson(
     company,
     EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff/cancel`, body: requestBody(client, row, `cancel|${callKey}`) }),
-    tokenOptions(company, row.label)
+    tokenOptions(company, label)
   );
   await scheduleRead(client, id, 0);
-  const after = conversation(client, id)!;
-  return { status: after.status, responder: after.responder };
+  return stateForModel(conversation(client, id)!);
 }
 
 /**
@@ -1137,7 +1174,7 @@ export async function startDirectConversation(
 ): Promise<string> {
   const parent = conversation(client, parentId);
   if (!parent) throw new PoppyError("conversation_not_found", `No conversation ${parentId}`, 404);
-  const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
+  const { company } = await continuing(client, parent);
   // 8.10: accepting the Company's invitation names its user_requested event, so a retry returns the same
   // Direct Conversation; with no words from the User, the Company speaks first. The invitation is the one
   // the User's card answers, and only while it is still pending: an agent's own offer, or a card for an
@@ -1146,7 +1183,7 @@ export async function startDirectConversation(
   const words = text.trim() ? text : undefined;
   if (!invitation && !words) throw new PoppyError("invalid_request", "Write a first message to start talking with the company", 0);
   const result = await sendMessage(client, company, {
-    label: parent.label,
+    label: baseLabel(parent.label),
     callKey: invitation ? `direct-accept|${parentId}|${invitation}|${words === undefined ? "" : randomId()}` : `direct|${randomId()}`,
     parentConversationId: parentId,
     sender: "human",
@@ -1174,9 +1211,9 @@ export async function startDirectConversation(
 export async function sayInDirect(client: PoppyClient, id: string, text: string): Promise<void> {
   const row = conversation(client, id);
   if (!row || !row.direct) throw new PoppyError("conversation_not_found", `No Direct Conversation ${id}`, 404);
-  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
+  const { company } = await continuing(client, row);
   await sendMessage(client, company, {
-    label: row.label,
+    label: baseLabel(row.label),
     callKey: `direct|${randomId()}`,
     conversationId: id,
     sender: "human",
@@ -1192,7 +1229,7 @@ export async function sayInDirect(client: PoppyClient, id: string, text: string)
 export async function inviteUser(client: PoppyClient, id: string, reason: string): Promise<void> {
   const row = conversation(client, id);
   if (!row || row.direct) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
+  const { company } = await continuing(client, row);
   await client.host.showCard({
     id: `direct-invite-${id}`,
     kind: "direct_invite",
@@ -1208,7 +1245,7 @@ export async function inviteUser(client: PoppyClient, id: string, reason: string
 export async function declineDirect(client: PoppyClient, parentId: string): Promise<void> {
   const parent = conversation(client, parentId);
   if (!parent) return;
-  const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
+  const { company } = await continuing(client, parent);
   await client.host.showCard({
     id: `direct-invite-${parentId}`,
     kind: "notice",
@@ -1218,7 +1255,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
     text: `You declined to talk with ${company.name} directly.`
   });
   await sendMessage(client, company, {
-    label: parent.label,
+    label: baseLabel(parent.label),
     callKey: `direct-decline|${parentId}|${randomId()}`,
     conversationId: parentId,
     sender: "agent",
@@ -1230,9 +1267,11 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
 export async function updateAvailability(client: PoppyClient): Promise<void> {
   for (const row of openConversations(client)) {
     if (row.direct || !contextDelta(client, row)) continue;
-    const company = await client.resumeCompany(row.issuer, "conversation", row.id);
+    // One that can't continue in its versions is closed by `continuing`, and the rest are still told.
+    const { company } = await continuing(client, row).catch((error: unknown) => { if (hasCode(error, "version_mismatch")) return { company: null }; throw error; });
+    if (!company) continue;
     await sendMessage(client, company, {
-      label: row.label,
+      label: baseLabel(row.label),
       callKey: `context|${row.id}|${randomId()}`,
       conversationId: row.id,
       sender: "agent",

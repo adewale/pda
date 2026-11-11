@@ -53,7 +53,7 @@ export const PROTOCOL_STEPS = {
   "conversation.opened": { section: "§8.3", title: "Conversation" },
   "conversation.send": { section: "§8.3", title: "Conversation" },
   "conversation.read": { section: "§8.5", title: "Reading events" },
-  "conversation.status": { section: "§8.7", title: "Status and responder" },
+  "conversation.status": { section: "§8.7", title: "State" },
   "conversation.handoff": { section: "§8.9", title: "Handoff" },
   "conversation.direct": { section: "§8.10", title: "Direct Conversation" },
   "conversation.close": { section: "§8.12", title: "Closing" },
@@ -118,17 +118,26 @@ export function migrateProtocolLog(sql: Sql): void {
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, CASE WHEN new.direct THEN 'conversation.direct' ELSE 'conversation.opened' END, 'info',
         CASE WHEN new.direct THEN 'Direct Conversation ' ELSE 'Conversation ' END || substr(new.id, 1, 64) || ' opened'
           || CASE WHEN new.parent IS NOT NULL THEN ' under ' || substr(new.parent, 1, 64) ELSE '' END,
-        'status ' || substr(new.status, 1, 32) || ', responder ' || substr(new.responder, 1, 32));
+        CASE WHEN new.protocol_version = '0.3' THEN 'status ' || substr(new.status, 1, 32) || ', responder ' || substr(new.responder, 1, 32)
+          ELSE 'working ' || CASE WHEN new.working THEN 'true' ELSE 'false' END || ', handoff ' || substr(new.handoff, 1, 32)
+            || ', responder ' || substr(new.responder, 1, 32) END);
     END`,
-    // 0.4's handoff (8.7) is named only when it changed; 0.3 conversations keep it at `none`.
-    poppy_protocol_conversation_status: `AFTER UPDATE OF status, responder, handoff ON poppy_conversations
-      WHEN old.status IS NOT new.status OR old.responder IS NOT new.responder OR old.handoff IS NOT new.handoff BEGIN
+    // 0.3's status and responder; 0.4's four fields as the Company sent them (8.7), naming only those that changed.
+    poppy_protocol_conversation_status: `AFTER UPDATE OF status, responder, handoff, working ON poppy_conversations
+      WHEN old.status IS NOT new.status OR old.responder IS NOT new.responder
+        OR (new.protocol_version != '0.3' AND (old.handoff IS NOT new.handoff OR old.working IS NOT new.working)) BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'conversation.status', 'info',
         'Conversation ' || substr(new.id, 1, 64),
-        'status ' || substr(old.status, 1, 32) || ' → ' || substr(new.status, 1, 32)
-          || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32)
-          || CASE WHEN old.handoff IS NOT new.handoff THEN ', handoff ' || substr(old.handoff, 1, 32) || ' → ' || substr(new.handoff, 1, 32) ELSE '' END);
+        CASE WHEN new.protocol_version = '0.3' THEN
+          'status ' || substr(old.status, 1, 32) || ' → ' || substr(new.status, 1, 32)
+            || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32)
+        ELSE substr(
+          CASE WHEN (old.status = 'closed') IS NOT (new.status = 'closed') THEN ', closed ' || CASE WHEN new.status = 'closed' THEN 'false → true' ELSE 'true → false' END ELSE '' END
+            || CASE WHEN old.working IS NOT new.working THEN ', working ' || CASE WHEN new.working THEN 'false → true' ELSE 'true → false' END ELSE '' END
+            || CASE WHEN old.handoff IS NOT new.handoff THEN ', handoff ' || substr(old.handoff, 1, 32) || ' → ' || substr(new.handoff, 1, 32) ELSE '' END
+            || CASE WHEN old.responder IS NOT new.responder THEN ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32) ELSE '' END,
+          3) END);
     END`,
     // Operations a Company returned, wherever (Ops 4), and the User's answer (Ops 5): ids and revision, never the summary or terms.
     poppy_protocol_operation_new: `AFTER INSERT ON poppy_approvals WHEN new.terms IS NOT NULL BEGIN

@@ -1,11 +1,12 @@
 import { writtenBy } from "./message-author";
 import type { PoppyClient } from "./client";
 import { object } from "../decode";
-import { integer, newestRows, nullable, one, rows, text } from "../rows";
+import { integer, newestRows, nullable, one, rows, text, type RowOf } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, messagesTable, signInsTable, type Sql } from "./store";
 import type { ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
 import { taskRequested } from "./approval-projection";
+import { stateForModel } from "./conversation-state";
 import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
 import { pendingSignOuts, signOutForModel, signOutRecords, type SignOutRecord } from "./signout";
 
@@ -45,7 +46,23 @@ const approvalRow = object({
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at");
+const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at", "protocol_version", "working", "handoff");
+
+/**
+ * What a conversation's state says, for the User (8.7). Under 0.4 its four
+ * fields, read separately: who is answering, whether the Company is working,
+ * and whether a person has been asked to join, which can all hold at once.
+ */
+function conversationNote(row: RowOf<typeof conversationRow>, company: string): string {
+  if (row.protocol_version === "0.3") {
+    return row.responder === "human" ? `A person at ${company} is answering.`
+      : row.status === "working" || row.status === "queued" ? `${company}'s agent is working on it.`
+      : `${company}'s agent is answering.`;
+  }
+  const who = row.responder === "human" ? `A person at ${company}` : `${company}'s agent`;
+  const note = row.working ? `${who} is working on it.` : `${who} is waiting for the next message.`;
+  return row.handoff === "pending" ? `${note} A person at ${company} has been asked to join.` : note;
+}
 
 /** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
 const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
@@ -137,13 +154,12 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
 
   const conversations = rows(
     sql,
-    conversationsTable.pick("id", "issuer", "direct", "status", "responder"),
-    "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
+    conversationsTable.pick("id", "issuer", "direct", "status", "responder", "protocol_version", "working", "handoff"),
+    "SELECT id, issuer, direct, status, responder, protocol_version, working, handoff FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     conversation: row.id,
-    status: row.status,
-    responder: row.responder,
+    ...stateForModel(row),
     direct: !!row.direct
   }));
 
@@ -333,7 +349,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Conversations with the Company's agent, and Direct Conversations.
-  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at";
+  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at, protocol_version, working, handoff";
   for (const row of rows(sql, conversationRow, ...newest("poppy_conversations", conversationColumns, "created_at"))) {
     if (row.quarantined) continue;
     const company = name(row.issuer);
@@ -360,12 +376,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       issuer: row.issuer,
       company,
       what: row.direct ? `Your conversation with ${company}` : `Listening for replies from ${company}'s agent`,
-      note:
-        row.responder === "human"
-          ? `A person at ${company} is answering.`
-          : row.status === "working" || row.status === "queued"
-            ? `${company}'s agent is working on it.`
-            : `${company}'s agent is answering.`,
+      note: conversationNote(row, company),
       since: row.last_event_at,
       stop: { type: "poppy.direct.close", conversationId: row.id }
     });

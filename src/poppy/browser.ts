@@ -1,5 +1,5 @@
-import { PoppyClient, PoppyError } from "./client";
-import type { Company } from "./discovery";
+import { hasCode, PoppyClient, PoppyError, scopeSet } from "./client";
+import { BROWSER_SIGN_IN, type Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
 import { toJson, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -76,6 +76,11 @@ type ContextEntry = {
   readonly scope: string;
   readonly accountGeneration: number;
   joined: boolean;
+  /**
+   * 0.4: joined signed out though the Session is signed in, because its
+   * access doesn't include `poppy:browser-sign-in` (6).
+   */
+  websiteSignedOut?: boolean;
   /** At most one join may use this context's one-time cookie at once. */
   joining?: Promise<void>;
 };
@@ -279,10 +284,15 @@ async function join(client: PoppyClient, company: Company, label: string, contex
     throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
+  const { code } = page;
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
   let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number; readonly scope: string; readonly accountGeneration: number } | undefined;
-  await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), {
+  // 0.4: the website acts with the token only when it has poppy:browser-sign-in (6), so without it the
+  // code is authorized signed out; a Company that refuses the token anyway gets the same code again without it.
+  const signsInWebsite = company.protocolVersion === "0.3" || scopeSet(entry.scope).has(BROWSER_SIGN_IN);
+  const authorizeCode = (noToken: boolean) => client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code } }), {
     label,
+    ...(noToken ? { noToken: true } : {}),
     beforeDispatch: () => {
       const session = client.session(company.issuer, label);
       if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration
@@ -297,6 +307,14 @@ async function join(client: PoppyClient, company: Company, label: string, contex
       check();
     }
   });
+  try {
+    await authorizeCode(!signsInWebsite);
+    entry.websiteSignedOut = !signsInWebsite && entry.account !== null;
+  } catch (error) {
+    if (!signsInWebsite || entry.account === null || company.protocolVersion === "0.3" || !hasCode(error, "insufficient_scope")) throw error;
+    await authorizeCode(true);
+    entry.websiteSignedOut = true;
+  }
   const checkAuthorized = () => {
     check();
     if (!authorized || !sameAuthority(entry, authorized) || entry.scope !== authorized.scope || entry.accountGeneration !== authorized.accountGeneration) {
@@ -324,7 +342,13 @@ export type BrowseAction =
 /** Fields that look like credentials are never filled by the agent (Guides); the browser also checks the field itself. */
 const CREDENTIAL = /pass(word)?|pin\b|otp|one.?time|verification.?code|cvv|cvc|card.?number|security.?code/i;
 
-function snapshotForModel(snapshot: PageSnapshot): Json {
+/** Why a signed-in Session's browser is signed out on the website (0.4 6), and what would change it. */
+function websiteSignedOutNote(company: Company): string {
+  const unscoped = company.web?.unscoped ? `; on this website it gives everything the account can do there, so ask the User first` : "";
+  return `The website sees this browser signed out: the sign-in at ${company.name} doesn't include ${BROWSER_SIGN_IN}, which the website needs to act for the account. Call poppy_sign_in with that scope if the task needs the website signed in${unscoped}.`;
+}
+
+function snapshotForModel(snapshot: PageSnapshot): { [key: string]: Json } {
   return {
     url: snapshot.url,
     status: snapshot.status,
@@ -398,7 +422,8 @@ export async function browse(
       active = await sessionContext(client, browser, company, label, true);
       snapshot = await load(client, company, active.context, url, check);
     }
-    return snapshotForModel(snapshot);
+    if (!active.entry.websiteSignedOut) return snapshotForModel(snapshot);
+    return { ...snapshotForModel(snapshot), note: websiteSignedOutNote(company) };
   }
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry || entry.joining) throw new PoppyError("invalid_request", "Open a page first, and wait for its browser join to finish", 0);

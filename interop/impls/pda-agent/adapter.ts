@@ -495,7 +495,8 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     return {
       conversation: sent.conversationId,
       message_id: messageId,
-      status: sent.status,
+      // The harness contract's status (interop-spec.md): the local one, which 0.4 derives from the four fields.
+      status: conversationRow(agent.client, sent.conversationId)!.status,
       responder: sent.responder,
       messages: sent.replies.map((reply) => ({ role: "company", sender: reply.sender, text: reply.text ?? null, ...(reply.data !== undefined ? { data: reply.data } : {}) }))
     };
@@ -667,7 +668,9 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const id = text(params.conversation, "conversation");
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     const summary = optional(params.text) ?? "The User would like to speak with someone at your company.";
-    return handoff(agent.client, c, id, summary, randomId("call_"));
+    await handoff(agent.client, c, id, summary, randomId("call_"));
+    const row = conversationRow(agent.client, id)!;
+    return { status: row.status, responder: row.responder };
   },
 
   /** Close a conversation (7.12). */

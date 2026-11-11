@@ -82,12 +82,15 @@ describe("upgrade state and pending-work compatibility", () => {
     expect(sql.exec("SELECT status, responder, retired_at, protocol_version, extensions, working, handoff FROM poppy_conversations").toArray()).toEqual([
       { status: "idle", responder: "human", retired_at: null, protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
     ]);
-    // The status trigger, recreated after the columns exist, logs as before, and names a handoff only when it changes.
+    // The status trigger, recreated after the columns exist, logs a 0.3 conversation's status and responder as before;
+    // 0.3 has no handoff field, and a 0.4 conversation's four fields are named as they change.
     sql.exec("UPDATE poppy_conversations SET status = 'working'");
     sql.exec("UPDATE poppy_conversations SET handoff = 'pending'");
+    sql.exec("UPDATE poppy_conversations SET protocol_version = '0.4'");
+    sql.exec("UPDATE poppy_conversations SET handoff = 'none', working = 1");
     expect(sql.exec("SELECT result FROM poppy_protocol_log WHERE step = 'conversation.status' ORDER BY seq").toArray().map((row) => row.result)).toEqual([
       "status idle → working, responder human → human",
-      "status working → working, responder human → human, handoff none → pending"
+      "working false → true, handoff pending → none"
     ]);
   });
 
