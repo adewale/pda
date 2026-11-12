@@ -2281,6 +2281,31 @@ describe("8 conversations", () => {
     expect((await c.stub.state()).performs).toBe(0);
   });
 
+  it.each([
+    ["JSON reads", { streaming: false }],
+    ["streamed reads", { streaming: true }]
+  ] as const)("takes an authorization event and the challenge on its successful response as one sign-in, and sends the message once (8.11), with %s", async (_, config) => {
+    const c = await company({ ...config, authorizationChallenge: true });
+    const a = await agent();
+    const sent = await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" });
+    expect(sent.isError, sent.text).toBe(false);
+    const first = JSON.parse(sent.text) as { conversationId: string };
+    await a.stub.poppyWaitForNotice("needs the User signed in");
+    // The challenge reached the agent on a success: a 2xx answer, not a 401 (8.11 MAY).
+    const challenged = (await requests(c)).filter((request) => request.status >= 200 && request.status < 300 && request.error === "insufficient_scope");
+    expect(challenged.length).toBeGreaterThan(0);
+    await a.stub.poppyAdvance(30_000);
+    // One need: one notice, the message accepted once and never resent, no request refused.
+    expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("needs the User signed in"))).toHaveLength(1);
+    expect((await c.stub.state()).conversations.find((conversation) => conversation.id === first.conversationId)!.sent).toEqual(["agent:I'd like to return order ord_7Hk2"]);
+    expect((await requests(c)).filter((request) => request.status >= 400)).toEqual([]);
+    // Signed in, the same conversation goes on.
+    await signInDirect(a, c);
+    await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
+    await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    expect((await c.stub.state()).conversations).toHaveLength(1);
+  });
+
   it("hands off to a person after a summary", async () => {
     const c = await company();
     const a = await agent();

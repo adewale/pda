@@ -188,6 +188,12 @@ export type MockConfig = {
   readonly streaming: boolean;
   /** Send `text-delta` pieces before each streamed Company message. */
   readonly textDeltas: boolean;
+  /**
+   * A JSON response carrying an `authorization` event also carries its
+   * matching `WWW-Authenticate` challenge, on its successful status (8.11
+   * MAY): the agent handles the two as one need and doesn't resend.
+   */
+  readonly authorizationChallenge: boolean;
   /** Cap on `wait`, seconds. */
   readonly maxWaitSeconds: number;
   /** The Company Agent replies to messages. */
@@ -416,6 +422,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   endSessionsOnSignOut: false,
   streaming: true,
   textDeltas: true,
+  authorizationChallenge: false,
   maxWaitSeconds: 2,
   agentReplies: true,
   mcpPrmOmitIssuer: false,

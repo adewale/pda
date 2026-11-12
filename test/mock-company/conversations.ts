@@ -484,10 +484,23 @@ export class Conversations {
   }
 
   /** A POST's reply: plain, or a read when `wait` is given (8.3). */
+  /**
+   * With `authorizationChallenge`, the challenge matching an `authorization`
+   * event these events carry (8.11 MAY), in a response whose headers aren't
+   * sent yet: a JSON one. A stream's events go after its headers, so it has none.
+   */
+  #challenge(events: readonly Record<string, unknown>[]): Record<string, string> {
+    if (!this.company.config.authorizationChallenge) return {};
+    const event = events.find((item) => item.type === "authorization");
+    if (!event) return {};
+    return { "WWW-Authenticate": `Bearer error="${String(event.error)}", scope="${String(event.scope)}"` };
+  }
+
   async #answer(inbound: Inbound, conversation: Conversation, status: number): Promise<Response> {
     const { cursor, wait } = this.#params(inbound);
     if (inbound.url.searchParams.has("wait") && !this.company.config.ignoreWait) {
-      return json(await this.#read(conversation, cursor, wait), status);
+      const page = await this.#read(conversation, cursor, wait);
+      return json(page, status, this.#challenge(page.events));
     }
     // A POST's response has only conversation_id (8.3).
     return json({ conversation_id: conversation.id }, status);
@@ -678,7 +691,7 @@ export class Conversations {
     }
     const page = await this.#read(conversation, cursor, wait);
     const wantsStream = (inbound.request.headers.get("Accept") ?? "").includes("text/event-stream");
-    if (!wantsStream || !this.company.config.streaming) return json(page);
+    if (!wantsStream || !this.company.config.streaming) return json(page, 200, this.#challenge(page.events));
     // SSE comments, which keep idle connections open, carry no event (8.6).
     const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
     // `working` as a `working` event with no id, when the stream opens (8.6).
