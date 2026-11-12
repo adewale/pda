@@ -366,7 +366,6 @@ class BrowsingRules:
         self.seen_only(ms)
         expect(reply, 400, "version_unsupported")
         self.version_misdeclared += 1
-        self.violation("page.session-0.3")
         self.violation("version.missing")
 
     @precondition(lambda self: self.live())

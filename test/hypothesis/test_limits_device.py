@@ -58,7 +58,7 @@ def limit_kind(exchange: Exchange) -> str | None:
         if path.startswith("/poppy/skills/"):
             return None  # a skill artifact is served before any limit (9.4: no Session header there)
         return None if (method == "GET" and (path == "/openapi.json" or path.startswith("/.well-known/"))) else "other"
-    if sub == "cdn" or path.startswith("/.well-known/") or path.startswith("/poppy/browser-session") or path == "/poppy/excluded-tasks.json":
+    if sub == "cdn" or path.startswith("/.well-known/") or path.startswith("/poppy/browser-session"):
         return None
     return "page" if method == "GET" or (method == "POST" and path == "/account/address") else None
 
