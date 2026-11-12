@@ -2,6 +2,14 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — asking to contact a Company, amounts in cents, and checkout links that aren't ready
+
+- When the User's request names a Company they haven't selected, the agent asks on a card with the domain, the Company's own name and the photos it would send. **Allow** sends a message from the composer that selects them; the card grants nothing itself, only a run the User started can ask, and a domain without a `poppy.json` the agent can use gets no card ([decision 50](docs/decisions.md#50-the-agent-can-ask-to-contact-a-company)).
+- An approval card read `1200 USD` for a $12.00 order whose `terms` gave the amount in cents. Where the summary writes the amount in whole units and not as the integer, the card, its total and the differences between revisions show it in whole units ([reading](docs/readings.md#v04-terms-minor-units)).
+- An approved request answered 2xx with `Retry-After`, as an order without its checkout link yet is, is sent again with the same approval and `Idempotency-Key` after the wait, up to five times, so the User no longer has to ask the agent to check. If it still isn't ready, the agent says so instead of sending it again ([reading](docs/readings.md#v04-result-not-ready)). The follow-up runs inside the tool call and does not survive a restart.
+- A card no longer warns that the terms disagree with the request just because two fields share a key: a recipient's `name` in the terms was compared with a product's or a preview's `name` in the request. A terms field is now compared with a request field whose keys end with the same keys (`address.name` with `body.address.name`), and not at all when those keys lead to two different places in the request.
+- The mock Company can hold an order's checkout link back for a number of answers (`checkoutPending`).
+
 ## Unreleased — 0.4 alone: 0.3 dropped
 
 The agent, the mock Company, the validator, the interop harness and the Python Hypothesis client speak 0.4 alone ([decision 49](docs/decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). A Company that serves only 0.3 is refused at discovery as `version-unsupported`.

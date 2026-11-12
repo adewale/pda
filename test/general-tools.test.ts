@@ -952,6 +952,7 @@ describe("the tools the model is offered", () => {
     expect([...request.tools].sort()).toEqual(
       [
         "poppy_discover",
+        "poppy_request_company",
         "poppy_sign_in",
         "poppy_status",
         "poppy_message",

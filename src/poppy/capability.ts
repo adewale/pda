@@ -325,6 +325,18 @@ export class PoppyCapability extends LifecycleCapability {
     this.#sendCards();
   }
 
+  /** A message of the User's selected these Companies: a card asking to contact one has its answer, which their message shows. */
+  companiesSelected(domains: readonly string[]): void {
+    // The tables come with the client; before it, no card has been shown.
+    const sql = this.#options.storage.sql;
+    if (!domains.length || !sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'poppy_cards'").toArray().length) return;
+    let closed = 0;
+    for (const domain of domains) {
+      closed += sql.exec("UPDATE poppy_cards SET open = 0, card = json_set(card, '$.open', json('false')), updated_at = 0 WHERE id = ? AND open = 1", `company-access-${domain}`).rowsWritten;
+    }
+    if (closed) this.#sendCards();
+  }
+
   /** Open cards, recent receipts and unresolved outcomes, however long checking them takes. */
   #sendCards(socket?: WebSocket): void {
     const cards = rows(

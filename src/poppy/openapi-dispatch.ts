@@ -3,7 +3,7 @@ import { type Json, parseStrictJson, isObject, canonicalJson, toJson } from "./j
 import { type OperationV2, approvalForModel, parseOperationV2, approvable, toSend } from "./operations-v2";
 import { type Company } from "./discovery";
 import { UNUSABLE, unusableApproval, proposeApproval, expired } from "./api-approvals";
-import { extensionRequiredBody, PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
+import { extensionRequiredBody, PoppyClient, withUnreadableAnswer, withAnswer, PoppyError, retryAfterMs } from "./client";
 import { CheckedApiRequest, readOnlyScope } from "./openapi-request";
 import { type AuthorityGuard, hasTaskCall, requestGuard, bindingSnapshot, executionGuard } from "./api-authority";
 import { openApi } from "./openapi-document";
@@ -20,7 +20,8 @@ import { readDecline } from "./declines";
 
 /** What a sent API call got back. */
 type ApiAnswer =
-  | { readonly kind: "answered"; readonly status: number; readonly body: Json }
+  /** `retryAfter`: ms a success's `Retry-After` asks for before a follow-up, as when its result isn't ready yet; null without one. */
+  | { readonly kind: "answered"; readonly status: number; readonly body: Json; readonly retryAfter: number | null }
   /** Refused until the User approves the operation; a card waits for them (Ops 4). */
   | { readonly kind: "approval"; readonly operation: OperationV2; readonly approvalId: string }
   /** An operation we can't show the User: nothing was done, and the User has been told. */
@@ -70,7 +71,35 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
   }
   const required = extensionRequiredBody(company, body, response.status);
   if (required) throw required;
-  return { kind: "answered", status: response.status, body };
+  const retryAfter = response.ok ? retryAfterMs(response, client.host.now()) : null;
+  return { kind: "answered", status: response.status, body, retryAfter };
+}
+
+/** Follow-ups an approved request's result gets while the Company says it isn't ready, and the longest wait before each. */
+const FOLLOW_UPS = 5;
+const FOLLOW_UP_WAIT_MS = 5_000;
+
+/**
+ * The result of an approved write once the Company says it's ready. A success
+ * with `Retry-After`, such as an order whose payment link is still being
+ * prepared, is sent again unchanged after the wait, approval and
+ * `Idempotency-Key` included: Ops 7 gives a repeat "the response the Company
+ * gave the first time, or one that says the same", and the key keeps a
+ * Company that ignores the approval from acting twice. A few short waits at
+ * most; then the latest answer stands, marked as not final. A follow-up that
+ * fails leaves the answer before it, since the action was done
+ * ([reading](../../docs/readings.md#v04-result-not-ready)).
+ */
+async function settledAnswer(client: PoppyClient, label: string, checked: CheckedApiRequest, guard: AuthorityGuard, approvalId: string, first: ApiAnswer & { kind: "answered" }): Promise<{ answer: ApiAnswer & { kind: "answered" }; ready: boolean }> {
+  let answer = first;
+  for (let followUp = 0; answer.retryAfter !== null && followUp < FOLLOW_UPS; followUp++) {
+    if (answer.retryAfter > FOLLOW_UP_WAIT_MS) break;
+    await client.host.sleep(answer.retryAfter);
+    const next = await sendApi(client, label, checked, guard, approvalId).catch(() => null);
+    if (next?.kind !== "answered" || next.status < 200 || next.status >= 300 || next.status === 202) break;
+    answer = next;
+  }
+  return { answer, ready: answer.retryAfter === null };
 }
 
 /**
@@ -232,6 +261,13 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   }
   if (answer.kind === "answered" && answer.status === 202) {
     throw new OperationOutcomeUnknown(`${company.name} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
+  }
+  if (answer.kind === "answered" && approval.call.approval && answer.retryAfter !== null) {
+    const { answer: settled, ready } = await settledAnswer(client, label, checked, guard, execution.approvalId, answer);
+    return JSON.stringify({
+      ...answerForModel(settled, company) as Record<string, Json>,
+      ...(ready ? {} : { note: `${company.name} did this, but said its result wasn't ready yet, so details such as a payment link may be missing. Tell the User; don't send the request again.` })
+    });
   }
   return JSON.stringify(answerForModel(answer, company));
 });

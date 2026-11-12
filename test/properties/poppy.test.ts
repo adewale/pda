@@ -4,7 +4,7 @@ import { covers, grantedScope, parseRateLimit, parseWwwAuthenticate, PoppyError,
 import { boundedCacheSeconds, protocolEndpoint, type Company } from "../../src/poppy/discovery";
 import { assertPublicHost, cacheSeconds, PoppyFetchError, readLimited } from "../../src/poppy/fetch";
 import { htu } from "../../src/poppy/jwt";
-import { highlights, termsDifferences } from "../../src/poppy/operations";
+import { highlights, termsDifferences, wholeAmount } from "../../src/poppy/operations";
 import { chooseSignInType, describeScopes, deviceLink } from "../../src/poppy/signin";
 import { cacheSeconds as validatorCacheSeconds, isPublicHost, metadataUrl } from "../../src/validator/fetch";
 import { hosts, SCOPE_ALPHABET } from "./companies";
@@ -605,6 +605,52 @@ describe("operation highlights (Guides, Operations)", () => {
   );
 });
 
+/** Digits after the point in each currency the generators use (ISO 4217), kept apart from `Intl`, which the code under test asks. */
+const MINOR_DIGITS = { USD: 2, EUR: 2, GBP: 2, JPY: 0, KWD: 3 } as const;
+
+/** An integer amount in minor units written in whole units, by BigInt: 1200 with 2 digits is "12.00", -5 is "-0.05". */
+function inWholeUnits(amount: bigint, digits: number): string {
+  const scale = 10n ** BigInt(digits);
+  const size = amount < 0n ? -amount : amount;
+  return `${amount < 0n ? "-" : ""}${size / scale}.${String(size % scale).padStart(digits, "0")}`;
+}
+
+describe("amounts in minor units (wholeAmount, 0.4 Ops 3)", () => {
+  const integers = gs.integers({ minValue: -1_000_000_000, maxValue: 1_000_000_000 });
+  const noDigits = gs.text({ maxSize: 20 }).filter((text) => !/\d/.test(text));
+
+  it(
+    "reads an integer in minor units when the summary writes that reading and never the integer",
+    property((tc) => {
+      const currency = tc.draw(gs.sampledFrom(["USD", "EUR", "GBP", "KWD"] as const));
+      const amount = tc.draw(integers.filter((value) => value !== 0));
+      const minor = inWholeUnits(BigInt(amount), MINOR_DIGITS[currency]);
+      const summary = `${tc.draw(noDigits)} ${tc.draw(gs.sampledFrom(["", "$", "£", "€"]))}${minor.replace(/^-/, "")} ${tc.draw(noDigits)}`;
+      expect(wholeAmount(tc.draw(gs.sampledFrom([amount, String(amount)])), currency, summary)).toBe(minor);
+      expect(highlights({ payment: { amount, currency } }, summary)[0]).toBe(`Cost (payment): ${minor} ${currency}`);
+    })
+  );
+
+  it(
+    "keeps an amount as written when the summary writes it, has no summary, or the currency has no minor units",
+    property((tc) => {
+      const amount = tc.draw(integers);
+      const currency = tc.draw(gs.sampledFrom(["USD", "EUR", "GBP", "JPY", "KWD"] as const));
+      const minor = MINOR_DIGITS[currency] ? inWholeUnits(BigInt(amount), MINOR_DIGITS[currency]) : String(amount);
+      const summary = tc.draw(gs.oneOf(gs.just(undefined), gs.just(`${tc.draw(noDigits)} ${amount} ${tc.draw(noDigits)}`), gs.just(`${String(amount)} or ${minor}`)));
+      expect(wholeAmount(amount, currency, summary)).toBe(String(amount));
+    })
+  );
+
+  it(
+    "keeps an amount that isn't an integer as written, whatever the summary says",
+    property((tc) => {
+      const amount = tc.draw(gs.oneOf<string | number>(gs.fromRegex("-?[0-9]{1,6}\\.[0-9]{1,3}", { fullmatch: true }), gs.text().filter((text) => !/^-?\d+$/.test(text))));
+      expect(wholeAmount(amount, tc.draw(gs.sampledFrom(["USD", "JPY", "XYZ", "usd"])), tc.draw(gs.text()))).toBe(String(amount));
+    })
+  );
+});
+
 /** A finite number written out in plain decimal, as a summary would: `1e-7` as `0.0000001`, `1e+21` as `1000000000000000000000`, exactly. */
 function plain(value: number): string {
   const text = String(value);
@@ -779,6 +825,28 @@ describe("what these properties found, as examples", () => {
     expect(termsDifferences({ summary: "Print 4 photos.", terms }, structuredClone(terms))).toEqual([]);
     const asked = { items: [{ sku: "print-4x6", quantity: 3 }, { sku: "print-8x10", quantity: 1 }] };
     expect(termsDifferences({ summary: "Print 4 photos.", terms }, asked)).toEqual(["The terms say items[1].sku is print-5x7, but the request asked for print-8x10."]);
+  });
+
+  it("compares a name only with the request's name in the same place: a recipient, a preview and a product each have their own", () => {
+    const terms = {
+      address: { name: "Todd K", line1: "150 Sutter Street" },
+      previews: [{ name: "Photo 1", url: "https://print.example/previews/1.png" }],
+      products: [{ name: "4 × 6 photo prints", quantity: 1 }]
+    };
+    const asked = { params: {}, body: { address: { name: "Todd K", line1: "150 Sutter Street" }, photos: [{ name: "lake.jpg" }], product_id: "print-4x6" } };
+    expect(termsDifferences({ summary: "Print 1 photo.", terms }, asked)).toEqual([]);
+    const renamed = { ...asked, body: { ...asked.body, address: { ...asked.body.address, name: "Someone else" } } };
+    expect(termsDifferences({ summary: "Print 1 photo.", terms }, renamed)).toEqual(["The terms say address.name is Todd K, but the request asked for Someone else."]);
+  });
+
+  it("finds a terms key the request sent as a parameter or in its body, unless it sent that key in two places", () => {
+    const terms = { order_id: "ord_1", sku: "print-5x7" };
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_2" }, body: { items: [{ sku: "print-5x7" }] } })).toEqual([
+      "The terms say order_id is ord_1, but the request asked for ord_2."
+    ]);
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_1" }, body: { items: [{ sku: "print-4x6" }, { sku: "print-5x7" }] } })).toEqual([]);
+    // `sku` in the order and in its replacement: which one the terms mean is unclear, so neither is compared.
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_1" }, body: { items: [{ sku: "print-4x6" }], replacement: { sku: "print-8x10" } } })).toEqual([]);
   });
 
   it("describes a scope named like a member every object inherits by its name, never by that member", () => {

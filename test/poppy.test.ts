@@ -2597,6 +2597,34 @@ describe("Operations 2", () => {
     expect(await approved(c)).toEqual([]);
   });
 
+  it("reads terms in cents when the summary writes the amount that way: 1200 USD is $12.00 (0.4 Ops 3)", async () => {
+    // Print with Poppy's shape: integer cents, its total beside a currency, and a summary in dollars.
+    const summary = "Print with Poppy\n1 × 4×6 print · Matte\nPrints $12.00 · US shipping included + tax $0.00\nTotal: $12.00 USD";
+    const { c, card } = await terms({}, () => ({
+      exchangeOperation: {
+        summary,
+        terms: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m", subtotal: 1200, tax: 0, total: 1200, currency: "USD", payment: { required: true, amount: 1200, currency: "USD" } }
+      }
+    }));
+    expect(card.terms).toMatchObject({ total: { amount: "12.00", currency: "USD" } });
+    expect(card.terms.highlights).toContain("Cost (payment): 12.00 USD");
+    expect(card.terms.differences).toBeUndefined();
+    expect(await approved(c)).toEqual([]);
+  });
+
+  it("keeps an integer amount as written when the summary writes it so, or doesn't settle which it is (0.4 Ops 3)", async () => {
+    const written = await terms({}, () => ({
+      exchangeOperation: { summary: "Exchange the jacket for 1200 USD more.", terms: { order_id: "ord_7Hk2", item_id: "itm_4Qa", total: { amount: 1200, currency: "USD" } } }
+    }));
+    expect(written.card.terms).toMatchObject({ total: { amount: "1200", currency: "USD" } });
+    expect(written.card.terms.differences).toBeUndefined();
+    // Both readings in the summary don't settle it, so the amount stays as written.
+    const both = await terms({}, () => ({
+      exchangeOperation: { summary: "1200 points, worth $12.00.", terms: { order_id: "ord_7Hk2", item_id: "itm_4Qa", total: { amount: 1200, currency: "USD" } } }
+    }));
+    expect(both.card.terms).toMatchObject({ total: { amount: "1200", currency: "USD" } });
+  });
+
   it("needs a new approval for a new revision: an approval the Company answers with new terms performs nothing, and they get a card of their own (Ops 6)", async () => {
     const { c, a, card } = await terms();
     // As if the Company no longer had the revision the User approved (Ops 6, check 3): it answers the approval with a new one.

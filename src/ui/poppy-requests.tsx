@@ -24,6 +24,8 @@ function requestLabel(card: Card | undefined): string {
       return "Conversation request";
     case "browser_control":
       return "A step for you";
+    case "company_access":
+      return "A company to allow";
     case "notice":
       return card.id.startsWith("reminder-") ? "Reminder" : card.id.startsWith("error-") ? "Request failed" : "Notice";
   }

@@ -275,7 +275,8 @@ export class PersonalAgent extends DurableObject<Env> {
             poppyExtension(
               () => this.poppy.client,
               () => this.poppy.browser,
-              this.turnAuthority.userTask
+              this.turnAuthority.userTask,
+              this.turnAuthority.isUser
             )
           )
         );
@@ -350,8 +351,11 @@ export class PersonalAgent extends DurableObject<Env> {
               if (supplied.length > 256) { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Message identifier is too long" })); return; }
               const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(supplied));
               const operationId = `user-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-              try { this.turnAuthority.record(operationId, "user", input.taskAccess === undefined ? undefined : readTaskAccess(input.taskAccess)); }
+              let access: TaskAccess | undefined;
+              try { this.turnAuthority.record(operationId, "user", access = input.taskAccess === undefined ? undefined : readTaskAccess(input.taskAccess)); }
               catch { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Invalid or changed task access. Check the selected Companies and photos, then send again." })); return; }
+              // A card asking to contact a Company is answered once a message of the User's selects it.
+              if (access) this.poppy.companiesSelected(access.companies);
               const { taskAccess: _access, ...submission } = input;
               forwarded = JSON.stringify({ ...submission, operationId });
             }

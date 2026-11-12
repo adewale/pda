@@ -161,6 +161,8 @@ export type MockConfig = {
   readonly reviseOnFirstApproval: boolean;
   /** Return an operation's latest revision again with its `summary` reworded and its terms and `revision` kept, as 0.4 allows (Ops 3). */
   readonly rewordSummary: boolean;
+  /** How many answers to an approved print order come back without its checkout link: 201, `Retry-After: 1` and `awaiting_payment`, as Print with Poppy answers while it prepares checkout. */
+  readonly checkoutPending: number;
   /** 0.4 Ops 6: decline approvals that pass the checks, every one or only agent approvals, instead of performing them. */
   readonly declineApprovals: "all" | "agent" | null;
   /**
@@ -404,6 +406,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   issuerPath: null,
   reviseOnFirstApproval: false,
   rewordSummary: false,
+  checkoutPending: 0,
   declineApprovals: null,
   webOperations: false,
   webErrorAfterPerforming: false,
