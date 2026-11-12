@@ -2,6 +2,7 @@
 import { type Json, parseStrictJson, isObject, canonicalJson, toJson } from "./json";
 import { type OperationV2, approvalForModel, parseOperationV2, approvable, toSend } from "./operations-v2";
 import { type Company } from "./discovery";
+import { standingInstructionFor } from "./instructions";
 import { UNUSABLE, unusableApproval, proposeApproval, expired } from "./api-approvals";
 import { extensionRequiredBody, PoppyClient, withUnreadableAnswer, withAnswer, PoppyError, retryAfterMs } from "./client";
 import { CheckedApiRequest, readOnlyScope } from "./openapi-request";
@@ -27,9 +28,9 @@ type ApiAnswer =
   /** An operation we can't show the User: nothing was done, and the User has been told. */
   | { readonly kind: "unusable"; readonly body: Json };
 
-function answerForModel(answer: ApiAnswer, company: Company): Json {
+function answerForModel(answer: ApiAnswer, company: Company, client: PoppyClient): Json {
   if (answer.kind === "answered") return { status: answer.status, body: answer.body };
-  if (answer.kind === "approval") return approvalForModel(company, answer.operation, 403, answer.approvalId);
+  if (answer.kind === "approval") return approvalForModel(company, answer.operation, 403, answer.approvalId, standingInstructionFor(client, answer.approvalId));
   return { status: 403, unusable: true, note: UNUSABLE, body: answer.body };
 }
 
@@ -200,7 +201,7 @@ export async function callOpenApi(
     }
   }
   // File disclosure always has a durable lifecycle, regardless of method hints.
-  if (!checked.attachments.length && checked.method === "GET" && !hasTaskCall(client, requestId)) return answerForModel(await sendApi(client, label, checked, guard), company);
+  if (!checked.attachments.length && checked.method === "GET" && !hasTaskCall(client, requestId)) return answerForModel(await sendApi(client, label, checked, guard), company, client);
   const result = await dispatchTaskRequest(client, company, label, checked.describe(), {
     kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
     binding: guard.binding(), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {})
@@ -264,13 +265,13 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   }
   if (answer.kind === "answered" && approval.call.approval && answer.retryAfter !== null) {
     const notReady = (latest: ApiAnswer & { kind: "answered" }) => JSON.stringify({
-      ...answerForModel(latest, company) as Record<string, Json>,
+      ...answerForModel(latest, company, client) as Record<string, Json>,
       note: `${company.name} did this, but said its result wasn't ready yet, so details such as a payment link may be missing. Tell the User; don't send the request again.`
     });
     // The Company did it: a restart while waiting finishes it with this answer, not as unknown (recoverInterruptedApprovals).
     recordAnsweredBeforeFollowUp(client.sql, execution.approvalId, notReady(answer));
     const { answer: settled, ready } = await settledAnswer(client, label, checked, guard, execution.approvalId, answer);
-    return ready ? JSON.stringify(answerForModel(settled, company)) : notReady(settled);
+    return ready ? JSON.stringify(answerForModel(settled, company, client)) : notReady(settled);
   }
-  return JSON.stringify(answerForModel(answer, company));
+  return JSON.stringify(answerForModel(answer, company, client));
 });

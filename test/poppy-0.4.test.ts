@@ -508,7 +508,11 @@ describe("0.4: standing instructions and agent approvals (Operations 5; decision
   it("approves terms an instruction covers as the agent, with approver, approved_at and reference and no input_type", async () => {
     const { c, a } = await setUp();
     const before = Math.floor(Date.now() / 1000);
-    await tool(a, "poppy_api_call", exchange(c));
+    const told = JSON.parse((await tool(a, "poppy_api_call", exchange(c))).text);
+    // The model is told the instruction approves it, so it doesn't tell the User a card is coming.
+    expect(told.standingInstruction).toEqual({ instruction: (await stored(a))[0]!.id, text: "Go ahead with any exchange under $100" });
+    expect(told.note).toContain('standing instruction "Go ahead with any exchange under $100" covers these terms');
+    expect(told.note).not.toContain("Waiting for the User's decision");
     await a.stub.poppyAdvance(0);
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
@@ -547,11 +551,25 @@ describe("0.4: standing instructions and agent approvals (Operations 5; decision
     ["the Session's scope can make changes that can't be undone", V4, {}]
   ] as const)("leaves the card to the User when %s", async (_, config, extra) => {
     const { c, a } = await setUp(config, extra);
-    await tool(a, "poppy_api_call", exchange(c));
+    const told = JSON.parse((await tool(a, "poppy_api_call", exchange(c))).text);
+    expect(told.standingInstruction).toBeUndefined();
+    expect(told.note).toContain("Waiting for the User's decision on the Company's terms");
     await a.stub.poppyAdvance(0);
     expect((await c.stub.state()).performs).toBe(0);
     expect(await pending(a)).toBeDefined();
     expect(await spend(a)).toEqual([]);
+  });
+
+  it("lists the User's standing instructions in discovery and status, read only, and not withdrawn ones", async () => {
+    const { c, a } = await setUp();
+    await instruct(a, c, { text: "Withdrawn later" });
+    const [kept, withdrawn] = await stored(a);
+    expect(kept && withdrawn).toBeTruthy();
+    await a.stub.poppyFrame({ type: "poppy.instruction.withdraw", id: withdrawn.id });
+    for (const name of ["poppy_discover", "poppy_status"]) {
+      const found = JSON.parse((await tool(a, name, { domain: c.domain })).text);
+      expect(found.standingInstructions, name).toEqual([expect.objectContaining({ text: "Go ahead with any exchange under $100", note: expect.stringContaining("You can't add, change or withdraw") })]);
+    }
   });
 
   it("covers the account it names", async () => {
