@@ -1,13 +1,13 @@
 /**
- * Every protocol version the validator knows: 0.3 and 0.4. To
- * support an incompatible new version, add a profile module that imports the
- * rules it still wants from the previous one, and append it here.
+ * Every protocol version the validator knows: 0.4. A document that declares
+ * another version is refused as unsupported, since our client won't use it.
+ * To support an incompatible new version, add a profile module that imports
+ * the rules it still wants from the previous one, and append it here.
  */
-import { draft03 } from "./draft-0.3.ts";
 import { draft04 } from "./draft-0.4.ts";
 import type { Profile } from "./profile.ts";
 
-export const PROFILES: readonly Profile[] = [draft03, draft04];
+export const PROFILES: readonly Profile[] = [draft04];
 
 /**
  * The profile for a document that names no usable version, and the default

@@ -7,7 +7,7 @@ import { protocolRevision } from "../poppy/protocol-version.ts";
  */
 import { fetchDocument, metadataUrl, type Fetched, type Fetcher } from "./fetch.ts";
 import { parseJson } from "./json.ts";
-import { MESSAGES, refForVersion } from "./messages.ts";
+import { MESSAGES } from "./messages.ts";
 import { Checker, isHostname, isObject, type DocumentKind, type Message } from "./primitives.ts";
 import { pointer } from "./json.ts";
 import { LATEST, PROFILES, profileForVersion } from "./profiles/index.ts";
@@ -41,7 +41,7 @@ export type Report = {
   readonly outputVersion: 1;
   readonly validator: typeof VALIDATOR;
   readonly outcome: Outcome;
-  /** The protocol version the documents were checked against, such as "Draft 0.3". */
+  /** The protocol version the documents were checked against, such as "Draft 0.4". */
   readonly checkedAgainst: string;
   readonly protocolVersion: string;
   readonly specificationRevision: string;
@@ -63,8 +63,7 @@ export type Report = {
 const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
-  // A rule 0.4 kept from 0.3 links to the same section of the version the documents were checked against.
-  const messages = checkers.flatMap((c) => c.messages).map((m) => ({ ...m, ref: refForVersion(m.ref, profile.version) }));
+  const messages = checkers.flatMap((c) => c.messages);
   const count = (severity: Message["severity"]) => messages.filter((m) => m.severity === severity).length;
   const unreachable = messages.some((m) => UNREACHABLE.has(m.id));
   const outcome: Outcome = unreachable
@@ -121,13 +120,13 @@ function parse(c: Checker, text: string): unknown {
  */
 function profileFor(c: Checker, doc: unknown): Profile | undefined {
   if (!isObject(doc) || !("protocol_version" in doc)) {
-    if (isObject(doc)) c.report("missing-member", "/protocol_version", 'protocol_version is required, such as "0.3".');
+    if (isObject(doc)) c.report("missing-member", "/protocol_version", 'protocol_version is required, such as "0.4".');
     return LATEST;
   }
   const version = doc.protocol_version;
   const match = typeof version === "string" ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version) : null;
   if (!match) {
-    c.report("version-format", "/protocol_version", `protocol_version must be major.minor, like "0.3", not ${JSON.stringify(version)}.`);
+    c.report("version-format", "/protocol_version", `protocol_version must be major.minor, like "0.4", not ${JSON.stringify(version)}.`);
     return LATEST;
   }
   const profile = profileForVersion(version as string);
@@ -160,7 +159,7 @@ export type TextOptions = {
   readonly domain?: string;
   /** client-metadata: the URL it was fetched from. */
   readonly fetchedFrom?: string;
-  /** Documents without their own version: which protocol version to check against. 0.3, the only one, is the default. */
+  /** Documents without their own version: which protocol version to check against. 0.4, the only one, is the default. */
   readonly protocolVersion?: string;
 };
 
@@ -379,7 +378,7 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
       const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker, { notFoundIsAnswer: true });
       protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
       documents.push(documentResult("protected-resource", prmFetched, protectedResource));
-      // 0.4 (3.2, 4.7): it may list the scopes agents can request, as well as or instead of the issuer.
+      // 3.2, 4.7: it may list the scopes agents can request, as well as or instead of the issuer.
       if (isObject(protectedResource) && Array.isArray(protectedResource.scopes_supported)) {
         facts.resourceScopes = protectedResource.scopes_supported.filter((scope): scope is string => typeof scope === "string");
       }

@@ -84,15 +84,16 @@ const jsonResponse = (body: unknown, headers: Record<string, string> = {}) => ()
     headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300", ...headers }
   });
 
-/** The poppy.json example in spec section 3, with Mediated Sign-In and Operations 2 from the extension pages. */
+/** The poppy.json example in spec section 3, with Operations 3 for website operations, Mediated Sign-In and Browser Control from the extension pages. */
 const SPEC_POPPY = {
-  protocol_version: "0.3",
-  organization: { name: "Example Company", domain: "example.com" },
+  protocol_version: "0.4",
+  organization: { name: "Example Company", domain: "example.com", logo_uri: "https://example.com/logo.png" },
   auth: {
     scopes: {
       "orders:read": "See your orders, returns, and bookings",
       "orders:write": "Exchange or return items, and change bookings",
-      addresses: "See and change your saved shipping addresses"
+      addresses: "See and change your saved shipping addresses",
+      "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
     },
     scope_hints: {
       "orders:read": { changes: "none", personal_data: true },
@@ -102,29 +103,33 @@ const SPEC_POPPY = {
   },
   agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations" }] },
   web: { browser_session_endpoint: "https://example.com/poppy/browser-session" },
-  feedback: { endpoint: "https://api.example.com/poppy/feedback" },
-  excluded_tasks: { url: "https://example.com/poppy/excluded-tasks.json" },
+  tasks: { endpoint: "https://api.example.com/poppy/tasks" },
   apis: [
     { type: "openapi", url: "https://api.example.com/openapi.json", description: "Orders, returns, and exchanges" },
     { type: "mcp", url: "https://mcp.example.com/mcp", description: "Product search and sizing" }
   ],
   extensions: {
-    operations: { version: "2" },
-    "mediated-sign-in": {
-      version: "1",
-      fields: [
-        { name: "email", label: "Email", secret: false },
-        { name: "password", label: "Password", secret: true }
-      ],
-      scopes: ["orders:read"]
-    }
+    operations: [{ version: "3", endpoint: "https://example.com/poppy/operations" }],
+    "mediated-sign-in": [{ version: "1", fields: [{ name: "email", label: "Email", secret: false }, { name: "password", label: "Password", secret: true }], scopes: ["orders:read"] }],
+    "browser-control": [{ version: "1" }]
   }
+};
+
+/** A 0.3 poppy.json, as a Company not yet on 0.4 serves it: one object per extension, and feedback and excluded tasks in poppy.json. */
+const POPPY_03 = {
+  protocol_version: "0.3",
+  organization: { name: "Example Company", domain: "example.com" },
+  agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations" }] },
+  web: { browser_session_endpoint: "https://example.com/poppy/browser-session" },
+  feedback: { endpoint: "https://api.example.com/poppy/feedback" },
+  excluded_tasks: { url: "https://example.com/poppy/excluded-tasks.json" },
+  extensions: { operations: { version: "2" } }
 };
 
 /** Spec 3.2's protected resource metadata for example.com. */
 const SPEC_PRM = { resource: "https://example.com", authorization_servers: ["https://auth.example.com"] };
 
-/** Spec 3.2's issuer metadata, with the Mediated Sign-In grant and the iss parameter. */
+/** Spec 3.2's issuer metadata, with the Mediated Sign-In grant, poppy:browser-sign-in for browser join (6) and the iss parameter. */
 const SPEC_METADATA = {
   issuer: "https://auth.example.com",
   token_endpoint: "https://auth.example.com/oauth/token",
@@ -132,7 +137,7 @@ const SPEC_METADATA = {
   authorization_endpoint: "https://auth.example.com/oauth/authorize",
   device_authorization_endpoint: "https://auth.example.com/oauth/device",
   grant_types_supported: ["refresh_token", "authorization_code", "urn:ietf:params:oauth:grant-type:device_code", "https://personalagentprotocol.org/grant/mediated-sign-in"],
-  scopes_supported: ["orders:read", "orders:write", "addresses"],
+  scopes_supported: ["orders:read", "orders:write", "addresses", "poppy:browser-sign-in"],
   protected_resources: ["https://example.com", "https://example.co.uk", "https://mcp.example.com/mcp"],
   authorization_response_iss_parameter_supported: true
 };
@@ -158,7 +163,7 @@ const withPoppy = (change: (doc: Record<string, any>) => void) => {
 };
 
 /** A Company that offers only its website, which needs no issuer (3.2). */
-const WEBSITE_ONLY = { protocol_version: "0.3", organization: { name: "A", domain: "example.com" }, web: {} };
+const WEBSITE_ONLY = { protocol_version: "0.4", organization: { name: "A", domain: "example.com" }, web: {} };
 
 /** A fresh mock Company, whose documents the conformance tests rely on. */
 async function mockCompany(config: Partial<MockConfig> = {}): Promise<string> {
@@ -195,7 +200,11 @@ const VALID: readonly Fixture[] = [
     name: "accepts the specification's poppy.json example with no messages",
     run: () => text("poppy", SPEC_POPPY, { domain: "example.com" }),
     ids: [],
-    outcome: "valid"
+    outcome: "valid",
+    also: (report) => {
+      expect(report.checkedAgainst).toBe("Draft 0.4");
+      expect(report.specificationRevision).toBe("2026-11-11");
+    }
   },
   {
     name: "accepts the specification's client metadata example with no messages",
@@ -209,8 +218,8 @@ const VALID: readonly Fixture[] = [
     ids: [],
     outcome: "valid",
     also: (report) => {
-      expect(report.checkedAgainst).toBe("Draft 0.3");
-      expect(report.protocolVersion).toBe("0.3");
+      expect(report.checkedAgainst).toBe("Draft 0.4");
+      expect(report.protocolVersion).toBe("0.4");
       expect((report as CompanyReport).issuer).toBe("https://auth.example.com");
       expect(report.documents.map((d) => d.kind)).toEqual(["poppy", "protected-resource", "oauth-metadata"]);
     }
@@ -226,7 +235,7 @@ const VALID: readonly Fixture[] = [
   },
   {
     // The conformance tests' default lists a graphql API on purpose, to check that agents skip
-    // it (7: SHOULD skip). 0.3 allows other types, so that's information, not an error.
+    // it (7: SHOULD skip). Since 0.3 other types are allowed, so that's information, not an error.
     name: "notes the unknown API type the conformance tests' mock lists on purpose",
     run: async () => validateCompany(testFetcher(env), await mockCompany()),
     ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
@@ -251,55 +260,19 @@ const VALID: readonly Fixture[] = [
   }
 ];
 
-/** The poppy.json example in the 0.4 spec, section 3, with Operations 3 for website operations and Mediated Sign-In. */
-const SPEC_POPPY_04 = {
-  protocol_version: "0.4",
-  organization: { name: "Example Company", domain: "example.com", logo_uri: "https://example.com/logo.png" },
-  auth: {
-    scopes: {
-      "orders:read": "See your orders, returns, and bookings",
-      "orders:write": "Exchange or return items, and change bookings",
-      addresses: "See and change your saved shipping addresses",
-      "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
-    },
-    scope_hints: {
-      "orders:read": { changes: "none", personal_data: true },
-      "orders:write": { changes: "irreversible", personal_data: true },
-      addresses: { changes: "reversible", personal_data: true }
-    }
-  },
-  agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations" }] },
-  web: { browser_session_endpoint: "https://example.com/poppy/browser-session" },
-  tasks: { endpoint: "https://api.example.com/poppy/tasks" },
-  apis: [
-    { type: "openapi", url: "https://api.example.com/openapi.json", description: "Orders, returns, and exchanges" },
-    { type: "mcp", url: "https://mcp.example.com/mcp", description: "Product search and sizing" }
-  ],
-  extensions: {
-    operations: [{ version: "3", endpoint: "https://example.com/poppy/operations" }],
-    "mediated-sign-in": [{ version: "1", fields: [{ name: "email", label: "Email", secret: false }, { name: "password", label: "Password", secret: true }], scopes: ["orders:read"] }],
-    "browser-control": [{ version: "1" }]
-  }
-};
-const SPEC_METADATA_04 = { ...SPEC_METADATA, scopes_supported: [...SPEC_METADATA.scopes_supported, "poppy:browser-sign-in"] };
+/** poppy.json as served for example.com, checked without fetching anything else. */
+const served = (doc: unknown) => text("poppy", doc, { domain: "example.com" });
 
-const withPoppy04 = (change: (doc: Record<string, any>) => void) => {
-  const doc = structuredClone(SPEC_POPPY_04) as Record<string, any>;
-  change(doc);
-  return doc;
-};
-const text04 = (doc: unknown) => text("poppy", doc, { domain: "example.com", protocolVersion: "0.4" });
-
-/** example.com serving a 0.4 poppy.json that links its 0.3 document, or the reverse, each changed as given. */
+/** example.com serving a 0.3 poppy.json that links its 0.4 document, or another root, each changed as given. */
 const versioned = (change: { root?: Record<string, any>; linked?: Record<string, any>; linkedUrl?: string; routes?: Record<string, () => Response>; versions?: readonly string[] } = {}) => {
-  const linkedUrl = change.linkedUrl ?? "https://example.com/poppy/0.3.json";
-  const root = change.root ?? { ...structuredClone(SPEC_POPPY_04), supported_versions: { "0.3": linkedUrl } };
+  const linkedUrl = change.linkedUrl ?? "https://example.com/poppy/0.4.json";
+  const root = change.root ?? { ...structuredClone(POPPY_03), supported_versions: { "0.4": linkedUrl } };
   return validateCompany(
     network({
       "https://example.com/.well-known/poppy.json": jsonResponse(root),
       [linkedUrl]: jsonResponse(change.linked ?? SPEC_POPPY),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
-      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA_04),
+      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA),
       ...(change.routes ?? {})
     }),
     "example.com",
@@ -309,52 +282,43 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
 
 const POPPY_04: readonly Fixture[] = [
   {
-    name: "0.4: accepts the specification's poppy.json example, with Operations 3 and Browser Control",
-    run: () => text04(SPEC_POPPY_04),
-    ids: [],
-    outcome: "valid",
-    also: (report) => {
-      expect(report.checkedAgainst).toBe("Draft 0.4");
-      expect(report.specificationRevision).toBe("2026-11-11");
-    }
-  },
-  {
-    name: "0.4: links each message to the 0.4 pages, also for rules kept from 0.3",
-    run: () => text04(withPoppy04((d) => delete d.organization.name)),
+    name: "0.4: links each message to the 0.4 pages",
+    run: () => served(withPoppy((d) => delete d.organization.name)),
     ids: ["organization-name-missing"],
     also: (report) => expect(report.messages[0]!.ref.url).toMatch(/^https:\/\/personalagentprotocol\.org\/docs\/0\.4\//)
   },
   {
     name: "0.4: an extension written as 0.3's single object is skipped",
-    run: () => text04(withPoppy04((d) => (d.extensions.operations = { version: "3" }))),
+    run: () => served(withPoppy((d) => (d.extensions.operations = { version: "3" }))),
     ids: ["extension-entries"],
     outcome: "invalid",
     also: (report) => expect(report.refused).toBe(false)
   },
   {
     name: "0.4: excluded tasks, the skill index and feedback moved to the tasks endpoint",
-    run: () => text04(withPoppy04((d) => {
+    run: () => served(withPoppy((d) => {
       d.feedback = { endpoint: "https://api.example.com/poppy/feedback" };
       d.excluded_tasks = { url: "https://example.com/x.json" };
+      d.skill_index = { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: [] };
     })),
-    ids: ["member-moved-to-tasks", "member-moved-to-tasks"],
+    ids: ["member-moved-to-tasks", "member-moved-to-tasks", "member-moved-to-tasks"],
     outcome: "valid"
   },
   {
     name: "0.4: web.disabled lists no browser-session endpoint, and needs the agent or an API",
-    run: () => text04({ protocol_version: "0.4", organization: { name: "A", domain: "example.com" }, web: { disabled: true, browser_session_endpoint: "https://example.com/join" } }),
+    run: () => served({ protocol_version: "0.4", organization: { name: "A", domain: "example.com" }, web: { disabled: true, browser_session_endpoint: "https://example.com/join" } }),
     ids: ["web-disabled-browser-session", "web-disabled-no-alternative"],
     outcome: "invalid"
   },
   {
     name: "0.4: website operations need browser join, and so does Browser Control",
-    run: () => text04(withPoppy04((d) => delete d.web.browser_session_endpoint)),
+    run: () => served(withPoppy((d) => delete d.web.browser_session_endpoint)),
     ids: ["operations-endpoint-without-join", "browser-control-without-join"],
     outcome: "invalid"
   },
   {
     name: "0.4: web.unscoped needs browser join",
-    run: () => text04(withPoppy04((d) => {
+    run: () => served(withPoppy((d) => {
       d.web = { unscoped: true };
       delete d.extensions.operations;
       delete d.extensions["browser-control"];
@@ -364,25 +328,25 @@ const POPPY_04: readonly Fixture[] = [
   },
   {
     name: "0.4: a Company with browser join and sign-in supports poppy:browser-sign-in",
-    run: () => versioned({ root: SPEC_POPPY_04, routes: { "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA) } }),
+    run: () => company({ metadata: (doc) => { doc.scopes_supported = doc.scopes_supported.filter((scope: string) => scope !== "poppy:browser-sign-in"); } }),
     ids: ["browser-sign-in-unsupported"],
     outcome: "invalid"
   },
   {
     name: "0.4: an operations version this validator doesn't know is noted, and 0.3's version 2 is one",
-    run: () => text04(withPoppy04((d) => (d.extensions.operations = [{ version: "2" }]))),
+    run: () => served(withPoppy((d) => (d.extensions.operations = [{ version: "2" }]))),
     ids: ["extension-version-unknown"],
     outcome: "valid"
   },
   {
     name: "0.4: Device Sign-In without Direct is a warning",
-    run: () => versioned({ root: SPEC_POPPY_04, routes: { "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse({ ...SPEC_METADATA_04, grant_types_supported: ["refresh_token", "urn:ietf:params:oauth:grant-type:device_code", "https://personalagentprotocol.org/grant/mediated-sign-in"] }) } }),
+    run: () => company({ metadata: (doc) => { doc.grant_types_supported = ["refresh_token", "urn:ietf:params:oauth:grant-type:device_code", "https://personalagentprotocol.org/grant/mediated-sign-in"]; } }),
     ids: ["direct-sign-in-preferred"],
     outcome: "valid"
   },
   {
-    name: "0.4: chooses 0.4 from a 0.4 poppy.json that links 0.3",
-    run: () => versioned(),
+    name: "0.4: uses a 0.4 poppy.json's own version, without fetching the 0.3 document it links",
+    run: () => versioned({ root: { ...structuredClone(SPEC_POPPY), supported_versions: { "0.3": "https://example.com/poppy/0.3.json" } }, linkedUrl: "https://example.com/poppy/0.3.json", linked: POPPY_03 }),
     ids: [],
     outcome: "valid",
     also: (report) => {
@@ -392,34 +356,26 @@ const POPPY_04: readonly Fixture[] = [
     }
   },
   {
-    name: "0.4: an agent that speaks 0.3 alone uses the 0.3 document a 0.4 poppy.json links",
-    run: () => versioned({ versions: ["0.3"] }),
+    name: "0.4: a 0.3 poppy.json that links 0.4 is checked by its 0.4 document",
+    run: () => versioned(),
     ids: [],
     outcome: "valid",
     also: (report) => {
-      expect(report.checkedAgainst).toBe("Draft 0.3");
-      expect((report as CompanyReport).poppy).toMatchObject({ protocol_version: "0.3" });
-      expect(report.documents.map((d) => d.url)).toEqual(["https://example.com/.well-known/poppy.json", "https://example.com/poppy/0.3.json", "https://example.com/.well-known/oauth-protected-resource", "https://auth.example.com/.well-known/oauth-authorization-server"]);
+      expect(report.checkedAgainst).toBe("Draft 0.4");
+      expect((report as CompanyReport).poppy).toMatchObject({ protocol_version: "0.4" });
+      expect(report.documents.map((d) => d.url)).toEqual(["https://example.com/.well-known/poppy.json", "https://example.com/poppy/0.4.json", "https://example.com/.well-known/oauth-protected-resource", "https://auth.example.com/.well-known/oauth-authorization-server"]);
     }
   },
   {
-    name: "0.4: a 0.3 poppy.json that links 0.4 gives 0.4 to an agent that speaks it",
-    run: () => versioned({ root: { ...structuredClone(SPEC_POPPY), supported_versions: { "0.4": "https://example.com/poppy/0.4.json" } }, linkedUrl: "https://example.com/poppy/0.4.json", linked: SPEC_POPPY_04 }),
-    ids: [],
-    outcome: "valid",
-    also: (report) => expect((report as CompanyReport).poppy).toMatchObject({ protocol_version: "0.4" })
-  },
-  {
     name: "0.4: a poppy.json in a version the agent doesn't speak, listing none it does, is refused",
-    run: () => versioned({ root: SPEC_POPPY_04, versions: ["0.3"] }),
+    run: () => versioned({ root: SPEC_POPPY, versions: ["0.3"] }),
     ids: ["version-unsupported"],
     outcome: "invalid"
   },
   {
     name: "0.4: a linked document on another host, over http or for its own version is skipped",
     run: () => versioned({
-      root: { ...structuredClone(SPEC_POPPY_04), supported_versions: { "0.3": "https://cdn.example.com/0.3.json", "0.2": "http://example.com/0.2.json", "0.4": "https://example.com/0.4.json", latest: "https://example.com/x.json" } },
-      versions: ["0.3", "0.4"]
+      root: { ...structuredClone(SPEC_POPPY), supported_versions: { "0.3": "https://cdn.example.com/0.3.json", "0.2": "http://example.com/0.2.json", "0.4": "https://example.com/0.4.json", latest: "https://example.com/x.json" } }
     }),
     ids: ["supported-version-unusable", "supported-version-unusable", "supported-version-unusable", "supported-version-unusable"],
     outcome: "invalid",
@@ -429,27 +385,27 @@ const POPPY_04: readonly Fixture[] = [
     }
   },
   {
-    name: "0.4: a linked document that redirects is skipped, and the agent uses poppy.json's own version when it speaks it",
+    name: "0.4: a linked document that redirects is skipped, so a 0.3 poppy.json that links only it is refused",
     run: () => versioned({
-      root: { ...structuredClone(SPEC_POPPY), supported_versions: { "0.4": "https://example.com/poppy/0.4.json" } },
       routes: { "https://example.com/poppy/0.4.json": () => new Response(null, { status: 302, headers: { Location: "https://example.com/elsewhere.json" } }) }
     }),
-    ids: ["supported-version-unusable"],
+    ids: ["supported-version-unusable", "version-unsupported"],
+    outcome: "invalid",
     also: (report) => {
-      expect(report.checkedAgainst).toBe("Draft 0.3");
-      expect(report.refused).toBe(false);
+      expect(report.messages[1]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.refused).toBe(true);
     }
   },
   {
     name: "0.4: a linked document for another version refuses the Company rather than falling back",
-    run: () => versioned({ versions: ["0.3"], linked: { ...SPEC_POPPY, protocol_version: "0.2" } }),
+    run: () => versioned({ linked: { ...SPEC_POPPY, protocol_version: "0.5" } }),
     ids: ["linked-document-version"],
     outcome: "invalid",
     also: (report) => expect(report.refused).toBe(true)
   },
   {
     name: "0.4: a linked document lists no supported_versions, and has poppy.json's domain",
-    run: () => versioned({ versions: ["0.3"], linked: { ...structuredClone(SPEC_POPPY), supported_versions: {}, organization: { name: "A", domain: "example.org" } } }),
+    run: () => versioned({ linked: { ...structuredClone(SPEC_POPPY), supported_versions: {}, organization: { name: "A", domain: "example.org" } } }),
     ids: { contains: ["linked-document-supported-versions", "linked-document-domain"] },
     also: (report) => expect(report.refused).toBe(true)
   }
@@ -465,14 +421,14 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "reports a JSON syntax error with line and column",
-    run: () => text("poppy", '{\n  "protocol_version": "0.3",\n  "organization": {\n}'),
+    run: () => text("poppy", '{\n  "protocol_version": "0.4",\n  "organization": {\n}'),
     ids: { contains: ["json-syntax"] },
     outcome: "invalid",
     also: (report) => expect(report.messages[0]).toMatchObject({ id: "json-syntax", line: 4, column: 2 })
   },
   {
     name: "reports a duplicate member name with line, column and pointer",
-    run: () => text("poppy", '{"protocol_version":"0.3","protocol_version":"0.3","organization":{"name":"A","domain":"a.example"},"web":{}}'),
+    run: () => text("poppy", '{"protocol_version":"0.4","protocol_version":"0.4","organization":{"name":"A","domain":"a.example"},"web":{}}'),
     ids: { contains: ["json-duplicate-member"] },
     also: (report) =>
       expect(report.messages.find((m) => m.id === "json-duplicate-member")).toMatchObject({ line: 1, column: 27, pointer: "/protocol_version" })
@@ -504,12 +460,22 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // Before 1.0 every version can break the one before (3.1), and only 0.3 and 0.4 are checked.
+    // Before 1.0 every version can break the one before (3.1), and only 0.4 is checked.
+    name: "refuses a 0.3 document, which this validator no longer checks, before checking its fields",
+    run: () => text("poppy", POPPY_03, { domain: "example.com" }),
+    ids: ["version-unsupported"],
+    outcome: "invalid",
+    also: (report) => {
+      expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
     name: "refuses a 0.2 document, which this validator no longer checks",
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "0.2"))),
     ids: ["version-unsupported"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.3, 0.4.")
+    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.4.")
   },
   {
     name: "chooses rules by protocol_version: none given",
@@ -565,6 +531,9 @@ const POPPY_JSON: readonly Fixture[] = [
         delete d.agent;
         delete d.apis;
         delete d.web;
+        // Website operations and Browser Control need browser join, which went with web.
+        delete d.extensions.operations;
+        delete d.extensions["browser-control"];
       })),
     ids: ["nothing-offered"]
   },
@@ -606,33 +575,33 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "warns of an extension version written as a number, whose type the draft doesn't give (N22)",
-    run: () => text("poppy", withPoppy((d) => (d.extensions.operations = { version: 2 }))),
+    run: () => text("poppy", withPoppy((d) => (d.extensions.operations = [{ version: 3 }]))),
     ids: ["extension-version-number"],
     outcome: "valid",
     also: (report) => expect(report.refused).toBe(false)
   },
   {
     name: "checks Mediated Sign-In's scopes: a duplicate and a name that isn't an OAuth scope",
-    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"].scopes = ["orders:read", "orders:read", "bad scope"]))),
+    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].scopes = ["orders:read", "orders:read", "bad scope"]))),
     ids: ["scope-duplicate", "scope-syntax"],
-    also: (report) => expect(report.messages.map((m) => m.pointer)).toEqual(["/extensions/mediated-sign-in/scopes/1", "/extensions/mediated-sign-in/scopes/2"])
+    also: (report) => expect(report.messages.map((m) => m.pointer)).toEqual(["/extensions/mediated-sign-in/0/scopes/1", "/extensions/mediated-sign-in/0/scopes/2"])
   },
   {
     name: "checks Mediated Sign-In's scopes: none",
-    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"].scopes = []))),
+    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].scopes = []))),
     ids: ["scopes-empty"]
   },
   {
     name: "checks Mediated Sign-In's fields: none",
-    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"].fields = []))),
+    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].fields = []))),
     ids: ["mediated-fields-empty"],
-    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in.fields is empty.")
+    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in.0.fields is empty.")
   },
   {
     name: "checks Mediated Sign-In's fields: secret missing, looks secret, duplicate",
     run: () =>
       text("poppy", withPoppy((d) => {
-        d.extensions["mediated-sign-in"].fields = [
+        d.extensions["mediated-sign-in"][0].fields = [
           { name: "email", label: "Email" },
           { name: "pin", label: "PIN", secret: false },
           { name: "email", label: "Email again", secret: false }
@@ -641,7 +610,7 @@ const POPPY_JSON: readonly Fixture[] = [
     ids: ["mediated-secret-missing", "mediated-looks-secret", "mediated-field-duplicate"]
   },
   {
-    // 0.3 removed `resource` from agent.protocols and apis (4.5): it's an unknown member now.
+    // 0.3 removed `resource` from agent.protocols and apis (4.5): it's an unknown member.
     name: "checks the agent's protocols, and notes a resource, which 0.3 removed",
     run: () =>
       text("poppy", withPoppy((d) => {
@@ -701,25 +670,18 @@ const POPPY_JSON: readonly Fixture[] = [
     run: () =>
       text("poppy", withPoppy((d) => {
         d.extensions = {
-          operations: { version: "2" },
-          "example.com/gift-wrap": { version: "2", anything: true },
-          "gift-wrap": { version: "1" },
-          "notadomain/gift-wrap": { version: "1" },
-          "example.com/no-version": {}
+          operations: [{ version: "3" }],
+          "example.com/gift-wrap": [{ version: "2", anything: true }],
+          "gift-wrap": [{ version: "1" }],
+          "notadomain/gift-wrap": [{ version: "1" }],
+          "example.com/no-version": [{}]
         };
       })),
     ids: ["extension-plain-unknown", "extension-name", "missing-member"]
   },
   {
-    // Operations 2 has no endpoint: 0.3 removed the operations endpoint and resource.
-    name: "notes an Operations 2 entry with an endpoint, which version 2 doesn't have",
-    run: () => text("poppy", withPoppy((d) => (d.extensions.operations = { version: "2", endpoint: "https://api.example.com/poppy/operations" }))),
-    ids: ["unknown-member"],
-    outcome: "valid"
-  },
-  {
     name: "refuses a Mediated Sign-In field named like a grant parameter",
-    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"].fields[0].name = "scope"))),
+    run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].fields[0].name = "scope"))),
     ids: ["mediated-field-reserved"],
     outcome: "invalid"
   },
@@ -786,7 +748,7 @@ const DISCOVERY: readonly Fixture[] = [
       validateCompany(
         network({
           "https://example.com/.well-known/poppy.json": jsonResponse({
-            protocol_version: "0.3",
+            protocol_version: "0.4",
             organization: { name: "Example Company", domain: "example.com" },
             apis: [{ type: "mcp", url: "https://mcp.example.com/mcp", description: "Plans, phones, promotions and accessories" }]
           }),
@@ -874,25 +836,6 @@ const DISCOVERY: readonly Fixture[] = [
       for (const access of ["session", "signed_in"]) expect(text("poppy", withPoppy((d) => { d.agent.protocols[0].access = access; }), { domain: "example.com" }).messages).toEqual([]);
     }
   },
-  {
-    name: "warns about a skill_index without the 0.2.0 schema, which agents ignore",
-    run: () => text("poppy", withPoppy((d) => { d.skill_index = { skills: [] }; }), { domain: "example.com" }),
-    ids: ["skill-index-schema"],
-    outcome: "valid"
-  },
-  {
-    name: "accepts the specification's skill_index and organization.logo_uri, and checks the index's schema and digests",
-    run: () => text("poppy", withPoppy((d) => {
-      d.organization.logo_uri = "https://example.com/logo.png";
-      d.skill_index = { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: [{ name: "manage-bookings", description: "Manage the User's bookings with this Company.", type: "skill-md", url: "https://cdn.example.com/skills/manage-bookings/SKILL.md", digest: "sha256:ABC" }] };
-    }), { domain: "example.com" }),
-    ids: ["skill-digest"],
-    outcome: "invalid",
-    also: () => {
-      const digest = `sha256:${"1b2a8cde934e632f7e14fa080a627ad7191e29d412d2b8a7aa07d9c9ab2f475e"}`;
-      expect(text("poppy", withPoppy((d) => { d.skill_index = { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: [{ name: "a", description: "b", type: "archive", url: "skills/a.zip", digest }] }; }), { domain: "example.com" }).messages).toEqual([]);
-    }
-  }
 ];
 
 const METADATA: readonly Fixture[] = [
@@ -943,7 +886,7 @@ const METADATA: readonly Fixture[] = [
     name: "refuses Mediated Sign-In without its grant, or with scopes the issuer doesn't support",
     run: () =>
       company({
-        poppy: (doc) => { doc.extensions["mediated-sign-in"].scopes = ["orders:read", "gift-cards"]; },
+        poppy: (doc) => { doc.extensions["mediated-sign-in"][0].scopes = ["orders:read", "gift-cards"]; },
         metadata: (doc) => { doc.grant_types_supported = doc.grant_types_supported.filter((grant: string) => !grant.endsWith("mediated-sign-in")); }
       }),
     ids: ["mediated-grant-missing", "mediated-scope-unsupported"],
@@ -960,7 +903,7 @@ const METADATA: readonly Fixture[] = [
     ids: ["scope-undescribed"],
     outcome: "invalid",
     also: async (report) => {
-      expect(report.messages[0]!.pointer).toBe("/scopes_supported/3");
+      expect(report.messages[0]!.pointer).toBe("/scopes_supported/4");
       // With an OpenAPI description listed, it may describe the scope: nothing to say.
       expect((await company({ metadata: (doc) => { doc.scopes_supported.push("loyalty"); } })).messages).toEqual([]);
     }
@@ -980,7 +923,7 @@ const METADATA: readonly Fixture[] = [
   },
   {
     name: "notes poppy_domains, which 0.3 replaced with protected_resources, and an Operations version it doesn't know",
-    run: () => company({ poppy: (doc) => { doc.extensions.operations = { version: "1", endpoint: "https://api.example.com/poppy/operations" }; }, metadata: (doc) => { doc.poppy_domains = ["example.com"]; } }),
+    run: () => company({ poppy: (doc) => { doc.extensions.operations = [{ version: "1", endpoint: "https://api.example.com/poppy/operations" }]; }, metadata: (doc) => { doc.poppy_domains = ["example.com"]; } }),
     ids: ["extension-version-unknown", "unknown-member"],
     outcome: "valid"
   },
@@ -1507,7 +1450,7 @@ describe("over HTTP", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const report = (await response.json()) as Report;
-    expect(report).toMatchObject({ outputVersion: 1, outcome: "valid", checkedAgainst: "Draft 0.3" });
+    expect(report).toMatchObject({ outputVersion: 1, outcome: "valid", checkedAgainst: "Draft 0.4" });
     const preflight = await call("/validator/api", { method: "OPTIONS" });
     expect(preflight.status).toBe(204);
     const bad = await call("/validator/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: "{}", kind: "feed" }) });
@@ -1518,7 +1461,7 @@ describe("over HTTP", () => {
   it("answers the form with an escaped results page", async () => {
     const response = await call("/validator", {
       method: "POST",
-      body: new URLSearchParams({ document: '{"protocol_version":"0.3","organization":{"name":"<script>alert(1)</script>","domain":"a.example"},"agent":{}}', kind: "poppy" })
+      body: new URLSearchParams({ document: '{"protocol_version":"0.4","organization":{"name":"<script>alert(1)</script>","domain":"a.example"},"agent":{}}', kind: "poppy" })
     });
     const page = await response.text();
     expect(page).toContain("Not valid");
@@ -1542,7 +1485,7 @@ describe("the message catalog", () => {
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));
     // Retired diagnostics, kept for saved reports and never emitted.
-    const retired = new Set<MessageId>(["version-newer-minor", "api-type-newer"]);
+    const retired = new Set<MessageId>(["version-newer-minor", "api-type-newer", "skill-index-schema", "skill-digest"]);
     const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && !retired.has(id));
     expect(missing).toEqual([]);
   });

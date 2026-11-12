@@ -18,9 +18,9 @@
  * without a description). Each says so in `explain`, so a report never
  * presents our policy as the draft's requirement.
  *
- * The draft is 0.3 (spec/draft-0.3-retrieved-2026-11-03), and the links go
- * to its pages. Where 0.3 changed a rule a Company may still follow, the
- * explanation says what replaced it.
+ * The draft is 0.4 (spec/draft-0.4-retrieved-2026-11-11), and the links go
+ * to its pages. Where 0.3 or 0.4 changed a rule a Company may still follow,
+ * the explanation says what replaced it.
  */
 import { levelOf, severityOf, type Basis, type Severity } from "./levels.ts";
 
@@ -28,8 +28,8 @@ export type { Basis, Severity };
 
 export type Ref = { readonly label: string; readonly url: string };
 
-/** The pages of the version this validator checks, 0.3. */
-const SITE = "https://personalagentprotocol.org/docs/0.3";
+/** The pages of the version this validator checks, 0.4. */
+const SITE = "https://personalagentprotocol.org/docs/0.4";
 
 export const spec = (section: string, anchor: string): Ref => ({
   label: `Spec ${section}`,
@@ -39,29 +39,12 @@ export const guides = (title: string, anchor: string): Ref => ({
   label: `Guides: ${title}`,
   url: `${SITE}/guides#${anchor}`
 });
-export const operationsExt = (section: string, anchor: string): Ref => ({
-  label: `Operations ${section}`,
-  url: `${SITE}/extensions/operations#${anchor}`
-});
-export const mediatedExt = (section: string, anchor: string): Ref => ({
-  label: `Mediated Sign-In ${section}`,
-  url: `${SITE}/extensions/mediated-sign-in#${anchor}`
-});
-/** The 0.4 draft's pages, for rules that exist only there. */
-const SITE_04 = "https://personalagentprotocol.org/docs/0.4";
-export const spec04 = (section: string, anchor: string): Ref => ({
-  label: `Spec ${section}`,
-  url: `${SITE_04}/spec#${anchor}`
-});
-export const extension04 = (name: string, title: string, section: string, anchor: string): Ref => ({
+/** A section of an extension's page, such as ("operations", "Operations", "2", "support"). */
+export const extension = (name: string, title: string, section: string, anchor: string): Ref => ({
   label: `${title} ${section}`,
-  url: `${SITE_04}/extensions/${name}#${anchor}`
+  url: `${SITE}/extensions/${name}#${anchor}`
 });
-
-/** A reference for the version a document was checked against: 0.3's pages, or the same section in another version's. */
-export function refForVersion(ref: Ref, version: string): Ref {
-  return ref.url.startsWith(`${SITE}/`) ? { ...ref, url: `https://personalagentprotocol.org/docs/${version}/${ref.url.slice(SITE.length + 1)}` } : ref;
-}
+export const mediatedExt = (section: string, anchor: string): Ref => extension("mediated-sign-in", "Mediated Sign-In", section, anchor);
 export const rfc = (number: number, section?: string): Ref => ({
   label: `RFC ${number}${section ? ` §${section}` : ""}`,
   url: `https://www.rfc-editor.org/rfc/rfc${number}${section ? `#section-${section}` : ""}`
@@ -298,8 +281,8 @@ export const MESSAGES = define({
   "version-format": {
     basis: "Rule",
     title: "protocol_version isn't major.minor",
-    explain: 'protocol_version is a string of two numbers, such as "0.3".',
-    fix: 'Set protocol_version to "0.3".',
+    explain: 'protocol_version is a string of two numbers, such as "0.4".',
+    fix: 'Set protocol_version to "0.4".',
     ref: spec("3.1", "fields")
   },
   "version-unsupported-major": {
@@ -352,7 +335,7 @@ export const MESSAGES = define({
     basis: "Rule",
     note: true,
     title: "Website only",
-    explain: "poppy.json lists nothing that uses Sessions (agent, apis, feedback, web.browser_session_endpoint or an extension), so agents browse the site as ordinary signed-out visitors (3.1, 6).",
+    explain: "poppy.json lists nothing that uses Sessions (agent, apis, tasks, web.browser_session_endpoint or an extension), so agents browse the site as ordinary signed-out visitors (3.1, 6).",
     fix: "To offer Sessions, list the APIs, Company Agent or browser-session endpoint. Signed-out Sessions need no issuer (3.2); sign-in does.",
     ref: spec("3.2", "oauth-server")
   },
@@ -524,7 +507,6 @@ export const MESSAGES = define({
     fix: "Add S256.",
     ref: spec("4.2", "direct-sign-in")
   },
-  // 0.3 (spec/draft-0.3-retrieved-2026-11-03)
   "poppy-redirect-path": {
     basis: "MUST",
     title: "Redirected away from the well-known path",
@@ -543,7 +525,7 @@ export const MESSAGES = define({
     basis: "Rule",
     note: true,
     title: "No OAuth issuer: signed-out Sessions only",
-    explain: "A 404 for the domain's protected resource metadata, or metadata whose authorization_servers is absent or empty, means the Company has no OAuth issuer (3.2). That is valid for a Company that offers no sign-in: agents use its APIs, conversations, feedback and browser join signed out, and its identifier, the audience of Session JWTs and the scope of User IDs, is https:// and organization.domain. Agents don't fall back to this after a timeout, another error status or invalid metadata. Adding an issuer later changes the identifier when it differs from the domain, so agents then start new User IDs and Sessions.",
+    explain: "A 404 for the domain's protected resource metadata, or metadata whose authorization_servers is absent or empty, means the Company has no OAuth issuer (3.2). That is valid for a Company that offers no sign-in: agents use its APIs, conversations, tasks endpoint and browser join signed out, and its identifier, the audience of Session JWTs and the scope of User IDs, is https:// and organization.domain. Agents don't fall back to this after a timeout, another error status or invalid metadata. Adding an issuer later changes the identifier when it differs from the domain, so agents then start new User IDs and Sessions.",
     fix: "Nothing to do for signed-out access. To offer sign-in, publish protected resource metadata whose authorization_servers names the issuer.",
     ref: spec("3.2", "oauth-server")
   },
@@ -572,22 +554,26 @@ export const MESSAGES = define({
   "scopes-supported-missing": {
     basis: "SHOULD",
     title: "No scopes_supported",
-    explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata and include every scope a Personal Agent can request (3.2, 4.7); from 0.4, its protected resource metadata may list them instead. Without it, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it.)",
+    explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata, or in its protected resource metadata, and include every scope a Personal Agent can request (3.2, 4.7). Without either, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it in the OAuth metadata.)",
     fix: "Add scopes_supported, listing the scopes Personal Agents may request.",
     ref: spec("3.2", "oauth-server")
   },
   "skill-index-schema": {
     basis: "SHOULD",
-    title: "Skill index with an unknown $schema",
-    explain: "skill_index embeds an Agent Skills discovery index with the 0.2.0 schema identifier (9.4). Agents SHOULD ignore an index whose $schema is absent or unknown; the rest of poppy.json stays usable.",
-    fix: "Set $schema to https://schemas.agentskills.io/discovery/0.2.0/schema.json.",
+    note: true,
+    title: "Historical skill-index schema diagnostic",
+    explain:
+      "Retained for older saved reports. It warned of a skill_index in a 0.3 poppy.json whose $schema wasn't the Agent Skills discovery 0.2.0 identifier, which agents ignored. 0.4 moved the skill index to the response from tasks.endpoint (9), which this validator doesn't fetch, so this diagnostic is no longer emitted; member-moved-to-tasks notes a skill_index left in poppy.json.",
+    fix: "Nothing to do.",
     ref: spec("9.4", "agent-context")
   },
   "skill-digest": {
     basis: "MUST",
-    title: "Skill digest malformed",
-    explain: "Each skill entry's digest is the SHA-256 of the artifact's raw bytes, written sha256: and 64 lowercase hex characters (9.4). Agents verify it before using a skill.",
-    fix: "Write the digest as sha256: followed by 64 lowercase hex characters.",
+    note: true,
+    title: "Historical skill-digest diagnostic",
+    explain:
+      "Retained for older saved reports. It reported a skill entry in a 0.3 poppy.json's skill_index whose digest wasn't sha256: and 64 lowercase hex characters. 0.4 moved the skill index to the response from tasks.endpoint (9), which this validator doesn't fetch, so this diagnostic is no longer emitted.",
+    fix: "Nothing to do.",
     ref: spec("9.4", "agent-context")
   },
   "issuer-not-listed": {
@@ -754,22 +740,22 @@ export const MESSAGES = define({
     fix: "Give each key a unique kid.",
     ref: guides("Rotating keys", "both-key-rotation")
   },
-  // 0.4, the 1.0 release candidate (spec/draft-0.4-retrieved-2026-11-11)
+  // Versions (3.4), and what 0.4 changed
   "supported-version-unusable": {
     basis: "MUST",
     refuses: false,
     title: "A supported_versions entry agents can't use",
     explain:
       "supported_versions maps each other protocol version the Company serves, as major.minor, to an HTTPS URL on the host that served poppy.json, after any redirects (3.4). An agent MUST NOT use a document on another host, because any domain's poppy.json could otherwise link to a file uploaded to a Company's domain. Our client skips this entry, as if the version weren't listed, and chooses among the others.",
-    fix: "Key each entry by a version such as \"0.3\", other than the document's own, and give an https:// URL on the same host as poppy.json.",
-    ref: spec04("3.4", "versions")
+    fix: "Key each entry by a version such as \"0.5\", other than the document's own, and give an https:// URL on the same host as poppy.json.",
+    ref: spec("3.4", "versions")
   },
   "linked-document-version": {
     basis: "MUST",
     title: "A linked document has another protocol version",
     explain: "The document a supported_versions entry links to has the protocol_version it is listed under, and an agent MUST NOT use it otherwise (3.4).",
     fix: "Serve the document for the version it is listed under, or fix the entry.",
-    ref: spec04("3.4", "versions")
+    ref: spec("3.4", "versions")
   },
   "linked-document-supported-versions": {
     basis: "Rule",
@@ -777,14 +763,14 @@ export const MESSAGES = define({
     title: "A linked document lists supported_versions",
     explain: "Only poppy.json lists the versions a Company serves; the document for another version has no supported_versions (3.4). Our client ignores the member there.",
     fix: "Remove supported_versions from the linked document.",
-    ref: spec04("3.4", "versions")
+    ref: spec("3.4", "versions")
   },
   "linked-document-domain": {
     basis: "MUST",
     title: "Versions disagree on the Company's domain",
     explain: "Every document a Company serves at the same time MUST have the same organization.domain, so a new version doesn't change the Company's identifier, and with it User IDs and refresh tokens (3.4).",
     fix: "Give every version's document the same organization.domain.",
-    ref: spec04("3.4", "versions")
+    ref: spec("3.4", "versions")
   },
   "extension-entries": {
     basis: "Rule",
@@ -793,7 +779,7 @@ export const MESSAGES = define({
     explain:
       "From 0.4, extensions maps each extension's name to a list with an entry for each major version the Company supports, each with a version (3.3). 0.3 used a single object. Agents ignore what they don't recognize, so our client skips this extension.",
     fix: "Write the extension as a list, such as \"operations\": [{ \"version\": \"3\" }].",
-    ref: spec04("3.3", "extensions")
+    ref: spec("3.3", "extensions")
   },
   "member-moved-to-tasks": {
     basis: "MUST",
@@ -802,56 +788,56 @@ export const MESSAGES = define({
     explain:
       "0.4 moved excluded tasks, the skill index and the feedback endpoint out of poppy.json, to the response from tasks.endpoint, which agents read for each Session (9). 0.4 agents ignore the member.",
     fix: "List tasks.endpoint, and serve excluded_tasks, skill_index and feedback.endpoint from it.",
-    ref: spec04("9", "task-coverage")
+    ref: spec("9", "task-coverage")
   },
   "web-disabled-browser-session": {
     basis: "MUST",
     title: "web.disabled with a browser-session endpoint",
     explain: "A Company that sets web.disabled asks agents not to use a browser on its website, so it MUST NOT list browser_session_endpoint (6).",
     fix: "Remove web.browser_session_endpoint, or web.disabled.",
-    ref: spec04("6", "web-browsing")
+    ref: spec("6", "web-browsing")
   },
   "web-disabled-no-alternative": {
     basis: "MUST",
     title: "web.disabled with nothing else to use",
     explain: "A Company that asks agents not to browse its website MUST list agent or apis, so they have something to use instead (6).",
     fix: "List the Company Agent or an API, or remove web.disabled.",
-    ref: spec04("6", "web-browsing")
+    ref: spec("6", "web-browsing")
   },
   "operations-endpoint-without-join": {
     basis: "MUST",
     title: "Website operations without browser join",
     explain: "An operations entry's endpoint is for operations a website returns to a browser joined to a Session, so the Company MUST list web.browser_session_endpoint with it (Operations 2).",
     fix: "List web.browser_session_endpoint, or remove the endpoint.",
-    ref: extension04("operations", "Operations", "2", "support")
+    ref: extension("operations", "Operations", "2", "support")
   },
   "browser-control-without-join": {
     basis: "Rule",
     title: "Browser Control without browser join",
     explain: "A Company that supports Browser Control lists it with web.browser_session_endpoint (Browser Control 3): marked steps are for a browser joined to a Session.",
     fix: "List web.browser_session_endpoint, or remove the extension.",
-    ref: extension04("browser-control", "Browser Control", "3", "support")
+    ref: extension("browser-control", "Browser Control", "3", "support")
   },
   "web-unscoped-without-join": {
     basis: "MUST",
     title: "web.unscoped without browser join",
     explain: "web.unscoped says that poppy:browser-sign-in gives a joined browser the account's full access on the website, so a Company that sets it MUST list web.browser_session_endpoint (6).",
     fix: "List web.browser_session_endpoint, or remove web.unscoped.",
-    ref: spec04("6", "web-browsing")
+    ref: spec("6", "web-browsing")
   },
   "browser-sign-in-unsupported": {
     basis: "MUST",
     title: "Browser join without poppy:browser-sign-in",
     explain: "A Company that lists browser_session_endpoint and offers sign-in MUST support poppy:browser-sign-in, the scope that signs a joined browser in (6), so its scopes_supported includes it (4.7). It MAY grant the scope to fewer clients or Users.",
     fix: "Add poppy:browser-sign-in to scopes_supported and describe it in auth.scopes, or remove web.browser_session_endpoint.",
-    ref: spec04("6", "web-browsing")
+    ref: spec("6", "web-browsing")
   },
   "direct-sign-in-preferred": {
     basis: "SHOULD",
     title: "Device Sign-In without Direct Sign-In",
     explain: "Direct Sign-In is the preferred sign-in type, and a Company that offers sign-in SHOULD offer it (4). This issuer offers Device Sign-In, which is easier to use for phishing, but not Direct.",
     fix: "Add authorization_code to grant_types_supported, with an authorization_endpoint.",
-    ref: spec04("4", "oauth")
+    ref: spec("4", "oauth")
   },
   "jwks-use": {
     basis: "Reading",
