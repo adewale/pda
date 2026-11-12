@@ -1,0 +1,2143 @@
+{
+ "version": 1,
+ "checked": "2026-11-12",
+ "validator": "scripts/poppy-validate.ts --json at c79324a, Draft 0.4 profile (11 November text, the only version it speaks)",
+ "method": "One host at a time, two seconds apart, direct HTTPS with TLS verification. Hosts: the 28 October survey's 33, PAP Checker's directory (39) and Company hosts named on poppy.md's implementations page, 58 after removing duplicates. Each document's SHA-256 is of its parsed JSON, re-serialised.",
+ "sources": [
+  {
+   "name": "PAP Checker directory",
+   "url": "https://papchecker.com/sites",
+   "sha256": "84d29e61e221995d60f536fd2d8d43d13140951211738fdf2d4342e981587491",
+   "hosts": 39
+  },
+  {
+   "name": "poppy.md implementations",
+   "url": "https://poppy.md/implementations",
+   "sha256": "d06448e3a51b77d4a9b88726d87c1aca3d70536f7829b444c87ad3454d16333b",
+   "note": "Company hosts named in listings and not already listed elsewhere"
+  },
+  {
+   "name": "The 28 October survey",
+   "path": "docs/evidence/ecosystem-2026-10-28/survey.json",
+   "hosts": 33
+  }
+ ],
+ "hosts": [
+  {
+   "host": "printwithpoppy.com",
+   "checked_at": "2026-11-12T19:39:55Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "Print with Poppy",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 3
+   },
+   "messages": [
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+    },
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "protected-resource",
+     "text": "https://printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+    },
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "https://printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://printwithpoppy.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "cc2f198a34fd7352f83db00cbdf3d90f2715bca694e0ce18a55b483033c43c80"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://printwithpoppy.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "520f3e18292efb1857cb78b2cb4eefb4942638021187d927d751da0798cc387a"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "3d2e15ec008584ca9f2f7492a347edc57e812bc1353abb924ac0d8987615f83e"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "sandbox.printwithpoppy.com",
+   "checked_at": "2026-11-12T19:39:59Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "Print with Poppy — Agent Sandbox",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 3
+   },
+   "messages": [
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://sandbox.printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+    },
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "protected-resource",
+     "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+    },
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "504f23570c7a8c4e3e14f1ceab417f0ccb3f04a6cbaa5c0f4b221817a1e71505"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "1d745b8ee4c436f5b0b19252fe29d1375ec3793e7ed1d2e4213e9658c57b2e94"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "d385ebd246ca8aca02809d15cf7e48e2be9bc1ec075c4c7150df3b2f46db4dbd"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "archon.technology",
+   "checked_at": "2026-11-12T19:40:02Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "archon.social",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://archon.technology/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "65aeee738a9dae3b69111f285891d7633369c0f9accc3f61199eedf650bb2d51"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "flowers.papsandbox.com",
+   "checked_at": "2026-11-12T19:40:05Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "supported_versions": {
+    "0.3": "https://flowers.papsandbox.com/poppy/0.3.json"
+   },
+   "checked_against": "Draft 0.4",
+   "organization": "Northlight Flowers",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://flowers.papsandbox.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "7b947a8e82f217c5da5d418abfd8096777b4933860266b6a2c3cfdc16edfb8d5"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://flowers.papsandbox.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "df12faca9c67e7f8aa81425ce7b47f2234ce2546d16bd60eb440bf42c4ad3677"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "1d992bbd4ec12e77a22e2a1e6fc24150f3b5411031b7e5eac71fc186b752e2c5"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "crosswalk.to",
+   "checked_at": "2026-11-12T19:40:09Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "crosswalk",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://crosswalk.to/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "44edd6676ac52f35181eb72ec10fa005c694579f1a1f29d41ec3edeeaaf0f070"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "stacktr.ee",
+   "checked_at": "2026-11-12T19:40:11Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "supported_versions": {
+    "0.3": "https://stacktr.ee/.well-known/poppy/0.3.json"
+   },
+   "checked_against": "Draft 0.4",
+   "organization": "Stacktree",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 3
+   },
+   "messages": [
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "protected-resource",
+     "text": "https://stacktr.ee/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+    },
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "https://api.stacktr.ee/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+    },
+    {
+     "id": "metadata-iss-parameter",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "authorization_response_iss_parameter_supported isn't true."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://stacktr.ee/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "0725a72a754ed2ce3dc6c7796e5b7c511eaabce57d268fdff15f25520b24fbdf"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://stacktr.ee/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "f8e15b63da4d52fe622b5dddf9c5332e54318b9604e50c92d718426ab61280d8"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "08dffdebe12b862542998884b5b33dfcc82aded1022b84b3b4c52061b3f926b9"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "www.planmyvisit.to",
+   "checked_at": "2026-11-12T19:40:14Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "PlanMyVisit by Autoura",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://www.planmyvisit.to/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "372131eb3b567710f6108edcd727c71552f071105b6512129ab47b208ec03813"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "saferate.com",
+   "checked_at": "2026-11-12T19:40:16Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Safe Rate",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://saferate.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "5adc830f13af44ac762328b0424a34a6599c0f432dec0acdc4b18c2717998080"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "ample.computer",
+   "checked_at": "2026-11-12T19:40:19Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Ample Computer",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://ample.computer/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "afb3a6166223369c8c97b27a5e28664cc7dbd392d37de6c4c4ba9a1d52f9363f"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "withpoppyseed.dev",
+   "checked_at": "2026-11-12T19:40:22Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Poppy Travel",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://withpoppyseed.dev/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "984608396072226cd10b94492b7f76334f9b6ffc0109905525791a8610539943"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "poppy-receiver.roundtrip.workers.dev",
+   "checked_at": "2026-11-12T19:40:26Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Northstar Outfitters",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "45c8189975c31264267dd2d5992c2f19c0cfe7c067bfed5fa09ed8d2d1fba334"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "tilopay.shop",
+   "checked_at": "2026-11-12T19:40:28Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Tilopay",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://tilopay.shop/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "951591f371b979c991984079948aecaadeb1f5757575b54a684ac2f41226828d"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "tilopay.tilopay.shop",
+   "checked_at": "2026-11-12T19:40:32Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://tilo.shop/tienda/tilopay/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://tilopay.tilopay.shop/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "emorahealth.com",
+   "checked_at": "2026-11-12T19:40:37Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "Emora Health",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://emorahealth.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "e13e94100ff46fc1464b98b58c473117c1efec36d1b0d33add83575420f051bd"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://www.emorahealth.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "c575d748adb27b6408695d369df2323a3d761372efda1cdb4fedde17ab95188c"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+     "status": 200,
+     "sha256": "e0c5980ac28b846c3bb17be656088fed9004ec70db3e774fba9cc02106d39fbb"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "rentourbins.com",
+   "checked_at": "2026-11-12T19:40:40Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Rent Our Bins",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://rentourbins.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://rentourbins.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "f21d82b0253fc05eecece557c6319adeecdc56b7700ce926f0f5b55dd876aca1"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "neutral-state-jev-dub-bench.vercel.app",
+   "checked_at": "2026-11-12T19:40:43Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Dub",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "c3f11a1d3f68439c809350ca3da53349c7eac0d675661a6f2ebcf66034d65864"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "neutral-state-jev-os-bench.vercel.app",
+   "checked_at": "2026-11-12T19:40:47Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "OpenStatus",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "59322ab46e9ca78739f6f6a7fc08b3bd90b60239457fdf562665bc526e7f7643"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "ax-air.com",
+   "checked_at": "2026-11-12T19:40:51Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Ax Air",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://ax-air.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://ax-air.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "1146f67bdd7266ab10c374f59c1ebdadef952764c0a2c3ef009da4d6befc9248"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "notjustabank.com",
+   "checked_at": "2026-11-12T19:40:54Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Not Just a Bank",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://notjustabank.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "57955e0c02c76f0d5bc62a62c9ab9d3aff32fb965b716ba1f174e10525f87ae8"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "spotmeplease.com",
+   "checked_at": "2026-11-12T19:41:00Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Spot",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://spotmeplease.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "b18b4a46c558c2023e2868229b8a77aa4800d8acaf2439ebb0b7f4b5285fb464"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "poppy.ilmer.org",
+   "checked_at": "2026-11-12T19:41:02Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Ilmer Past",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://poppy.ilmer.org/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "44058bf262777e02e9b51e46e6536d470d92ae87e74eea7160324e1421e5343a"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "www.ilmer.org",
+   "checked_at": "2026-11-12T19:41:04Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Ilmer Past",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://www.ilmer.org/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://www.ilmer.org/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "4eff95379434c5ed4bee86186b90bb20c144721f9837a617753c185035561a72"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "salespeak.ai",
+   "checked_at": "2026-11-12T19:41:07Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Salespeak",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://salespeak.ai/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "c051ff43260d08745f7787b479b01b15420ab74e61a40b951600d40d95b08124"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "www.alpine-retail.com",
+   "checked_at": "2026-11-12T19:41:10Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "Cliffside Retail",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://www.alpine-retail.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "009555e90f9e3c50a41fc12397d4f785fa23869484a034550c9c2cedebb1469e"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "6ffb4731ce284886e28aa1b77be0292a0c446ae5ba506f55654bb0253106ae43"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "298cc40ec3310bf2f21b7abc77c3c15ca60dfdca23fd54826748b8cb60742815"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "windomsports.com",
+   "checked_at": "2026-11-12T19:41:13Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Windom Sports",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://windomsports.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "c1eb71f654c2107bca82a5b8cfb742144c844476f46c7d64fdad755bcdc3707f"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "getvibe.dev",
+   "checked_at": "2026-11-12T19:41:16Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "The Vibe Suite",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://getvibe.dev/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://getvibe.dev/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "b3ccd678cbb2c6a5623765d26be043fd9b2955dad015ae6a4bc357f43e64a017"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "origin-platform-labs.netlify.app",
+   "checked_at": "2026-11-12T19:41:18Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Origin Platform Labs",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "c5a4c005c51e062d61ecf8435225578d22f13609ee27c8a23d2081c4b7149683"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "intercom.io",
+   "checked_at": "2026-11-12T19:41:21Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://www.intercom.com/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://intercom.io/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28"
+   ]
+  },
+  {
+   "host": "bank.notjustabank.com",
+   "checked_at": "2026-11-12T19:41:24Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Not Just a Bank",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://bank.notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://bank.notjustabank.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "57955e0c02c76f0d5bc62a62c9ab9d3aff32fb965b716ba1f174e10525f87ae8"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "food.papsandbox.com",
+   "checked_at": "2026-11-12T19:41:26Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Kettle Street Noodles",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://food.papsandbox.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "dd99134c2f9ea2fdd64f8563a408b206275b8a32788a601da9f2ce768194d614"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "poppy.lukemolony.com",
+   "checked_at": "2026-11-12T19:41:29Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Lantern & Loch",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://poppy.lukemolony.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "5f97c37bf3dda4886677e8b0379725e415c5bf442e6fb78bc253602cce624c2e"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "stays.papsandbox.com",
+   "checked_at": "2026-11-12T19:41:32Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "supported_versions": {
+    "0.3": "https://stays.papsandbox.com/poppy/0.3.json"
+   },
+   "checked_against": "Draft 0.4",
+   "organization": "Harbour Row Stays",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://stays.papsandbox.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "f2948923c667dadc3bf3eef78408455b429a4b0cdf5e34aef78fde1561c6bee3"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://stays.papsandbox.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "0fc76dffb8494494f839cb044aa11f6bb4d5c9c1f710d5393e0d697c1bd82f6a"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://stays.papsandbox.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "d1989767944d0e300589990b102afdbd6cb267d9bd0e040748dfbd9cc527992e"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "planmyvisit.to",
+   "checked_at": "2026-11-12T19:41:35Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "PlanMyVisit by Autoura",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://planmyvisit.to/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "372131eb3b567710f6108edcd727c71552f071105b6512129ab47b208ec03813"
+    }
+   ],
+   "listed_in": [
+    "survey-2026-10-28",
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "directv.com",
+   "checked_at": "2026-11-12T19:41:39Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "DIRECTV",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://directv.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "b2224b23854318e08b98ef36bbdbafbee51a0ac3d73fc2f7aa6f38fe9d0d0c26"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "ticketfairy.com",
+   "checked_at": "2026-11-12T19:41:41Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "Ticket Fairy",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://ticketfairy.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "8b3168057819ce9878892fe3a93a033a288d22f81ee375eedeee7192805cf8f1"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "gtslotcars.com",
+   "checked_at": "2026-11-12T19:41:44Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "GT Slot Cars",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://gtslotcars.com/.well-known/poppy.json sends no Cache-Control or Expires."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://gtslotcars.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "ccfd2958152f4ec17ed3bf687c3ec560c6e4cf29d9fd65459093b21c906352dc"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "x402broker.com",
+   "checked_at": "2026-11-12T19:41:46Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "X402-BROKER — Universal A2A, MCP & x402 Clearinghouse",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://x402broker.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "1dab3ecba066bdac5627df502faae261c2d9669ef36786ddf42e2be0b7732f3b"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "vtc.com",
+   "checked_at": "2026-11-12T19:41:48Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "VTC",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://vtc.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "4d0e47d9a6d5cf00b11fc709671f29d2d77ec30432c760bb96bd94cf38fd9ef4"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "coveragecat.com",
+   "checked_at": "2026-11-12T19:41:51Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "Coverage Cat",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://coveragecat.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "47b41016a265af34d84ae1aa890fbcf04b5567eb2270c96e22026a7c398090a8"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "you.com",
+   "checked_at": "2026-11-12T19:41:53Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "You.com",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-no-cache-headers",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://you.com/.well-known/poppy.json sends no Cache-Control or Expires."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://you.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "74c64117584feb1adfd1e5c3ea40b7f1b2d5ffeecbb64e6384fd189aa8050b73"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "prijsprofeet.nl",
+   "checked_at": "2026-11-12T19:41:56Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "PrijsProfeet",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://prijsprofeet.nl/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "5dd24a5062bf0caf4a0a90ca62f8dffd00685ea4675e07ba671fb823e001fed7"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "prijsprofeet.be",
+   "checked_at": "2026-11-12T19:41:59Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "PrijsProfeet",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://prijsprofeet.be/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "280675654945401fdb55e533d378a87cb07453181c40b45706a593253c536eb4"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "account.dev.censuble.com",
+   "checked_at": "2026-11-12T19:42:02Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Censuble",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://account.dev.censuble.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "b9d9c22adfcfd5dd2ad6e054ecd0d732f3a79649c01db83391641a9bb0a7aa5c"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "synchronyinnovationlabs.com",
+   "checked_at": "2026-11-12T19:42:05Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Synchrony",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://synchronyinnovationlabs.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "cb05eae37853f4483c037a9ce05dd7825a7107185e05813a18e193705c3a9307"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "globalresearch.ca",
+   "checked_at": "2026-11-12T19:42:07Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://globalresearch.ca/.well-known/poppy.json answered HTTP 403."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://globalresearch.ca/.well-known/poppy.json",
+     "status": 403
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "vzlabnb.com",
+   "checked_at": "2026-11-12T19:42:10Z",
+   "outcome": "invalid",
+   "declared": "0.2",
+   "checked_against": "Draft 0.4",
+   "organization": "VzlaBnB",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.2; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://vzlabnb.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "4971b56ef630806fb548301c0ff8ec2d694c65a239a1d24e92947ec03dea1e12"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "project-1xtwb.vercel.app",
+   "checked_at": "2026-11-12T19:42:12Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "My B2B Store",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 3
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "protected-resource",
+     "text": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "metadata-iss-parameter",
+     "severity": "info",
+     "document": "oauth-metadata",
+     "text": "authorization_response_iss_parameter_supported isn't true."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://project-1xtwb.vercel.app/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "b1ed5d654f312352dae363bad4d4947fb1ef32f5de645ef30e5fbfa4da55b04e"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "5b1c353b439b3a2181e5995a2943b8e287528512ae395a4d43e7afe1ab1f527f"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "53bac6e470f8ab00079ae7c8108814b1ca9c2990936261720c8792aa3c7de184"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "xien63.github.io",
+   "checked_at": "2026-11-12T19:42:16Z",
+   "outcome": "invalid",
+   "declared": "0.1",
+   "checked_against": "Draft 0.4",
+   "organization": "Klinik Demo Sejahtera",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.1; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://xien63.github.io/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "1b2505ed1105b7aa88493030f7d8a0ad8be7da8e27fbeda9a64fb8373efc5da6"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "goodrx.com",
+   "checked_at": "2026-11-12T19:42:18Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 0,
+    "warning": 1,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-too-large",
+     "severity": "warning",
+     "document": "poppy",
+     "text": "https://blocked.goodrx.com/ is larger than 100 KB."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://goodrx.com/.well-known/poppy.json",
+     "status": 200
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "orbitz.com",
+   "checked_at": "2026-11-12T19:42:21Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Expedia Group",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://www.orbitz.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://orbitz.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "8d4e8a5a4defc0876ffc38f64a3b71b4fac00b3341f0bba811dcfd957b8f9a3a"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "rocket.com",
+   "checked_at": "2026-11-12T19:42:24Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Rocket Mortgage",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 1
+   },
+   "messages": [
+    {
+     "id": "http-cache-bounded",
+     "severity": "info",
+     "document": "poppy",
+     "text": "https://rocket.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+    },
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://rocket.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "654af3017e899a32356bb30de9e7bf319cdf77d620b74e9e721a74fa5a0bb6e0"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "prijsprofeet.de",
+   "checked_at": "2026-11-12T19:42:27Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "PrijsProfeet",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://prijsprofeet.de/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "5c006f2c680ad6797268adf499696e16ea72e0edc67ff973d1783bbed3b8868e"
+    }
+   ],
+   "listed_in": [
+    "papchecker.com/sites"
+   ]
+  },
+  {
+   "host": "www.cliffside-retail.com",
+   "checked_at": "2026-11-12T19:42:30Z",
+   "outcome": "valid",
+   "declared": "0.4",
+   "checked_against": "Draft 0.4",
+   "organization": "Cliffside Retail",
+   "refused_by_pda": false,
+   "counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://www.cliffside-retail.com/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "009555e90f9e3c50a41fc12397d4f785fa23869484a034550c9c2cedebb1469e"
+    },
+    {
+     "kind": "protected-resource",
+     "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+     "status": 200,
+     "sha256": "6ffb4731ce284886e28aa1b77be0292a0c446ae5ba506f55654bb0253106ae43"
+    },
+    {
+     "kind": "oauth-metadata",
+     "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+     "status": 200,
+     "sha256": "298cc40ec3310bf2f21b7abc77c3c15ca60dfdca23fd54826748b8cb60742815"
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  },
+  {
+   "host": "poppylab.dev",
+   "checked_at": "2026-11-12T19:42:32Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://poppylab.dev/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://poppylab.dev/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  },
+  {
+   "host": "demo.poppykit.dev",
+   "checked_at": "2026-11-12T19:42:35Z",
+   "outcome": "invalid",
+   "declared": "0.3",
+   "checked_against": "Draft 0.4",
+   "organization": "Lantern & Loch",
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "version-unsupported",
+     "severity": "error",
+     "document": "poppy",
+     "text": "poppy.json is protocol version 0.3; this validator supports 0.4."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://demo.poppykit.dev/.well-known/poppy.json",
+     "status": 200,
+     "sha256": "5f97c37bf3dda4886677e8b0379725e415c5bf442e6fb78bc253602cce624c2e"
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  },
+  {
+   "host": "papplayground.com",
+   "checked_at": "2026-11-12T19:42:37Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://papplayground.com/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://papplayground.com/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  },
+  {
+   "host": "papsandbox.com",
+   "checked_at": "2026-11-12T19:42:40Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://papsandbox.com/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://papsandbox.com/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  },
+  {
+   "host": "poppy-simulator.stacktr.ee",
+   "checked_at": "2026-11-12T19:42:43Z",
+   "outcome": "indeterminate",
+   "declared": null,
+   "checked_against": "Draft 0.4",
+   "organization": null,
+   "refused_by_pda": true,
+   "counts": {
+    "error": 1,
+    "warning": 0,
+    "info": 0
+   },
+   "messages": [
+    {
+     "id": "http-status",
+     "severity": "error",
+     "document": "poppy",
+     "text": "https://poppy-simulator.stacktr.ee/.well-known/poppy.json answered HTTP 404."
+    }
+   ],
+   "documents": [
+    {
+     "kind": "poppy",
+     "url": "https://poppy-simulator.stacktr.ee/.well-known/poppy.json",
+     "status": 404
+    }
+   ],
+   "listed_in": [
+    "poppy.md/implementations"
+   ]
+  }
+ ]
+}
