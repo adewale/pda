@@ -40,9 +40,40 @@ function photoResponse(context: TranscriptContext, prompt: string): AssistantMes
   return fauxAssistantMessage([fauxText("The print request and its approval card show the current status.")]);
 }
 
+/**
+ * Decision 50: a request naming a Company that isn't selected asks on a card;
+ * the User's Allow message then selects it, and the print goes ahead.
+ */
+function companyAccessResponse(context: TranscriptContext, prompt: string): AssistantMessage | null {
+  const asked = /^Print this photo at (caccess(?:desktop|mobile)\.shop\.test), please\.$/.exec(prompt.replace(/\s*\[attachment [^\]]*\]/g, "").trim());
+  const allowed = /^Yes, you can contact (caccess(?:desktop|mobile)\.shop\.test) and send it that photo\.$/.exec(prompt);
+  if (!asked && !allowed) return null;
+  const domain = (asked ?? allowed)![1]!;
+  let latest = context.messages.length - 1;
+  while (latest >= 0 && context.messages[latest]!.role !== "user") latest--;
+  const after = context.messages.slice(latest + 1);
+  const called = (name: string, operation?: string) => after.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.name === name && (operation === undefined || part.arguments.operation === operation)));
+  // The User's photo, from the message that asked: the Allow message names none.
+  const words = (message: TranscriptContext["messages"][number]) => message.role !== "user" ? "" : typeof message.content === "string" ? message.content
+    : message.content.map(part => part.type === "text" ? part.text : "").join("");
+  const photo = [...context.messages].reverse().map(message => /\[attachment (att_[A-Za-z0-9_-]{22})/.exec(words(message))?.[1]).find(Boolean);
+  if (asked) {
+    return called("poppy_request_company") ? fauxAssistantMessage([fauxText("I've asked to contact it on a card.")])
+      : fauxAssistantMessage([fauxToolCall("poppy_request_company", { domain, photos: photo ? [photo] : [] })], { stopReason: "toolUse" });
+  }
+  const answer = (args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall("poppy_api_call", { domain, ...args })], { stopReason: "toolUse" });
+  if (!called("poppy_api_call", "uploadPhoto")) return photo ? answer({ operation: "uploadPhoto", files: { photo } }) : fauxAssistantMessage([fauxText("Please attach the photo.")]);
+  const result = after.find(message => message.role === "toolResult" && message.toolName === "poppy_api_call");
+  const details = result?.role === "toolResult" ? result.details : undefined;
+  const body = details && typeof details === "object" && "body" in details ? details.body : undefined;
+  const photoId = body && typeof body === "object" && "id" in body && typeof body.id === "string" ? body.id : undefined;
+  if (photoId && !called("poppy_api_call", "orderPrints")) return answer({ operation: "orderPrints", body: photoOrder(photoId) });
+  return fauxAssistantMessage([fauxText("The print request and its approval card show the current status.")]);
+}
+
 function respond(context: TranscriptContext): AssistantMessage {
   const prompt = text(context);
-  const photo = photoResponse(context, prompt);
+  const photo = photoResponse(context, prompt) ?? companyAccessResponse(context, prompt);
   if (photo) return photo;
   const request = /^Please exchange my Stormline Jacket for the insulated medium at ([a-z0-9.-]+) using (OpenAPI|MCP)\.$/.exec(prompt);
   const verification = /^Please send a verification reply at ([a-z0-9.-]+) in ([A-Za-z0-9_-]+)\.$/.exec(prompt);

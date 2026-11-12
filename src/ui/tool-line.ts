@@ -231,6 +231,13 @@ export function describeToolCall(
   switch (name) {
     case "poppy_discover":
       return line(`Looked up what ${company} offers personal agents`, null);
+    case "poppy_request_company": {
+      // The domain, as the card shows it: the name is the Company's own claim (decision 50).
+      const where = domain ?? "a Company";
+      if (outcome?.error) return line(`Didn't ask to contact ${where}`, null);
+      if (isRecord(outcome?.details) && outcome.details.selected === true) return line(`${where} was already selected`, null);
+      return line(`Asked you to let your agent contact ${where}`, null);
+    }
     case "poppy_sign_in": {
       const granted = isRecord(outcome?.details) && typeof outcome.details.status === "string" && outcome.details.status.startsWith("signed in");
       // Poppy defines no scopes: each Company's are its own (spec 4.7), so a sign-in names no access level.

@@ -130,6 +130,13 @@ describe("describeToolCall", () => {
     expect(describeToolCall("poppy_discover", { domain: "nowhere.example" }, { error: true, text: "No poppy.json" })).toMatchObject({ text: "Looked up what nowhere.example offers personal agents", state: "failed" });
   });
 
+  it("names the domain, not the Company's own name, when asking to contact one (decision 50)", () => {
+    const asked = { error: false, details: { domain: "manzanita.example", company: "Manzanita", asked: true } };
+    expect(describeToolCall("poppy_request_company", { domain: "manzanita.example" }, asked, names)).toMatchObject({ text: "Asked you to let your agent contact manzanita.example", state: "done" });
+    expect(describeToolCall("poppy_request_company", { domain: "manzanita.example" }, { error: false, details: { domain: "manzanita.example", selected: true } })!.text).toBe("manzanita.example was already selected");
+    expect(describeToolCall("poppy_request_company", { domain: "nowhere.example" }, { error: true, text: "Nothing was asked." })).toMatchObject({ text: "Didn't ask to contact nowhere.example", state: "failed" });
+  });
+
   it("falls back to the domain, then to 'the Company'", () => {
     expect(describeToolCall("poppy_status", { domain: "Acme.Example" }, done)!.text).toBe("Checked your accounts and conversations at Acme.Example");
     expect(describeToolCall("poppy_discover", {}, done)!.text).toBe("Looked up what the Company offers personal agents");
