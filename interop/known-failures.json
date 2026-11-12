@@ -14,18 +14,6 @@
       ],
       "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
       "reason": "By design: the sloppy fake agent sends its client assertions with the token endpoint as aud (reading S1 token-endpoint). 0.3 settled S1 and 0.4 keeps it: 4.1 makes the issuer the aud at every endpoint, so both mocks refuse its first token request with invalid_client and record client-assertion.aud. Its signed-in cells fail; its signed-out ones, which need no token request, pass."
-    },
-    {
-      "agent": "pda",
-      "company": "print-with-poppy",
-      "scenario": "*",
-      "blame": null,
-      "errors": [
-        "invalid_session",
-        "expect w.poppy_error"
-      ],
-      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#print-with-poppy-delegation",
-      "reason": "Print with Poppy at ae453ed reads a Session JWT's delegation from pap_dlg and requires typ pap-delegation+jwt, names from earlier in the 0.3 draft. 0.4 5.2 names poppy_dlg and poppy-delegation+jwt, which our agent sends, so the store answers every signed-in or Session-header API request with 400 invalid_session. AS shows it as the expected insufficient_scope arriving as invalid_session."
     }
   ]
 }

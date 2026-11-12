@@ -1,5 +1,5 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
-// photo-print store (spenciefy/print-with-poppy), pinned at ae453ed (12 Nov), Poppy 0.4:
+// photo-print store (spenciefy/print-with-poppy), pinned at bd1dc43 (12 Nov), Poppy 0.4:
 // the text of upstream ad20217, whose 0.4 pages are those of our pin, ed47408. Out of the
 // registry from 12 November, when our agent dropped 0.3 (docs/interop-spec.md section 15),
 // until the store served 0.4 the same day.
@@ -27,7 +27,7 @@ const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
 // The runner sets INTEROP_ORIGIN (spec section 3); the default is for running by hand.
 const ORIGIN = (process.env.INTEROP_ORIGIN ?? 'https://print-with-poppy.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const COMMIT = process.env.INTEROP_COMMIT ?? 'ae453ed374c9cd1d775423694059a29551e842e1';
+const COMMIT = process.env.INTEROP_COMMIT ?? 'bd1dc43c993a3c9bf6a21626f16f5836f745cb39';
 const APP_DIR = '/opt/pwp';
 const DATA = '/data/pwp';
 const INNER = `http://127.0.0.1:${PORT}`;
