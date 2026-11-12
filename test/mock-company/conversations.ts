@@ -28,7 +28,7 @@ type Conversation = {
   /** The protocol version it started in (8.2), which sets the shape of its state (8.7). */
   readonly version: string;
   directChild: string | null;
-  /** 0.3's status. Under 0.4, `working` is `working`, `handoff` is `pending` while `queued`, and `closed` is `closed`. */
+  /** The local status: `working` is `working`, `handoff` is `pending` while `queued`, and `closed` is `closed` (8.7). */
   status: Status;
   responder: Responder;
   events: ConversationEvent[];
@@ -36,16 +36,16 @@ type Conversation = {
   readonly expired: Set<string>;
   readonly sent: string[];
   context: Record<string, unknown>;
-  /** 0.4: the latest request the Company accepted, which its agent's messages take into account (`as_of_request`, 8.4). */
+  /** The latest request the Company accepted, which its agent's messages take into account (`as_of_request`, 8.4). */
   lastRequest?: string;
 };
 
 type IncomingMessage = {
   id?: unknown;
   sender?: unknown;
-  /** 0.3: who wrote it (8.4). */
+  /** Who wrote it (8.4). */
   author?: unknown;
-  /** 0.3: content defined by extensions, keyed by name (8.4); Operations 2's approval is `extensions.operations.approval` (Ops 6). */
+  /** Content defined by extensions, keyed by name (8.4); an approval is `extensions.operations.approval` (Ops 6). */
   extensions?: unknown;
   text?: unknown;
   data?: unknown;
@@ -101,7 +101,7 @@ export function canonicalJson(value: unknown): string {
 /** Personal Agent Protocol conversations, Company side (spec section 8). */
 export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
-  /** Message idempotency per User, and under 0.4 every request's: id → content hash and conversation (8.3). */
+  /** Request idempotency per User: id → content hash and conversation (8.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
   /** Accepted `user_requested` events, by parent and event: the Direct Conversation each opened (8.10). */
   readonly #acceptances = new Map<string, string>();
@@ -150,13 +150,7 @@ export class Conversations {
 
   #setState(conversation: Conversation, status: Status, responder: Responder = conversation.responder): void {
     if (conversation.status === status && conversation.responder === responder) return;
-    if (conversation.version === "0.3") {
-      conversation.status = status;
-      conversation.responder = responder;
-      this.#add(conversation, { type: "state", status, responder });
-      return;
-    }
-    // 0.4: a state event for a change to handoff, responder or closed, never for working alone (8.7).
+    // A state event for a change to handoff, responder or closed, never for working alone (8.7).
     const { handoff: before, closed: wasClosed } = this.#state(conversation) as { handoff: string; closed: boolean };
     const changed = conversation.responder !== responder;
     conversation.status = status;
@@ -165,9 +159,8 @@ export class Conversations {
     if (changed || handoff !== before || closed !== wasClosed) this.#add(conversation, { type: "state", handoff, responder, closed });
   }
 
-  /** The state a read reports (8.7): 0.3's `status` and `responder`, or 0.4's four fields. */
+  /** The state a read reports (8.7): its four fields. */
   #state(conversation: Conversation, working = conversation.status === "working"): Record<string, unknown> {
-    if (conversation.version === "0.3") return { status: working ? "working" : conversation.status, responder: conversation.responder };
     const closed = conversation.status === "closed";
     return { working: working && !closed, handoff: conversation.status === "queued" ? "pending" : "none", responder: conversation.responder, closed };
   }
@@ -176,8 +169,8 @@ export class Conversations {
     // `author`, naming the person when one writes (8.4, 8.7).
     const human = conversation.responder === "human";
     const writer = { author: human ? { type: "human", id: "aut_alex", name: "Alex" } : { type: "agent" } };
-    // 0.4 8.4: the Company Agent's message names the latest request it took into account; a person's never does.
-    const asOf = conversation.version !== "0.3" && !human && conversation.lastRequest ? { as_of_request: conversation.lastRequest } : {};
+    // 8.4: the Company Agent's message names the latest request it took into account; a person's never does.
+    const asOf = !human && conversation.lastRequest ? { as_of_request: conversation.lastRequest } : {};
     this.#add(conversation, {
       type: "message",
       message: {
@@ -216,17 +209,8 @@ export class Conversations {
     return conversation;
   }
 
-  /** A request in a 0.4 Session, whose POSTs carry a request `id` (0.4 8.3). */
-  #v04(context: ResourceContext): boolean {
-    return context.session.declaration !== undefined && context.session.declaration.version !== "0.3";
-  }
-
-  /**
-   * A 0.4 request's `id` (8.2, 8.3), which a message takes as its own; null
-   * under 0.3, whose messages carry their own `id`.
-   */
-  #requestId(context: ResourceContext, body: Record<string, unknown>): string | null {
-    if (!this.#v04(context)) return null;
+  /** A request's `id` (8.2, 8.3), which a message takes as its own. */
+  #requestId(body: Record<string, unknown>): string {
     if (typeof body.id !== "string" || !ID.test(body.id)) {
       this.company.violation("request.id", `conversation request: id ${JSON.stringify(body.id)} isn't 1-256 base64url characters`);
       throw new HttpError(json({ error: "invalid_request", error_description: "id must be 1-256 base64url characters" }, 400));
@@ -234,38 +218,33 @@ export class Conversations {
     return body.id;
   }
 
-  /** The message a request carries, with its request's ID under 0.4 (8.3: "A message's ID is its request's ID"). */
-  #incoming(context: ResourceContext, body: Record<string, unknown>): IncomingMessage | undefined {
-    const requestId = this.#requestId(context, body);
+  /** The message a request carries, with its request's ID (8.3: "A message's ID is its request's ID"). */
+  #incoming(body: Record<string, unknown>): IncomingMessage | undefined {
+    const requestId = this.#requestId(body);
     const message = body.message as IncomingMessage | undefined;
-    if (requestId === null || typeof message !== "object" || message === null) return message;
+    if (typeof message !== "object" || message === null) return message;
     return { ...message, id: requestId };
   }
 
   /**
-   * A 0.4 handoff, cancel or close (8.3): the same `id`, path and body again
+   * A handoff, cancel or close (8.3): the same `id`, path and body again
    * is a retry, and true; a different path or body is `request_id_conflict`.
    */
   #retried(inbound: Inbound, context: ResourceContext, conversation: Conversation, body: Record<string, unknown>): boolean {
-    const requestId = this.#requestId(context, body);
-    if (requestId === null) return false;
+    const requestId = this.#requestId(body);
     const key = `${context.session.clientId}|${context.session.userId}|${requestId}`;
     const hash = canonicalJson({ path: inbound.url.pathname, body });
     const seen = this.#messageIds.get(key);
-    if (seen && seen.hash !== hash) this.#conflict(context, requestId);
+    if (seen && seen.hash !== hash) this.#conflict(requestId);
     if (seen) return true;
     this.#messageIds.set(key, { hash, conversationId: conversation.id });
     conversation.lastRequest = requestId;
     return false;
   }
 
-  #conflict(context: ResourceContext, id: string): never {
-    if (this.#v04(context)) {
-      this.company.violation("request.id-reused", `request id ${id} reused with a different path or body`);
-      throw new HttpError(json({ error: "request_id_conflict" }, 409));
-    }
-    this.company.violation("message.id-reused", `message id ${id} reused with different content`);
-    throw new HttpError(json({ error: "message_id_conflict" }, 409));
+  #conflict(id: string): never {
+    this.company.violation("request.id-reused", `request id ${id} reused with a different path or body`);
+    throw new HttpError(json({ error: "request_id_conflict" }, 409));
   }
 
   #validate(message: IncomingMessage | undefined): IncomingMessage {
@@ -275,10 +254,7 @@ export class Conversations {
       return new HttpError(json({ error: "invalid_request", error_description: why }, 400));
     };
     if (!message || typeof message !== "object") throw bad("message.missing", "missing message");
-    if (typeof message.id !== "string" || !ID.test(message.id)) {
-      throw bad("message.id", "id must be 1-256 base64url characters");
-    }
-    if ("sender" in message) co.violation("message.sender-field", "conversation message: sender is 0.2's; 0.3 says author.type (8.4)");
+    if ("sender" in message) co.violation("message.sender-field", "conversation message: sender is 0.2's; 0.3 and later say author.type (8.4)");
     const type = this.#writer(message);
     if (type !== "agent" && type !== "human") throw bad("message.author", "author.type must be agent or human");
     const author = message.author as Record<string, unknown>;
@@ -333,7 +309,7 @@ export class Conversations {
     const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
     const seen = this.#messageIds.get(key);
     if (!seen) return null;
-    if (seen.hash !== this.#hash(inbound, context, message, parent)) this.#conflict(context, message.id as string);
+    if (seen.hash !== this.#hash(inbound, context, message, parent)) this.#conflict(message.id as string);
     return this.#conversations.get(seen.conversationId) ?? null;
   }
 
@@ -342,17 +318,15 @@ export class Conversations {
     this.#messageIds.set(key, { hash: this.#hash(inbound, context, message, parent), conversationId: conversation.id });
   }
 
-  /** What a retry must repeat: the message and its parent, and under 0.4 the path (8.3). */
+  /** What a retry must repeat: the message, its parent and the path (8.3). */
   #hash(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null): string {
-    return canonicalJson({ message, parent, ...(this.#v04(context) ? { path: inbound.url.pathname } : {}) });
+    return canonicalJson({ message, parent, path: inbound.url.pathname });
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
     conversation.sent.push(`${String(this.#writer(message))}:${typeof message.text === "string" ? message.text : ""}`);
-    if (conversation.version !== "0.3") {
-      this.#asOfCursor(conversation, message);
-      conversation.lastRequest = message.id as string;
-    }
+    this.#asOfCursor(conversation, message);
+    conversation.lastRequest = message.id as string;
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
@@ -508,11 +482,8 @@ export class Conversations {
     if (inbound.url.searchParams.has("wait") && !this.company.config.ignoreWait) {
       return json(await this.#read(conversation, cursor, wait), status);
     }
-    // 0.4: a POST's response has only conversation_id (8.3).
-    return json(
-      conversation.version === "0.3" ? { conversation_id: conversation.id, status: conversation.status, responder: conversation.responder } : { conversation_id: conversation.id },
-      status
-    );
+    // A POST's response has only conversation_id (8.3).
+    return json({ conversation_id: conversation.id }, status);
   }
 
   #body(inbound: Inbound): Record<string, unknown> {
@@ -554,7 +525,7 @@ export class Conversations {
       owner: { clientId: context.session.clientId, userId: context.session.userId, account: parent.owner.account },
       parentId: parent.id,
       direct: true,
-      version: context.session.declaration?.version ?? "0.3",
+      version: context.session.declaration!.version,
       directChild: null,
       status: "idle",
       responder: "agent",
@@ -583,8 +554,8 @@ export class Conversations {
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const eventId = typeof body.user_requested_event_id === "string" ? body.user_requested_event_id : null;
     // 8.10: accepting a user_requested event, with or without the User's first message.
-    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, this.#incoming(context, body));
-    const message = this.#validate(this.#incoming(context, body));
+    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, this.#incoming(body));
+    const message = this.#validate(this.#incoming(body));
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
     const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(inbound, context, message, parentId);
     // A retry gets the original response only if it may still read the
@@ -618,7 +589,7 @@ export class Conversations {
       },
       parentId,
       direct: parent !== null,
-      version: context.session.declaration?.version ?? "0.3",
+      version: context.session.declaration!.version,
       directChild: null,
       status: "idle",
       responder: "agent",
@@ -641,7 +612,7 @@ export class Conversations {
   async message(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     const body = this.#body(inbound);
-    const message = this.#validate(this.#incoming(context, body));
+    const message = this.#validate(this.#incoming(body));
     const existing = this.#idempotent(inbound, context, message, null);
     if (existing) return this.#answer(inbound, existing, 202);
     if (conversation.status === "closed") {
@@ -655,7 +626,7 @@ export class Conversations {
     const refusal = this.company.config.refuseMessages;
     if (refusal) throw new HttpError(json(refusal.body, refusal.status));
     const declared = context.session.declaration;
-    if (this.company.config.keepsConversationVersions && (declared?.version ?? "0.3") !== conversation.version) {
+    if (this.company.config.keepsConversationVersions && declared?.version !== conversation.version) {
       throw new HttpError(json({ error: "version_mismatch", protocol_version: conversation.version }, 409));
     }
     // In a Direct Conversation the agent relays the User's words as written,
@@ -690,8 +661,8 @@ export class Conversations {
     if (!wantsStream || !this.company.config.streaming) return json(page);
     // SSE comments, which keep idle connections open, carry no event (8.6).
     const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
-    // 0.4: `working` as a `working` event with no id, when the stream opens (8.6).
-    let body = conversation.version === "0.3" ? keepAlive : `${keepAlive}event: working\ndata: ${JSON.stringify({ working: this.#state(conversation).working })}\n\n`;
+    // `working` as a `working` event with no id, when the stream opens (8.6).
+    let body = `${keepAlive}event: working\ndata: ${JSON.stringify({ working: this.#state(conversation).working })}\n\n`;
     for (const event of page.events) {
       const message = event.message as { id?: string; role?: string; text?: string } | undefined;
       if (event.type === "message" && message?.role === "company" && message.text && this.company.config.textDeltas) {
@@ -708,12 +679,12 @@ export class Conversations {
     });
   }
 
-  /** A handoff or close body: `{}` under 0.3, and only the request `id` under 0.4 (8.3). True for a 0.4 retry. */
+  /** A handoff, cancel or close body: only the request `id` (8.3). True for a retry. */
   #emptyBody(inbound: Inbound, context: ResourceContext, conversation: Conversation, id: "handoff.body" | "close.body"): boolean {
     const body = this.#body(inbound);
     const retried = this.#retried(inbound, context, conversation, body);
-    if (Object.keys(body).some((key) => !(key === "id" && this.#v04(context)))) {
-      this.company.violation(id, `${id.split(".")[0]} body should be ${this.#v04(context) ? "only the request id" : "{}"}, got ${inbound.bodyText}`);
+    if (Object.keys(body).some((key) => key !== "id")) {
+      this.company.violation(id, `${id.split(".")[0]} body should be only the request id, got ${inbound.bodyText}`);
     }
     return retried;
   }
@@ -721,7 +692,7 @@ export class Conversations {
   /** `POST {endpoint}/{id}/handoff` (8.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation, 202);
+    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation);
     if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (conversation.directChild) {
       throw new HttpError(
@@ -733,23 +704,21 @@ export class Conversations {
     if (conversation.responder !== "human") {
       this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
     }
-    return this.#accepted(conversation, 202);
+    return this.#accepted(conversation);
   }
 
-  /** A handoff, cancel or close accepted: 0.3's state, or 0.4's `conversation_id` alone (8.3). */
-  #accepted(conversation: Conversation, status: number): Response {
-    if (conversation.version === "0.3") return json({ status: conversation.status, responder: conversation.responder }, status);
+  /** A handoff, cancel or close accepted: its `conversation_id` alone (8.3). */
+  #accepted(conversation: Conversation): Response {
     return json({ conversation_id: conversation.id }, 202);
   }
 
-  /** `POST {endpoint}/{id}/handoff/cancel` (0.4 8.9): stop looking for a person; nothing while no handoff is pending. */
+  /** `POST {endpoint}/{id}/handoff/cancel` (8.9): stop looking for a person; nothing while no handoff is pending. */
   async cancelHandoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    if (conversation.version === "0.3") return json({ error: "not_found" }, 404);
-    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation, 202);
+    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation);
     if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (conversation.status === "queued") this.#setState(conversation, "idle");
-    return this.#accepted(conversation, 202);
+    return this.#accepted(conversation);
   }
 
   /** `POST {endpoint}/{id}/close` (8.12). */
@@ -758,7 +727,7 @@ export class Conversations {
     this.#emptyBody(inbound, context, conversation, "close.body");
     this.#closeConversation(conversation);
     // 0.4: 202, also for a conversation already closed (8.12).
-    return this.#accepted(conversation, 200);
+    return this.#accepted(conversation);
   }
 
   #closeConversation(conversation: Conversation): void {

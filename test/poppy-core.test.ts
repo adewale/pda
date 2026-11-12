@@ -1,9 +1,9 @@
 /**
- * Our client against the mock Company speaking draft 0.3 as rewritten on 28
- * October (spec/draft-0.3-retrieved-2026-10-28): the issuer from the
- * domain's protected resource metadata, a Session header on every request,
- * plain OAuth for accounts, the new browser join, Operations 2, Mediated
- * Sign-In as a grant, and `author` on messages. Every test also passes the
+ * Our client against the mock Company: the core of the protocol that 0.3
+ * introduced and 0.4 kept, first written for 0.3 and run against 0.4 since
+ * decision 49. The issuer from the domain's protected resource metadata, a
+ * Session header on every request, plain OAuth for accounts, the browser
+ * join, Operations, Mediated Sign-In as a grant, and `author` on messages. Every test also passes the
  * strict check in agent-helpers: the mock recorded no violation or warning.
  */
 import { decodeJwt, decodeProtectedHeader } from "jose";
@@ -13,10 +13,9 @@ import { agent, cards, company, requests, signInDirect, testEnv, tool, until, ty
 import worker from "./worker";
 import type { MockConfig, MockRequest } from "./mock-company";
 
-const V3: Partial<MockConfig> = { protocolVersion: "0.3" };
 const SCOPES = ["orders:read", "orders:write"];
 
-/** Requests to the Company's resources, which all carry the Session header (0.3 5.2). */
+/** Requests to the Company's resources, which all carry the Session header (5.2). */
 const resourceRequests = (all: readonly MockRequest[], c: Company) =>
   all.filter((request) => {
     const url = new URL(request.url);
@@ -25,9 +24,9 @@ const resourceRequests = (all: readonly MockRequest[], c: Company) =>
     return host === `api.${c.domain}` || host === `mcp.${c.domain}` || url.pathname.endsWith("/browser-session/authorize");
   });
 
-describe("0.3: discovery and the Session header", () => {
+describe("discovery and the Session header", () => {
   it("finds the issuer from the domain's metadata and talks signed out with the Session header alone", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     const sent = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(sent.isError).toBe(false);
@@ -59,7 +58,7 @@ describe("0.3: discovery and the Session header", () => {
   });
 
   it("uses a delegated key for one User ID only, and another User's Sessions are their own", async () => {
-    const c = await company(V3);
+    const c = await company();
     const first = await agent();
     const second = await agent();
     await tool(first, "poppy_message", { domain: c.domain, text: "hello" });
@@ -75,7 +74,7 @@ describe("0.3: discovery and the Session header", () => {
   });
 
   it("starts a new Session once when the Company ends one, and keeps going", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
     expect(await c.stub.endAllSessions()).toBeGreaterThan(0);
@@ -85,8 +84,8 @@ describe("0.3: discovery and the Session header", () => {
   });
 });
 
-describe("0.3: a Company without an OAuth issuer (3.2)", () => {
-  const ISSUERLESS: Partial<MockConfig> = { ...V3, issuerless: true, agent: false, openapi: true, mcp: true, operations: false, web: false };
+describe("a Company without an OAuth issuer (3.2)", () => {
+  const ISSUERLESS: Partial<MockConfig> = { issuerless: true, agent: false, openapi: true, mcp: true, operations: false, web: false };
 
   it("uses a signed-out MCP API after a 404 for the domain's protected resource metadata, addressing Session JWTs to the domain", async () => {
     const c = await company(ISSUERLESS);
@@ -120,7 +119,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("won't drop a known issuer over a 404, but follows metadata that explicitly lists no authorization server", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
     // The protected resource metadata disappears: a 404 doesn't show the issuer was removed.
@@ -141,11 +140,11 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("still won't drop a known issuer over a 404 after the domain was website-only in between (3.2)", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
     // For a while poppy.json lists nothing that uses a Session, and there is no issuer: website only.
-    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
+    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, excludedTasks: false, skills: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
     await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
     expect((await tool(a, "poppy_discover", { domain: c.domain })).text).toContain("Website only");
     // Then it lists an MCP API again, its protected resource metadata still a 404.
@@ -157,12 +156,12 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("keeps a known issuer cached before the upgrade when the first discovery after it is website-only (3.2)", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
     // An agent that discovered the Company before the issuer history existed has only its cached document.
     await a.stub.poppySql("DELETE FROM poppy_intents WHERE call_key LIKE 'known-company|%'");
-    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
+    await c.stub.configure({ issuerless: true, agent: false, openapi: false, mcp: false, feedback: false, excludedTasks: false, skills: false, browserSession: false, operations: false, unknownApi: false, unknownExtension: false });
     await a.stub.poppySql("UPDATE poppy_domains SET expires_at = 0");
     expect((await tool(a, "poppy_discover", { domain: c.domain })).text).toContain("Website only");
     await c.stub.configure({ mcp: true });
@@ -173,7 +172,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("signs out of accounts held under an issuer the Company explicitly removed, revoking them at the old issuer", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
     expect((await c.stub.state()).accountTokens).toBe(1);
@@ -190,7 +189,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("continues signed out when the Company refuses this agent a sign-in type, and doesn't offer it again for a while (4.1)", async () => {
-    const c = await company({ ...V3, mcp: true, signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null }, refuseSignInTypes: ["device"] });
+    const c = await company({ mcp: true, signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null }, refuseSignInTypes: ["device"] });
     const a = await agent();
     const first = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
     expect(first.isError).toBe(true);
@@ -205,7 +204,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("ends account access when an issuer of exactly https://{domain} is removed, though the identifier stays the same", async () => {
-    const c = await company({ ...V3, mcp: true, issuerOnDomain: true });
+    const c = await company({ mcp: true, issuerOnDomain: true });
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
@@ -228,7 +227,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("keeps using a refresh token issued before the Company set auth.disabled, in a new Session too (3.2)", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
     await c.stub.configure({ authDisabled: true });
@@ -248,7 +247,7 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 
   it("starts no sign-in at a Company that sets auth.disabled, though it has an issuer, and still talks signed out", async () => {
-    const c = await company({ ...V3, authDisabled: true, mcp: true });
+    const c = await company({ authDisabled: true, mcp: true });
     const a = await agent();
     const signIn = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
     expect(signIn.isError).toBe(true);
@@ -270,9 +269,9 @@ describe("0.3: a Company without an OAuth issuer (3.2)", () => {
   });
 });
 
-describe("0.3: operator signatures (5.3, Web Bot Auth)", () => {
+describe("operator signatures (5.3, Web Bot Auth)", () => {
   it("signs every request with the Session header, covering poppy-session and authorization, with a key in our own directory", async () => {
-    const c = await company({ ...V3, mcp: true });
+    const c = await company({ mcp: true });
     const a = await agent();
     expect((await signInDirect(a, c, SCOPES))?.callback.status).toBe(200);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
@@ -301,12 +300,12 @@ describe("0.3: operator signatures (5.3, Web Bot Auth)", () => {
   });
 });
 
-describe("0.3: the Company's logo (3.1; Guides, \"Finding a company\")", () => {
+describe("the Company's logo (3.1; Guides, \"Finding a company\")", () => {
   const logoOf = async (a: Awaited<ReturnType<typeof agent>>, domain: string) =>
     worker.fetch(new Request(`${testEnv.PUBLIC_ORIGIN}/api/companies/${domain}/logo`, { headers: { Cookie: a.cookie } }), testEnv as unknown as Env);
 
   it("is fetched by the agent and served from our origin, sandboxed, so the User's device never loads it from the Company", async () => {
-    const c = await company({ ...V3, logo: "png" });
+    const c = await company({ logo: "png" });
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
     const response = await logoOf(a, c.domain);
@@ -322,16 +321,16 @@ describe("0.3: the Company's logo (3.1; Guides, \"Finding a company\")", () => {
 
   it("serves nothing for an SVG, which can carry script, or for a Company that names no logo", async () => {
     for (const logo of ["svg", null] as const) {
-      const c = await company({ ...V3, logo });
+      const c = await company({ logo });
       const a = await agent();
       expect((await logoOf(a, c.domain)).status).toBe(404);
     }
   });
 });
 
-describe("0.3: plain OAuth for accounts", () => {
+describe("plain OAuth for accounts", () => {
   it("asks for every scope it still needs when it signs in again for more access, not only the missing one (4.7)", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
     const more = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:write"], reason: "To exchange the jacket" });
@@ -341,7 +340,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("drops a held scope the Company no longer describes when it asks for more access, rather than refusing", async () => {
-    const c = await company({ ...V3, customScopes: { "loyalty:read": "See your points" } });
+    const c = await company({ customScopes: { "loyalty:read": "See your points" } });
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read", "loyalty:read"]))?.callback.status).toBe(200);
     await c.stub.configure({ customScopes: {} });
@@ -355,7 +354,7 @@ describe("0.3: plain OAuth for accounts", () => {
   it("keeps a scope granted through another domain of the same issuer when it signs in again for more access (3.2, 4.7)", async () => {
     // loyalty:read is described only on the other domain, and the issuer publishes no scopes_supported.
     const c = await company({
-      ...V3, omitScopesSupported: true, customScopes: { "loyalty:read": "See your points" }, hideScopesOnMainDomain: ["loyalty:read"],
+      omitScopesSupported: true, customScopes: { "loyalty:read": "See your points" }, hideScopesOnMainDomain: ["loyalty:read"],
       signIn: { direct: ["orders:read", "orders:write", "loyalty:read"], device: null, mediated: null }
     });
     const a = await agent();
@@ -371,7 +370,7 @@ describe("0.3: plain OAuth for accounts", () => {
   it("keeps a scope only another domain's OpenAPI description documents when it signs in again for more access (3.2, 4.7)", async () => {
     // addresses is in no auth.scopes and no scopes_supported: only the OpenAPI description, which only the other domain lists, documents it.
     const c = await company({
-      ...V3, omitScopesSupported: true, hideScopesFromAuth: ["addresses"], openapiOnAltDomainOnly: true,
+      omitScopesSupported: true, hideScopesFromAuth: ["addresses"], openapiOnAltDomainOnly: true,
       signIn: { direct: ["orders:read", "orders:write", "addresses"], device: null, mediated: null }
     });
     const a = await agent();
@@ -385,14 +384,14 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("requests a scope the Company documents when its issuer publishes no scopes_supported (3.2, 4.7)", async () => {
-    const c = await company({ ...V3, omitScopesSupported: true });
+    const c = await company({ omitScopesSupported: true });
     const a = await agent();
     expect((await signInDirect(a, c, ["orders:read"]))?.callback.status).toBe(200);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
   });
 
   it.each([true, false])("signs in directly and calls the API with the access token and ath (DPoP=%s)", async (dpopTokens) => {
-    const c = await company({ ...V3, dpopTokens });
+    const c = await company({ dpopTokens });
     const a = await agent();
     expect((await signInDirect(a, c, SCOPES))?.callback.status).toBe(200);
     const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
@@ -409,7 +408,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("refreshes an expired access token with the refresh token alone", async () => {
-    const c = await company({ ...V3, accessTokenTtl: 31 });
+    const c = await company({ accessTokenTtl: 31 });
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
@@ -420,7 +419,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("asks for sign-in on a challenge with no error code, as insufficient_scope", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
     expect(result.text).toMatch(/insufficient_scope|sign in/i);
@@ -429,7 +428,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("signs in on another device and uses the account", async () => {
-    const c = await company({ ...V3, signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null } });
+    const c = await company({ signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null } });
     const a = await agent();
     expect((await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Look at your orders" })).isError).toBe(false);
     const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_device" && item.open));
@@ -441,7 +440,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("signs in with Mediated Sign-In's grant, sending the one-time code alone the second time", async () => {
-    const c = await company({ ...V3, signIn: { direct: null, device: null, mediated: ["orders:read"] } });
+    const c = await company({ signIn: { direct: null, device: null, mediated: ["orders:read"] } });
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const credentials = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
@@ -460,7 +459,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("continues signed out, in the same Session, after signing out", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
@@ -474,9 +473,9 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 });
 
-describe("0.3: one account per Session", () => {
+describe("one account per Session", () => {
   it("signs in to a second account in a new Session, even after signing out of the first", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
@@ -489,9 +488,9 @@ describe("0.3: one account per Session", () => {
   });
 });
 
-describe("0.3: Operations 2", () => {
+describe("Operations 2", () => {
   it("shows the Company's terms, sends the same request with Poppy-Approval, and performs it once", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     const asked = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
@@ -512,7 +511,7 @@ describe("0.3: Operations 2", () => {
   });
 
   it("approves an MCP tool's operation with _meta", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
@@ -523,7 +522,7 @@ describe("0.3: Operations 2", () => {
   });
 
   it("approves a Company Agent's operation with a message's approval", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "Please exchange the jacket on my order" })).isError).toBe(false);
@@ -539,7 +538,7 @@ describe("0.3: Operations 2", () => {
   });
 
   it("refuses an approval message an earlier build saved with the old top-level approval field, sending nothing", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "Please exchange the jacket on my order" })).isError).toBe(false);
@@ -566,11 +565,11 @@ describe("0.3: Operations 2", () => {
   });
 });
 
-describe("0.3: the browser join", () => {
+describe("the browser join", () => {
   it("authorizes the page's code with the Session header, then the browser submits it", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
-    await signInDirect(a, c, SCOPES);
+    await signInDirect(a, c, [...SCOPES, "poppy:browser-sign-in"]);
     const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
     expect(page.isError).toBe(false);
     expect(page.text).toContain("Signed in as acct_ada");
@@ -586,9 +585,9 @@ describe("0.3: the browser join", () => {
   });
 });
 
-describe("0.3: conversations", () => {
+describe("conversations", () => {
   it("writes author and reads a person's name from the Company", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     const sent = await tool(a, "poppy_message", { domain: c.domain, text: "Can a person help?" });
     expect(sent.isError).toBe(false);
@@ -597,21 +596,22 @@ describe("0.3: conversations", () => {
   });
 });
 
-describe("0.3: task coverage", () => {
+describe("task coverage", () => {
   it("reads the excluded tasks with discovery, keeping only references to the Company's own hosts and APIs", async () => {
-    const c = await company(V3);
+    const c = await company();
     const a = await agent();
     const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
     expect(found.excludedTasks.tasks.map((entry: { task: string }) => entry.task)).toEqual(["Close an account", "Send a gift card"]);
     expect(found.excludedTasks.tasks[0].alternative).toEqual({ instructions: "Accounts are closed by phone.", references: [{ type: "web", url: `${c.hosts.web}/help/close` }] });
-    // 9.1: fetched with a GET and no token or Session header.
-    const fetch = (await requests(c)).find((request) => request.url.endsWith("/poppy/excluded-tasks.json"))!;
+    // 9: fetched from the tasks endpoint with a GET, the Session header and no token.
+    const fetch = (await requests(c)).find((request) => request.url.endsWith("/poppy/tasks"))!;
+    expect(fetch.method).toBe("GET");
     expect(fetch.headers.authorization).toBeUndefined();
-    expect(fetch.headers["poppy-session"]).toBeUndefined();
+    expect(fetch.headers["poppy-session"]).toBeDefined();
   });
 
   it("sends feedback once per task with the Session header, and accepts an alternative in answer", async () => {
-    const c = await company({ ...V3, feedback: true, feedbackAlternative: true });
+    const c = await company({ feedback: true, feedbackAlternative: true });
     const a = await agent();
     const args = { domain: c.domain, task: "Pay with a gift card", description: "The User wanted to pay with a gift card; no API or page takes one." };
     const first = JSON.parse((await tool(a, "poppy_feedback", args)).text);
@@ -627,7 +627,7 @@ describe("0.3: task coverage", () => {
   });
 
   it("doesn't report a task the Company lists as excluded", async () => {
-    const c = await company({ ...V3, feedback: true });
+    const c = await company({ feedback: true });
     const a = await agent();
     const answer = JSON.parse((await tool(a, "poppy_feedback", { domain: c.domain, task: "close an account.", description: "The User wanted to close their account." })).text);
     expect(answer.status).toBe("not sent");
@@ -636,9 +636,9 @@ describe("0.3: task coverage", () => {
   });
 });
 
-describe("0.3: describing scopes", () => {
+describe("describing scopes", () => {
   it("shows each scope as the Company's OpenAPI description describes it, with its hint in plain words", async () => {
-    const c = await company({ ...V3, describesSecurity: true });
+    const c = await company({ describesSecurity: true });
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Exchange the jacket" });
     const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_link" && item.open));
