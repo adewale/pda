@@ -81,9 +81,9 @@
       "name": "print-with-poppy",
       "role": "company",
       "source": "https://github.com/spenciefy/print-with-poppy",
-      "commit": "ae453ed374c9cd1d775423694059a29551e842e1",
+      "commit": "bd1dc43c993a3c9bf6a21626f16f5836f745cb39",
       "build": "interop/impls/print-with-poppy-company",
-      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); Poppy 0.4 since ae453ed (12 November), the text of upstream ad20217, whose 0.4 pages are those of our pin: Poppy-Version on every Session request, plain OAuth tokens without DPoP, Operations 3 and Mediated Sign-In 1; accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); our agents on its AGENT_CLIENT_IDS allowlist. Unpatched: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off, and upstream's ALLOW_INTEROP_TEST_HOSTS=true lets it fetch agents' metadata at private addresses for *.interop.test names only. MIT."
+      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); Poppy 0.4 since ae453ed (12 November), with 0.4's poppy_dlg delegation header since bd1dc43 the same day, the text of upstream ad20217, whose 0.4 pages are those of our pin: Poppy-Version on every Session request, plain OAuth tokens without DPoP, Operations 3 and Mediated Sign-In 1; accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); our agents on its AGENT_CLIENT_IDS allowlist. Unpatched: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off, and upstream's ALLOW_INTEROP_TEST_HOSTS=true lets it fetch agents' metadata at private addresses for *.interop.test names only. MIT."
     },
     {
       "name": "print-with-poppy-live",

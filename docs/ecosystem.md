@@ -44,7 +44,7 @@ A valid document says only that discovery would succeed. Of the nine, Print with
 
 | Project | Head | What it implements |
 | --- | --- | --- |
-| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/bd1dc43c993a3c9bf6a21626f16f5836f745cb39) | `bd1dc43`, 12 November | 0.4. Its PR #36, merged at 19:45 UTC, reads the delegation from `poppy_dlg` with `typ: poppy-delegation+jwt`. At `ae453ed`, our interop pin, it read `pap_dlg`, which is why its API refused our Session JWTs ([interop spec](interop-spec.md#print-with-poppy-delegation)). Whether the live store runs `bd1dc43` wasn't checked |
+| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/bd1dc43c993a3c9bf6a21626f16f5836f745cb39) | `bd1dc43`, 12 November | 0.4. Its PR #36, merged at 19:45 UTC, reads the delegation from `poppy_dlg` with `typ: poppy-delegation+jwt`. At `ae453ed` it read `pap_dlg`, so its API refused our Session JWTs ([interop spec](interop-spec.md#print-with-poppy-delegation)). Our interop pin moved to `bd1dc43` the same day, and our agent passes all ten of its scenarios there. Whether the live store runs `bd1dc43` wasn't checked |
 | [Datalayer SDKs](https://github.com/datalayer/personal-agent-protocol/tree/ee03a044c6c597573522076006b396d43f7412df) | `ee03a04`, 12 November | 0.4 as published (SDK 0.35.0): Operations 3 and Browser Control 1, with Draft 1.0 opt-in. The only open-source implementation of published 0.4 on both sides |
 | [poppy-demo](https://github.com/irvinebroque/poppy-demo/tree/863ebf21a10a55e932c5028c956f13ee6b74a62a), [agent-runtimes](https://github.com/datalayer/agent-runtimes/tree/de2bc86d1310ec83d672d89ef8ec0fbaa326fa0a), diegopacheco's proof of concept | 6 to 12 November | 0.4 drafts from before publication (6 to 8 November): no Operations 3 or `Poppy-Extensions` where checked |
 | [descope/poppy-js](https://github.com/descope/poppy-js/tree/167ae80bd56516d26570d1035f0b3df14cd3ec06) | `167ae80`, 11 November | 0.3 as published; 0.4 is in its open PR #15 |
@@ -55,7 +55,7 @@ A valid document says only that discovery would succeed. Of the nine, Print with
 
 `poppy_dlg` alone doesn't mark 0.4: 0.3 as published on 4 November already used it, and only the 28 October text used `pap_dlg`. `Poppy-Version`, `Poppy-Extensions` and Operations 3 do. The [receipt](evidence/ecosystem-2026-11-12/repositories.json) lists every repository, including lists, tooling and proposals.
 
-**What it means for PDA.** Discovery now succeeds at nine public hosts (eight Companies; Cliffside Retail has two hosts), where none served 0.4 on 29 October. Print with Poppy is the only one with source we can pin and a sandbox that simulates payment. Its fix makes our known failure stale: moving the interop pin from `ae453ed` to `bd1dc43` and rerunning its cell, then the signed-in live check against its sandbox, are the next steps. Datalayer's SDKs are the one independent 0.4 implementation that could join the interop grid.
+**What it means for PDA.** Discovery now succeeds at nine public hosts (eight Companies; Cliffside Retail has two hosts), where none served 0.4 on 29 October. Print with Poppy is the only one with source we can pin and a sandbox that simulates payment. With its fix, our agent passes every scenario it claims in Docker ([results](interop-results/README.md#print-with-poppy-at-04)); the signed-in live check against its sandbox is next. Datalayer's SDKs are the one independent 0.4 implementation that could join the interop grid.
 
 ## Historical observations
 

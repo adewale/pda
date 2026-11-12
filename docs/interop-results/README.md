@@ -71,6 +71,23 @@ npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,slo
 
 print-with-poppy claims ten scenarios (D, S0, OU, CM, SD, SX, SMC, SO, AO, AS), and every honest agent passes all ten, the photo upload and its order under Operations 2 (OU) among them. The sloppy agent's five failures are its token-endpoint `aud` at every sign-in, which the store refuses with `invalid_client` as our mocks do; the same known failure covers them. No check fired against the store itself: the run's 5 failures and 15 tentative results are all the sloppy agent's client assertions.
 
+### print-with-poppy at 0.4
+
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/bd1dc43c993a3c9bf6a21626f16f5836f745cb39) at `bd1dc43` (12 November), the first commit that reads 0.4's `poppy_dlg`, in its demo mode behind [its adapter](../../interop/impls/print-with-poppy-company). Run locally on 12 November against the agent at `c79324a` with the re-pin uncommitted, every image rebuilt, on the isolated network:
+
+```sh
+npm run interop -- --agents pda --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
+npm run interop -- --agents strict-personal-agent,lenient-personal-agent --companies print-with-poppy --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
+```
+
+| Agent | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| `pda` | 10 | 0 | 0 | 0 |
+| `lenient-personal-agent` | 10 | 0 | 0 | 0 |
+| `strict-personal-agent` | 10 | 0 | 0 | 0 |
+
+No check failures, warnings or tentative findings, and no known failures. At `ae453ed` the same `pda` cells passed D, SD, SMC, SX and SO and failed the five that make an API request ([why](../interop-spec.md#print-with-poppy-delegation)).
+
 ### Live: printwithpoppy.com, 29 October
 
 The first live 0.3 Company our agent has run against. Discovery only: the store takes real payments, and its registry entry lists D alone.
