@@ -25,6 +25,8 @@ import {
   type ViolationId
 } from "./mock-company";
 import { COMPANY_FLAWS, type CompanyFlaw } from "./mock-company/types";
+import { Company as MockCompanyCore, type ResourceContext, type Session as MockSession } from "./mock-company/core";
+import { Operations } from "./mock-company/operations";
 import apisSource from "./mock-company/apis.ts?raw";
 import authSource from "./mock-company/auth.ts?raw";
 import conversationsSource from "./mock-company/conversations.ts?raw";
@@ -2381,14 +2383,12 @@ describe("the mock Company", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
-  it("records an approved request that reuses the first request's Idempotency-Key after signing in between them (Ops 6)", async () => {
+  it("records an approved request that reuses the first request's Idempotency-Key from another Session (Ops 6)", async () => {
     const c = company();
-    await c.stub.configure({ printShop: true });
-    const s = await session();
-    const photo = await uploaded(c, s);
-    const { operation } = (await (await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_first_request_2" })).json()) as { operation: Operation };
-    // The same Session signs in to an account; that makes the first request's key no less used.
-    const placed = await orderPrints(c, { ...s, ...(await signIn(c)) }, printOrder(photo), { "Idempotency-Key": "key_first_request_2", ...approval(operation) });
+    const s = await signedIn(c, { scope: "orders:write" });
+    const { operation } = (await (await exchange(c, s, { "Idempotency-Key": "key_first_request_2" })).json()) as { operation: Operation };
+    // Another Session signed in to the same account can approve it (Ops 3); that makes the first request's key no less used.
+    const placed = await exchange(c, { ...s, sid: jti() }, { "Idempotency-Key": "key_first_request_2", ...approval(operation) });
     expect(placed.status).toBe(201);
     expect((await c.stub.state()).recorded.map(violationId)).toEqual(["approval.idempotency-key-reused"]);
   });
@@ -2711,13 +2711,33 @@ describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
     const placed = await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": `idk_${jti()}`, ...approval(operation) });
     expect(placed.status).toBe(201);
     expect(await placed.json()).toMatchObject({ order: { state: "awaiting_payment" } });
-    // Another Session can't approve a signed-out Session's operation (Ops 3).
-    const elsewhere = await session();
+    // Another User's Session can't approve it (Ops 3).
+    const elsewhere = await session(OTHER_USER);
     const theirPhoto = await uploaded(c, elsewhere);
     expect((await orderPrints(c, elsewhere, printOrder(theirPhoto), { "Idempotency-Key": `idk_${jti()}`, ...approval(operation) })).status).toBe(403);
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.recorded).toEqual([]);
+  });
+
+  it("lets any signed-out Session of the same agent and User approve an operation returned signed out, and no signed-in one (Ops 3)", () => {
+    // Print orders can't show it, since the mock keeps an uploaded photo in the Session that uploaded it, so this calls the operations directly.
+    const operations = new Operations(new MockCompanyCore("c-ops3", env as Env));
+    const context = (id: string, user = USER_ID, account: string | null = null) =>
+      ({ token: null, session: { id, sid: id, clientId: CLIENT_ID, userId: user, account, boundAccount: account } as MockSession, client: { clientId: CLIENT_ID }, signedIn: account !== null, account, scope: [] }) as unknown as ResourceContext;
+    const request = "POST https://api.test/prints {}";
+    const terms = { summary: "Print one photo", terms: { copies: 1 } };
+    const asked = operations.prints(context("ses_first"), request, terms, null);
+    if (!("operation" in asked)) throw new Error("expected an operation");
+    const approve = { operation_id: asked.operation.operation_id, revision: asked.operation.revision, approver: "user" };
+    const another = { operation: { operation_id: expect.not.stringMatching(`^${asked.operation.operation_id}$`) } };
+    // Signed in since, even in the Session that returned it: a new operation, nothing performed.
+    expect(operations.prints(context("ses_first", USER_ID, "acct_ada"), request, terms, approve)).toMatchObject(another);
+    expect(operations.prints(context("ses_other", USER_ID, "acct_ada"), request, terms, approve)).toMatchObject(another);
+    // Another User, signed out: a new operation too.
+    expect(operations.prints(context("ses_theirs", OTHER_USER), request, terms, approve)).toMatchObject(another);
+    // A later signed-out Session of the same agent and User approves it.
+    expect(operations.prints(context("ses_later"), request, terms, approve)).toMatchObject({ performed: { status: 201 } });
   });
 });
 

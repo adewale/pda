@@ -25,6 +25,11 @@ The agent, the mock Company, the validator, the interop harness and the Python H
   - With `web.disabled`, the mock offers no `poppy:browser-sign-in` and serves no browser join.
   - A `web.unscoped` website gives `poppy:browser-sign-in` the account's full access.
   - The operations endpoint challenges a signed-out Session of the same User for an account's operation, instead of answering `invalid_request` ([reading](docs/readings.md#v04-endpoint-challenge)).
+- A code review found four more departures, now fixed with regression tests:
+  - Browser Control: a Not now, cancel or sign-out while the User's browser is starting closes that browser instead of being overwritten, and two Takes at once start one browser.
+  - Browser Control: the model's clicks, page loads and approved form submissions check that the User doesn't hold the browser right before each request, not only when the action starts.
+  - `poppy_close` sends the close only once a read finds the Company not working (8.12); until then the close waits as a durable intent.
+  - The mock lets any signed-out Session of the same agent and User approve an operation returned signed out, and no signed-in Session (Ops 3). The Python model had the same misreading, and is fixed too.
 - Interop pairs 0.4 implementations only: the Print with Poppy pairing is removed (its adapter is kept), and the raw `evil-personal-agent` speaks 0.4. CI runs the 0.4 kit alone.
 - The 0.3 pin is `retired` in `spec/upstream.json`: its snapshot, kit and ledger stay and are still checked, and its ledger links files at the last main commit before 0.4. `npm run check:spec` accepts retired pins.
 - [Current verification](docs/poppy-0.4-conformance.md#current-verification) moves to a 0.4 review; the 0.3 review is kept as its record.

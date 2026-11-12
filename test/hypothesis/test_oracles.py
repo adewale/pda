@@ -76,7 +76,7 @@ def test_log_oracle_rejects_what_8_4_and_8_7_rule_out(log):
 
 
 def test_who_may_approve_an_operation():
-    """Ops 3: signed in, any of the User's Sessions signed in to its account; signed out, only its own Session."""
+    """Ops 3: signed in, any of the User's Sessions signed in to its account; signed out, any of their Sessions signed out."""
     model = OperationsRules()
     model.init_operations()
     ada, grace = NS(), NS()
@@ -86,7 +86,8 @@ def test_who_may_approve_an_operation():
     other_user = NS(user=grace, account="acct_ada", ended=False)
     signed_out_op = MOperation("prt_1", "prints", "prints", "{}", ada, None, own)
     account_op = MOperation("exc_1", "exchange", "api", "{}", ada, "acct_ada", own)
-    assert model.can_approve(signed_out_op, own) and not model.can_approve(signed_out_op, other_session)
+    assert model.can_approve(signed_out_op, own) and model.can_approve(signed_out_op, other_session)
+    assert not model.can_approve(signed_out_op, signed_in), "signed in since: it isn't the account's"
     assert model.can_approve(account_op, signed_in) and not model.can_approve(account_op, own)
     assert not model.can_approve(account_op, other_user), "another User signed in to the same account"
     signed_in.ended = True

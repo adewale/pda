@@ -44,7 +44,6 @@ type ApprovalRecord = {
   readonly kind: Action["kind"];
   readonly clientId: string;
   readonly userId: string;
-  readonly sessionId: string;
   /** The account it was returned for, which may approve it from any of the User's Sessions (Ops 3, "Who can approve it"); null signed out. */
   readonly account: string | null;
   /** The request or tool call that returned it: an approval must repeat it exactly (Ops 6, check 3). */
@@ -186,9 +185,10 @@ export class Operations {
     };
   }
 
+  /** Ops 3: any Session of the same agent and User; signed in to the account an operation belongs to, or signed out for one returned signed out. */
   #owner(record: ApprovalRecord, context: Owner): boolean {
     return record.clientId === context.session.clientId && record.userId === context.session.userId &&
-      (record.account ? context.signedIn && context.account === record.account : record.sessionId === context.session.id);
+      (record.account ? context.signedIn && context.account === record.account : !context.signedIn);
   }
 
   #revise(record: ApprovalRecord, action: Action, asked: Record<string, unknown>): OperationV2 {
@@ -264,7 +264,6 @@ export class Operations {
       kind: action.kind,
       clientId: context.session.clientId,
       userId: context.session.userId,
-      sessionId: context.session.id,
       account: context.signedIn ? context.account : null,
       request,
       revisions: new Map(),
