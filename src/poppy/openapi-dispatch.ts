@@ -12,7 +12,7 @@ import { jsonText, object, string, array, nullable } from "../decode";
 import { intent, intentsTable, taskCallsTable } from "./store";
 import { one } from "../rows";
 import { domainFromInput } from "../domain";
-import { taskProjection, resumeRecordedTask, proposeLocal, dispatchTaskRequest, registerExecutor, TermsRequested, OperationOutcomeUnknown } from "./operations";
+import { taskProjection, resumeRecordedTask, proposeLocal, dispatchTaskRequest, registerExecutor, TermsRequested, OperationOutcomeUnknown, recordAnsweredBeforeFollowUp } from "./operations";
 import { TaskFiles } from "./task-files";
 import { isTaskRequest } from "./approval-outcome";
 import { companyErrorCode } from "./error-codes";
@@ -263,11 +263,14 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
     throw new OperationOutcomeUnknown(`${company.name} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
   }
   if (answer.kind === "answered" && approval.call.approval && answer.retryAfter !== null) {
-    const { answer: settled, ready } = await settledAnswer(client, label, checked, guard, execution.approvalId, answer);
-    return JSON.stringify({
-      ...answerForModel(settled, company) as Record<string, Json>,
-      ...(ready ? {} : { note: `${company.name} did this, but said its result wasn't ready yet, so details such as a payment link may be missing. Tell the User; don't send the request again.` })
+    const notReady = (latest: ApiAnswer & { kind: "answered" }) => JSON.stringify({
+      ...answerForModel(latest, company) as Record<string, Json>,
+      note: `${company.name} did this, but said its result wasn't ready yet, so details such as a payment link may be missing. Tell the User; don't send the request again.`
     });
+    // The Company did it: a restart while waiting finishes it with this answer, not as unknown (recoverInterruptedApprovals).
+    recordAnsweredBeforeFollowUp(client.sql, execution.approvalId, notReady(answer));
+    const { answer: settled, ready } = await settledAnswer(client, label, checked, guard, execution.approvalId, answer);
+    return ready ? JSON.stringify(answerForModel(settled, company)) : notReady(settled);
   }
   return JSON.stringify(answerForModel(answer, company));
 });
