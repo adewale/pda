@@ -364,9 +364,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-          const status = await closeConversation(client(), client().companyByIssuer(row.issuer), id);
+          const { status, waiting } = await closeConversation(client(), client().companyByIssuer(row.issuer), id);
           // 0.4: the Company acts on the close later; a read reports it (8.12).
-          return status === "closed" ? { conversation: id, status } : { conversation: id, status: "closing", note: "The company accepted the close; the conversation's state will say when it is closed." };
+          if (status === "closed") return { conversation: id, status };
+          if (waiting) return { conversation: id, status: "closing", note: "The company is still working on what it was asked, so the close is sent once it has finished; the conversation's state will say when it is closed." };
+          return { conversation: id, status: "closing", note: "The company accepted the close; the conversation's state will say when it is closed." };
         }
       ),
       scopedTool(

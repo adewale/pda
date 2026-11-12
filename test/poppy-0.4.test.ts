@@ -6,7 +6,7 @@
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
 import { decodeJwt } from "jose";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { agent, cards, company, fetchWorker, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
 import type { AgentPayload } from "./mock-company/types";
@@ -169,8 +169,8 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     expect(status.conversations).toEqual([{ conversation: id, closed: false, working: false, handoff: "pending", responder: "agent", direct: false }]);
   });
 
-  it("reads while the Company is still working before it closes, since a close may drop requests not yet acted on (8.12)", async () => {
-    // The mock stays working after a handoff it never queues, so the agent's read finds it working.
+  it("sends the close only once the Company has stopped working, since a close may drop requests not yet acted on (8.12)", async () => {
+    // The mock stays working after a handoff it never queues, until a person joins.
     const c = await company({ ...V4, neverQueued: true });
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
@@ -179,10 +179,19 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     await a.stub.poppyReadNow(id);
     expect(await state(a, id)).toMatchObject({ status: "working", working: 1 });
     const mark = (await requests(c)).length;
-    await tool(a, "poppy_close", { conversation: id });
-    const after = (await requests(c)).slice(mark).map((request) => `${request.method} ${new URL(request.url).pathname.split("/").at(-1)}`);
-    expect(after.indexOf("GET events")).toBeGreaterThanOrEqual(0);
-    expect(after.indexOf("GET events")).toBeLessThan(after.indexOf("POST close"));
+    const sent = async () => (await requests(c)).slice(mark).map((request) => `${request.method} ${new URL(request.url).pathname.split("/").at(-1)}`);
+    const closing = JSON.parse((await tool(a, "poppy_close", { conversation: id })).text);
+    expect(await sent()).toContain("GET events");
+    expect(await sent()).not.toContain("POST close");
+    expect(closing).toMatchObject({ status: "closing", note: expect.stringContaining("still working") });
+    // Still working at the next read, so still no close.
+    await a.stub.poppyReadNow(id);
+    expect(await sent()).not.toContain("POST close");
+    await c.stub.humanJoin(id, "Hi, I'm Sam. I can help with that.");
+    await a.stub.poppyReadNow(id);
+    // Whichever read finds it done sends the close, once.
+    await vi.waitUntil(async () => (await state(a, id)).status === "closed", { timeout: 10_000, interval: 100 });
+    expect((await sent()).filter((request) => request === "POST close")).toHaveLength(1);
   });
 
   it("is told when a person joins, from a state event in a stream that also reports working", async () => {
