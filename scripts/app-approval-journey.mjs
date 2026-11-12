@@ -55,7 +55,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     screenshots.push(destination);
   };
   const signInCompany = async (company, domain, config = {}) => {
-    await company.configure({ protocolVersion: "0.3", deviceInterval: 1, ...config });
+    await company.configure({ deviceInterval: 1, ...config });
     const signIn = await agent.poppyTool("poppy_sign_in", { domain, scopes: ["orders:read", "orders:write"], reason: "To exchange your jacket" });
     assert.equal(signIn.isError, false, signIn.text);
     const signInCard = JSON.parse(await agent.poppyCards()).find(card => card.kind === "signin_link" && card.open);
@@ -281,7 +281,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   };
   const verificationCompany = companies.getByName("cverificationjourney");
   const verificationDomain = "cverificationjourney.shop.test";
-  await verificationCompany.configure({ protocolVersion: "0.3", agentReplies: false });
+  await verificationCompany.configure({ agentReplies: false });
   const hello = await agent.poppyTool("poppy_message", { domain: verificationDomain, text: "Hello" });
   assert.equal(hello.isError, false);
   const conversation = JSON.parse(hello.text).conversationId;
