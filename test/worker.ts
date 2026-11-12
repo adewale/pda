@@ -603,8 +603,20 @@ export class PersonalAgent extends ProductionAgent {
   }
 
   /** As Browser Run off (no launcher), or out of browsers; set before the agent first uses Poppy, which asks once. */
-  async handoverSetup(setup: { off?: boolean; failLaunch?: boolean }): Promise<void> {
+  async handoverSetup(setup: { off?: boolean; failLaunch?: boolean; hold?: boolean }): Promise<void> {
     Object.assign(handoverWebOf(this.ctx.id.toString()), setup);
+  }
+
+  /** How many browsers are starting, held by `hold`. */
+  async handoverHeld(): Promise<number> {
+    return handoverWebOf(this.ctx.id.toString()).held.length;
+  }
+
+  /** Let every held browser finish starting. */
+  async handoverRelease(): Promise<void> {
+    const web = handoverWebOf(this.ctx.id.toString());
+    web.hold = false;
+    for (const release of web.held.splice(0)) release();
   }
 
   /** Every browser handed to the User, oldest first. */

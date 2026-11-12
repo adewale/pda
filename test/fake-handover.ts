@@ -28,19 +28,24 @@ export type FakeHandoverWeb = {
   off: boolean;
   /** Launching fails, as Browser Run out of capacity would. */
   failLaunch: boolean;
+  /** Opening a page waits until the test releases it, as a slow start would, so a test can act while a browser starts. */
+  hold: boolean;
+  /** The opens waiting, oldest first: call one to let it finish. */
+  readonly held: (() => void)[];
 };
 
 export function fakeHandoverWeb(): FakeHandoverWeb {
-  return { browsers: [], off: false, failLaunch: false };
+  return { browsers: [], off: false, failLaunch: false, hold: false, held: [] };
 }
 
 /** A live view link's life, as Browser Run's default. */
 export const FAKE_LIVE_VIEW_MS = 300_000;
 
-function wrap(state: FakeHandoverBrowser): HandoverBrowser {
+function wrap(web: FakeHandoverWeb, state: FakeHandoverBrowser): HandoverBrowser {
   return {
     sessionId: state.sessionId,
     async open(url, cookies, domain) {
+      if (web.hold) await new Promise<void>((resolve) => web.held.push(resolve));
       state.cookies = cookies.map((cookie) => ({ ...cookie }));
       state.scripts.push(domain);
       state.opened.push(url);
@@ -68,11 +73,11 @@ export function fakeHandoverLauncher(web: FakeHandoverWeb): HandoverLauncher {
       if (web.failLaunch) throw new Error("No browsers available");
       const state: FakeHandoverBrowser = { sessionId: `brs_${web.browsers.length + 1}`, domain, url: null, cookies: [], opened: [], scripts: [], views: 0, closed: false };
       web.browsers.push(state);
-      return wrap(state);
+      return wrap(web, state);
     },
     async connect(sessionId) {
       const state = web.browsers.find((browser) => browser.sessionId === sessionId);
-      return state && !state.closed ? wrap(state) : null;
+      return state && !state.closed ? wrap(web, state) : null;
     }
   };
 }
