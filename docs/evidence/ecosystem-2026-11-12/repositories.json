@@ -1,0 +1,385 @@
+{
+ "version": 1,
+ "checked": "2026-11-12",
+ "method": "Read only: default-branch heads through the GitHub API and shallow clones read as files; no third-party code run, nothing posted. Repositories: the 28 October survey's 23, those listed in awesome-poppy, and GitHub searches for repositories created or pushed since 28 October. Print with Poppy re-read at 19:50Z after its PR #36 merged.",
+ "repositories": [
+  {
+   "repository": "personal-agent-protocol/personal-agent-protocol",
+   "head": "ad20217d3cb97f50345d41748a393600d6e8c779",
+   "headDate": "2026-11-11T23:52:56Z",
+   "lastKnownHead": "3e9bada",
+   "version": "0.4 published (frozen at ed47408); Draft 1.0 in progress since 272cab0",
+   "role": "specification, site and Company kit",
+   "evidence": "content/versions/versions.json lists 0.4 published 2026-11-10 and 1.0 unpublished; kit/company/validate/catalog.ts PROTOCOL_VERSION = \"1.0\"; content/shared/demos.mdx labels Cliffside Retail 0.4, PDA and Print with Poppy 0.3"
+  },
+  {
+   "repository": "datalayer/personal-agent-protocol",
+   "head": "ee03a044c6c597573522076006b396d43f7412df",
+   "headDate": "2026-11-12T18:06:34Z",
+   "lastKnownHead": "a3713e3",
+   "version": "0.4 published (SDK 0.35.0); Draft 1.0 opt-in",
+   "role": "SDK, both sides (Python, TypeScript)",
+   "evidence": "protocol/UPSTREAM.md: 'Profile implemented: 0.4 as published', 'Operations extension: version 3', 'Draft implemented, opt-in: 1.0 as of 2026-11-11 (c71f515)'"
+  },
+  {
+   "repository": "spenciefy/print-with-poppy",
+   "head": "bd1dc43c993a3c9bf6a21626f16f5836f745cb39",
+   "headDate": "2026-11-12T19:45:54Z",
+   "lastKnownHead": "4dcb1e8 (registry pin ae453ed)",
+   "version": "0.4 published",
+   "role": "Company",
+   "evidence": "PR #36 merged 19:45Z: server/delegation.ts now requires header.poppy_dlg and typ poppy-delegation+jwt; at ae453ed it required pap_dlg and pap-delegation+jwt. Whether the live store runs bd1dc43 was not checked"
+  },
+  {
+   "repository": "richardanaya/pi-poppy",
+   "head": "11ea10630180740f16ccd507b8f90f69870c7e32",
+   "headDate": "2026-10-10T03:55:17Z",
+   "lastKnownHead": "11ea106",
+   "version": "0.1",
+   "role": "Personal Agent (pi extension)",
+   "evidence": "README.md: 'follows Personal Agent Protocol draft 0.1'"
+  },
+  {
+   "repository": "irvinebroque/poppy-demo",
+   "head": "863ebf21a10a55e932c5028c956f13ee6b74a62a",
+   "headDate": "2026-11-08T16:56:48Z",
+   "lastKnownHead": "02a9b30",
+   "version": "pre-publication 0.4 draft (upstream a2ca25a, 8 Nov): no Operations 3 or Poppy-Extensions",
+   "role": "Company and Personal Agent demo",
+   "evidence": "README.md 'checked against upstream commit a2ca25a on November 8'; no approved_at, input_type or Poppy-Extensions in the code"
+  },
+  {
+   "repository": "akshay5995/poppyseed",
+   "head": "6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+   "headDate": "2026-10-27T15:36:46Z",
+   "lastKnownHead": "6393dfb",
+   "version": "earlier 0.3 draft (Session Tokens)",
+   "role": "Company SDK",
+   "evidence": "spec/STATUS.md '§4.3 Using Session Tokens'"
+  },
+  {
+   "repository": "everruns/everruns",
+   "head": "4d9e050077a345b0851a170021e79781642b6646",
+   "headDate": "2026-11-12T19:16:37Z",
+   "lastKnownHead": "f751048",
+   "version": "0.1 (Poppy code unchanged since 11 October)",
+   "role": "agent platform, both sides",
+   "evidence": "crates/server/src/channels/poppy/discovery.rs \"protocol_version\": \"0.1\""
+  },
+  {
+   "repository": "DavideCarvalho/adonis-agora-agent",
+   "head": "cd46fc2bfff06d37a6269e64046f3deea5298b17",
+   "headDate": "2026-11-12T17:31:51Z",
+   "lastKnownHead": "bc09691",
+   "version": "28 October 0.3 text (pap_dlg)",
+   "role": "Personal Agent",
+   "evidence": "packages/adonis/test/poppy-client/fixtures/fake_company.ts protocol_version '0.3', requires pap_dlg"
+  },
+  {
+   "repository": "DavideCarvalho/adonis-agora-authkit",
+   "head": "0851daa97ba5be1331f3a9d9dc386f62503ddf50",
+   "headDate": "2026-11-12T17:35:19Z",
+   "lastKnownHead": "b2082ec",
+   "version": "28 October 0.3 text (pap_dlg)",
+   "role": "Company SDK",
+   "evidence": "tests/poppy_helpers.ts signs with pap_dlg"
+  },
+  {
+   "repository": "rbirkby/Ilmer.org",
+   "head": "0f91926a0bbd87109738d6eb8433f9400796d24d",
+   "headDate": "2026-11-07T20:02:45Z",
+   "lastKnownHead": "b97f7b7",
+   "version": "0.1 (Poppy code unchanged)",
+   "role": "Company",
+   "evidence": "agent/README.md 'Personal Agent Protocol (draft 0.1)'"
+  },
+  {
+   "repository": "timothyohare/personal-agent-protocol",
+   "head": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+   "headDate": "2026-10-12T14:12:11Z",
+   "lastKnownHead": "fb7b4e6",
+   "version": "0.1",
+   "role": "Company and Personal Agent demo",
+   "evidence": "docs/PR-FAQ.md 'The spec is draft 0.1'"
+  },
+  {
+   "repository": "ketanbj/openavt",
+   "head": "e8f1e7edd7e82e1b07ddb013e446ecd97dede38d",
+   "headDate": "2026-10-31T22:21:51Z",
+   "lastKnownHead": "9e99b62",
+   "version": "0.1",
+   "role": "research tooling",
+   "evidence": "README.md 'PAP draft 0.1 with a negotiated custom voice extension'"
+  },
+  {
+   "repository": "allowfy/allowfy-check",
+   "head": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+   "headDate": "2026-10-20T19:11:24Z",
+   "lastKnownHead": "11137ad",
+   "version": "0.2",
+   "role": "Company checker",
+   "evidence": "reference/spec.mdx 'This is draft version 0.2'"
+  },
+  {
+   "repository": "ora/poppy-ax",
+   "head": "c2793e0bfd0283a3bc87c1df38df5b32883fddd0",
+   "headDate": "2026-11-12T08:50:31Z",
+   "lastKnownHead": "f6b5cc3",
+   "version": "guide follows Draft 1.0; no protocol implementation",
+   "role": "guide and checker front end",
+   "evidence": "README.md 'Every page is based on PAP draft 1.0 (read 2026-11-12)'"
+  },
+  {
+   "repository": "akshay5995/poppy-agent-demo",
+   "head": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+   "headDate": "2026-10-16T14:43:18Z",
+   "lastKnownHead": "a5c0bdc",
+   "version": "0.1",
+   "role": "Personal Agent",
+   "evidence": "extension/package.json depends on poppyseed ^0.1.1"
+  },
+  {
+   "repository": "JaviChulvi/awesome-poppy",
+   "head": "8cdd4d2154e23d947d95c75f4a1f69f04ab2e386",
+   "headDate": "2026-11-09T23:47:49Z",
+   "lastKnownHead": "1c015f9",
+   "version": "list; predates 0.4's publication",
+   "role": "list",
+   "evidence": "README.md 'latest published version is 0.3; Draft 0.4 is in progress, checked November 10'"
+  },
+  {
+   "repository": "Flaxscrip/poppy-test-agent",
+   "head": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+   "headDate": "2026-10-23T11:09:08Z",
+   "lastKnownHead": "7012e74",
+   "version": "no protocol code",
+   "role": "test agent keys for the official validator",
+   "evidence": "README.md"
+  },
+  {
+   "repository": "ohartwig/poppy",
+   "head": "894def4beba5d84f030f4bbeda1fdda82cda1d9f",
+   "headDate": "2026-11-08T21:01:22Z",
+   "lastKnownHead": "465b4fe",
+   "version": "0.2",
+   "role": "Company SDK (PHP)",
+   "evidence": "tests/Discovery/DiscoveryTest.php protocol_version \"0.2\""
+  },
+  {
+   "repository": "ohartwig/typo3-poppy",
+   "head": "60bfbb35fa72a2dd4b8a7e27e7ce1e98e129b0b9",
+   "headDate": "2026-11-11T09:41:41Z",
+   "lastKnownHead": "dafdd2b",
+   "version": "0.2",
+   "role": "Company (TYPO3)",
+   "evidence": "README.md '(Poppy, draft 0.2)'"
+  },
+  {
+   "repository": "ohartwig/sylius-poppy",
+   "head": "10d3f796792b60f5d732efb13c5bfe9cfcb1536e",
+   "headDate": "2026-11-06T12:54:26Z",
+   "lastKnownHead": "39a317b",
+   "version": "0.2",
+   "role": "Company (Sylius)",
+   "evidence": "tests/DiscoveryTest.php asserts '0.2'"
+  },
+  {
+   "repository": "kidkuddy/poppy-cli",
+   "head": "0a6dab5560083824d7ac3908ada84cca6683e1fa",
+   "headDate": "2026-10-25T15:40:44Z",
+   "lastKnownHead": "0a6dab5",
+   "version": "0.2",
+   "role": "Personal Agent CLI",
+   "evidence": "cmd/poppy/main.go 'a Personal Agent Protocol (draft 0.2) client'"
+  },
+  {
+   "repository": "LMol-4/poppykit-client",
+   "head": "8bce3a145354d235018c5b7ad46b8185ee65907f",
+   "headDate": "2026-11-02T10:31:07Z",
+   "lastKnownHead": "053fe1c",
+   "version": "28 October 0.3 text (pap_dlg, Operations 2)",
+   "role": "Personal Agent SDK",
+   "evidence": "README.md 'draft 0.3'; OPERATIONS.md 'Operations v2'"
+  },
+  {
+   "repository": "LMol-4/poppykit-server",
+   "head": "ad1c5b2cb0b712935f9533a46fef61666afac4f7",
+   "headDate": "2026-11-02T10:31:09Z",
+   "lastKnownHead": "945d0cf",
+   "version": "28 October 0.3 text (pap_dlg, Operations 2)",
+   "role": "Company SDK",
+   "evidence": "README.md 'draft 0.3'; pap_dlg in src/protocol"
+  },
+  {
+   "repository": "descope/poppy-js",
+   "head": "167ae80bd56516d26570d1035f0b3df14cd3ec06",
+   "headDate": "2026-11-11T12:28:12Z",
+   "lastKnownHead": null,
+   "version": "0.3 published (7205250); 0.4 in open PR #15",
+   "role": "Personal Agent SDK and agent conformance suite",
+   "evidence": "README.md 'implements draft 0.3 … spec commit 7205250'; PR #15 'support Personal Agent Protocol 0.4 as well as 0.3' open"
+  },
+  {
+   "repository": "authlete/poppy-company",
+   "head": "f26e7008a5c169491e43b215ba42d2cae4a22751",
+   "headDate": "2026-11-10T12:52:28Z",
+   "lastKnownHead": null,
+   "version": "0.3 published; lists 0.4 in supported_versions pointing at the same 0.3 document",
+   "role": "Company",
+   "evidence": "src/config.ts PROTOCOL_VERSION = \"0.3\", SUPPORTED_VERSIONS = [\"0.3\",\"0.4\"]"
+  },
+  {
+   "repository": "authlete/poppy-agent-playground",
+   "head": "8848030e7cc9a09b324bd5bb948d19d7d2264756",
+   "headDate": "2026-11-12T11:37:58Z",
+   "lastKnownHead": null,
+   "version": "0.3 published",
+   "role": "Personal Agent playground",
+   "evidence": "vendored @descope/poppy SUPPORTED_PROTOCOL_VERSIONS = [\"0.3\"]"
+  },
+  {
+   "repository": "AgentConnect/dsh-pap",
+   "head": "fc5fbb98583d4d5d0d7112a4a6c2b5bb779b1480",
+   "headDate": "2026-11-12T09:35:39Z",
+   "lastKnownHead": null,
+   "version": "0.3 published (6fb46d3)",
+   "role": "Personal Agent plugin",
+   "evidence": "README.md 'A PAP 0.3 client for DeepSeek Harness'"
+  },
+  {
+   "repository": "AgentConnect/service-agent",
+   "head": "868fc0a261bb80b99ea08efcf98d5f2062f9bff0",
+   "headDate": "2026-11-09T10:46:55Z",
+   "lastKnownHead": null,
+   "version": "0.3 published, signed-out Sessions only",
+   "role": "Company",
+   "evidence": "README.md 'ANP, MCP and PAP 0.3'"
+  },
+  {
+   "repository": "auto-agent-protocol/auto-agent-protocol",
+   "head": "2dd71bce4e7f3c02f445246aee32f35a765802ac",
+   "headDate": "2026-11-06T15:22:46Z",
+   "lastKnownHead": null,
+   "version": "0.3 published (6fb46d3)",
+   "role": "domain specification with a Poppy binding",
+   "evidence": "docs/personal-agent-protocol.md 'The target is published PAP 0.3'"
+  },
+  {
+   "repository": "datalayer/agent-runtimes",
+   "head": "de2bc86d1310ec83d672d89ef8ec0fbaa326fa0a",
+   "headDate": "2026-11-12T15:12:28Z",
+   "lastKnownHead": null,
+   "version": "pre-publication 0.4 draft (Datalayer SDK 0.32)",
+   "role": "agent platform, both sides",
+   "evidence": "pyproject.toml 'personal-agent-protocol[ui]>=0.32.0,<0.33'"
+  },
+  {
+   "repository": "diegopacheco/ai-playground (pocs/personal-agent-protocol-poppy-poc)",
+   "head": "43693cdec53c03c2d51da4c49deb707a4549aed8",
+   "headDate": "2026-11-12T16:07:35Z",
+   "lastKnownHead": null,
+   "version": "pre-publication 0.4 draft (6 November); Operations 3 not checked",
+   "role": "Company and browser agent proof of concept",
+   "evidence": "README.md 'A working slice of the Personal Agent Protocol draft 0.4'"
+  },
+  {
+   "repository": "mpuig/poppylab",
+   "head": "0ed7d46de181f90fdf957e318a3ca7597167e440",
+   "headDate": "2026-11-04T16:27:42Z",
+   "lastKnownHead": null,
+   "version": "0.3 published",
+   "role": "two Companies and a Personal Agent test bench",
+   "evidence": "README.md 'Personal Agent Protocol, draft 0.3'"
+  },
+  {
+   "repository": "techsaurabh-394/haat-gateway",
+   "head": "94ff5896146c5417781cbc1ce6f675e5d9eda651",
+   "headDate": "2026-11-10T07:18:22Z",
+   "lastKnownHead": null,
+   "version": "28 October 0.3 text (pap_dlg)",
+   "role": "Company gateway",
+   "evidence": "agent/personal-agent.ts signs with pap_dlg"
+  },
+  {
+   "repository": "curtismu7/poppy-agent-tester-LAB",
+   "head": "43860693c0da8dadf1cfd095e8b1e5f66a8c4011",
+   "headDate": "2026-11-12T19:01:02Z",
+   "lastKnownHead": null,
+   "version": "28 October 0.3 text (pap_dlg)",
+   "role": "Personal Agent tester",
+   "evidence": "README.md '(Poppy, Draft 0.3)'"
+  },
+  {
+   "repository": "curtismu7/AI-DEMO2",
+   "head": "948a1aa16ac671387dafce473941bc3ac8216b90",
+   "headDate": "2026-11-11T23:09:13Z",
+   "lastKnownHead": null,
+   "version": "28 October 0.3 text (pap_dlg)",
+   "role": "Company routes in a larger demo",
+   "evidence": "demo_api_server/services/poppySessionService.js requires pap_dlg"
+  },
+  {
+   "repository": "TryGeoSuite/poppy-json",
+   "head": "316d03465a2fd295764cbcf459ae1bdf73be7a08",
+   "headDate": "2026-11-04T08:21:41Z",
+   "lastKnownHead": null,
+   "version": "0.3 (discovery only)",
+   "role": "poppy.json checker",
+   "evidence": "CHANGELOG.md 'Aligned to draft 0.3'"
+  },
+  {
+   "repository": "madduajay/shop",
+   "head": "ac320815e31967512973fb7983f0bdab17e4fbf7",
+   "headDate": "2026-10-29T04:29:03Z",
+   "lastKnownHead": null,
+   "version": "0.2 (vendored Datalayer SDK; paths only read)",
+   "role": "Company",
+   "evidence": "vendor/poppy02/"
+  },
+  {
+   "repository": "melizalde-ds/beehive",
+   "head": "3dc316ed0f96e12f2b45252cb33d709adc46191f",
+   "headDate": "2026-11-07T20:09:38Z",
+   "lastKnownHead": null,
+   "version": "its own pre-0.2 shape",
+   "role": "Company (hackathon)",
+   "evidence": "server/src/poppy.rs pap_version: \"0.1-draft\""
+  },
+  {
+   "repository": "neos-wave/service-handshake-pap-extension",
+   "head": "1bda0951fd57c1440a6be425555896c50a9af54f",
+   "headDate": "2026-11-02T16:05:12Z",
+   "lastKnownHead": null,
+   "version": "0.3, Operations 2 (proposal only)",
+   "role": "extension proposal",
+   "evidence": "SPECIFICATION.md"
+  },
+  {
+   "repository": "turbo998/agentic-commerce-lab",
+   "head": "36aacd244f51a50081f6d0ac8691b3a49b4243fa",
+   "headDate": "2026-11-11T21:15:17Z",
+   "lastKnownHead": null,
+   "version": "research notes on 0.3",
+   "role": "research",
+   "evidence": "research/daily/2026-10-30.md"
+  },
+  {
+   "repository": "tusharck/poppy-validator",
+   "head": "ef7544f94195f2cc274ef0d10d0bb1379abebbe2",
+   "headDate": "2026-10-13T15:24:21Z",
+   "lastKnownHead": null,
+   "version": "0.1",
+   "role": "poppy.json linter",
+   "evidence": "repository description"
+  },
+  {
+   "repository": "rahulsinghai/poppy-demo",
+   "head": "2da922e832c554cee7fcbcc05977ec0ab458c961",
+   "headDate": "2026-11-06T01:51:34Z",
+   "lastKnownHead": null,
+   "version": "no code (documents only)",
+   "role": "documents",
+   "evidence": "no source files"
+  }
+ ]
+}
