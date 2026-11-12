@@ -9,7 +9,7 @@
 FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
 
 ARG UPSTREAM=https://github.com/spenciefy/print-with-poppy.git
-ARG COMMIT=bd1dc43c993a3c9bf6a21626f16f5836f745cb39
+ARG COMMIT=20a3d563faca4ffd480ec9677a6f4f4d22dd2d4e
 WORKDIR /opt/pwp
 # Managed builds provide their combined system trust bundle as a secret. Ordinary builds
 # bootstrap verified HTTPS from the base's trust store, or Node's bundled public roots.
@@ -55,7 +55,7 @@ COPY --chmod=0644 adapter.mjs /interop-adapter/adapter.mjs
 # the run's CA through NODE_EXTRA_CA_CERTS, which the runner sets; the adapter passes it on.
 ENV PORT=8080 \
     ADAPTER_PORT=8081 \
-    INTEROP_COMMIT=bd1dc43c993a3c9bf6a21626f16f5836f745cb39
+    INTEROP_COMMIT=20a3d563faca4ffd480ec9677a6f4f4d22dd2d4e
 USER node
 EXPOSE 8080 8081
 CMD ["node", "/interop-adapter/adapter.mjs"]
