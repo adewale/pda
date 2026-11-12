@@ -21,7 +21,7 @@ import {
   openConversations,
   recentMessages
 } from "./conversations";
-import { BROWSER_SIGN_IN, DiscoveryError, isCompany } from "./discovery";
+import { BROWSER_SIGN_IN, DiscoveryError, isCompany, type Company } from "./discovery";
 import { toJson, type Json } from "./json";
 import { json } from "../decode";
 import { startSignIn, describeScopes } from "./signin";
@@ -110,6 +110,17 @@ const Domain = Type.String({ description: "The company's domain, such as example
 const Label = Type.Optional(
   Type.String({ description: "A session label for tasks running in parallel at one company; default main" })
 );
+
+/**
+ * The User's standing instructions at a Company that speaks Operations 3,
+ * read only (0.4 Ops 5): the User writes and withdraws them on the
+ * Companies page. Discovery and status both show them, so the model knows
+ * of them before it asks for an approval, not only after one is decided.
+ */
+function standingForModel(c: PoppyClient, found: Company): Record<string, Json> {
+  if (operationsVersion(found) !== "3") return {};
+  return { standingInstructions: instructions(c, found.issuer).filter((item) => item.withdrawnAt === null).map(instructionForModel) };
+}
 
 /** The `poppy` Pi extension: the model's tools. They never see tokens, keys, codes or credentials. */
 export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBrowser, userTask?: UserTaskReader, fromUser?: TrustedTurnCheck): Extension {
@@ -259,6 +270,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
                 ? `browsable in the session; signed in there only when the sign-in includes ${BROWSER_SIGN_IN}${found.web.unscoped ? ", which on this website gives everything the account can do there, so ask the User first" : ""}`
                 : "browsable signed out",
             extensions: Object.keys(found.extensions),
+            ...standingForModel(client(), found),
             ...excludedForModel(tasks),
             feedback: (await feedbackEndpoint(client(), found, "main")) ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
           };
@@ -317,8 +329,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
               .map((row) => ({ conversation: row.id, ...stateForModel(row), direct: !!row.direct })),
             // Signed out here; the company hasn't accepted revoking the access, so it is still live there.
             signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel),
-            // Read only (0.4 Ops 5): the User writes and withdraws them on the Companies page.
-            ...(operationsVersion(found) === "3" ? { standingInstructions: instructions(c, found.issuer).filter((item) => item.withdrawnAt === null).map(instructionForModel) } : {})
+            ...standingForModel(c, found)
           };
         }
       ),

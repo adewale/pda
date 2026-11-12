@@ -299,12 +299,25 @@ export async function approvalCardId(company: Company, operation: OperationV2): 
 }
 
 /** What the model is told: nothing has happened; the User decides (Ops 5). */
-export function approvalForModel(company: Company, operation: OperationV2, status: number, approvalId: string): Json {
+export function approvalForModel(company: Company, operation: OperationV2, status: number, approvalId: string, instruction?: { readonly id: string; readonly text: string }): Json {
   return {
     status,
     // The card's approval id, so the chat shows the User's decision on the step that asked.
     proposed: approvalId,
     approval_required: { issuer: company.issuer, operation_id: operation.operation_id, revision: operation.revision, summary: described(operation), expires_at: operation.expires_at },
-    note: "Nothing has happened yet. The User decides on the approval card; don't treat the action as done, and don't approve it for them."
+    ...(instruction ? onInstruction(instruction) : { note: "Nothing has happened yet. The User decides on the approval card; don't treat the action as done, and don't approve it for them." })
+  };
+}
+
+/**
+ * What the model is told when the check found a standing instruction of the
+ * User's that covers an operation's terms (0.4 Ops 5): the agent approves
+ * them on it without the card, so the model mustn't tell the User a card
+ * is coming. The User can still decide the card first.
+ */
+export function onInstruction(instruction: { readonly id: string; readonly text: string }): { standingInstruction: Json; note: string } {
+  return {
+    standingInstruction: { instruction: instruction.id, text: instruction.text },
+    note: `Nothing has happened yet. The User's standing instruction "${instruction.text}" covers these terms, so you approve them on it, without asking the User; you'll be told when it's sent. Don't tell the User this needs their approval. The User can still decline on the card first.`
   };
 }

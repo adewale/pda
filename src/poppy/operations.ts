@@ -12,7 +12,7 @@ import { tokenHostAllowed, type Company } from "./discovery";
 import { canonicalJson, isObject, toJson, type Json } from "./json";
 import { json, jsonText } from "../decode";
 import { randomId, sha256 } from "./jwt";
-import { described, type OperationV2 } from "./operations-v2";
+import { described, onInstruction, type OperationV2 } from "./operations-v2";
 import { settleSpend, standingInstructionFor, type Instruction } from "./instructions";
 import { ApprovalDeclined, declineForModel, declineText, recordDecline } from "./declines";
 import type { ApprovalTerms } from "./wire";
@@ -603,7 +603,11 @@ async function completeTaskRequest(client: PoppyClient, id: string, beforeDispat
   if (row.status === "terms" || (row.status === "pending" && !isTaskRequest(id))) {
     const trace = currentTool();
     if (trace) trace.approval_id = logId(row.terms_approval_id ?? id);
-    return { proposed: row.terms_approval_id ?? id, note: "Waiting for the User's decision on the Company's terms. Do not make this request again." };
+    const proposed = row.terms_approval_id ?? id;
+    const instruction = standingInstructionFor(client, proposed);
+    return instruction
+      ? { proposed, ...onInstruction(instruction), again: "Do not make this request again." }
+      : { proposed, note: "Waiting for the User's decision on the Company's terms. Do not make this request again." };
   }
   if (row.status === "pending" || row.status === "executing") return { status: "in_progress", note: "This request is already being handled. Do not send it again." };
   throw new PoppyError("approval_changed", row.result ?? "This request was already handled. Check its outcome rather than sending it again.", 0, { poppyTask: taskProjection(client, row.id) });

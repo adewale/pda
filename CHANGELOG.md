@@ -10,6 +10,7 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 - A card no longer warns that the terms disagree with the request just because two fields share a key: a recipient's `name` in the terms was compared with a product's or a preview's `name` in the request. A terms field is now compared with a request field whose keys end with the same keys (`address.name` with `body.address.name`), and not at all when those keys lead to two different places in the request.
 - The mock Company can hold an order's checkout link back for a number of answers (`checkoutPending`).
 - The mock Company can send the matching `WWW-Authenticate` challenge on a successful response that carries an `authorization` event (`authorizationChallenge`, 8.11). A test checks that the agent asks for sign-in once and sends the message once. The agent already handled this; nothing had tested it.
+- The agent knows when a standing instruction approves an operation. Its tool result used to say it was waiting for the User's decision even when the check had found an instruction covering the terms, so on Print with Poppy's sandbox the agent told the User a card was coming, then the instruction approved the order. The result now names the instruction and says the agent approves on it; `poppy_discover`, like `poppy_status`, lists the Company's active instructions, read only.
 
 ## Unreleased — 0.4 alone: 0.3 dropped
 
