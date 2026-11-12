@@ -142,12 +142,6 @@ export class Web {
     );
   }
 
-  /** The tasks this Company chose not to offer (9.1), for every User alike. */
-  excludedTasks(): Response {
-    if (!this.company.config.excludedTasks) return json({ error: "not_found" }, 404);
-    return json({ tasks: this.#excluded() }, 200, DEFAULT_CACHING);
-  }
-
   #excluded() {
     return EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry);
   }
@@ -216,7 +210,7 @@ export class Web {
       co.violation("feedback.fields", "feedback report: task (at most 200 characters) and description (at most 2,000) are required strings");
       return json({ error: "invalid_request" }, 400);
     }
-    if ("kind" in report) co.violation("feedback.kind", "feedback report: kind is 0.2's; 0.3 removed it (9.3)");
+    if ("kind" in report) co.violation("feedback.kind", "feedback report: kind is 0.2's; 0.3 removed it, and 0.4 left it out (9.3)");
     const phrase = task.toLowerCase().trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
     if (co.config.excludedTasks && EXCLUDED.some((entry) => entry.task.toLowerCase() === phrase)) {
       co.violation("feedback.excluded-task", `feedback report about ${JSON.stringify(task)}, which the Company lists as excluded`);

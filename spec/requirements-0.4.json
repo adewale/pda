@@ -288,7 +288,7 @@
       "change": "Feedback operations for other clients",
       "disposition": "Done",
       "implementation": "src/poppy/coverage.ts",
-      "evidence": "test/poppy-0.3.test.ts",
+      "evidence": "test/poppy-core.test.ts",
       "notes": "Feedback goes only to feedback.endpoint through poppy_feedback; under 0.4 that endpoint comes from the tasks response (T1)."
     },
     {

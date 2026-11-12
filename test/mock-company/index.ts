@@ -165,7 +165,6 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
       // An issuer of exactly https://{domain} publishes its metadata on the domain (RFC 8414 3.1).
       if (company.config.issuerOnDomain && !company.config.issuerless && path === company.hosts.metadataPath && method === "GET") return web.authorizationServerMetadata();
-      if (path === "/poppy/excluded-tasks.json" && method === "GET") return web.excludedTasks();
       if (path === "/logo.png" && method === "GET") {
         // A 1×1 PNG.
         const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));

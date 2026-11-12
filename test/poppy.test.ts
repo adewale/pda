@@ -23,12 +23,12 @@ import worker from "./worker";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
- * `describe` is a section of Personal Agent Protocol draft 0.3 (as rewritten
- * on 28 October 2026, spec/draft-0.3-retrieved-2026-10-28) or its Operations
- * extension, version 2. After every test, every mock it created must have
+ * `describe` is a section of Personal Agent Protocol 0.4
+ * (spec/draft-0.4-retrieved-2026-11-11), whose section numbers follow 0.3's,
+ * or its Operations extension, version 3. After every test, every mock it created must have
  * recorded no violations, unless the test said which it expects
- * (`company()` and the check are in agent-helpers.ts). test/poppy-0.3.test.ts
- * has the end-to-end 0.3 tests these build on.
+ * (`company()` and the check are in agent-helpers.ts). test/poppy-core.test.ts
+ * has the end-to-end tests these build on.
  */
 
 const ORIGIN = "https://agent.test";
@@ -2504,7 +2504,7 @@ describe("8 conversations", () => {
  * permissions. A write that needs the User's approval is refused with the
  * operation; the User approves that revision on its card; and the same
  * request goes again with `Poppy-Approval`, which the Company performs at
- * most once. test/poppy-0.3.test.ts has the round trip by API, MCP and
+ * most once. test/poppy-core.test.ts has the round trip by API, MCP and
  * conversation; these are the properties around it.
  */
 describe("Operations 2", () => {

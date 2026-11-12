@@ -8,7 +8,10 @@
  * it; commit is null until all pinned text is committed. A published version
  * is frozen; a draft gets newer snapshots. The snapshot's own hashes supply
  * the offline integrity check. Only `runtime` pins are spoken by the agent,
- * and they must agree with src/poppy/protocol-version.ts.
+ * and they must agree with src/poppy/protocol-version.ts. A `retired` pin is
+ * a version the agent spoke and no longer does: its text, kit and ledger are
+ * kept and checked as history, and its ledger links files at `codeAt`, the
+ * commit they were last current in.
  */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -39,7 +42,11 @@ for (const pin of runtime) {
 }
 if (PROTOCOL_COMMIT !== runtime.at(-1).commit) throw new Error("Runtime protocol commit disagrees with the newest runtime pin");
 // Pinned drafts the validator checks but the agent doesn't speak yet carry their pinned revision too.
-const drafts = pins.filter((pin) => !pin.runtime);
+for (const pin of pins) {
+  if (pin.runtime && pin.retired) throw new Error(`Pin ${pin.protocolVersion} is both runtime and retired`);
+  if (!!pin.retired !== /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[0-9a-f]{40}$/.test(pin.codeAt ?? "")) throw new Error(`Pin ${pin.protocolVersion}: a retired pin, and only one, links its ledger at a commit (codeAt)`);
+}
+const drafts = pins.filter((pin) => !pin.runtime && !pin.retired);
 if (JSON.stringify(drafts.map((pin) => pin.protocolVersion).sort()) !== JSON.stringify(Object.keys(DRAFT_REVISIONS).sort())) {
   throw new Error("Draft protocol revisions disagree with the non-runtime pins");
 }
@@ -77,15 +84,15 @@ for (const pin of pins) {
   }
   const ledgerDoc = readFileSync(path.join(root, `docs/poppy-${pin.protocolVersion}-upgrade.md`), "utf8");
   const ledgerStart = ledgerDoc.indexOf(LEDGER_START), ledgerEnd = ledgerDoc.indexOf(LEDGER_END);
-  if (ledgerStart < 0 || ledgerEnd < ledgerStart || ledgerDoc.slice(ledgerStart, ledgerEnd + LEDGER_END.length) !== ledgerSection(ledger)) {
+  if (ledgerStart < 0 || ledgerEnd < ledgerStart || ledgerDoc.slice(ledgerStart, ledgerEnd + LEDGER_END.length) !== ledgerSection(ledger, pin.codeAt)) {
     throw new Error(`Stale ${pin.protocolVersion} requirement table; run npm run spec:docs`);
   }
   for (const entry of ledger.changes) {
     if (!entry.disposition || !entry.notes) throw new Error(`Unreviewed change: ${entry.change}`);
-    for (const key of ["implementation", "evidence"]) readFileSync(path.join(root, entry[key]));
+    if (!pin.retired) for (const key of ["implementation", "evidence"]) readFileSync(path.join(root, entry[key]));
   }
   checked.push({ pin, manifest, section });
-  console.log(`Verified ${ledger.changes.length} changelog dispositions and ${manifest.pages.length} pinned pages (${pin.protocolVersion} ${pin.status}, retrieved ${pin.revision}).`);
+  console.log(`Verified ${ledger.changes.length} changelog dispositions and ${manifest.pages.length} pinned pages (${pin.protocolVersion} ${pin.status}${pin.retired ? ", retired" : ""}, retrieved ${pin.revision}).`);
 }
 
 let failed = false;
