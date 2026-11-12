@@ -42,7 +42,7 @@ async function unfinished(f: ReturnType<typeof fixture>, company: Company, id: s
   return secret;
 }
 
-// The last revision of each version the agent no longer speaks: 0.3 was dropped on 11 November (decision 49).
+// The last revision of each version the agent no longer speaks: 0.3 was dropped on 12 November (decision 49).
 const RETIRED: Record<string, string> = { "0.2": "2026-10-19", "0.3": "2026-11-03" };
 
 describe("state retained across protocol upgrades", () => {

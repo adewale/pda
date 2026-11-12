@@ -16,7 +16,7 @@ Read the design sections relevant to your change in [pda-spec.md](pda-spec.md). 
 | Deployment | [setup](docs/setup.md), [deployment state and live checks](docs/deployment-tasks.md) |
 | Protocol refresh | [upgrade procedure](docs/upgrading.md), `spec/upstream.json` |
 
-The design owns architecture and requirements. [Decisions](docs/decisions.md) preserve rationale, including superseded choices. [Verification](docs/poppy-0.3-conformance.md#current-verification) owns protocol verification status; deployment-tasks owns deployed state and live checks; [TODO](TODO.md) owns remaining product work. Link to these sources instead of copying their status into other documents. Dated reports and evidence are frozen records; update the current source, not the old report. Proposals are parked until submission is scheduled; do not refresh their statistics.
+The design owns architecture and requirements. [Decisions](docs/decisions.md) preserve rationale, including superseded choices. [Verification](docs/poppy-0.4-conformance.md#current-verification) owns protocol verification status; deployment-tasks owns deployed state and live checks; [TODO](TODO.md) owns remaining product work. Link to these sources instead of copying their status into other documents. Dated reports and evidence are frozen records; update the current source, not the old report. Proposals are parked until submission is scheduled; do not refresh their statistics.
 
 ## Commands
 

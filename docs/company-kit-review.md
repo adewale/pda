@@ -26,7 +26,7 @@ Raw upstream verdicts are preserved in [the receipt](evidence/pr-36-company-kit/
 | Strict mock, Bearer | 119 | 0 | 0 | 1 |
 | Hosted dummy Company in local workerd | 55 | 0 | 7 | 58 |
 
-The mock's one skip is feedback alternative references: its response is the valid empty 202 acceptance, so there is no alternative to inspect. The hosted skips correspond to absent features, including conversations, feedback, Mediated/Device Sign-In and browser join. They are listed by ID in [the reviewed findings](../test/company-kit/reviewed-findings.json), and retain their upstream reasons in the receipt. They are not counted as passes.
+The mock's one skip is feedback alternative references: its response is the valid empty 202 acceptance, so there is no alternative to inspect. The hosted skips correspond to absent features, including conversations, feedback, Mediated/Device Sign-In and browser join. They are listed by ID in [the reviewed findings](https://github.com/adewale/pda/blob/7f2cfde7d1dabe49acfd81f09a92d3a308835810/test/company-kit/reviewed-findings.json), and retain their upstream reasons in the receipt. They are not counted as passes.
 
 ### DPoP prerequisite disagreement
 

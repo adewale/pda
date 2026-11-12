@@ -73,7 +73,8 @@ describe("4.1 agent identity", () => {
     expect(doc.jwks_uri).toBe(`${ORIGIN}/poppy/jwks.json`);
     expect(doc.redirect_uris).toEqual([`${ORIGIN}/poppy/callback`]);
     expect(doc.token_endpoint_auth_method).toBe("private_key_jwt");
-    expect(doc.extensions).toEqual({ operations: { version: "2" } });
+    // Extensions are declared per Session (3.4), not here.
+    expect(doc).not.toHaveProperty("extensions");
   });
 
   it("publishes only public keys, each with a kid", async () => {

@@ -58,7 +58,7 @@ function evidence(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe("retiring conversations that cannot survive the protocol upgrade", () => {
-  // 0.3 was dropped on 11 November (decision 49): a 0.3 conversation at its last revision is retired too.
+  // 0.3 was dropped on 12 November (decision 49): a 0.3 conversation at its last revision is retired too.
   const LEGACY: Record<string, { protocolVersion: string; specificationRevision: string }> = {
     "0.1": { protocolVersion: "0.1", specificationRevision: "2026-10-19" },
     "0.2": { protocolVersion: "0.2", specificationRevision: "2026-10-19" },

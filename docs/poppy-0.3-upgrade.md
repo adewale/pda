@@ -1,5 +1,7 @@
 # Poppy 0.3: the ledger
 
+> PDA dropped 0.3 on 12 November 2026 ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). This ledger is kept as 0.3's record; its links go to the files at the last main commit before 0.4. The current ledger is [0.4's](poppy-0.4-upgrade.md#the-11-november-changelog-entry-by-entry).
+
 We speak 0.3 alone, with the manually reviewed [3 November 2026 snapshot](../spec/draft-0.3-retrieved-2026-11-03/README.md); 0.1 and 0.2 remain refused ([decision 37](decisions.md)). The pin in [spec/upstream.json](../spec/upstream.json) records the site hashes and upstream commit `7205250`, whose specification, extension, guides and changelog text the snapshot matches apart from site formatting. `npm run check:spec` checks integrity offline; `npm run spec:drift` compares the pinned text with the live site on demand. The [29 October snapshot](../spec/draft-0.3-retrieved-2026-10-29/README.md) stays as a record.
 
 Since the 29 October pin, upstream's 30 October and 2 November changes made these changes on the wire, all implemented:

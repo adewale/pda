@@ -1,0 +1,21 @@
+# Poppy 0.4 conformance review
+
+This review targets the [11 November 2026 snapshot](../spec/draft-0.4-retrieved-2026-11-11/README.md), upstream commit `ed47408`, which upstream published as 0.4, the 1.0 release candidate. Issues in the upstream text are in [the 0.4 issue list](poppy-0.4-issues.md), and each changelog entry's disposition is in [the requirement ledger](poppy-0.4-upgrade.md#the-11-november-changelog-entry-by-entry). A disposition of **Done** records an implemented change; it does not certify every normative requirement or every deployment path.
+
+## Current verification
+
+PDA implements the pinned 11 November 2026 text of Poppy 0.4 alone. It dropped 0.3 on 12 November ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)); the [0.3 review](poppy-0.3-conformance.md) keeps that version's evidence. This is the current verification summary; dated evidence packages keep the results of their own runs.
+
+| Area | Evidence and limit |
+| --- | --- |
+| Repository implementation | [CI](../.github/workflows/ci.yml) runs documentation references on every PR, runtime checks on code/config changes, and specialist checks on their inputs; main runs all CI steps. Passing them does not certify every normative requirement. |
+| Offline suite | The client against the strict mock Company, which fails a test on any violation or warning; the kit's own JSON Schemas over every request the agent sends to the mock ([test/kit-schemas.ts](../test/kit-schemas.ts)); the validator; the property tests; and the independent [Python Hypothesis client](../test/hypothesis/README.md). All of them speak 0.4 alone. The multi-version code (choosing a version, `supported_versions`, `version_unsupported`) is tested with a hypothetical newer version. |
+| Own interop and security lanes | CI selects applicable honest/network, malicious-Company and malicious-agent cells explicitly, and refuses skipped required cells ([lane definitions](../.github/workflows/interop.yml)). The lanes pair 0.4 implementations only. The [interop spec](interop-spec.md) records the latest run. |
+| Official Company kit | CI runs the [pinned 0.4 kit](../spec/company-kit-2026-11-11/README.md), unmodified, against the mock profiles and compares the result with [the reviewed findings](../test/company-kit/reviewed-findings-0.4.json): the DPoP-prerequisite findings already reviewed for 0.3, the two version checks a one-version Company skips ([reading](readings.md#v04-version-missing)), and the issuerless profile's OAuth checks. The DPoP-capable copy runs beside it. The [manual checklist review](company-kit-review.md) was done for the 29 October kit and hasn't been redone for 0.4. This verifies Company-side fixtures, not the full Personal Agent. |
+| Independent Company | None at 0.4. Print with Poppy serves 0.3 alone, so the agent refuses it at discovery, and it is no longer an interop pairing. Its 0.3 receipts are in the [0.3 review](poppy-0.3-conformance.md#current-verification). |
+| Browser interaction and process crashes | The recorded browser run and the sixteen SIGKILL cases were made under 0.3 ([0.3 review](poppy-0.3-conformance.md#current-verification)). `npm run check:approval-crashes` runs in CI on its inputs; the browser run hasn't been repeated at 0.4. |
+| Browser Control | Tested offline against a fake Browser Run. It ships off ([decision 48](decisions.md#48-browser-control-ships-off)) until the live check has run. |
+| MCP lifecycles | MCP 2026-07-28 and 2025-06-18 are checked offline against the mock's three MCP modes in [test/mcp-lifecycle.test.ts](../test/mcp-lifecycle.test.ts), and by the Python client. No interop peer or live Company speaks 2026-07-28 yet. |
+| Live services | None at 0.4: no live Company we test against serves it yet. The live checks are written in [deployment-tasks](deployment-tasks.md#2-live-checks). |
+
+Deployment state and remaining live checks are maintained only in [deployment-tasks](deployment-tasks.md#2-live-checks). This table reports recorded protocol evidence, not a claim that the current source is deployed.

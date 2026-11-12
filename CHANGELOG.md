@@ -2,6 +2,23 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — 0.4 alone: 0.3 dropped
+
+The agent, the mock Company, the validator, the interop harness and the Python Hypothesis client speak 0.4 alone ([decision 49](docs/decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). A Company that serves only 0.3, Print with Poppy among them, is refused at discovery as `version-unsupported`.
+
+**On upgrade:** migration closes each open 0.3 conversation locally, with a notice; its messages and evidence are kept, and nothing is sent to the Company. A pending approval or other task begun with a 0.3 Company is held as `company_changed` for the User to review, and never replayed. A Session stored with a 0.3 declaration is not used again: the next request starts a new Session with the same account. Nothing needs to be done by hand.
+
+- `PROTOCOL_VERSIONS` is `0.4`. Version choice, `supported_versions` and the retry after `version_unsupported` stay generic, and are tested with a hypothetical newer version.
+- Conversations always send request IDs and read the four state fields; handoff, cancel and close send `{id}` and are answered with 202. `message_id_conflict` is gone, and the 0.3 status branch with it.
+- Every Session request declares `Poppy-Version` and `Poppy-Extensions`; the client metadata no longer lists `extensions`, which only 0.3 read.
+- Operations 3 only: an operation without `terms` is refused, and every approval carries its statement.
+- Scope descriptions prefer `auth.scopes` over an OpenAPI description, and a device sign-in link is shown only on the issuer's host or `organization.domain` (0.4 4.3, 4.7; K2 and K3, which 0.3 had held back).
+- The mock serves 0.4 alone: no 0.3 shapes, no `excluded-tasks.json`, `poppy:browser-sign-in` whenever it has browser join, and `version_unsupported` for a request without `Poppy-Version`. The hosted dummy Company serves 0.4 too.
+- The validator checks 0.4 documents alone; a 0.3 document is `version-unsupported`.
+- Interop pairs 0.4 implementations only: the Print with Poppy pairing is removed (its adapter is kept), and the raw `evil-personal-agent` speaks 0.4. CI runs the 0.4 kit alone.
+- The 0.3 pin is `retired` in `spec/upstream.json`: its snapshot, kit and ledger stay and are still checked, and its ledger links files at the last main commit before 0.4. `npm run check:spec` accepts retired pins.
+- [Current verification](docs/poppy-0.4-conformance.md#current-verification) moves to a 0.4 review; the 0.3 review is kept as its record.
+
 ## Unreleased — the agent speaks 0.4 beside 0.3 (in progress; not deployable)
 
 The agent now speaks 0.4 beside 0.3, and chooses 0.4 from any Company that offers it ([decision 45](docs/decisions.md#45-04-spoken-on-the-branch-before-it-is-finished-and-strict-04-re-pins)). **Don't deploy this yet.** 0.4 support is unfinished: the real browser and Browser Control, among others, aren't done ([0.4 upgrade](docs/poppy-0.4-upgrade.md)). No live Company serves 0.4 yet; Print with Poppy is still on 0.3.

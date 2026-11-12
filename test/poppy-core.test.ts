@@ -637,14 +637,23 @@ describe("task coverage", () => {
 });
 
 describe("describing scopes", () => {
-  it("shows each scope as the Company's OpenAPI description describes it, with its hint in plain words", async () => {
+  it("shows each scope as auth.scopes describes it when the OpenAPI description does too, with its hint in plain words (4.7)", async () => {
     const c = await company({ describesSecurity: true });
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Exchange the jacket" });
     const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_link" && item.open));
+    // The OpenAPI description says "Read your orders"; auth.scopes wins.
     expect(card.scopes).toEqual([
-      { scope: "orders:read", description: "Read your orders", hint: "Changes nothing · Uses your personal data" },
+      { scope: "orders:read", description: "See your orders and exchanges", hint: "Changes nothing · Uses your personal data" },
       { scope: "orders:write", description: "Exchange items on your orders", hint: "Can make changes that can't be undone · Uses your personal data" }
     ]);
+  });
+
+  it("shows the OpenAPI description of a scope auth.scopes doesn't describe (4.7)", async () => {
+    const c = await company({ describesSecurity: true, hideScopesFromAuth: ["orders:read"] });
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Exchange the jacket" });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_link" && item.open));
+    expect(card.scopes[0]).toEqual({ scope: "orders:read", description: "Read your orders", hint: "Changes nothing · Uses your personal data" });
   });
 });

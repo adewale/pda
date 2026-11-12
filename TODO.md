@@ -1,6 +1,6 @@
 # TODO
 
-This is the remaining product and maintenance backlog. [Deployment tasks](docs/deployment-tasks.md) owns configuration, deployed commits and live checks; [current verification](docs/poppy-0.3-conformance.md#current-verification) owns protocol results. Completed work is in [CHANGELOG.md](CHANGELOG.md) and the [dated backlog](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/TODO.md), rather than repeated here.
+This is the remaining product and maintenance backlog. [Deployment tasks](docs/deployment-tasks.md) owns configuration, deployed commits and live checks; [current verification](docs/poppy-0.4-conformance.md#current-verification) owns protocol results. Completed work is in [CHANGELOG.md](CHANGELOG.md) and the [dated backlog](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/TODO.md), rather than repeated here.
 
 ## Owner actions
 
@@ -11,7 +11,6 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 
 ## Product
 
-- [ ] **Poppy 0.4** beside 0.3 ([decision 43](docs/decisions.md#43-03-beside-04-both-versions-website-operations-and-approvals-across-sessions)). The [0.4 upgrade](docs/poppy-0.4-upgrade.md) owns the work and its order.
 - [ ] **Skills**, the remaining personal-agent milestone in the [build plan](pda-spec.md#build-plan).
 - [ ] **Web search**, once a provider and funding are chosen.
 - [ ] **Email reminders**, once a sender and verified-address flow are chosen.
@@ -34,4 +33,4 @@ Keep Node 24 while supported and compatible with dependencies. A new LTS release
 - [ ] Remaining attack coverage: two-Company mix-up (`XM`), a private-host test suffix (`XS`), and the consent-code/browser cases (`YF`, `YC`). [Attack definitions and limits](docs/adversarial-interop.md) own the details; retired Operations 1 scenarios are not current tasks.
 - [ ] Evaluate an additional independent peer when it can exercise a missing current-version interface. Historical candidates (openavt, Alpine Retail and typo3) remain in the dated backlog; do not build adapters for incompatible protocols merely to expand the grid. Adversarial use of another project's code retains the consent and disclosure rules in SECURITY.md.
 
-Protocol ambiguities live in [readings](docs/readings.md) and the [spec issue list](docs/poppy-0.3-issues.md); this backlog does not maintain a second inventory of retired standing permissions or Operations 1 proposals.
+Protocol ambiguities live in [readings](docs/readings.md) and the [spec issue list](docs/poppy-0.4-issues.md); this backlog does not maintain a second inventory of retired standing permissions or Operations 1 proposals.
