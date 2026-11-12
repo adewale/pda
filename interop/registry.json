@@ -101,13 +101,21 @@
       "name": "print-with-poppy-sandbox",
       "role": "company",
       "liveScenarios": [
-        "D"
+        "D",
+        "S0"
       ],
       "source": "https://github.com/spenciefy/print-with-poppy",
       "commit": "unknown",
       "url": "https://sandbox.printwithpoppy.com",
       "protocolVersion": "0.4",
-      "notes": "The store's Agent Sandbox: real Sessions and approvals, simulated payment, fulfillment and shipping. Declares 0.4 since 12 November. Discovery (D) only here, since a signed-in journey needs our interop client on its allowlist."
+      "notes": "The store's Agent Sandbox: real Sessions and approvals, simulated payment, fulfillment and shipping; its guide invites agents to test and lists our clients as registered. Declares 0.4 since 12 November. Live scenarios: D, and S0 (a signed-out Session reading getCatalog twice, no write) since 12 November; both pass since the sandbox was redeployed that evening. Signed-in scenarios wait for a test account and the owner's agreement (docs/testing-with-us.md).",
+      "fixture": {
+        "openapi_public": {
+          "api": "openapi",
+          "operation": "getCatalog",
+          "args": {}
+        }
+      }
     },
     {
       "name": "evil-company",
