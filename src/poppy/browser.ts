@@ -10,7 +10,7 @@ import { expired, proposeApproval, unusableApproval } from "./api-approvals";
 import { approvable, approvalHeader, operationsVersion, parseOperationHeader, parseOperationV2, toSend, type SentApproval } from "./operations-v2";
 import { readDecline } from "./declines";
 import { companyErrorCode } from "./error-codes";
-import { beforeModelAction, describeStep, handsOver, offerControl, type HandoverStart } from "./handover";
+import { beforeModelAction, describeStep, handsOver, offerControl, refuseWhileUserHasControl, type HandoverStart } from "./handover";
 
 /**
  * A step the Company marks for the User (Browser Control 4): `interaction`
@@ -76,15 +76,16 @@ export type PageGuard = (url: URL) => void;
 export interface BrowserContextHandle {
   /** A top-level form POST, as a browser submitting a form makes it: the browser join's step 3 (6). */
   postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number; retryAfter?: string }>;
-  goto(url: string): Promise<PageSnapshot>;
+  /** `beforeDispatch` runs before each request, the first and every redirect, and stops the load by throwing. */
+  goto(url: string, beforeDispatch?: () => void): Promise<PageSnapshot>;
   /**
    * Load the browser-session page (6, step 1) and read its one-time
    * code, in software the model never sees: the hidden `code` of the form
    * that posts back to it. Nothing when the page isn't that.
    */
   joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string; readonly retryAfter?: string }>;
-  /** Follows a link; never sends a form. */
-  click(selector: string): Promise<PageSnapshot>;
+  /** Follows a link; never sends a form. `beforeDispatch` as for `goto`. */
+  click(selector: string, beforeDispatch?: () => void): Promise<PageSnapshot>;
   fill(selector: string, value: string): Promise<PageSnapshot>;
   /** What submitting a form would send now, for the User to approve. */
   prepareSubmit(selector: string): Promise<FormSubmission>;
@@ -149,6 +150,12 @@ function checkContext(client: PoppyClient, company: Company, label: string, entr
   if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || !sameContextSession(client, company, entry, session)) {
     throw new PoppyError("approval_changed", "The account, Session or access changed. Open a fresh page.", 0);
   }
+}
+
+/** Before each request of the model's browsing: the context still the Session's, and the User not holding the browser (Browser Control 5). */
+function checkModelDispatch(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
+  refuseWhileUserHasControl(client, company, label);
+  checkContext(client, company, label, entry);
 }
 
 function canonicalScope(scope = ""): string {
@@ -409,8 +416,7 @@ function snapshotForModel(snapshot: PageSnapshot): { [key: string]: Json } {
 async function load(client: PoppyClient, company: Company, context: BrowserContextHandle, url: URL, check: () => void): Promise<PageSnapshot> {
   for (let attempt = 0; attempt < 3; attempt++) {
     await client.beforeRequest(company);
-    check();
-    const snapshot = await context.goto(url.href);
+    const snapshot = await context.goto(url.href, check);
     check();
     const limited = await client.pageLimited(company, snapshot.status, snapshot.retryAfter);
     check();
@@ -460,7 +466,7 @@ export async function browse(
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
     let active = await sessionContext(client, browser, company, label);
-    const check = () => checkContext(client, company, label, active.entry);
+    const check = () => checkModelDispatch(client, company, label, active.entry);
     let snapshot = await load(client, company, active.context, url, check);
     // The website stopped recognising the Session: join again (6: "MAY join again at any time").
     if ((snapshot.status === 401 || snapshot.status === 403) && company.web?.browserSessionEndpoint) {
@@ -503,15 +509,13 @@ async function userStep(client: PoppyClient, company: Company, label: string, ha
 
 async function act(client: PoppyClient, company: Company, label: string, entry: ContextEntry, handle: BrowserContextHandle, action: Exclude<BrowseAction, { kind: "open" }>): Promise<Json> {
   if (action.kind === "click") {
+    const check = () => checkModelDispatch(client, company, label, entry);
     await client.beforeRequest(company);
-    checkContext(client, company, label, entry);
-    let snapshot = await handle.click(action.selector);
+    let snapshot = await handle.click(action.selector, check);
     checkContext(client, company, label, entry);
     const limited = await client.pageLimited(company, snapshot.status, snapshot.retryAfter);
     checkContext(client, company, label, entry);
-    if (limited) {
-      snapshot = await load(client, company, handle, new URL(snapshot.url), () => checkContext(client, company, label, entry));
-    }
+    if (limited) snapshot = await load(client, company, handle, new URL(snapshot.url), check);
     return snapshotForModel(snapshot);
   }
   if (action.kind === "fill") {
@@ -649,7 +653,7 @@ registerExecutor("browse-submit", async (client, company, { submission, binding 
   const { entry, handle } = await approvedContext(client, company, label, submission, binding);
   await client.beforeRequest(company);
   const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
-  const snapshot = await handle.submit(submission, check);
+  const snapshot = await handle.submit(submission, () => { refuseWhileUserHasControl(client, company, label); check(); });
   const operation = websiteOperation(company, entry, snapshot);
   if (operation) {
     const answer = await atOperationsEndpoint(client, company, label, entry, operation.endpoint, operation.ref, null, check);
@@ -695,7 +699,7 @@ registerExecutor("web-operation", async (client, company, approval, label, execu
   for (let attempt = 0; attempt < 2 && !snapshot; attempt++) {
     try {
       await client.beforeRequest(company);
-      snapshot = await handle.submit(approval.submission, check);
+      snapshot = await handle.submit(approval.submission, () => { refuseWhileUserHasControl(client, company, label); check(); });
     } catch (error) {
       if (answerOf(error) !== "none" || attempt === 1) break;
     }

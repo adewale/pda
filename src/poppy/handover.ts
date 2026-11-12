@@ -132,20 +132,26 @@ export function userControl(client: PoppyClient, issuer: Issuer, label: string):
 }
 
 /**
+ * Immediately before each request the model's browsing sends, as well as
+ * when it starts: the User may have taken control while it waited (5).
+ */
+export function refuseWhileUserHasControl(client: PoppyClient, company: Company, label: string): void {
+  if (!userControl(client, company.issuer, label)) return;
+  throw new PoppyError(
+    "user_has_control",
+    `The User has control of the browser at ${company.name}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
+    0
+  );
+}
+
+/**
  * Before any of the model's browser actions on this Session's website:
  * refused while the User holds control (5: "MUST NOT carry out browser
  * actions from its model"), and after they hand back, refused until the
  * agent has opened a page again ("looks at the page again before it continues").
  */
 export function beforeModelAction(client: PoppyClient, company: Company, label: string, opening: boolean): void {
-  const held = userControl(client, company.issuer, label);
-  if (held) {
-    throw new PoppyError(
-      "user_has_control",
-      `The User has control of the browser at ${company.name}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
-      0
-    );
-  }
+  refuseWhileUserHasControl(client, company, label);
   const back = one(client.sql, handoversTable.row, "SELECT * FROM poppy_handovers WHERE issuer = ? AND label = ? AND looked = 0 AND state IN ('returned', 'cancelled')", company.issuer, label);
   if (!back) return;
   if (!opening) throw new PoppyError("invalid_request", `The User used the browser at ${company.name}. Open the page again (poppy_browse with open) to see it as it is now before doing anything else there.`, 0);
