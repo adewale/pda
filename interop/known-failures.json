@@ -14,17 +14,6 @@
       ],
       "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
       "reason": "By design: the sloppy fake agent sends its client assertions with the token endpoint as aud (reading S1 token-endpoint). 0.3 settled S1 and 0.4 keeps it: 4.1 makes the issuer the aud at every endpoint, so both mocks refuse its first token request with invalid_client and record client-assertion.aud. Its signed-in cells fail; its signed-out ones, which need no token request, pass."
-    },
-    {
-      "agent": "*",
-      "company": "print-with-poppy-sandbox",
-      "scenario": "S0",
-      "blame": null,
-      "errors": [
-        "invalid_session"
-      ],
-      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#print-with-poppy-sandbox-live",
-      "reason": "On 12 November at 20:42 UTC the live sandbox still ran the verifier from before bd1dc43: it refused our Session JWT's poppy_dlg delegation with invalid_session, asking for pap_dlg. The store's workflow deploys production on every push to main but the sandbox only when dispatched by hand. When the sandbox runs bd1dc43 or later this entry goes stale and fails the run."
     }
   ]
 }

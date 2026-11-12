@@ -108,7 +108,7 @@
       "commit": "unknown",
       "url": "https://sandbox.printwithpoppy.com",
       "protocolVersion": "0.4",
-      "notes": "The store's Agent Sandbox: real Sessions and approvals, simulated payment, fulfillment and shipping; its guide invites agents to test and lists our clients as registered. Declares 0.4 since 12 November. Live scenarios: D, and S0 (a signed-out Session reading getCatalog twice, no write) since 12 November. Signed-in scenarios wait for a test account and the owner's agreement (docs/testing-with-us.md).",
+      "notes": "The store's Agent Sandbox: real Sessions and approvals, simulated payment, fulfillment and shipping; its guide invites agents to test and lists our clients as registered. Declares 0.4 since 12 November. Live scenarios: D, and S0 (a signed-out Session reading getCatalog twice, no write) since 12 November; both pass since the sandbox was redeployed that evening. Signed-in scenarios wait for a test account and the owner's agreement (docs/testing-with-us.md).",
       "fixture": {
         "openapi_public": {
           "api": "openapi",
