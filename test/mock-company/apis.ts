@@ -129,6 +129,8 @@ function parseMultipart(body: Uint8Array, boundary: string): Part[] | null {
 /** The Company's OpenAPI API and MCP server (spec section 7). */
 export class Apis {
   readonly #idempotency = new Map<string, { hash: string; status: number; body: unknown }>();
+  /** How many answers each print order has had without its checkout link (`checkoutPending`). */
+  readonly #checkoutWaits = new Map<string, number>();
   /** Idempotency-Keys sent on writes without an approval, which an approved request must not reuse (Ops 6). */
   readonly #unapprovedKeys = new Set<string>();
   /** The print shop's photos, each belonging to the Session that uploaded it. */
@@ -426,7 +428,7 @@ export class Apis {
         co.violation("idempotency.key-reused", `Idempotency-Key ${key} reused with a different body`);
         return json({ error: "idempotency_conflict" }, 409);
       }
-      return json(seen.body, seen.status);
+      return this.#printOrder(seen);
     }
     const first = `${firstRequestScope(context)}|${key}`;
     if (header === null) this.#unapprovedKeys.add(first);
@@ -475,7 +477,25 @@ export class Apis {
     if ("declined" in result) return json({ error: "approval_declined", ...result.declined }, 403);
     // Only a performed order is kept: an approval_required answer is decided afresh each time.
     this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result.performed });
-    return json(result.performed.body, result.performed.status);
+    return this.#printOrder(result.performed);
+  }
+
+  /**
+   * A placed order as it is now (0.4 Ops 7: a repeat of the approved request
+   * gets "the response the Company gave the first time, or one that says the
+   * same"): for its first `checkoutPending` answers, without the checkout link
+   * and with `Retry-After`, as a Company still preparing checkout answers.
+   */
+  #printOrder(performed: { readonly status: number; readonly body: unknown }): Response {
+    const order = isRecord(performed.body) && isRecord(performed.body.order) ? performed.body.order : null;
+    const id = typeof order?.order_id === "string" ? order.order_id : null;
+    const waits = id === null ? 0 : (this.#checkoutWaits.get(id) ?? 0);
+    if (order && id !== null && waits < this.company.config.checkoutPending) {
+      this.#checkoutWaits.set(id, waits + 1);
+      const { checkout_url: _link, ...preparing } = order;
+      return json({ order: preparing }, performed.status, { "Retry-After": "1" });
+    }
+    return json(performed.body, performed.status);
   }
 
   /** The Poppy endpoints, described as ordinary API paths (`openapiListsPoppyEndpoints`). */
@@ -869,6 +889,8 @@ export class Apis {
  * and any account, not the Session (Guides, "Retries"), so a retry that a
  * new Session carries after `session_ended` still matches.
  */
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
 function idempotencyScope(context: ResourceContext): string {
   return `${context.session.clientId}|${context.session.userId}|${context.account ?? ""}`;
 }

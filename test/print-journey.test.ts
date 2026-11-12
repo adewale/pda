@@ -887,6 +887,39 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect((await c.stub.state()).operations.every(operation => operation.confirms === 0)).toBe(true);
   });
 
+  it("waits for the checkout link when the approved order's answer says Retry-After, sending the same request again (0.4 Ops 7)", async () => {
+    // Print with Poppy's way: 201, `awaiting_payment` and Retry-After until checkout is ready.
+    const c = await company({ printShop: true, checkoutPending: 2 });
+    const a = await poppyAgent();
+    const { terms } = await termsForPrint(a, c);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
+    const receipt = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.approvalId === terms.approvalId && item.status === "done"));
+    const order = JSON.parse(receipt.result!) as { status: number; body: { order: { checkout_url?: string } }; note?: string };
+    expect(order.body.order.checkout_url).toMatch(new RegExp(`^https://${c.domain.replace(/\./g, "\\.")}/checkout/ord_`));
+    expect(order.note).toBeUndefined();
+    // Performed once; the same approved request, Idempotency-Key and all, twice more.
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "succeeded", confirms: 1 })]);
+    const approved = (await printRequests(c)).filter((request) => "poppy-approval" in request.headers);
+    expect(approved.map((request) => request.status)).toEqual([201, 201, 201]);
+    expect(new Set(approved.map((request) => request.headers["idempotency-key"])).size).toBe(1);
+    expect(await a.stub.poppyWaitForNotice(order.body.order.checkout_url!)).toContain("Done, as the User approved");
+  });
+
+  it("stops following up after a few waits, and says the result wasn't ready rather than sending again later (0.4 Ops 7)", async () => {
+    const c = await company({ printShop: true, checkoutPending: 100 });
+    const a = await poppyAgent();
+    const { terms } = await termsForPrint(a, c);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
+    const receipt = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.approvalId === terms.approvalId && item.status === "done"));
+    const order = JSON.parse(receipt.result!) as { body: { order: { checkout_url?: string; state: string } }; note?: string };
+    expect(order.body.order).toMatchObject({ state: "awaiting_payment" });
+    expect(order.body.order.checkout_url).toBeUndefined();
+    expect(order.note).toContain("its result wasn't ready yet");
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(6);
+    await a.stub.poppyAdvance(120_000);
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(6);
+  });
+
   it("tells the User an order may have happened when the answer to its approved request was lost, and never sends it again (N19)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
