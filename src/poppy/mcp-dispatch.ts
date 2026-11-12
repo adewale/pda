@@ -1,6 +1,7 @@
 /** MCP tool validation, durable task dispatch and exact-terms approval execution. */
 import { PoppyClient, withoutAnswer, withAnswer, PoppyError } from "./client";
 import { type Company } from "./discovery";
+import { standingInstructionFor } from "./instructions";
 import { type Json, isObject } from "./json";
 import { type ApprovalToSend, approvable, approvalJson, parseOperationV2, approvalForModel, toSend } from "./operations-v2";
 import { type AuthorityGuard, findApi, requestGuard, bindingSnapshot, hasTaskCall, executionGuard } from "./api-authority";
@@ -47,7 +48,7 @@ async function performMcp(
       call: { apiUrl: api.url, tool: call.tool, args: call.args, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
       binding: guard.binding()
     }, executingApproval);
-    return approvalForModel(company, operation, 200, approvalId);
+    return approvalForModel(company, operation, 200, approvalId, standingInstructionFor(client, approvalId));
   }
   // 0.4 Ops 6: an error result declining the approval we sent; nothing was done.
   const declined = call.approval && isObject(result) && result.isError === true ? readDecline(company, result.structuredContent, call.approval, true) : null;
