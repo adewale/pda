@@ -1,24 +1,30 @@
 """
 The model and the rules the state machines share: a model-based, stateful
 test of our mock Company (test/mock-company) over HTTP, driven by a second
-Poppy client written in Python from the 0.3 text.
+Poppy client written in Python from the 0.4 text.
 
-The model says what should be true: which Sessions the Company has seen, and
-for each the account its last request carried (5.4); which sign-ins have
-live refresh tokens, rotated or revoked; which access token each Session
-sends; which message ids each User has used, and for what; what each
-conversation's event log holds, in order, its status and responder, and its
-Direct Conversations. Every response is held to it, and so is the mock's own
-record of violations:
+The model says what should be true: which Sessions the Company has seen,
+the version and extensions each declares (3.4), and for each the account
+its last request carried (5.4); which sign-ins have live refresh tokens,
+rotated or revoked; which access token each Session sends; which request
+ids each User has used, and for what; what each conversation's event log
+holds, in order, its state (`working`, `handoff`, `responder`, `closed`),
+the requests it accepted, and its Direct Conversations. Every response is
+held to it, and so is the mock's own record of violations:
 
 - after honest rules, `GET /violations` holds nothing new;
 - each reject rule is refused with the error the text names, and the mock
-  records exactly the violation id that rule expects, and nothing else.
+  records exactly the violation ids that rule expects, and nothing else.
 
 Each test_*.py builds one machine from `Base` and the rule sets it needs,
 so each surface gets the steps to reach deep states. Spec references (4.2,
-8.3, ...) are to Poppy 0.3, the 28 October text; `Ops n` is Operations,
-version 2; `MSI n` Mediated Sign-In.
+8.3, ...) are to Poppy 0.4, the 11 November text
+(spec/draft-0.4-retrieved-2026-11-11); `Ops n` is Operations, version 3;
+`MSI n` Mediated Sign-In.
+
+Where the mock's 0.4 behaviour departs from the text, the honest rules stay
+clear of it and say so in a comment naming the finding (`MOCK-n`), and
+test_findings.py pins each one down.
 """
 
 from __future__ import annotations
@@ -36,18 +42,20 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 
 from mock_server import DOMAIN, SUFFIX, MockServer
-from poppy_client import MCP_LEGACY, MCP_MODERN, Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, Reply, Session, User, set_cookie_attributes
+from poppy_client import BROWSER_SIGN_IN, MCP_LEGACY, MCP_MODERN, PROTOCOL_VERSION, Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, Reply, Session, User, set_cookie_attributes
 from strategies import CONFIGS, MESSAGE_IDS, canonical, messages, serialisations
 
 READ, WRITE = "orders:read", "orders:write"
 MAX_USERS = 3
 MAX_SESSIONS = 8
-STATUSES = frozenset({"working", "idle", "queued", "closed"})
+HANDOFFS = frozenset({"none", "pending"})  # 8.7
 RESPONDERS = frozenset({"agent", "human"})
-# What the mock's Device Sign-In can grant (DEFAULT_CONFIG.signIn in test/mock-company/types.ts). The metadata
-# can't say it: `scopes_supported` is the issuer's, for every sign-in type (4.7). A listed scope the type can't
-# grant is left out (RFC 6749 3.3), and the token response names what was granted (RFC 6749 5.1).
+# What the mock's Device Sign-In can grant (DEFAULT_CONFIG.signIn in test/mock-company/types.ts), with
+# `poppy:browser-sign-in` where the Company lists browser join (6). The metadata can't say it: `scopes_supported`
+# is for every sign-in type (4.7). A listed scope the type can't grant is left out (RFC 6749 3.3), and the
+# token response names what was granted (RFC 6749 5.1).
 DEVICE_GRANTS = frozenset({READ, WRITE})
+OPERATIONS = {"operations": "3"}  # what a Session that uses the Operations extension declares (Ops 2)
 
 
 # ---------------------------------------------------------------- the model
@@ -95,6 +103,8 @@ class MSession:
     token: MToken | None = None  # what the honest agent sends with the Session header, signed in
     used: str | None = None  # the account the agent ever sent a token for in it: never another (5.4 SHOULD)
     seen: bool = False  # the Company started it, on the first request with its sid (5.3)
+    declared: bool = False  # the Company holds its Poppy-Version and Poppy-Extensions, from its first request that passed (3.4)
+    tasks: dict[str, Any] | None = None  # the tasks response it got (9), used only in this Session
     remote_account: str | None = None  # the account the Company has it signed in to: its last request's token's
     remote_grant: MGrant | None = None  # the sign-in of the last token it carried
     bound: str | None = None  # the account the Company has ever seen it with: another is refused (5.4)
@@ -119,10 +129,13 @@ class MSession:
 
 @dataclass(eq=False)
 class MSent:
-    message: dict[str, Any]
+    """A request that carried a message (8.3), keyed by its request id, which is the message's id."""
+
+    message: dict[str, Any] | None  # as sent, without an id; None for an invitation accepted without one (8.10)
     conversation: str
     started: bool  # sent with the POST that started the conversation
     parent: str | None = None  # the parent of the Direct Conversation it started (8.10)
+    invitation: str | None = None  # the `user_requested` event it accepted (8.10)
 
 
 @dataclass(eq=False)
@@ -130,7 +143,10 @@ class MUser:
     user: User
     sessions: list[MSession] = field(default_factory=list)
     grants: list[MGrant] = field(default_factory=list)
-    sent: dict[str, MSent] = field(default_factory=dict)
+    sent: dict[str, MSent] = field(default_factory=dict)  # accepted requests that carried a message
+    requests: dict[str, tuple[str, str]] = field(default_factory=dict)  # every accepted request id: its path and its body, canonical (8.3)
+    used: set[str] = field(default_factory=set)  # every request id ever sent, accepted or not: the honest agent never reuses one
+    reported: set[str] = field(default_factory=set)  # the tasks this User's agent reported as feedback, as phrases (9.3)
 
 
 @dataclass(eq=False)
@@ -138,23 +154,27 @@ class MConversation:
     id: str
     user: MUser
     account: str | None = None  # 8.2: once it uses the User's account, it belongs to that account
-    sent: list[str] = field(default_factory=list)  # our message ids, in the order the Company accepted them
+    sent: list[str] = field(default_factory=list)  # our messages' request ids, in the order the Company accepted them
     messages: list[dict[str, Any]] = field(default_factory=list)  # those messages, as sent, by whichever User sent them
+    requests: list[str] = field(default_factory=list)  # accepted messages, handoff requests and cancels: what `as_of_request` may name (8.4)
     log: list[dict[str, Any]] = field(default_factory=list)  # every event read so far, from the start
-    status: str = "idle"
+    # 8.7: the state. `working` is false whenever we look: the mock's Company Agent acts before it answers.
+    handoff: str = "none"
     responder: str = "agent"
+    closed: bool = False
     parent: "MConversation | None" = None  # set on a Direct Conversation (8.10)
     children: list["MConversation"] = field(default_factory=list)  # every Direct Conversation opened from this one
     direct_child: "MConversation | None" = None  # the open one, if any
-    requested: list[str] = field(default_factory=list)  # `user_requested` reasons the Company added (8.10)
-
-    @property
-    def closed(self) -> bool:
-        return self.status == "closed"
+    requested: list[tuple[str, str]] = field(default_factory=list)  # `user_requested` events the Company added: id and reason (8.10)
+    invitations: dict[str, "MConversation"] = field(default_factory=dict)  # accepted `user_requested` events: the Direct Conversation each opened
 
     @property
     def direct(self) -> bool:
         return self.parent is not None
+
+    @property
+    def state(self) -> tuple[str, str, bool]:
+        return (self.handoff, self.responder, self.closed)
 
 
 class Refused(AssertionError):
@@ -196,7 +216,8 @@ class Base(RuleBasedStateMachine):
     """Setup, the model's helpers, and the invariants every machine holds."""
 
     CONFIG: st.SearchStrategy[dict[str, Any]] = CONFIGS
-    LISTS_OPERATIONS: st.SearchStrategy[bool] = st.just(False)
+    # Whether this run's Sessions declare `"operations";v="3"` (Ops 2; 3.4: every Session alike in one run).
+    DECLARES_OPERATIONS: st.SearchStrategy[bool] = st.just(False)
 
     def __init__(self, server: MockServer) -> None:
         super().__init__()
@@ -216,6 +237,10 @@ class Base(RuleBasedStateMachine):
         self.session_header_misplaced = 0
         # Sessions another Personal Agent started in a reject rule: the Company has them, the model doesn't.
         self.other_sids: set[str] = set()
+        # 3.4: requests a reject rule sent on purpose without our version, or with a Session's extensions changed.
+        self.version_misdeclared = 0
+        self.extensions_changed = 0
+        self.declares_operations = False
         # MCP (7): the lifecycle the server speaks, learnt by the first MCP request's probe; under 2026-07-28 the
         # tools as listed, for their x-mcp-header arguments; and what the reject rules sent on purpose.
         self.mcp_era: str | None = None
@@ -255,9 +280,16 @@ class Base(RuleBasedStateMachine):
 
     def new_session(self, mu: MUser) -> MSession:
         """A new Session: a `sid` the agent makes; nothing is requested (5.2). The Company starts it on its first request."""
-        ms = MSession(Session(mu.user), mu)
+        ms = MSession(Session(mu.user, extensions=dict(OPERATIONS) if self.declares_operations else {}), mu)
         mu.sessions.append(ms)
         return ms
+
+    def device_grants(self) -> frozenset[str]:
+        return DEVICE_GRANTS | ({BROWSER_SIGN_IN} if self.co.browser_session else set())
+
+    def seen_only(self, ms: MSession) -> None:
+        """A request the Company refused after starting its Session, before reading its token (3.4: the version comes after 5.3's checks)."""
+        ms.seen = True
 
     def touch(self, ms: MSession, reply: Reply, sent: MToken | None | object = ...) -> None:
         """
@@ -273,6 +305,7 @@ class Base(RuleBasedStateMachine):
         ms.seen = True
         if ms.ended:
             return
+        ms.declared = True
         if token is None:
             ms.remote_account = None
         elif isinstance(token, MToken) and not token.grant.revoked and (ms.bound is None or ms.bound == token.account):
@@ -318,12 +351,37 @@ class Base(RuleBasedStateMachine):
         else:
             expect(reply, *refused)
 
-    def accepted(self, conversation: MConversation, ms: MSession, message: dict[str, Any], *, started: bool = False, parent: str | None = None) -> None:
-        """The Company took one of our messages into the conversation (8.3)."""
-        if not started:
-            conversation.sent.append(message["id"])
-        conversation.messages.append(message)
-        ms.user.sent[message["id"]] = MSent(message, conversation.id, started=started, parent=parent)
+    def accepted(
+        self, conversation: MConversation, ms: MSession, request_id: str, message: dict[str, Any] | None, *,
+        started: bool = False, parent: str | None = None, invitation: str | None = None,
+    ) -> None:
+        """
+        The Company accepted one of our messages (8.3): its id is the
+        request's, the conversation takes it in order, and its request id is
+        the User's from now on, for this path and body.
+        """
+        if message is not None:
+            conversation.sent.append(request_id)
+            conversation.messages.append(message)
+            conversation.requests.append(request_id)
+        sent = MSent(message, conversation.id, started=started, parent=parent, invitation=invitation)
+        ms.user.sent[request_id] = sent
+        ms.user.requests[request_id] = self.message_request(sent)
+
+    @staticmethod
+    def message_request(sent: MSent) -> tuple[str, str]:
+        """What a retry of a message's request must repeat (8.3): its path and body, apart from the id."""
+        path = "" if sent.started else f"/{sent.conversation}/messages"
+        body = {"parent_conversation_id": sent.parent, "user_requested_event_id": sent.invitation, "message": sent.message}
+        return path, canonical({k: v for k, v in body.items() if v is not None})
+
+    def new_request_id(self, data: st.DataObject, mu: MUser) -> str:
+        """8.3: a request id unique for the User across all its requests; another User's ids are fair game."""
+        others = [rid for u in self.users if u is not mu for rid in u.used]
+        rid = data.draw(st.sampled_from(others) | MESSAGE_IDS if others else MESSAGE_IDS)
+        assume(rid not in mu.used)
+        mu.used.add(rid)
+        return rid
 
     def expected_token_type(self, resource: str | None) -> str:
         """4.5: DPoP-bound when the issuer lists algorithms, except an MCP server's token, which the mock issues as Bearer."""
@@ -345,7 +403,7 @@ class Base(RuleBasedStateMachine):
         assert isinstance(body.get("access_token"), str) and body["access_token"]
         assert body.get("token_type") == self.expected_token_type(resource), body
         assert isinstance(body.get("expires_in"), int) and body["expires_in"] > 0, "expires_in MUST be greater than 0"
-        assert "session_id" not in body and "signed_in" not in body, f"0.3 token responses name no Session: {body}"
+        assert "session_id" not in body and "signed_in" not in body, f"a token response names no Session (5.4): {body}"
         if "scope" in body:
             granted = body["scope"].split()
             assert len(granted) == len(set(granted)) and set(granted) == scope, (body["scope"], scope)
@@ -398,21 +456,21 @@ class Base(RuleBasedStateMachine):
         choice = data.draw(st.none() | st.sampled_from(fits)) if fits else None
         return choice if choice is not None else self.new_session(mu)
 
-    def scripted_agent(self, conversation: MConversation, ms: MSession, message: dict[str, Any]) -> bool:
+    def scripted_agent(self, conversation: MConversation, ms: MSession, message: dict[str, Any] | None) -> bool:
         """
         The mock's Company Agent, as its fixture documents it (test/mock-company
         conversations.ts): it doesn't answer while a person is wanted or
-        handling it; `person` hands off (8.9: the status becomes queued); an
+        handling it; `person` hands off (8.9: `handoff` becomes pending); an
         order, exchange or return, asked signed in with read and write, uses
         the account (8.2). Returns whether it handed off.
         """
-        if ("text" not in message and "data" not in message) or "approval" in (message.get("extensions") or {}).get("operations", {}) or not self.config["agentReplies"]:
+        if message is None or ("text" not in message and "data" not in message) or "approval" in (message.get("extensions") or {}).get("operations", {}) or not self.config["agentReplies"]:
             return False
-        if conversation.status == "queued" or conversation.responder == "human":
+        if conversation.handoff == "pending" or conversation.responder == "human":
             return False
         text = message.get("text", "").lower()
         if "person" in text:
-            conversation.status = "queued"
+            conversation.handoff = "pending"
             return True
         if re.search("order|exchange|return", text) and ms.account and {READ, WRITE} <= ms.token_scope:
             conversation.account = ms.account
@@ -422,12 +480,42 @@ class Base(RuleBasedStateMachine):
     def agent_used_account(self, conversation: MConversation, ms: MSession) -> None:
         """The Company Agent answered with the account; the operations machine also expects an operation then (Ops 4)."""
 
-    def check_status(self, conversation: MConversation, body: Any, where: str) -> None:
-        """8.7: every successful POST and read says `status` and `responder`, and they are the model's."""
+    def check_state(self, conversation: MConversation, body: Any, where: str) -> None:
+        """
+        8.5, 8.7: a read carries the four state fields, each with a value the
+        text gives; while `handoff` is pending, `responder` stays `agent`; a
+        closed conversation isn't `working` and has no handoff. They are the
+        model's, and `working` is false: the mock's Company Agent acts on a
+        request before answering it.
+        """
         assert isinstance(body, dict), body
-        got = (body.get("status"), body.get("responder"))
-        assert got[0] in STATUSES and got[1] in RESPONDERS, f"{where}: status and responder are required (8.7): {body}"
-        assert got == (conversation.status, conversation.responder), f"{where}: {got}, model {(conversation.status, conversation.responder)}"
+        for name in ("working", "handoff", "responder", "closed"):
+            assert name in body, f"{where}: a read without {name} (8.5)"
+        assert isinstance(body["working"], bool) and isinstance(body["closed"], bool), f"{where}: {body}"
+        assert body["handoff"] in HANDOFFS and body["responder"] in RESPONDERS, f"{where}: {body}"
+        assert "status" not in body, f"{where}: 0.3's status (8.7 has four fields): {body}"
+        if body["handoff"] == "pending":
+            assert body["responder"] == "agent", f"{where}: handoff pending with responder human (8.7)"
+        if body["closed"]:
+            assert body["working"] is False and body["handoff"] == "none", f"{where}: closed, but {body} (8.7)"
+        got = (body["handoff"], body["responder"], body["closed"])
+        assert got == conversation.state, f"{where}: {got}, model {conversation.state}"
+        assert body["working"] is False, f"{where}: working, though the Company Agent answers before responding"
+
+    def check_post(self, conversation: MConversation, reply: Reply, cursor: str | None, wait: int | None, where: str) -> None:
+        """
+        8.3: a POST's response has only `conversation_id`; with `wait`, it
+        responds as a read from `cursor` (or from the start) would, with the
+        conversation's state.
+        """
+        body = reply.body
+        if wait is None:
+            assert body == {"conversation_id": conversation.id}, f"{where}: a POST answers with conversation_id alone (8.3): {body}"
+            return
+        assert isinstance(body, dict) and body.get("conversation_id") == conversation.id, body
+        self.absorb(conversation, cursor, body["events"], body)
+        if not body["has_more"]:
+            self.check_state(conversation, body, where)
 
     def absorb(self, conversation: MConversation, cursor: str | None, events: list[dict[str, Any]], page: dict[str, Any] | None) -> None:
         """
@@ -444,68 +532,75 @@ class Base(RuleBasedStateMachine):
         seen = {e["id"] for e in conversation.log}
         assert not [e for e in new if e["id"] in seen], "an event read again after its cursor"
         conversation.log.extend(new)
-        mine = [e["message"]["id"] for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
+        mine = [e["message"].get("id") for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
         assert mine == conversation.sent[: len(mine)], f"our messages, out of order or twice: {mine} vs {conversation.sent}"
         if page is not None:
-            for name in ("cursor", "has_more", "status", "responder"):
+            for name in ("conversation_id", "events", "cursor", "has_more", "working", "handoff", "responder", "closed"):
                 assert name in page, f"a read without {name} (8.5)"
             assert page["cursor"] == (ids[-1] if ids else cursor), "cursor isn't the last event, or the request's"
 
-    def log_checks(self, conversation: MConversation) -> tuple[str, str] | None:
+    def log_checks(self, conversation: MConversation) -> tuple[str, str, bool]:
         """
         What the whole log, read from the start, must hold, whatever was
-        done to the conversation; returns the last `state` event's status
-        and responder.
+        done to the conversation; returns the state after its last `state`
+        event.
 
         - 8.5, 8.7: every event has an id, type and time; a `state` event
-          carries a valid status and responder and marks a change, and while
-          `queued`, `responder` stays `agent`.
+          carries `handoff`, `responder` and `closed` and marks a change to
+          one of them, from `none`, `agent`, open at the start; while
+          `pending`, `responder` stays `agent`; closed, `handoff` is `none`.
         - 8.4, 8.7: a Company message says who wrote it in `author.type`,
           and `human` means a person has joined, so a person's message comes
           after a `state` event with `responder: human`.
-        - 8.12: a closed conversation takes no more messages, and its
-          status doesn't change again.
+        - 8.4: only the Company Agent's messages carry `as_of_request`, and
+          it names a request this conversation accepted from us; a person's
+          carries neither hint, and the Company sends no `as_of_cursor`.
+        - 8.12: a closed conversation takes no more messages, and its state
+          doesn't change again.
         - 8.10: each Direct Conversation opened from it has a
           `direct_opened` event, and once it closed, a `direct_closed` event
           after that, however it was closed.
         - 8.10: each `user_requested` the Company added, with its `reason`.
-        - Ops 2: no operation to an agent that doesn't list the extension.
+        - Ops 2, 8.4: no operation in a conversation whose Sessions don't declare the extension.
         """
-        last: tuple[str, str] | None = None
-        closed = False
+        last = ("none", "agent", False)
         opened: dict[str, int] = {}
         closed_children: dict[str, int] = {}
         for index, event in enumerate(conversation.log):
             kind = event.get("type")
             assert isinstance(event.get("id"), str) and isinstance(kind, str) and isinstance(event.get("created_at"), str), event
-            if closed:
+            if last[2]:
                 assert kind not in ("message", "state"), f"a closed conversation changed: {event}"
             if kind == "state":
-                pair = (event.get("status"), event.get("responder"))
-                assert pair[0] in STATUSES and pair[1] in RESPONDERS, event
-                assert pair != last, f"a state event that changes nothing (8.5, 8.7): {pair}"
-                assert pair[0] != "queued" or pair[1] == "agent", "queued with responder human: while queued, responder stays agent (8.7)"
-                last = pair  # type: ignore[assignment]
-                closed = pair[0] == "closed"
+                triple = (event.get("handoff"), event.get("responder"), event.get("closed"))
+                assert triple[0] in HANDOFFS and triple[1] in RESPONDERS and isinstance(triple[2], bool), event
+                assert "status" not in event and "working" not in event, f"a state event carries handoff, responder and closed (8.5): {event}"
+                assert triple != last, f"a state event that changes nothing (8.7): {triple}"
+                assert triple[0] != "pending" or triple[1] == "agent", "pending with responder human: while pending, responder stays agent (8.7)"
+                assert not triple[2] or triple[0] == "none", "closed with a handoff pending (8.7, 8.12)"
+                last = triple  # type: ignore[assignment]
             elif kind == "message":
                 message = event["message"]
                 author = message.get("author")
                 assert isinstance(author, dict) and author.get("type") in RESPONDERS, f"a message without author.type (8.4): {message}"
-                assert "sender" not in message, f"0.3 messages carry author, not sender (8.4): {message}"
                 if message.get("role") == "company":
+                    assert "as_of_cursor" not in message, f"as_of_cursor is the Personal Agent's (8.4): {message}"
                     if author["type"] == "human":
-                        assert last is not None and last[1] == "human", "a person wrote before responder became human (8.7)"
+                        assert last[1] == "human", "a person wrote before responder became human (8.7)"
+                        assert "as_of_request" not in message, f"a person's message with as_of_request (8.4: MUST NOT): {message}"
+                    elif "as_of_request" in message:
+                        assert message["as_of_request"] in conversation.requests, f"as_of_request {message['as_of_request']} names no request this conversation accepted {conversation.requests} (8.4)"
                 else:
                     assert message.get("role") == "user", message
-                if not self.agent.lists_operations:
-                    assert "operation" not in message, "an operation for an agent that doesn't list the extension (Ops 2)"
+                if not self.declares_operations:
+                    assert "operations" not in (message.get("extensions") or {}), f"Operations content to Sessions that don't declare it (Ops 2, 8.4): {message}"
             elif kind == "direct_opened":
                 opened[event["conversation_id"]] = index
             elif kind == "direct_closed":
                 assert event["conversation_id"] in opened, f"direct_closed before direct_opened: {event}"
                 closed_children[event["conversation_id"]] = index
-        reasons = [event.get("reason") for event in conversation.log if event.get("type") == "user_requested"]
-        assert reasons == conversation.requested, f"user_requested reasons {reasons}, model {conversation.requested} (8.10)"
+        requested = [(event.get("id"), event.get("reason")) for event in conversation.log if event.get("type") == "user_requested"]
+        assert requested == conversation.requested, f"user_requested events {requested}, model {conversation.requested} (8.10)"
         for child in conversation.children:
             assert child.id in opened, f"{conversation.id}: no direct_opened for its Direct Conversation {child.id} (8.10)"
             if child.closed:
@@ -515,19 +610,18 @@ class Base(RuleBasedStateMachine):
         return last
 
     def full_read_checks(self, conversation: MConversation, page: dict[str, Any] | None) -> None:
+        """8.5: every message we sent, once, in order, as sent, with the request's id as its id and `role: user`."""
         mine = [e for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
-        assert [e["message"]["id"] for e in mine] == conversation.sent, "every message we sent, once, in order"
-        for event, original in zip(mine, conversation.messages):
-            sent = event["message"]["id"]
+        assert [e["message"].get("id") for e in mine] == conversation.sent, "every message we sent, once, in order"
+        for event, original, sent in zip(mine, conversation.messages, conversation.sent):
             shown = original | {"role": "user", "id": sent}
             assert canonical(event["message"]) == canonical(shown), (event["message"], shown)
         last = self.log_checks(conversation)
         if page is not None:
-            self.check_status(conversation, page, "a read to the end")
-            if last is not None:
-                assert last == (page["status"], page["responder"]), f"the last state event {last} isn't the read's {page['status']}, {page['responder']}"
-        elif last is not None:
-            assert last == (conversation.status, conversation.responder), f"the last state event {last}, model {(conversation.status, conversation.responder)}"
+            self.check_state(conversation, page, "a read to the end")
+            assert last == (page["handoff"], page["responder"], page["closed"]), f"the last state event {last} isn't the read's state {page}"
+        else:
+            assert last == conversation.state, f"the last state event {last}, model {conversation.state}"
 
     # ---- MCP (7) ----
 
@@ -553,7 +647,7 @@ class Base(RuleBasedStateMachine):
     def mcp_session(self, ms: MSession) -> Session:
         """The client Session as an MCP request sends it: the same `sid`, with the MCP server's own token when signed in."""
         token = self.ensure_mcp_token(ms)
-        session = Session(ms.user.user, sid=ms.session.sid)
+        session = Session(ms.user.user, sid=ms.session.sid, version=ms.session.version, extensions=ms.session.extensions)
         if token is not None:
             session.token, session.token_type, session.key = token.value, token.token_type, token.key
         return session
@@ -676,14 +770,20 @@ class Base(RuleBasedStateMachine):
 
     # ---- the browser (6) ----
 
-    def join_browser(self, ms: MSession) -> httpx.Response:
+    def join_browser(self, ms: MSession, *, short_token: bool = False) -> httpx.Response:
         """
         6: join this Session's own browser: it loads the page, our own
-        request authorizes its code with the Session header and token, and
-        the browser submits the code. Hold the Company's answers to the
+        request authorizes its code with the Session header, and the browser
+        submits the code. Signed in, the access token goes with it only when
+        it has `poppy:browser-sign-in`; otherwise the code is authorized
+        signed out (readings v04-browser-sign-in). `short_token` sends a
+        token without the scope first: refused with `insufficient_scope`
+        naming it, after which the same code is authorized signed out (6:
+        "The Personal Agent then either authorizes the same code again
+        without an access token"). Hold the Company's answers to the
         section's MUSTs: the page isn't cached or framed, its cookie is
-        `__Host-`, Secure, HttpOnly and SameSite Strict; authorize is 204;
-        the submit redirects with the Session's cookie.
+        `__Host-`, Secure and SameSite Strict; authorize is 204; the submit
+        redirects with the Session's cookie.
         """
         assert self.co.browser_session is not None
         if ms.browser is None:
@@ -696,8 +796,17 @@ class Base(RuleBasedStateMachine):
         assert join_cookie, "the join page sets no __Host- cookie (6: other hosts MUST NOT be able to set it)"
         _, attributes = set_cookie_attributes(join_cookie)
         assert "secure" in attributes and (attributes.get("samesite") or "").lower() == "strict", f"the join cookie (6): {join_cookie}"
-        authorized = self.poppy.resource(ms.session, "POST", f"{self.co.browser_session.rstrip('/')}/authorize", self.co, body={"code": code})
-        self.touch(ms, authorized)
+        authorize = f"{self.co.browser_session.rstrip('/')}/authorize"
+        if short_token:
+            assert ms.token is not None and BROWSER_SIGN_IN not in ms.token_scope
+            refused = self.poppy.resource(ms.session, "POST", authorize, self.co, body={"code": code})
+            self.touch(ms, refused)
+            expect(refused, 403, "insufficient_scope")
+            assert refused.challenge_scope == BROWSER_SIGN_IN, refused.headers.get("www-authenticate")
+        signed_in = ms.token is not None and BROWSER_SIGN_IN in ms.token_scope
+        token = ms.token if signed_in else None
+        authorized = self.poppy.resource(ms.session, "POST", authorize, self.co, body={"code": code}, token=ms.session.token if signed_in else None)
+        self.touch(ms, authorized, token)
         expect(authorized, 204)
         response = ms.browser.submit_join(action, code)
         assert response.status_code in (302, 303), (response.status_code, response.text[:200])
@@ -707,16 +816,16 @@ class Base(RuleBasedStateMachine):
             _, attributes = set_cookie_attributes(cookie)
             assert "secure" in attributes and "httponly" in attributes, f"the Session's cookie (6): {cookie}"
         ms.joined = True
-        ms.joined_as = ms.account
-        ms.joined_grant = ms.token.grant if ms.token else None
-        ms.joined_scope = ms.token_scope
+        ms.joined_as = token.account if token else None
+        ms.joined_grant = token.grant if token else None
+        ms.joined_scope = token.scope if token else frozenset()
         return response
 
     def close_in_model(self, conversation: MConversation) -> None:
-        """8.10, 8.12: closing closes its open Direct Conversation, and frees the parent of a closed one."""
+        """8.10, 8.12: closing stops a pending handoff, closes its open Direct Conversation, and frees the parent of a closed one."""
         if conversation.closed:
             return
-        conversation.status = "closed"
+        conversation.closed, conversation.handoff = True, "none"
         if conversation.direct_child is not None:
             child, conversation.direct_child = conversation.direct_child, None
             self.close_in_model(child)
@@ -728,11 +837,12 @@ class Base(RuleBasedStateMachine):
     @initialize(data=st.data())
     def setup(self, data: st.DataObject) -> None:
         config = data.draw(self.CONFIG, label="config")
-        self.agent.lists_operations = data.draw(self.LISTS_OPERATIONS, label="agent lists operations")
+        self.declares_operations = data.draw(self.DECLARES_OPERATIONS, label="Sessions declare Operations 3")
         self.config = config
         self.server.reset(config)
         self.server.serve_client_documents(self.agent.documents() | self.other_agent.documents())
         self.company = self.poppy.discover(DOMAIN)
+        assert self.co.version == PROTOCOL_VERSION and self.co.document["protocol_version"] == PROTOCOL_VERSION, self.co.document
         self.fixture = self.server.hook("fixture")
         openapi = self.http.get(self.co.openapi).json()
         server = openapi["servers"][0]["url"]
@@ -784,10 +894,16 @@ class Base(RuleBasedStateMachine):
     @invariant()
     def session_header_only_where_it_belongs(self) -> None:
         """
-        5.2: the Session header on every request to the Company's resources,
-        and never to its OAuth endpoints, website pages or well-known
-        documents. Held over every request this client sent, as the
-        transport saw it; the reject rules that break it on purpose are counted.
+        5.2: the Session header on every request to the Company's resources
+        (its APIs, MCP server, conversations, the browser join's
+        `authorize`, the tasks and feedback endpoints), and never to its
+        OAuth endpoints, well-known or description documents, the join page,
+        or a skill artifact (9.4). A website page carries it only when the
+        agent fetches it without a browser, which it does only where the
+        Company lists no `browser_session_endpoint` (readings
+        v04-fetch-browser); the browser never sends it. Held over every
+        request this client sent, as the transport saw it; the reject rules
+        that break it on purpose are counted.
         """
         if self.company is None:
             return
@@ -795,12 +911,47 @@ class Base(RuleBasedStateMachine):
         misplaced = 0
         for x in self.transport.log:
             bare = x.url.split("?", 1)[0]
-            resource = x.url.startswith(self.api_base) or bool(self.co.mcp and bare == self.co.mcp) or bool(self.co.conversations and bare.startswith(self.co.conversations)) or bare.endswith("/authorize") and bool(self.co.browser_session) and bare.startswith(self.co.browser_session)
-            if "/.well-known/" in bare or bare in oauth or (self.co.browser_session and bare == self.co.browser_session):
+            host = (httpx.URL(bare).host or "").lower()
+            never = "/.well-known/" in bare or bare in oauth or bare == self.co.openapi or "/poppy/skills/" in bare or (self.co.browser_session and bare == self.co.browser_session)
+            resource = bare.startswith(self.api_base) or bool(self.co.mcp and bare == self.co.mcp) or bool(self.co.conversations and bare.startswith(self.co.conversations))
+            resource = resource or bool(self.co.browser_session and bare == f"{self.co.browser_session.rstrip('/')}/authorize")
+            if never:
                 misplaced += x.session_header
-            elif resource and bare != self.co.openapi:
+            elif resource:
                 misplaced += not x.session_header
+            elif host == self.co.organization_domain:
+                misplaced += x.session_header and self.co.browser_session is not None
+            else:
+                misplaced += x.session_header
         assert misplaced == self.session_header_misplaced, misplaced
+
+    @invariant()
+    def one_declaration_per_session(self) -> None:
+        """
+        3.4: every request with the Session header carries `Poppy-Version:
+        0.4`, the version chosen, and the same `Poppy-Extensions` (or none)
+        on every request of a Session. The reject rules that break either on
+        purpose are counted.
+        """
+        if self.company is None:
+            return
+        misdeclared, changed = 0, 0
+        declared: dict[str, str | None] = {}
+        # A Session header sent to an OAuth endpoint on purpose is the other invariant's to count.
+        oauth = {self.co.token_endpoint, self.co.revocation_endpoint, self.co.metadata.get("device_authorization_endpoint")} - {None}
+        for x in self.transport.log:
+            if x.url.split("?", 1)[0] in oauth:
+                continue
+            if not x.session_header:
+                assert x.version is None and x.extensions is None, f"Poppy-Version or Poppy-Extensions without the Session header (3.4): {x.url}"
+                continue
+            if x.version != PROTOCOL_VERSION:
+                misdeclared += 1
+                continue
+            if x.sid is not None:
+                changed += declared.setdefault(x.sid, x.extensions) != x.extensions
+        assert misdeclared == self.version_misdeclared, (misdeclared, self.version_misdeclared)
+        assert changed == self.extensions_changed, (changed, self.extensions_changed)
 
 
 # ---------------------------------------------------------------- Users, Sessions and sign-in (4, 5)
@@ -865,7 +1016,7 @@ class SessionRules:
             assert "code" in params and "error" not in params, params
             reply = self.poppy.exchange_code(self.co, key, params["code"], verifier)
         elif kind == "device":
-            grantable = [s for s in requested if s in DEVICE_GRANTS]
+            grantable = [s for s in requested if s in self.device_grants()]
             if not grantable:
                 expect(self.poppy.device_start(self.co, requested), 400, "invalid_scope")
                 return
@@ -1016,62 +1167,73 @@ class WarmUp:
 
 # ---------------------------------------------------------------- conversations (8)
 
+REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{1,256}")  # 8.2: 1 to 256 URL-safe base64 characters
+# Request ids the text doesn't allow (8.2, 8.3): left out, empty, not a string, or other characters or lengths.
+BAD_REQUEST_IDS = st.one_of(
+    st.just(None),
+    st.just(""),
+    st.integers(),
+    st.text(min_size=1, max_size=20).filter(lambda s: not REQUEST_ID.fullmatch(s)),
+    st.text(alphabet="abcXYZ019-_", min_size=257, max_size=300),
+)
+
 
 class ConversationRules:
     """Honest conversation rules, and the conversation errors of 8.13."""
 
-    def new_message_id(self, data: st.DataObject, mu: MUser) -> str:
-        """Unique for the User (8.3); another User's ids are fair game."""
-        others = [mid for u in self.users if u is not mu for mid in u.sent]
-        mid = data.draw(st.sampled_from(others) | MESSAGE_IDS if others else MESSAGE_IDS)
-        assume(mid not in mu.sent)
-        return mid
-
-    def a_message(self, data: st.DataObject, mu: MUser, *, direct: bool = False) -> dict[str, Any]:
+    def a_message(self, data: st.DataObject, mu: MUser, *, direct: bool = False, conversation: MConversation | None = None) -> dict[str, Any]:
         """
-        A message the Personal Agent may send (8.3, 8.4). Into a Direct
-        Conversation it relays the User's words as written, as `human`
-        (8.10); it may still send `context` alone as itself (8.4).
+        A message the Personal Agent may send (8.3, 8.4), without an id: its
+        request's id is its id. Into a Direct Conversation it relays the
+        User's words as written, as `human` (8.10); it may still send
+        `context` alone as itself (8.4). A message the agent wrote may name
+        the cursor of the last read it handled in `as_of_cursor` (8.4).
         """
-        message = {"id": self.new_message_id(data, mu)} | data.draw(messages(list(self.fixture["prompts"].values())))
+        message = data.draw(messages(list(self.fixture["prompts"].values())))
         if direct and ("text" in message or "data" in message):
             message["author"] = {"type": "human"}
+        if conversation is not None and conversation.log and message["author"]["type"] == "agent" and data.draw(st.booleans(), label="as_of_cursor"):
+            message["as_of_cursor"] = conversation.log[-1]["id"]
         return message
 
-    def started(self, ms: MSession, message: dict[str, Any], reply: Reply, *, parent: MConversation | None = None) -> MConversation:
+    def request_accepted(self, ms: MSession, request_id: str, path: str) -> None:
+        """A handoff, cancel or close the Company accepted (8.3): its id is the User's, for this path and a body of the id alone."""
+        ms.user.requests[request_id] = (path, canonical({}))
+
+    def started(
+        self, ms: MSession, request_id: str, message: dict[str, Any] | None, reply: Reply, *,
+        parent: MConversation | None = None, invitation: str | None = None, wait: int | None = None,
+    ) -> MConversation:
         """A 201 for a new conversation (8.3), or a Direct Conversation (8.10): the model gains it."""
-        body = reply.body
-        cid = body["conversation_id"]
+        cid = reply.body["conversation_id"] if isinstance(reply.body, dict) else None
+        assert isinstance(cid, str), reply.text
         assert cid not in [c.id for c in self.conversations], "a new conversation got an old id"
-        conversation = MConversation(cid, ms.user, sent=[message["id"]], parent=parent)
+        conversation = MConversation(cid, ms.user, parent=parent)
         if parent is not None:
             # 8.10: it belongs to the parent's owner, and the parent waits for it.
             conversation.account = parent.account
             parent.children.append(conversation)
             parent.direct_child = conversation
+            if invitation is not None:
+                parent.invitations[invitation] = conversation
         self.conversations.append(conversation)
-        self.accepted(conversation, ms, message, started=True, parent=parent.id if parent else None)
-        # A new conversation's first status is the Company's to choose; a person hasn't joined, and it isn't closed (8.7).
-        assert body.get("responder") == "agent" and body.get("status") in {"idle", "working", "queued"}, body
-        conversation.status = body["status"]
-        handed_off = self.scripted_agent(conversation, ms, message)
-        assert (body["status"] == "queued") == handed_off, f"queued {'without' if not handed_off else 'only after'} a handoff: {body}"
-        self.check_status(conversation, body, "a new conversation")
+        self.accepted(conversation, ms, request_id, message, started=True, parent=parent.id if parent else None, invitation=invitation)
+        self.scripted_agent(conversation, ms, message)
+        self.check_post(conversation, reply, None, wait, "a new conversation")
         return conversation
 
     @precondition(lambda self: self.live() and self.co.conversations)
     @rule(data=st.data())
     def start_conversation(self, data: st.DataObject) -> None:
+        """8.3: a new conversation is a POST with a request id and the first message; 201, and `wait` makes it a read."""
         ms = data.draw(st.sampled_from(self.live()))
+        request_id = self.new_request_id(data, ms.user)
         message = self.a_message(data, ms.user)
-        raw = data.draw(serialisations(message))
-        wait = data.draw(st.sampled_from([None, 0, 1]))
-        reply = self.poppy.post_message(ms.session, self.co, raw, None, wait=wait)
+        wait = data.draw(st.sampled_from([None, 0, 1]), label="wait")
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), None, wait=wait)
         self.touch(ms, reply)
         expect(reply, 201)
-        conversation = self.started(ms, message, reply)
-        if wait is not None:
-            self.absorb(conversation, None, reply.body["events"], reply.body)
+        self.started(ms, request_id, message, reply, wait=wait)
 
     @precondition(lambda self: any(s.account and {READ, WRITE} <= s.token_scope for s in self.live()))
     @rule(data=st.data())
@@ -1083,11 +1245,12 @@ class ConversationRules:
         belongs to an account: retries, reads and sign-out.
         """
         ms = data.draw(st.sampled_from([s for s in self.live() if s.account and {READ, WRITE} <= s.token_scope]))
-        message = {"id": self.new_message_id(data, ms.user), "author": {"type": data.draw(st.sampled_from(["agent", "human"]))}, "text": self.fixture["prompts"]["operation"]}
-        reply = self.poppy.post_message(ms.session, self.co, data.draw(serialisations(message)), None)
+        request_id = self.new_request_id(data, ms.user)
+        message = {"author": {"type": data.draw(st.sampled_from(["agent", "human"]))}, "text": self.fixture["prompts"]["operation"]}
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), None)
         self.touch(ms, reply)
         expect(reply, 201)
-        self.started(ms, message, reply)
+        self.started(ms, request_id, message, reply)
 
     def readable(self) -> list[tuple[MConversation, MSession]]:
         return [(c, s) for c in self.conversations for s in self.live() if self.can_read(s, c)]
@@ -1099,74 +1262,137 @@ class ConversationRules:
     @precondition(lambda self: self.sendable())
     @rule(data=st.data())
     def send_message(self, data: st.DataObject) -> None:
+        """8.3: a message to a conversation is 202; with `wait`, the response is a read from `cursor`."""
         conversation, ms = data.draw(st.sampled_from(self.sendable()))
-        mu = ms.user
-        message = self.a_message(data, mu, direct=conversation.direct)
-        raw = data.draw(serialisations(message))
-        wait = data.draw(st.sampled_from([None, 0, 1]))
-        cursor = conversation.log[-1]["id"] if conversation.log else None
-        reply = self.poppy.post_message(ms.session, self.co, raw, conversation.id, wait=wait, cursor=cursor)
+        request_id = self.new_request_id(data, ms.user)
+        message = self.a_message(data, ms.user, direct=conversation.direct, conversation=conversation)
+        wait = data.draw(st.sampled_from([None, 0, 1]), label="wait")
+        cursor = conversation.log[-1]["id"] if conversation.log and wait is not None and data.draw(st.booleans(), label="cursor") else None
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id, wait=wait, cursor=cursor)
         self.touch(ms, reply)
         expect(reply, 202)
-        assert reply.body["conversation_id"] == conversation.id
-        self.accepted(conversation, ms, message)
+        self.accepted(conversation, ms, request_id, message)
         self.scripted_agent(conversation, ms, message)
-        self.check_status(conversation, reply.body, "a message")
-        if wait is not None:
-            self.absorb(conversation, cursor, reply.body["events"], reply.body)
+        self.check_post(conversation, reply, cursor, wait, "a message")
 
     @precondition(lambda self: any(u.sent and self.live(u) for u in self.users))
     @rule(data=st.data())
     def resend_message(self, data: st.DataObject) -> None:
         """
-        A retry (8.3): the same id and the same content, in any member order
-        or spelling, returns the original response and adds nothing. After
-        the conversation used an account, a retry from a token not signed in
-        to it gets the challenge for the account (8.11; our reading of S8:
-        8.11 wins). A Direct Conversation's first message is retried as it
-        was sent, with its parent.
+        A retry (8.3): the same request id, path and body, in any member
+        order or spelling, returns the original response and adds nothing.
+        After the conversation used an account, a retry from a token not
+        signed in to it gets the challenge for the account (8.11; our reading
+        of S8: 8.11 wins). A Direct Conversation's first request is retried
+        as it was sent, with its parent and the invitation it accepted.
         """
         mu = data.draw(st.sampled_from([u for u in self.users if u.sent and self.live(u)]))
-        mid = data.draw(st.sampled_from(sorted(mu.sent)))
-        original = mu.sent[mid]
+        request_id = data.draw(st.sampled_from(sorted(mu.sent)))
+        original = mu.sent[request_id]
         conversation = self.conversation(original.conversation)
         ms = data.draw(st.sampled_from(self.live(mu)))
-        raw = data.draw(serialisations(original.message))
-        reply = self.poppy.post_message(ms.session, self.co, raw, None if original.started else conversation.id, parent=original.parent)
+        raw = data.draw(serialisations(original.message)) if original.message is not None else None
+        reply = self.poppy.post_message(
+            ms.session, self.co, request_id, raw, None if original.started else conversation.id,
+            parent=original.parent, invitation=original.invitation,
+        )
         self.touch(ms, reply)
         refused = self.refusal(ms, conversation)
         if refused is not None:
             self.expect_refusal(reply, refused)
             return
         expect(reply, 201 if original.started else 202)
-        assert reply.body["conversation_id"] == conversation.id, "a retry answers for the original conversation"
+        assert reply.body == {"conversation_id": conversation.id}, f"a retry answers as the original did (8.3): {reply.body}"
 
-    def own_messages(self) -> list[tuple[MConversation, MSession]]:
-        """Conversations a Session may use, where its User has sent a message."""
-        return [(c, s) for c, s in self.readable() if any(m.conversation == c.id for m in s.user.sent.values())]
+    def reusable_ids(self) -> list[tuple[MSession, str]]:
+        """
+        Accepted request ids the Company keeps, with a live Session of their
+        User. An invitation accepted without a message is left out: the mock
+        doesn't keep its id (MOCK-6, test_findings.py).
+        """
+        return [
+            (s, rid)
+            for s in self.live()
+            for rid in sorted(s.user.requests)
+            if not (rid in s.user.sent and s.user.sent[rid].message is None)
+        ]
 
-    @precondition(lambda self: self.own_messages())
+    @precondition(lambda self: self.reusable_ids())
     @rule(data=st.data())
-    def conflicting_message_id(self, data: st.DataObject) -> None:
-        """Reject: an id the Company accepted, with different content, is `message_id_conflict` (8.3)."""
-        conversation, ms = data.draw(st.sampled_from(self.own_messages()))
-        mid = data.draw(st.sampled_from(sorted(m for m, sent in ms.user.sent.items() if sent.conversation == conversation.id)))
-        original = ms.user.sent[mid]
-        message = {"id": mid} | data.draw(messages(list(self.fixture["prompts"].values())))
-        assume(canonical(message) != canonical(original.message))
-        raw = data.draw(serialisations(message))
-        reply = self.poppy.post_message(ms.session, self.co, raw, None if original.started else conversation.id, parent=original.parent)
+    def conflicting_request_id(self, data: st.DataObject) -> None:
+        """
+        Reject: an id the Company accepted, sent again with another path or
+        body, is `request_id_conflict` (8.3), whatever either request was: a
+        message to a conversation the Session may use, or a new conversation.
+        """
+        ms, request_id = data.draw(st.sampled_from(self.reusable_ids()))
+        message = data.draw(messages(list(self.fixture["prompts"].values())))
+        targets = [c for c, s in self.readable() if s is ms]
+        conversation = data.draw(st.none() | st.sampled_from(targets)) if targets else None
+        path = "" if conversation is None else f"/{conversation.id}/messages"
+        assume((path, canonical({"message": message})) != ms.user.requests[request_id])
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id if conversation else None)
         self.touch(ms, reply)
-        expect(reply, 409, "message_id_conflict")
-        self.violation("message.id-reused")
+        expect(reply, 409, "request_id_conflict")
+        self.violation("request.id-reused")
+
+    @precondition(lambda self: self.live() and self.co.conversations)
+    @rule(data=st.data())
+    def missing_request_id(self, data: st.DataObject) -> None:
+        """Reject: a conversation POST without a request id, or with one that isn't 1 to 256 URL-safe base64 characters, is `invalid_request` (8.2, 8.3)."""
+        targets = [c for c, s in self.readable()]
+        conversation = data.draw(st.none() | st.sampled_from(targets)) if targets else None
+        ms = data.draw(st.sampled_from([s for c, s in self.readable() if c is conversation] if conversation else self.live()))
+        bad = data.draw(BAD_REQUEST_IDS, label="request id")
+        message = data.draw(messages(list(self.fixture["prompts"].values())))
+        members = ("" if bad is None else f'"id":{json.dumps(bad)},') + f'"message":{json.dumps(message)},'
+        path = "" if conversation is None else f"/{conversation.id}/messages"
+        reply = self.poppy.conversation_post(ms.session, self.co, path, None, members)
+        self.touch(ms, reply)
+        expect(reply, 400, "invalid_request")
+        self.violation("request.id")
+
+    @precondition(lambda self: self.sendable())
+    @rule(data=st.data())
+    def as_of_cursor_on_human_words(self, data: st.DataObject) -> None:
+        """Reject: `as_of_cursor` on a message the User wrote (8.4: MUST NOT); the message is still taken, and recorded."""
+        conversation, ms = data.draw(st.sampled_from(self.sendable()))
+        request_id = self.new_request_id(data, ms.user)
+        message = self.a_message(data, ms.user) | {"author": {"type": "human"}, "as_of_cursor": data.draw(MESSAGE_IDS)}
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id)
+        self.touch(ms, reply)
+        expect(reply, 202)
+        self.violation("message.as-of-human")
+        self.accepted(conversation, ms, request_id, message)
+        self.scripted_agent(conversation, ms, message)
+        self.check_post(conversation, reply, None, None, "a message")
+
+    @precondition(lambda self: [(c, s) for c, s in self.sendable() if not c.direct])
+    @rule(data=st.data())
+    def as_of_cursor_not_ours(self, data: st.DataObject) -> None:
+        """Reject: `as_of_cursor` that isn't a cursor this conversation gave (8.4: the last read it handled); taken, and recorded."""
+        conversation, ms = data.draw(st.sampled_from([(c, s) for c, s in self.sendable() if not c.direct]))
+        others = [e["id"] for c in self.conversations if c is not conversation for e in c.log]
+        cursor = data.draw(st.sampled_from(others) | MESSAGE_IDS if others else MESSAGE_IDS)
+        assume(cursor not in [e["id"] for e in conversation.log])
+        request_id = self.new_request_id(data, ms.user)
+        message = self.a_message(data, ms.user) | {"author": {"type": "agent"}, "as_of_cursor": cursor}
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id)
+        self.touch(ms, reply)
+        expect(reply, 202)
+        self.violation("message.as-of-cursor")
+        self.accepted(conversation, ms, request_id, message)
+        self.scripted_agent(conversation, ms, message)
+        self.check_post(conversation, reply, None, None, "a message")
 
     @precondition(lambda self: any(c.closed for c, _ in self.readable()))
     @rule(data=st.data())
     def send_to_closed(self, data: st.DataObject) -> None:
-        """Reject: a new message to a closed conversation is `conversation_closed` (8.13)."""
+        """Reject: a new message to a closed conversation is `conversation_closed` (8.12, 8.13)."""
         conversation, ms = data.draw(st.sampled_from([(c, s) for c, s in self.readable() if c.closed]))
+        request_id = self.new_request_id(data, ms.user)
         message = self.a_message(data, ms.user, direct=conversation.direct)
-        reply = self.poppy.post_message(ms.session, self.co, data.draw(serialisations(message)), conversation.id)
+        reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id)
         self.touch(ms, reply)
         expect(reply, 409, "conversation_closed")
 
@@ -1195,7 +1421,7 @@ class ConversationRules:
         cursor = None if from_start or not conversation.log else conversation.log[-1]["id"]
         page: dict[str, Any] | None = None
         for _ in range(100):
-            reply, events = self.poppy.read_events(ms.session, self.co, conversation.id, cursor, stream=stream)
+            reply, events, working = self.poppy.read_events(ms.session, self.co, conversation.id, cursor, stream=stream)
             self.touch(ms, reply)
             refused = self.refusal(ms, conversation)
             if refused is not None:
@@ -1204,6 +1430,10 @@ class ConversationRules:
             expect(reply, 200)
             assert events is not None
             page = reply.body if isinstance(reply.body, dict) else None
+            if page is None:
+                # 8.6: `working` as a `working` event with no SSE id, when the stream opens and each time it changes.
+                assert working and working[0][1], f"a stream that doesn't open with a working event (8.6): {working}"
+                assert all(value is False for value, _ in working), f"working, though the Company Agent answers before responding: {working}"
             self.absorb(conversation, cursor, events, page)
             if events:
                 cursor = events[-1]["id"]
@@ -1221,17 +1451,25 @@ class ConversationRules:
         others = [e["id"] for c in self.conversations if c is not conversation for e in c.log]
         cursor = data.draw(st.sampled_from(others) | st.text() if others else st.text())
         assume(cursor not in [e["id"] for e in conversation.log])
-        reply, _ = self.poppy.read_events(ms.session, self.co, conversation.id, cursor, stream=False)
+        reply, _, _ = self.poppy.read_events(ms.session, self.co, conversation.id, cursor, stream=False)
         self.touch(ms, reply)
         expect(reply, 400, "invalid_cursor")
 
-    @precondition(lambda self: any(not c.closed for c, _ in self.readable()))
+    @precondition(lambda self: self.readable())
     @rule(data=st.data())
     def close(self, data: st.DataObject) -> None:
-        """8.12: closing says `closed`, with whoever handled it last; it closes its open Direct Conversation (8.10)."""
-        conversation, ms = data.draw(st.sampled_from([(c, s) for c, s in self.readable() if not c.closed]))
-        reply = self.poppy.close_conversation(ms.session, self.co, conversation.id)
+        """
+        8.12: a close answers 202 with `conversation_id` alone (8.3), also
+        for a conversation already closed, which nothing changes; it closes
+        an open Direct Conversation (8.10).
+        """
+        conversation, ms = data.draw(st.sampled_from(self.readable()))
+        request_id = self.new_request_id(data, ms.user)
+        if conversation.closed:
+            reached("already closed")
+        reply = self.poppy.close_conversation(ms.session, self.co, conversation.id, request_id)
         self.touch(ms, reply)
-        expect(reply, 200)
+        expect(reply, 202)
+        assert reply.body == {"conversation_id": conversation.id}, reply.body
+        self.request_accepted(ms, request_id, f"/{conversation.id}/close")
         self.close_in_model(conversation)
-        self.check_status(conversation, reply.body, "close")

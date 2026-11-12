@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from hypothesis import strategies as st
 from hypothesis.stateful import invariant, precondition, rule, run_state_machine_as_test
 
-from machine import DEVICE_GRANTS, ApiRules, Base, MGrant, MUser, SessionRules, WarmUp, expect, reached
+from machine import ApiRules, Base, MGrant, MUser, SessionRules, WarmUp, expect, reached
 from mock_server import MockServer
 from poppy_client import Exchange, random_id
 from strategies import CONFIGS
@@ -44,7 +44,7 @@ def limit_kind(exchange: Exchange) -> str | None:
     Which of the mock's limits a request counts against (its `rateLimit`
     calls in test/mock-company): `token` for the token, device and
     revocation endpoints (Mediated Sign-In among them, a grant there);
-    `other` for API, conversation, feedback and MCP requests; `page` for the
+    `other` for API, conversation, tasks, feedback and MCP requests; `page` for the
     website; none for discovery, metadata and the browser join.
     """
     parts = urllib.parse.urlsplit(exchange.url)
@@ -55,6 +55,8 @@ def limit_kind(exchange: Exchange) -> str | None:
     if sub == "mcp":
         return "other" if path == "/mcp" else None
     if sub == "api":
+        if path.startswith("/poppy/skills/"):
+            return None  # a skill artifact is served before any limit (9.4: no Session header there)
         return None if (method == "GET" and (path == "/openapi.json" or path.startswith("/.well-known/"))) else "other"
     if sub == "cdn" or path.startswith("/.well-known/") or path.startswith("/poppy/browser-session") or path == "/poppy/excluded-tasks.json":
         return None
@@ -205,7 +207,7 @@ class LimitRules:
         """4.3 step 1: the device authorization response has the codes, `verification_uri`, `expires_in` and, here, `interval`."""
         mu = data.draw(st.sampled_from(self.users))
         scopes = data.draw(st.lists(st.sampled_from(self.co.offered("device")), min_size=1, unique=True))
-        grantable = [scope for scope in scopes if scope in DEVICE_GRANTS]
+        grantable = [scope for scope in scopes if scope in self.device_grants()]
         if not grantable:
             expect(self.poppy.device_start(self.co, scopes), 400, "invalid_scope")
             return

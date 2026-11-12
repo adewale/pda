@@ -21,7 +21,8 @@
  * - `POST /hooks/<name>`: the shared interop hooks;
  * - `GET /violations`: as the interop adapter serves it;
  * - this launcher's own: `POST /reset {config}`, a new mock with these
- *   settings (only the knobs in `KNOBS`) over the shared base;
+ *   settings (only the knobs in `KNOBS`) over the shared base, serving
+ *   Poppy 0.4 alone;
  *   `POST /client-documents {documents: {url: body}}`, the Python agent's
  *   client metadata and JWKS, served to the mock at those URLs (the mock's
  *   `serveClientDocument`, made for a second client), and still checked
@@ -61,13 +62,25 @@ const KNOBS = [
   "deviceInterval",
   "deviceExpiresIn",
   "eventPageSize",
+  // 0.4 Ops 6: a Company whose terms moved answers the first approval with a new revision, or declines approvals.
+  "reviseOnFirstApproval",
+  "declineApprovals",
+  // 0.4 6: browser join or none, a website Personal Agents are asked not to browse, one that doesn't apply scopes.
+  "browserSession",
+  "webDisabled",
+  "webUnscoped",
+  // 0.4 9.3: feedback, answered 202 or with an alternative.
+  "feedback",
+  "feedbackAlternative",
   // 3.2: a Company with no OAuth issuer (signed-out only); a way real Companies differ, not a relaxed check.
   "issuerless"
 ] as const satisfies readonly (keyof MockConfig)[];
 
 const env = { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env;
+/** The Python client speaks Poppy 0.4 alone (the 11 November text), so every mock serves 0.4 alone, whatever the mock's default. */
+const BASE: Partial<MockConfig> = { ...MOCK_BASE, protocolVersion: "0.4" };
 let mock = new MockCompany(memoryState(NAME) as never, env);
-await mock.configure(MOCK_BASE);
+await mock.configure(BASE);
 
 const HOOKS = mockHooks(() => mock);
 
@@ -77,7 +90,7 @@ async function control(request: Request): Promise<Response> {
   try {
     if (request.method === "POST" && url.pathname === "/reset") {
       const given = ((await body(request)).config ?? {}) as Record<string, unknown>;
-      const config: Record<string, unknown> = { ...MOCK_BASE };
+      const config: Record<string, unknown> = { ...BASE };
       for (const [name, value] of Object.entries(given)) {
         if (!(KNOBS as readonly string[]).includes(name)) throw new HookError(400, "unknown_knob", `Not a setting tests may choose: ${name}`);
         config[name] = value;
