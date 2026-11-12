@@ -5,7 +5,7 @@ import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { ActionOutcomePending, approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor } from "./operations";
-import { approvable, approvalCardId, approvalJson, approvalSummary, approvesAcrossSessions, operationsVersion, parseOperationV2, toSend } from "./operations-v2";
+import { approvable, approvalCardId, approvalJson, approvalSummary, approvesAcrossSessions, parseOperationV2, toSend } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
@@ -22,8 +22,6 @@ const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
 
 type Message = {
-  /** 0.3 only: under 0.4 the request carries the ID, and the message takes it (8.3). */
-  id?: string;
   /** Who wrote it (8.4, 8.8). */
   author: { type: "agent" | "human" };
   text?: string;
@@ -51,7 +49,6 @@ function extensionContent(message: { readonly [key: string]: Json }, name: strin
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
 /** 8.7: a status we don't know is `working`, a responder we don't know `human`, so later versions can add values. */
-const STATUSES = new Set(["working", "idle", "queued", "closed"]);
 const RESPONDERS = new Set(["agent", "human"]);
 
 export function conversation(client: PoppyClient, id: string): ConversationRow | undefined {
@@ -213,18 +210,17 @@ export async function sendMessage(
     );
   }
   if (request.userRequestedEventId !== undefined && !parent) throw new PoppyError("invalid_request", "Accepting a Company's invitation needs its parent conversation", 0);
-  // A conversation's requests use the version it started in (8.2), and a new one the Company's.
-  const requestIds = ((existing ?? parent)?.protocol_version ?? company.protocolVersion) !== "0.3";
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
       const id = randomId("msg_");
-      const requestId = requestIds ? { id } : {};
+      // 8.3: the request carries the ID, and the message takes it.
+      const requestId = { id };
       const accepting = request.userRequestedEventId !== undefined ? { user_requested_event_id: request.userRequestedEventId } : {};
       // 8.10: a request without `message` is valid only when accepting an invitation with both ids.
       if (request.userRequestedEventId !== undefined && request.text === undefined && request.data === undefined) {
         return JSON.stringify({ ...requestId, parent_conversation_id: parent!.remote_id, ...accepting });
       }
-      const message: Message = { ...(requestIds ? {} : { id }), author: { type: request.sender } };
+      const message: Message = { author: { type: request.sender } };
       if (request.text !== undefined && !request.contextOnly) message.text = request.text;
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
@@ -234,8 +230,8 @@ export async function sendMessage(
         if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list the Operations extension, so an approval can't be sent there`, 0);
         message.extensions = { operations: { approval: request.approval } };
       }
-      // 0.4 8.4: which of the Company's messages ours had seen, as a hint; only on a message the agent wrote.
-      const cursor = requestIds && request.sender === "agent" && existing ? conversation(client, existing.id)?.cursor : null;
+      // 8.4: which of the Company's messages ours had seen, as a hint; only on a message the agent wrote.
+      const cursor = request.sender === "agent" && existing ? conversation(client, existing.id)?.cursor : null;
       if (cursor) message.as_of_cursor = cursor;
       if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
         throw new PoppyError("invalid_request", "A message needs text, data, context or extensions", 0);
@@ -248,7 +244,7 @@ export async function sendMessage(
       });
     })
   ) as { id?: string; parent_conversation_id?: string; user_requested_event_id?: string; message?: Message };
-  const messageId = body.id ?? body.message?.id;
+  const messageId = body.id;
   // A message intent an earlier build stored with Operations 2's approval at the top level, which the
   // 3 November text moved to `extensions.operations` (8.4). Resending it under its id with a new shape
   // would conflict, and in the old shape a current Company ignores it, so it is refused: the User asks again.
@@ -333,8 +329,8 @@ export async function sendMessage(
       // 8.2: the versions it started in, which its later requests need.
       company.protocolVersion,
       client.declaration(company).extensions,
-      // 0.4: working from the moment the Company accepts a request (8.7).
-      company.protocolVersion === "0.3" ? 0 : 1
+      // Working from the moment the Company accepts a request (8.7).
+      1
     );
   }
   const bound = conversation(client, id);
@@ -378,22 +374,17 @@ function updateState(client: PoppyClient, id: string, response: { [key: string]:
 
 /**
  * A conversation's state after a read, a POST's reply, a `state` event or a
- * stream's `working` event (8.7). Under 0.3, `status` and `responder`. Under
- * 0.4, `working`, `handoff`, `responder` and `closed`, from which `status`,
- * the local marker both versions share, is derived: `closed`, `queued`
+ * stream's `working` event (8.7): `working`, `handoff`, `responder` and
+ * `closed`, from which the local marker `status` is derived: `closed`, `queued`
  * while a handoff is pending, `working`, or `idle`. A field the source
  * leaves out keeps its stored value; an unknown `handoff` counts as
  * `pending` and an unknown `responder` as `human`.
  */
 export function nextState(
-  row: Pick<ConversationRow, "protocol_version" | "status" | "responder" | "working" | "handoff">,
+  row: Pick<ConversationRow, "status" | "responder" | "working" | "handoff">,
   fields: { readonly [key: string]: Json | undefined }
 ): { status: string; responder: string; working: number; handoff: string } {
   const responder = typeof fields.responder === "string" ? (RESPONDERS.has(fields.responder) ? fields.responder : "human") : row.responder;
-  if (row.protocol_version === "0.3") {
-    const status = typeof fields.status === "string" ? (STATUSES.has(fields.status) ? fields.status : "working") : row.status;
-    return { status, responder, working: row.working, handoff: row.handoff };
-  }
   const closed = typeof fields.closed === "boolean" ? fields.closed : row.status === "closed";
   // In a closed conversation, working is false and handoff none (8.7).
   const working = !closed && (typeof fields.working === "boolean" ? fields.working : row.working === 1);
@@ -467,7 +458,6 @@ async function sendRefused(
         `${company.name} won't continue conversation ${row.id} in this protocol version, so the message wasn't sent. ${restart} Nothing from this conversation is carried over: say what the Company needs again.`,
         error.status
       );
-    case "message_id_conflict":
     case "request_id_conflict":
       // Our ids are fixed per call with their content (8.3), so this is our bug: never "fixed" with a new id.
       reportError(new PoppyError(error.code, `${error.code}: our own message id was refused`, error.status), { source: literal("poppy.conversation_send"), code: literal(error.code) });
@@ -487,7 +477,7 @@ async function sendRefused(
  * conversation, in `extensions.operations.approval`; nothing else, and no text, approves it.
  */
 async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
-  const operation = parseOperationV2(value, operationsVersion(company) ?? "2");
+  const operation = parseOperationV2(value);
   if ("problem" in operation) {
     await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${company.name} asked for your approval in a conversation, but its terms couldn't be used (${operation.problem}), so nothing was done.` });
     return;
@@ -599,14 +589,14 @@ function describe(client: PoppyClient, company: Company, row: ConversationRow, m
 }
 
 /**
- * 0.4's `as_of_request` on a Company Agent's message (8.4): the latest of our
+ * `as_of_request` on a Company Agent's message (8.4): the latest of our
  * requests it took into account, and whether that is our latest message. A
  * hint for reading the reply only: it never says a request was accepted or
  * acted on ([reading](../../docs/readings.md#v04-as-of)).
  */
 function asOfRequest(client: PoppyClient, row: ConversationRow, message: { readonly [key: string]: Json }): { readonly id: string; readonly latest: boolean } | null {
   const id = message.as_of_request;
-  if (row.protocol_version === "0.3" || writtenBy(message) !== "agent" || typeof id !== "string" || !ID.test(id)) return null;
+  if (writtenBy(message) !== "agent" || typeof id !== "string" || !ID.test(id)) return null;
   const latest = one(client.sql, messagesTable.pick("id"), "SELECT id FROM poppy_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", row.id);
   return { id, latest: latest?.id === id };
 }
@@ -900,7 +890,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || !hasState(row, body))) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
+      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || !hasState(body))) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);
@@ -920,10 +910,9 @@ export async function readConversation(
   return nextRead(after, Date.now(), idleMinMs);
 }
 
-/** Whether a read has every state field its version requires (8.5, 8.7). */
-function hasState(row: Pick<ConversationRow, "protocol_version">, body: { readonly [key: string]: Json }): boolean {
+/** Whether a read has every state field (8.5, 8.7). */
+function hasState(body: { readonly [key: string]: Json }): boolean {
   if (typeof body.responder !== "string") return false;
-  if (row.protocol_version === "0.3") return typeof body.status === "string";
   return typeof body.working === "boolean" && typeof body.handoff === "string" && typeof body.closed === "boolean";
 }
 
@@ -1068,11 +1057,10 @@ export function pushDirect(
 }
 
 /**
- * A handoff, cancel or close body: `{}` under 0.3, and under 0.4 a request
- * `id` stored before sending, so a retry repeats it (8.3).
+ * A handoff, cancel or close body: a request `id` stored before sending,
+ * so a retry repeats it (8.3).
  */
-function requestBody(client: PoppyClient, row: ConversationRow, key: string): Json {
-  if (row.protocol_version === "0.3") return {};
+function requestBody(client: PoppyClient, key: string): Json {
   return { id: intent(client.sql, `request|${key}`, () => randomId("req_")) };
 }
 
@@ -1098,7 +1086,7 @@ export async function handoff(
   });
   const { body } = await client.resourceJson(
     company,
-    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: requestBody(client, row, `handoff|${callKey}`) }),
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: requestBody(client, `handoff|${callKey}`) }),
     tokenOptions(company, label)
   );
   if (isObject(body)) updateState(client, id, body, true);
@@ -1107,10 +1095,10 @@ export async function handoff(
 }
 
 /**
- * Close a conversation we're done with (8.12). Under 0.3 it is closed at
- * once. Under 0.4 the Company accepts the close and acts on it later, so the
- * conversation stays open here until a read says `closed`; the read is
- * scheduled now. Returns the conversation's status.
+ * Close a conversation we're done with (8.12). The Company accepts the
+ * close and acts on it later, so the conversation stays open here until a
+ * read says `closed`; the read is scheduled now. Returns the conversation's
+ * status.
  */
 export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<string> {
   const row = conversation(client, id);
@@ -1118,12 +1106,12 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   requireCompany(company, row);
   let label: string;
   ({ company, label } = await continuing(client, row));
-  // 0.4: a close may drop requests the Company hasn't acted on, so read until it isn't working first (8.12).
-  if (row.protocol_version !== "0.3" && row.working === 1) await readConversation(client, id, 10);
+  // A close may drop requests the Company hasn't acted on, so read until it isn't working first (8.12).
+  if (row.working === 1) await readConversation(client, id, 10);
   try {
     const { body } = await client.resourceJson(
       company,
-      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: requestBody(client, row, `close|${row.id}`) }),
+      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: requestBody(client, `close|${row.id}`) }),
       tokenOptions(company, label)
     );
     if (isObject(body)) updateState(client, id, body);
@@ -1132,17 +1120,12 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   }
   // The User can no longer accept an invitation in a conversation we are closing.
   await endInvitations(client, company, row);
-  if (row.protocol_version !== "0.3") {
-    await scheduleRead(client, id, 0);
-    return conversation(client, id)!.status;
-  }
-  client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
-  if (row.direct) pushDirect(client, company, id);
-  return "closed";
+  await scheduleRead(client, id, 0);
+  return conversation(client, id)!.status;
 }
 
 /**
- * Withdraw a request for a person (0.4 8.9). The Company may keep looking,
+ * Withdraw a request for a person (8.9). The Company may keep looking,
  * or a person may join first, so the conversation's state says which; the
  * read is scheduled now.
  */
@@ -1150,14 +1133,11 @@ export async function cancelHandoff(client: PoppyClient, company: Company, id: s
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
-  if (row.protocol_version === "0.3") {
-    throw new PoppyError("invalid_request", `Conversation ${id} uses Poppy 0.3, which has no way to withdraw a request for a person. Tell the person who joins that it's no longer needed.`, 0);
-  }
   let label: string;
   ({ company, label } = await continuing(client, row));
   await client.resourceJson(
     company,
-    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff/cancel`, body: requestBody(client, row, `cancel|${callKey}`) }),
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff/cancel`, body: requestBody(client, `cancel|${callKey}`) }),
     tokenOptions(company, label)
   );
   await scheduleRead(client, id, 0);

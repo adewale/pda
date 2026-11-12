@@ -2,7 +2,7 @@
 import { PoppyClient, withoutAnswer, withAnswer, PoppyError } from "./client";
 import { type Company } from "./discovery";
 import { type Json, isObject } from "./json";
-import { type ApprovalToSend, approvable, approvalJson, parseOperationV2, approvalForModel, operationsVersion, toSend } from "./operations-v2";
+import { type ApprovalToSend, approvable, approvalJson, parseOperationV2, approvalForModel, toSend } from "./operations-v2";
 import { type AuthorityGuard, findApi, requestGuard, bindingSnapshot, hasTaskCall, executionGuard } from "./api-authority";
 import { expired, unusableApproval, UNUSABLE, proposeApproval } from "./api-approvals";
 import { prepareMcpCall, mcpRequest, listMcpTools } from "./mcp-transport";
@@ -37,7 +37,7 @@ async function performMcp(
   const { result } = await mcpRequest(client, company, label, api, prepared.target, "tools/call", params, guard, prepared.parameters);
   // An error result carrying an operation is a request for the User's approval (Ops 4).
   if (company.extensions.operations && isObject(result) && result.isError === true && isObject(result.structuredContent) && result.structuredContent.operation !== undefined) {
-    const operation = parseOperationV2(result.structuredContent.operation, operationsVersion(company) ?? "2");
+    const operation = parseOperationV2(result.structuredContent.operation);
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
       return { unusable: true, note: UNUSABLE };

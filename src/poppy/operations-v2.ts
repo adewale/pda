@@ -1,12 +1,12 @@
 /**
- * Operations, version 2 (0.3 Ops) and version 3 (0.4 Ops): a Company refuses
+ * Operations version 3 (0.4 Ops): a Company refuses
  * a write that needs approval with the operation, its terms; the User
  * approves that one revision on our card; and the same request goes again
  * with the approval, which the Company performs at most once. No confirm or
  * cancel. The request travels in the local approval machinery (operations.ts
  * `proposeLocal`), so the approved request is stored exactly, checked again
- * before it is sent, and sent once. Version 3 requires `terms`, makes
- * `summary` optional, and has each approval say who approved it.
+ * before it is sent, and sent once. An operation has `terms` and may leave
+ * out `summary`, and each approval says who approved it.
  */
 import type { Company } from "./discovery";
 import { array, object, optional, string } from "../decode";
@@ -24,7 +24,7 @@ export const approvalTermsDecoder = object({
   differences: optional(array(string))
 }) satisfies (value: unknown, at: string) => ApprovalTerms;
 
-/** An operation as the Company returns it (Ops 3), after the checks below: version 2 always has `summary`, version 3 always `terms`. */
+/** An operation as the Company returns it (Ops 3), after the checks below: it always has `terms`. */
 export type OperationV2 = {
   readonly operation_id: string;
   readonly revision: string;
@@ -37,7 +37,7 @@ export type OperationV2 = {
 export type ApprovalV2 = { readonly operation_id: string; readonly revision: string; readonly expires_at: string };
 
 /**
- * What a version 3 approval also says (0.4 Ops 6), added as it is sent and
+ * What an approval also says (Ops 6), added as it is sent and
  * never stored with the request: who approved, when, how the User answered,
  * and our approval record's ID as `reference`.
  */
@@ -51,20 +51,19 @@ export type SentApproval = Pick<ApprovalV2, "operation_id" | "revision"> & Parti
 /** A stored approval with its statement, as an executor sends it. */
 export type ApprovalToSend = ApprovalV2 & Partial<ApprovalStatement>;
 
-/** The Operations version a Company's Sessions use: 3 under 0.4, 2 under 0.3, and none when it doesn't list the extension. */
-export function operationsVersion(company: Company): "2" | "3" | null {
-  if (!company.extensions.operations) return null;
-  return company.protocolVersion === "0.3" ? "2" : "3";
+/** The Operations version a Company's Sessions use: 3, or none when it doesn't list the extension. */
+export function operationsVersion(company: Company): "3" | null {
+  return company.extensions.operations ? "3" : null;
 }
 
-/** Whether an approval at this Company holds in another Session of the same agent and User (0.4 Ops 3; `sameAuthority`). */
+/** Whether an approval at this Company holds in another Session of the same agent and User (Ops 3; `sameAuthority`). */
 export function approvesAcrossSessions(company: Company): boolean {
   return operationsVersion(company) === "3";
 }
 
 /**
- * The statement a version 3 approval carries (0.4 Ops 6), or nothing under
- * version 2: the User's, given by pressing the card's button, or the
+ * The statement an approval carries (Ops 6), or nothing at a Company that
+ * doesn't list Operations: the User's, given by pressing the card's button, or the
  * agent's, on a standing instruction the User wrote (instructions.ts), with
  * no `input_type`. `reference` is the approval's own ID, the ledger entry
  * the User sees, unique per approval and derived per Company or random, so
@@ -77,7 +76,7 @@ export function approvalStatement(company: Company, approval: { readonly approva
   return { approver: "user", approved_at: approvedAt, input_type: "tap", reference: approval.approvalId };
 }
 
-/** A stored approval as it is sent: with the statement under version 3 (0.4 Ops 6). */
+/** A stored approval as it is sent, with its statement (Ops 6). */
 export function toSend(company: Company, approval: ApprovalV2, execution: { readonly approvalId: string; readonly approvedAt: number; readonly approver?: "user" | "agent" }): ApprovalToSend {
   return { ...approval, ...approvalStatement(company, execution) };
 }
@@ -103,19 +102,18 @@ const SUMMARY_LIMIT = 4_000;
 
 /**
  * An operation, or why it can't be used: ids with the characters of
- * Conversation IDs, an RFC 3339 `expires_at`, and its terms (Ops 3). Under
- * version 2 a summary, and `terms` an object when present; under version 3
- * `terms` an object, and a summary when present. Without a summary the
- * card shows every value in `terms`, so they must fit on it.
+ * Conversation IDs, an RFC 3339 `expires_at`, `terms` an object, and a
+ * summary when present. Without a summary the card shows every value in
+ * `terms`, so they must fit on it.
  */
-export function parseOperationV2(value: Json | undefined, version: "2" | "3" = "2"): OperationV2 | { readonly problem: string } {
+export function parseOperationV2(value: Json | undefined): OperationV2 | { readonly problem: string } {
   if (!isObject(value)) return { problem: "it isn't an object" };
   const { operation_id: id, revision, summary, terms, expires_at: expiresAt } = value;
   if (typeof id !== "string" || !ID.test(id)) return { problem: "its operation_id isn't 1 to 256 URL-safe characters" };
   if (typeof revision !== "string" || !ID.test(revision)) return { problem: "its revision isn't 1 to 256 URL-safe characters" };
-  if (version === "3" ? summary !== undefined && typeof summary !== "string" : typeof summary !== "string" || summary.trim() === "") return { problem: "it has no summary" };
+  if (summary !== undefined && typeof summary !== "string") return { problem: "its summary isn't a string" };
   if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: "its summary is too long to show" };
-  if (version === "3" && terms === undefined) return { problem: "it has no terms" };
+  if (terms === undefined) return { problem: "it has no terms" };
   if (terms !== undefined && !isObject(terms)) return { problem: "its terms aren't an object" };
   if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: "its expires_at isn't an RFC 3339 time" };
   // A blank summary says nothing, so the terms are shown instead.

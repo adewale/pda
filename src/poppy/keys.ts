@@ -10,7 +10,7 @@ export type SigningKey = {
 
 /**
  * Where our identity lives. `client_id` is the metadata document's URL,
- * forever (decision 37: one document again, now that we speak 0.3 alone).
+ * forever (decision 37: one document again, since 0.3).
  */
 export type AgentIdentity = {
   readonly origin: string;

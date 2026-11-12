@@ -6,12 +6,10 @@ import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
 
 /**
  * Extensions this client supports under each protocol version, with the
- * major version it implements (3.3): Operations 2 under 0.3 and 3 under
- * 0.4, and Mediated Sign-In 1. Operations 3 is still being built
- * (docs/poppy-0.4-upgrade.md, O3; decision 45).
+ * major version it implements (3.3): under 0.4, Operations 3, Mediated
+ * Sign-In 1 and Browser Control 1.
  */
 export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string; readonly "browser-control"?: string }>> = {
-  "0.3": { operations: "2", "mediated-sign-in": "1" },
   "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
 };
 /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 1). */
@@ -59,9 +57,7 @@ export type Company = {
   readonly specificationRevision?: string;
   /** Canonical `auth`, so cached state keyed by Company notices when the document's `auth` changes. */
   readonly authFingerprint?: string;
-  /** 0.3's `feedback` (9.3). Under 0.4 it comes from the tasks endpoint instead. */
-  readonly feedback?: { readonly endpoint: string };
-  /** 0.4's `tasks.endpoint` (9): excluded tasks, the skill index and feedback, for each Session. */
+  /** `tasks.endpoint` (9): excluded tasks, the skill index and feedback, for each Session. */
   readonly tasks?: { readonly endpoint: string };
   /** The issuer's endpoints; absent for a Company without an issuer (3.2). */
   readonly endpoints?: {
@@ -93,8 +89,6 @@ export type Company = {
   readonly dpop?: boolean;
   /** The issuer's `protected_resources` (3.2). */
   readonly protectedResources?: readonly string[];
-  /** Where the tasks the Company doesn't offer are listed (0.3, 9.1). */
-  readonly excludedTasks?: { readonly url: string };
   /** The first `poppy` conversation protocol entry, if any. */
   readonly conversations?: { readonly endpoint: string };
   readonly apis: readonly {
@@ -111,15 +105,11 @@ export type Company = {
   };
   /** Supported extensions only; unknown ones are ignored (3.3). */
   readonly extensions: {
-    /**
-     * Operations in the version `protocolVersion` uses (SUPPORTED_EXTENSIONS):
-     * 2 under 0.3, approvals on the request that returned the operation; 3
-     * under 0.4, which adds `approver` and `reference`.
-     */
+    /** Operations 3 (SUPPORTED_EXTENSIONS). */
     readonly operations?: true;
-    /** Operations 3's `endpoint` (0.4, Ops 2): where operations a website returned are fetched and approved. */
+    /** Operations 3's `endpoint` (Ops 2): where operations a website returned are fetched and approved. */
     readonly operationsEndpoint?: string;
-    /** Browser Control 1 (0.4), listed with a browser-session endpoint, as it must be (3). */
+    /** Browser Control 1, listed with a browser-session endpoint, as it must be (3). */
     readonly browserControl?: true;
   };
 };
@@ -234,11 +224,10 @@ function services(doc: Obj, version: string): Pick<Company, "conversations" | "a
   let web: Company["web"];
   if (isObj(doc.web)) {
     const endpoint = str(doc.web.browser_session_endpoint);
-    const v04 = version !== "0.3";
     web = {
       ...(endpoint ? { browserSessionEndpoint: endpoint } : {}),
-      ...(v04 && doc.web.disabled === true ? { disabled: true as const } : {}),
-      ...(v04 && doc.web.unscoped === true ? { unscoped: true as const } : {})
+      ...(doc.web.disabled === true ? { disabled: true as const } : {}),
+      ...(doc.web.unscoped === true ? { unscoped: true as const } : {})
     };
   }
   return { ...(conversations ? { conversations } : {}), apis, ...(web ? { web } : {}) };
@@ -249,16 +238,15 @@ function services(doc: Obj, version: string): Pick<Company, "conversations" | "a
  * `grant_types_supported`, none when `auth.disabled` is set or there is no
  * issuer (`metadata` null); scopes described in `auth.scopes`, with
  * `auth.scope_hints`; Mediated Sign-In and Operations from `extensions`,
- * in the versions SUPPORTED_EXTENSIONS gives for the protocol version.
- * Under 0.4, `tasks.endpoint` replaces `feedback` and `excluded_tasks`,
- * which a 0.4 agent ignores (9).
+ * in the versions SUPPORTED_EXTENSIONS gives for the protocol version,
+ * and `tasks.endpoint` (9).
  * Services name no `resource`: a service's own protected resource metadata
  * says whether it takes only its own tokens (4.5), which the client reads.
  */
 function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
   const grants = metadata ? strings(metadata.grant_types_supported) : [];
-  // 0.4 (3.2, 4.7): the domain's protected resource metadata may list scopes too, and the agent uses either list.
-  const resourceListed = known.version !== "0.3" && !!resource && Array.isArray(resource.scopes_supported);
+  // 3.2, 4.7: the domain's protected resource metadata may list scopes too, and the agent uses either list.
+  const resourceListed = !!resource && Array.isArray(resource.scopes_supported);
   const supported = [...new Set([...(metadata ? strings(metadata.scopes_supported) : []), ...(resourceListed ? strings(resource!.scopes_supported) : [])])];
   // 3.2: scopes_supported is a SHOULD; without it, the Company's documented scopes may be requested (4.7).
   const listed = (!!metadata && Array.isArray(metadata.scopes_supported)) || resourceListed;
@@ -269,14 +257,13 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
   if (!disabled && grants.includes("authorization_code")) signIn.direct = offer;
   if (!disabled && grants.includes(DEVICE_GRANT)) signIn.device = offer;
-  const v03 = known.version === "0.3";
   const supportedExtensions = SUPPORTED_EXTENSIONS[known.version];
   const extensions = isObj(doc.extensions) ? doc.extensions : {};
-  // 3.3: 0.3 lists one object per extension; 0.4 lists an entry for each major version.
+  // 3.3: an entry for each major version of an extension.
   const entry = (name: "operations" | "mediated-sign-in" | "browser-control"): Obj | undefined => {
     const want = supportedExtensions?.[name];
     const listed = extensions[name];
-    const entries = v03 ? [listed] : Array.isArray(listed) ? listed : [];
+    const entries = Array.isArray(listed) ? listed : [];
     return entries.filter(isObj).find((item) => item.version === want);
   };
   const mediated = entry("mediated-sign-in");
@@ -301,8 +288,8 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
   );
   const protectedResources = metadata ? strings(metadata.protected_resources) : [];
   const operations = entry("operations");
-  const operationsEndpoint = !v03 ? str(operations?.endpoint) : undefined;
-  const tasks = !v03 && isObj(doc.tasks) ? str(doc.tasks.endpoint) : undefined;
+  const operationsEndpoint = str(operations?.endpoint);
+  const tasks = isObj(doc.tasks) ? str(doc.tasks.endpoint) : undefined;
   const organization = isObj(doc.organization) ? doc.organization : {};
   const logo = str(organization.logo_uri);
   return {
@@ -316,7 +303,6 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
     protocolVersion: known.version,
     specificationRevision: protocolRevision(known.version),
     authFingerprint: canonicalAuth(doc.auth ?? null),
-    ...(v03 && isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
     ...(tasks ? { tasks: { endpoint: tasks } } : {}),
     ...(metadata ? {
       endpoints: {
@@ -331,11 +317,10 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
     scopeHints,
     dpop: !!metadata && Array.isArray(metadata.dpop_signing_alg_values_supported) && metadata.dpop_signing_alg_values_supported.includes("ES256"),
     protectedResources,
-    ...(v03 && isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
     ...services(doc, known.version),
     extensions: {
       ...(operations ? { operations: true as const, ...(operationsEndpoint ? { operationsEndpoint } : {}) } : {}),
-      ...(!v03 && entry("browser-control") && isObj(doc.web) && typeof doc.web.browser_session_endpoint === "string" ? { browserControl: true as const } : {})
+      ...(entry("browser-control") && isObj(doc.web) && typeof doc.web.browser_session_endpoint === "string" ? { browserControl: true as const } : {})
     }
   };
 }
@@ -358,7 +343,6 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
   const listed = [
     company.conversations?.endpoint,
     company.web?.browserSessionEndpoint,
-    company.feedback?.endpoint,
     company.tasks?.endpoint,
     company.extensions.operationsEndpoint,
     ...company.apis.map((api) => api.url)
@@ -372,7 +356,7 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
 /**
  * The Poppy endpoint `url` is, or is under, if any: sign-in and token
  * endpoints, the conversation endpoint, the browser-session endpoint and
- * its `/authorize`, feedback, 0.4's tasks endpoint and the operations
+ * its `/authorize`, the tasks endpoint and the operations
  * endpoint. Only the client's own code calls them: a message needs our
  * message id and an honest `author` (8.3, 8.8), and an approval only the
  * User gives (Ops 5). A Company's OpenAPI description may list
@@ -397,7 +381,6 @@ export function protocolEndpoint(company: Company, url: URL): string | null {
     company.signIn.mediated?.endpoint,
     company.conversations?.endpoint,
     company.web?.browserSessionEndpoint,
-    company.feedback?.endpoint,
     company.tasks?.endpoint,
     company.extensions.operationsEndpoint
   ];

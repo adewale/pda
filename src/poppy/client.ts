@@ -292,7 +292,7 @@ function withScope<T extends TokenResponse>(response: T, requested: string): T {
 }
 
 /** `WWW-Authenticate: DPoP error="…", scope="…"` (RFC 6750, RFC 9449). */
-export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string; extension?: string; resourceMetadata?: string; resourceMetadataAmbiguous?: true } {
+export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string; resourceMetadata?: string; resourceMetadataAmbiguous?: true } {
   if (!header) return {};
   const params: Record<string, string> = {};
   const metadata: string[] = [], errors: string[] = [];
@@ -311,8 +311,6 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
   return {
     ...(params.error ? { error: params.error } : {}),
     ...(params.scope ? { scope: params.scope } : {}),
-    // 3.3: an API's extension_required names the extension in the challenge.
-    ...(params.extension ? { extension: params.extension } : {}),
     ...(params.resource_metadata ? { resourceMetadata: params.resource_metadata } : {}),
     ...(ambiguous ? { resourceMetadataAmbiguous: true as const } : {})
   };
@@ -321,7 +319,7 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
 /**
  * `extension_required` (3.3): the Company handles the request only with an
  * extension it didn't declare. The model and the User are told which, from
- * the challenge's `extension` under 0.3 or the JSON body's under 0.4.
+ * the JSON body's `extension`.
  */
 export function extensionRequired(company: Company, extension: string | undefined, status: number, body?: Json): PoppyError {
   return withAnswer(
@@ -333,7 +331,7 @@ export function extensionRequired(company: Company, extension: string | undefine
   );
 }
 
-/** 0.4's `extension_required` in a JSON body (3.3), at an API or a protocol endpoint; null for any other answer. */
+/** `extension_required` in a JSON body (3.3), at an API or a protocol endpoint; null for any other answer. */
 export function extensionRequiredBody(company: Company, body: Json | undefined, status: number): PoppyError | null {
   if (status !== 403 || !isObject(body) || body.error !== "extension_required") return null;
   return extensionRequired(company, typeof body.extension === "string" ? body.extension : undefined, status, body);
@@ -1246,7 +1244,7 @@ export class PoppyClient {
    * The headers for a website page the agent fetches with its own HTTP
    * client rather than a browser (0.4 5.2): the Session header, signed out
    * (no `ath`; a page never gets a token), the Session's declared versions,
-   * and the operator signature. Only under 0.4, only where the Company lists
+   * and the operator signature. Only where the Company lists
    * no `browser_session_endpoint` (where it does, the fetch browser joins
    * the Session as a browser and sends no header; decision 44), and only to
    * exactly `organization.domain`. Null otherwise.
@@ -1265,7 +1263,7 @@ export class PoppyClient {
 
   /** Whether pages fetched without a browser carry the Session header at this Company (`pageHeaders`). */
   signsPages(company: Company): boolean {
-    return company.protocolVersion === "0.4" && !company.web?.browserSessionEndpoint;
+    return !company.web?.browserSessionEndpoint;
   }
 
   /** The label's Session as its next request will use it: started, with the declaration the Company calls for (3.4). */
@@ -1738,7 +1736,6 @@ export class PoppyClient {
       log({ status: response.status, error: code ?? (typeof peek?.error === "string" ? peek.error : null) });
       if (code && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
-        if (code === "extension_required") throw extensionRequired(company, challenge.extension, response.status);
         throw withAnswer(
           new PoppyError(companyErrorCode(code, response.status), `${company.name}: ${code}`, response.status, {
             ...(challenge.scope ? { scope: challenge.scope } : {})

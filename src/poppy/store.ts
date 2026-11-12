@@ -373,17 +373,20 @@ function retireIncompatibleConversations(sql: Sql): void {
   const supported = (company: Record<string, unknown> | undefined): boolean => company !== undefined &&
     typeof company.protocolVersion === "string" && supportsProtocol(company.protocolVersion) &&
     (company.specificationRevision === undefined || company.specificationRevision === protocolRevision(company.protocolVersion));
-  const open = sql.exec(`SELECT c.id, c.issuer, t.company FROM poppy_conversations c
+  const open = sql.exec(`SELECT c.id, c.issuer, c.protocol_version, t.company FROM poppy_conversations c
     LEFT JOIN poppy_task_contexts t ON t.kind = 'conversation' AND t.task_id = c.id AND t.issuer = c.issuer
     WHERE c.status != 'closed' AND c.quarantined = 0`).toArray();
   for (const row of open) {
     let company = read(row.company);
+    let resumable = supported(company);
     if (row.company === null) {
       // Before immutable contexts, resumeCompany used the single known Company domain.
       const cached = sql.exec("SELECT company FROM poppy_domains WHERE issuer = ?", row.issuer).toArray().map(value => read(value.company));
-      if (cached.length && cached.every(supported) && new Set(cached.map(value => value?.domain)).size === 1) continue;
+      resumable = cached.length > 0 && cached.every(supported) && new Set(cached.map(value => value?.domain)).size === 1;
       company = cached.find(value => value !== undefined);
-    } else if (supported(company)) continue;
+    }
+    // A conversation keeps the version it started in (8.2), so one in a version we no longer speak can't go on.
+    if (resumable && supportsProtocol(row.protocol_version)) continue;
     const at = Date.now();
     const notice = {
       id: `conversation-retired-${row.id}`, kind: "notice", open: false,
@@ -529,10 +532,10 @@ export const conversationsTable = table("poppy_conversations", {
   protocol_version: text,
   extensions: text,
   /**
-   * 0.4's `working` and `handoff` (8.7). `status` stays the local marker
-   * every version shares: 0.3's own value, or under 0.4 `closed`, `queued`
-   * (a pending handoff), `working` or `idle`, derived in conversations.ts
-   * `nextState`, so open conversations are found the same way for both.
+   * `working` and `handoff` (8.7). `status` is the local marker: `closed`,
+   * `queued` (a pending handoff), `working` or `idle`, derived in
+   * conversations.ts `nextState`; a 0.3 conversation stored before decision
+   * 49 kept 0.3's own value, and migration closed it.
    */
   working: integerOf(flag),
   handoff: text
