@@ -1,14 +1,16 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
-// photo-print store (spenciefy/print-with-poppy), pinned at b340741 (28 Oct), Poppy 0.3.
-// Not in the registry since our agent dropped 0.3 on 11 November (docs/interop-spec.md
-// section 15): kept as the record, and as a start for when the store serves 0.4.
+// photo-print store (spenciefy/print-with-poppy), pinned at ae453ed (12 Nov), Poppy 0.4:
+// the text of upstream ad20217, whose 0.4 pages are those of our pin, ed47408. Out of the
+// registry from 12 November, when our agent dropped 0.3 (docs/interop-spec.md section 15),
+// until the store served 0.4 the same day.
 //
 // Starts the store (server/index.ts under tsx) on PORT (8080) in its demo mode and serves
 // the control API on ADAPTER_PORT (8081). The store takes the Session header on every API
 // request, signed-out or with an access token, and offers accounts by Direct Sign-In (a
 // browser page asks for an email, then for the six-digit code sent to it, then for consent),
-// Device Sign-In and Mediated Sign-In (the email, then the code). Orders need Operations 2:
-// 403 approval_required, then the same request with Poppy-Approval. No conversations, no
+// Device Sign-In and Mediated Sign-In (the email, then the code). Every Session request needs
+// Poppy-Version: 0.4. Orders need Operations 3: 403 approval_required with the order's terms,
+// then the same request with Poppy-Approval, which names its approver. No conversations, no
 // staff, no browser join, no DPoP. Its agents must be on its allowlist (AGENT_CLIENT_IDS).
 // Demo mode stores each code email in the store's SQLite instead of sending it; the sign-in
 // hooks read the code from there. Hooks the store has no counterpart for answer 501.
@@ -25,7 +27,7 @@ const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
 // The runner sets INTEROP_ORIGIN (spec section 3); the default is for running by hand.
 const ORIGIN = (process.env.INTEROP_ORIGIN ?? 'https://print-with-poppy.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const COMMIT = process.env.INTEROP_COMMIT ?? 'b340741d696d867ff3190c10c1f1d1e0c368e846';
+const COMMIT = process.env.INTEROP_COMMIT ?? 'ae453ed374c9cd1d775423694059a29551e842e1';
 const APP_DIR = '/opt/pwp';
 const DATA = '/data/pwp';
 const INNER = `http://127.0.0.1:${PORT}`;
@@ -47,9 +49,9 @@ const MANIFEST = {
   name: 'print-with-poppy',
   role: 'company',
   commit: COMMIT,
-  // Since b340741 the store speaks only 0.3 (docs/POPPY-0.3.md): 0.2 and the earlier
-  // delegated-keys draft are refused.
-  poppy: ['0.3'],
+  // Since ae453ed the store speaks only 0.4 (docs/POPPY-0.4.md): 0.3 Sessions are refused
+  // with version_unsupported.
+  poppy: ['0.4'],
   extensions: ['operations', 'mediated-sign-in'],
   // OU is the store's own path: a multipart photo upload, then POST /api/orders answers 403
   // approval_required with the order's terms, and the same order with Poppy-Approval places it.

@@ -1,5 +1,5 @@
 # print-with-poppy (spenciefy/print-with-poppy), an agent-first photo-print store, in its
-# demo mode, behind a spec 5.3 adapter. Poppy 0.3 (the 28 October text) since b340741.
+# demo mode, behind a spec 5.3 adapter. Poppy 0.4 since ae453ed (12 November).
 # Upstream: https://github.com/spenciefy/print-with-poppy (MIT). Nothing upstream
 # is vendored: it is cloned at the pinned commit when the image is built.
 # Nothing goes in /interop: the runner copies its CA there before the container starts.
@@ -9,7 +9,7 @@
 FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
 
 ARG UPSTREAM=https://github.com/spenciefy/print-with-poppy.git
-ARG COMMIT=b340741d696d867ff3190c10c1f1d1e0c368e846
+ARG COMMIT=ae453ed374c9cd1d775423694059a29551e842e1
 WORKDIR /opt/pwp
 # Managed builds provide their combined system trust bundle as a secret. Ordinary builds
 # bootstrap verified HTTPS from the base's trust store, or Node's bundled public roots.
@@ -55,7 +55,7 @@ COPY --chmod=0644 adapter.mjs /interop-adapter/adapter.mjs
 # the run's CA through NODE_EXTRA_CA_CERTS, which the runner sets; the adapter passes it on.
 ENV PORT=8080 \
     ADAPTER_PORT=8081 \
-    INTEROP_COMMIT=b340741d696d867ff3190c10c1f1d1e0c368e846
+    INTEROP_COMMIT=ae453ed374c9cd1d775423694059a29551e842e1
 USER node
 EXPOSE 8080 8081
 CMD ["node", "/interop-adapter/adapter.mjs"]

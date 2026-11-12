@@ -78,6 +78,38 @@
       "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
     },
     {
+      "name": "print-with-poppy",
+      "role": "company",
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "ae453ed374c9cd1d775423694059a29551e842e1",
+      "build": "interop/impls/print-with-poppy-company",
+      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); Poppy 0.4 since ae453ed (12 November), the text of upstream ad20217, whose 0.4 pages are those of our pin: Poppy-Version on every Session request, plain OAuth tokens without DPoP, Operations 3 and Mediated Sign-In 1; accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); our agents on its AGENT_CLIENT_IDS allowlist. Unpatched: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off, and upstream's ALLOW_INTEROP_TEST_HOSTS=true lets it fetch agents' metadata at private addresses for *.interop.test names only. MIT."
+    },
+    {
+      "name": "print-with-poppy-live",
+      "role": "company",
+      "liveScenarios": [
+        "D"
+      ],
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "unknown",
+      "url": "https://printwithpoppy.com",
+      "protocolVersion": "0.4",
+      "notes": "Live store with real payments and prints, declaring 0.4 since 12 November: discovery (D) only. Agents need its allowlist; never order here."
+    },
+    {
+      "name": "print-with-poppy-sandbox",
+      "role": "company",
+      "liveScenarios": [
+        "D"
+      ],
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "unknown",
+      "url": "https://sandbox.printwithpoppy.com",
+      "protocolVersion": "0.4",
+      "notes": "The store's Agent Sandbox: real Sessions and approvals, simulated payment, fulfillment and shipping. Declares 0.4 since 12 November. Discovery (D) only here, since a signed-in journey needs our interop client on its allowlist."
+    },
+    {
       "name": "evil-company",
       "role": "company",
       "adversarial": true,
