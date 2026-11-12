@@ -55,8 +55,9 @@ jobs:
       - name: Honest agents and Companies, including injected network faults
         run: npm run interop -- --agents pda --companies lenient-company,strict-company --require-supported --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CL,CC,CI,CS,CA,SO,O,OX,OU,SE,R,AO,AM,AS,RL,DP,H,DC,W,CM,ML,CDUP,CIDUP,ODUP,NREP
 
+      # The lenient and strict agents too: each reads the store's documents and tokens differently.
       - name: An independent Company, Print with Poppy at its pinned commit
-        run: npm run interop -- --agents pda --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
+        run: npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
 
       - name: Our agent refuses malicious Company responses
         run: npm run interop -- --agents pda --companies evil-company --require-supported --scenarios XH,XI,BX,XB,XN,XP,XE,XR
