@@ -734,7 +734,7 @@ class FetchContext implements BrowserContextHandle {
   }
 
   async joinCode(endpoint: string): Promise<{ status: number; code?: string; action?: string; retryAfter?: string }> {
-    // A top-level GET of the browser-session page, keeping the cookie it sets (0.3 6, step 1).
+    // A top-level GET of the browser-session page, keeping the cookie it sets (6, step 1).
     const fetched = await this.#navigate(new URL(endpoint), { method: "GET" });
     await this.#load(fetched);
     const page = this.#current();

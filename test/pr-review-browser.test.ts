@@ -92,7 +92,8 @@ describe("Company-approved write outcomes", () => {
   it("returns actual ordinary signed-in pages, API products and MCP products without extra reviews", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    // The website acts for the account only with poppy:browser-sign-in (6).
+    await signInDirect(a, c, ["orders:read", "orders:write", "poppy:browser-sign-in"]);
     for (const [name, args, needle] of [
       ["poppy_browse", { domain: c.domain, action: "open", url: "/orders" }, "Signed in as acct_ada"],
       ["poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } }, "Stormline Jacket"],

@@ -1,5 +1,7 @@
 # Poppy 0.3 conformance review
 
+> PDA dropped 0.3 on 12 November 2026 ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). This review is kept as the record of 0.3's evidence; current verification is in [the 0.4 review](poppy-0.4-conformance.md#current-verification).
+
 This review targets the [3 November 2026 snapshot](../spec/draft-0.3-retrieved-2026-11-03/README.md), upstream commit `7205250`. It separates PDA's implementation and verification problems from the [43 issues in the upstream text](poppy-0.3-issues.md). A changelog disposition of **Done** records an implemented change; it does not certify every normative requirement or every deployment path.
 
 ## Current verification

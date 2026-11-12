@@ -91,9 +91,9 @@ export class HostedCompany extends DurableObject<HostedEnv> {
     // This sentinel prevents the test helper's in-process PDA shortcut; real client metadata uses HTTPS.
     const company = this.#company = new Company("hosted", { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env);
     company.config = {
-      ...DEFAULT_CONFIG, protocolVersion: "0.3", strictAssertions: true, organizationName: "Dummy Company (isolated test)",
+      ...DEFAULT_CONFIG, strictAssertions: true, organizationName: "Dummy Company (isolated test)",
       unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false,
-      requireNonce: true, rotateRefreshTokens: true, excludedTasks: false,
+      requireNonce: true, rotateRefreshTokens: true, excludedTasks: false, skills: false,
       requireRegistration: [`${env.PDA_ORIGIN}/poppy/client.json`],
       protectedResourcesOverride: [env.COMPANY_ORIGIN, `${env.COMPANY_ORIGIN}/mcp`],
       agent: false, web: false, browserSession: false,
@@ -146,7 +146,6 @@ export class HostedCompany extends DurableObject<HostedEnv> {
     if (path === "/.well-known/oauth-protected-resource" && method === "GET") return this.#web.domainResourceMetadata(inbound);
     if (path === "/.well-known/oauth-protected-resource/mcp" && method === "GET") return json(this.#apis.protectedResourceMetadata());
     if (path === company.hosts.metadataPath && method === "GET") return this.#web.authorizationServerMetadata();
-    if (path === "/poppy/excluded-tasks.json" && method === "GET") return this.#web.excludedTasks();
     if (path === "/openapi.json" && method === "GET") return json(this.#apis.openapiDocument());
     if (path === "/oauth/authorize" && method === "GET") {
       if (url.searchParams.get("client_id") !== `${this.env.PDA_ORIGIN}/poppy/client.json`) return page("<p>This Personal Agent is not accepted.</p>", 403);

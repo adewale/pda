@@ -1,6 +1,6 @@
 /**
  * Generated Companies: a poppy.json, its domain's protected resource
- * metadata and its issuer's OAuth metadata that draft 0.3 calls valid, built
+ * metadata and its issuer's OAuth metadata that draft 0.4 calls valid, built
  * directly (not filtered from noise), and a fetcher that serves them as a
  * Company's hosts would.
  */
@@ -14,7 +14,7 @@ export const SCOPE_ALPHABET = String.fromCharCode(
   ...Array.from({ length: 0x7e - 0x5d + 1 }, (_, i) => 0x5d + i)
 );
 
-/** A Company's scope: 0.3 defines none (4.7), so any scope token, 0.2's `poppy:` names included. */
+/** A Company's scope: Poppy defines none but poppy:browser-sign-in (4.7, 6), so any scope token, 0.2's `poppy:` names included. */
 export const scopeNames = gs.oneOf(gs.text({ alphabet: SCOPE_ALPHABET, minSize: 1, maxSize: 16 }), gs.sampledFrom(["orders:read", "orders:write", "addresses", "poppy:read"]));
 
 /**
@@ -56,8 +56,10 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
   const at = (path: string) => `https://${authHost}${path}`;
   const api = `https://${tc.draw(gs.sampledFrom(["api.", "", "www."]))}${host}`;
 
-  // Every scope the issuer supports, each described in auth.scopes (4.7), some with hints.
-  const scopes = [...tc.draw(gs.sets(scopeNames, { minSize: 1, maxSize: 4 }))];
+  // Something that needs the issuer (3.2), so the Company isn't website only: the agent, an API or a browser join.
+  const offers = tc.draw(gs.sets(gs.sampledFrom(["agent", "apis", "web"] as const), { minSize: 1 }));
+  // Every scope the issuer supports, each described in auth.scopes (4.7), some with hints; with browser join, poppy:browser-sign-in (6).
+  const scopes = [...new Set([...tc.draw(gs.sets(scopeNames, { minSize: 1, maxSize: 4 })), ...(offers.has("web") ? ["poppy:browser-sign-in"] : [])])];
   const auth: Record<string, unknown> = {
     // With one authorization server, auth.issuer is optional, and names that server when present (3.1).
     ...(tc.draw(gs.booleans()) ? { issuer } : {}),
@@ -70,21 +72,19 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
   const types = [...tc.draw(gs.sets(gs.sampledFrom(["direct", "device", "mediated"] as const)))];
 
   const poppy: Record<string, any> = {
-    protocol_version: "0.3",
+    protocol_version: "0.4",
     // A display name (3.1): anything with something to show. A blank one is organization-name-missing, an error.
     organization: { name: tc.draw(gs.text({ minSize: 1, maxSize: 40 }).filter((name) => name.trim() !== "")), domain },
     auth
   };
   const unknownProtocol = { type: "example.com/chat-v9", endpoint: `${api}/chat` };
   const poppyProtocol = { type: "poppy", endpoint: `${api}/poppy/conversations${tc.draw(paths)}` };
-  // Something that needs the issuer (3.2), so the Company isn't website only: the agent, an API or a browser join.
-  const offers = tc.draw(gs.sets(gs.sampledFrom(["agent", "apis", "web"] as const), { minSize: 1 }));
   if (offers.has("agent")) poppy.agent = { protocols: tc.draw(gs.booleans()) ? [unknownProtocol, poppyProtocol] : [poppyProtocol] };
   if (offers.has("apis")) {
     poppy.apis = tc.draw(
       gs.arrays(
         gs.composite((inner) => {
-          // 0.3 lets a Company list other API types, which agents skip (7).
+          // A Company may list other API types, which agents skip (7).
           const type = inner.draw(gs.sampledFrom(["openapi", "mcp", "graphql"]));
           return { type, url: `${api}${inner.draw(paths)}/${type}`, description: inner.draw(gs.text({ minSize: 1, maxSize: 30 })) };
         }),
@@ -93,18 +93,19 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
     );
   }
   if (offers.has("web")) poppy.web = { browser_session_endpoint: `https://${domain}/poppy/browser-session` };
-  if (tc.draw(gs.booleans())) poppy.feedback = { endpoint: `${api}/poppy/feedback${tc.draw(paths)}` };
-  if (tc.draw(gs.booleans())) poppy.excluded_tasks = { url: `https://${domain}/poppy/excluded-tasks.json` };
+  // Excluded tasks and feedback come from the tasks endpoint (9).
+  if (tc.draw(gs.booleans())) poppy.tasks = { endpoint: `${api}/poppy/tasks${tc.draw(paths)}` };
+  // Each extension a list of version entries (3.3).
   const extensions: Record<string, unknown> = {};
-  if (tc.draw(gs.booleans())) extensions.operations = { version: "2" };
+  if (tc.draw(gs.booleans())) extensions.operations = [{ version: "3" }];
   if (types.includes("mediated")) {
     const names = [...tc.draw(gs.sets(gs.fromRegex("[a-z_]{1,12}", { fullmatch: true }).filter((name) => !["grant_type", "scope", "resource", "client_id", "client_assertion", "client_assertion_type", "sign_in_id", "one_time_code"].includes(name)), { minSize: 1, maxSize: 3 }))];
-    extensions["mediated-sign-in"] = {
+    extensions["mediated-sign-in"] = [{
       version: "1",
       // Every field secret: a field that looks secret must be marked so, and secret is always allowed.
       fields: names.map((name) => ({ name, label: tc.draw(gs.text({ minSize: 1, maxSize: 20 })), secret: true })),
       scopes: [...tc.draw(gs.sets(gs.sampledFrom(scopes), { minSize: 1 }))]
-    };
+    }];
   }
   if (Object.keys(extensions).length) poppy.extensions = extensions;
 

@@ -361,7 +361,7 @@ export type MockConfig = {
 export const DEFAULT_CONFIG: MockConfig = {
   mcpDpop: false,
   mcpVersions: ["2025-06-18"],
-  protocolVersion: "0.3",
+  protocolVersion: "0.4",
   linkedVersion: null,
   organizationDomain: null,
   wellKnownRedirect: "none",

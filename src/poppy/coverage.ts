@@ -3,12 +3,12 @@
  * the protocol, which the agent reads before a task (9.1), and feedback
  * about a task that couldn't be done, which the Company may answer with
  * another way to do it (9.3). Both bring the Company's words, which are
- * content for the model, never instructions (9.2, 10.1). Under 0.3 they
- * come from `poppy.json`; under 0.4 from the tasks endpoint, per Session.
+ * content for the model, never instructions (9.2, 10.1). Both come from
+ * the tasks endpoint, per Session.
  */
 import { PoppyClient, PoppyError } from "./client";
 import { boundedCacheSeconds, type Company } from "./discovery";
-import { cacheSeconds, fetchJson } from "./fetch";
+import { cacheSeconds } from "./fetch";
 import { isObject, type Json } from "./json";
 import { companyErrorCode } from "./error-codes";
 import { EndpointRequest } from "./outgoing";
@@ -95,9 +95,8 @@ export function readAlternative(company: Company, value: unknown): Alternative |
 }
 
 /** Raw excluded-task documents by URL, per agent; references are filtered for each Company on every read. */
-const caches = new WeakMap<PoppyClient, Map<string, { readonly tasks: readonly Json[]; readonly expiresAt: number }>>();
 
-/** What 0.4's tasks endpoint said to one Session (9): its excluded tasks, as sent, and its feedback endpoint. */
+/** What the tasks endpoint said to one Session (9): its excluded tasks, as sent, and its feedback endpoint. */
 type TasksAnswer = { readonly excluded: readonly Json[] | null; readonly feedback: string | null };
 
 /** Tasks responses by Company and Session, per agent; never used in another Session (9). */
@@ -141,46 +140,24 @@ async function tasksAnswer(client: PoppyClient, company: Company, label: string)
   return answer;
 }
 
-/** Where this Session sends feedback (9.3): `poppy.json`'s endpoint under 0.3, the tasks response's under 0.4. */
+/** Where this Session sends feedback (9.3): the endpoint its tasks response names. */
 export async function feedbackEndpoint(client: PoppyClient, company: Company, label: string): Promise<string | null> {
-  if (!company.tasks) return company.feedback?.endpoint ?? null;
+  if (!company.tasks) return null;
   const answer = await tasksAnswer(client, company, label);
   return answer === "unavailable" ? null : answer.feedback;
 }
 
 /**
- * The Company's excluded tasks (9.1). Under 0.3, a document fetched with a
- * GET and no token, as discovery fetches, and kept as long as its caching
- * headers say within discovery's bounds; under 0.4, the tasks response for
- * this Session. Null when it lists none; `unavailable` when it couldn't be
- * read, which the model is told, so it doesn't take the silence for
- * "everything is offered".
+ * The Company's excluded tasks (9.1), from the tasks response for this
+ * Session. Null when it lists none; `unavailable` when it couldn't be read,
+ * which the model is told, so it doesn't take the silence for "everything
+ * is offered".
  */
 export async function excludedTasks(client: PoppyClient, company: Company, label = "main"): Promise<readonly ExcludedTask[] | "unavailable" | null> {
-  if (company.tasks) {
-    const answer = await tasksAnswer(client, company, label);
-    if (answer === "unavailable") return answer;
-    return answer.excluded === null ? null : readTasks(company, answer.excluded);
-  }
-  const url = company.excludedTasks?.url;
-  if (!url) return null;
-  let cache = caches.get(client);
-  if (!cache) caches.set(client, (cache = new Map()));
-  const cached = cache.get(url);
-  let entries: readonly Json[];
-  if (cached && cached.expiresAt > Date.now()) entries = cached.tasks;
-  else {
-    let fetched: Awaited<ReturnType<typeof fetchJson>>;
-    try {
-      fetched = await fetchJson(client.host.fetcher, url, { maxBytes: 100_000 });
-    } catch {
-      return "unavailable";
-    }
-    if (!isObject(fetched.json) || !Array.isArray(fetched.json.tasks)) return "unavailable";
-    entries = fetched.json.tasks.slice(0, MOST_TASKS);
-    cache.set(url, { tasks: entries, expiresAt: Date.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
-  }
-  return readTasks(company, entries);
+  if (!company.tasks) return null;
+  const answer = await tasksAnswer(client, company, label);
+  if (answer === "unavailable") return answer;
+  return answer.excluded === null ? null : readTasks(company, answer.excluded);
 }
 
 /** Excluded-task entries as the Company sent them, keeping a task phrase and a usable alternative (9.1, 9.2). */

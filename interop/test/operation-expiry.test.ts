@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { approvable, parseOperationV2 } from "../../src/poppy/operations-v2";
 
-const operation = (expires_at: string) => ({ operation_id: "op_expiry", revision: "r1", summary: "Exchange the jacket", expires_at });
+// Operations 3 requires terms (0.4 Ops 3).
+const operation = (expires_at: string) => ({ operation_id: "op_expiry", revision: "r1", summary: "Exchange the jacket", terms: { replacement_sku: "stormline-insulated-m" }, expires_at });
 
 describe("operation expiry timestamps", () => {
   it.each([

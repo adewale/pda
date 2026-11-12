@@ -17,7 +17,7 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
     const scheduled = vi.spyOn(client.host, "schedule").mockResolvedValue(undefined);
     const notified = vi.spyOn(client.host, "notifyModel").mockResolvedValue(undefined);
     const pushed = vi.spyOn(client.host, "pushDirect").mockImplementation(() => {});
-    let answer: Json = { conversation_id: "cnv_shared", status: "working", responder: "agent", events: [] };
+    let answer: Json = { conversation_id: "cnv_shared", working: true, handoff: "none", responder: "agent", closed: false, events: [] };
     const outgoing: { issuer: string; url: string; body: Json | undefined }[] = [];
     const resourceJson = vi.spyOn(client, "resourceJson").mockImplementation(async (target, request) => {
       const init = request.init();
@@ -28,12 +28,12 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
     const send = (target: typeof A, key: string, extra: { conversationId?: string; parentConversationId?: string; sender?: "agent" | "human" } = {}) =>
       sendMessage(client, target, { label: "main", callKey: key, sender: "agent", text: "Hello", ...extra });
     try {
-      answer = { conversation_id: "cnv_shared", status: "working", responder: "agent", events: [
+      answer = { conversation_id: "cnv_shared", working: true, handoff: "none", responder: "agent", closed: false, events: [
         { id: "evt_same", type: "message", message: { id: "msg_A", role: "company", author: { type: "agent" }, text: "A message" } }
       ] };
       const first = await send(A, "audit-a");
       client.sql.exec("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", "cursor_for_A", first.conversationId);
-      answer = { conversation_id: "cnv_shared", status: "working", responder: "human", events: [
+      answer = { conversation_id: "cnv_shared", working: true, handoff: "none", responder: "human", closed: false, events: [
         { id: "evt_same", type: "message", message: { id: "msg_B", role: "company", author: { type: "agent" }, text: "B message" } }
       ] };
       const second = await send(B, "audit-b-collision");
@@ -55,22 +55,22 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
       expect(new URL(outgoing.at(-1)!.url).pathname).toBe(`${new URL(B.conversations!.endpoint).pathname}/cnv_shared/messages`);
       expect(new URL(outgoing.at(-1)!.url).searchParams.has("cursor")).toBe(false);
 
-      answer = { conversation_id: "cnv_other", status: "closed", responder: "agent", events: [] };
+      answer = { conversation_id: "cnv_other", working: false, handoff: "none", responder: "agent", closed: true, events: [] };
       await expect(send(B, "audit-response-switch", { conversationId: second.conversationId })).rejects.toMatchObject({ code: "invalid_response" });
       expect(conversation(client, first.conversationId)?.status).toBe("working");
       expect(conversation(client, second.conversationId)?.status).toBe("working");
-      answer = { conversation_id: "cnv_shared", status: "working", responder: "agent", events: [] };
+      answer = { conversation_id: "cnv_shared", working: true, handoff: "none", responder: "agent", closed: false, events: [] };
       await expect(sendMessage(client, B, { label: "another-session", callKey: "audit-account-collision", sender: "agent", text: "Another account's message" })).rejects.toMatchObject({ code: "invalid_response" });
       expect(conversation(client, second.conversationId)?.label).toBe("main");
 
-      answer = { conversation_id: "cnv_child", status: "working", responder: "human", events: [] };
+      answer = { conversation_id: "cnv_child", working: true, handoff: "none", responder: "human", closed: false, events: [] };
       const childA = await send(A, "audit-a-child", { parentConversationId: first.conversationId, sender: "human" });
       const childB = await send(B, "audit-b-child", { parentConversationId: second.conversationId, sender: "human" });
       expect(childB.conversationId).not.toBe(childA.conversationId);
       expect(outgoing.at(-1)!.body).toMatchObject({ parent_conversation_id: "cnv_shared" });
-      answer = { conversation_id: "cnv_other_parent", status: "working", responder: "agent", events: [] };
+      answer = { conversation_id: "cnv_other_parent", working: true, handoff: "none", responder: "agent", closed: false, events: [] };
       const otherParent = await send(B, "audit-other-parent");
-      answer = { conversation_id: "cnv_other_child", status: "working", responder: "human", events: [] };
+      answer = { conversation_id: "cnv_other_child", working: true, handoff: "none", responder: "human", closed: false, events: [] };
       const otherChild = await send(B, "audit-other-child", { parentConversationId: otherParent.conversationId, sender: "human" });
       let eventId = 0;
       let child = "cnv_shared"; // Exists at B, but is not a Direct child.
@@ -79,7 +79,7 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
         // A whole events answer (8.5): B's conversation, by the Company's own ID.
         ++eventId;
         const events = [{ id: `evt_close_${eventId}`, type: "direct_closed", conversation_id: child }];
-        return new Response(JSON.stringify({ conversation_id: "cnv_shared", events, cursor: `cur_${eventId}`, has_more: false, status: "working", responder: "human" }), { headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ conversation_id: "cnv_shared", events, cursor: `cur_${eventId}`, has_more: false, working: true, handoff: "none", responder: "human", closed: false }), { headers: { "Content-Type": "application/json" } });
       });
       restoreResource = () => resource.mockRestore();
       await readConversation(client, second.conversationId, 0);
@@ -145,7 +145,7 @@ it("quarantines legacy history and rejects stale handles without replaying remot
     expect(await readConversation(client, "cnv_legacy", 0)).toBeNull();
     expect(outbound).not.toHaveBeenCalled();
     outbound.mockRestore();
-    const fresh = vi.spyOn(client, "resourceJson").mockResolvedValue({ status: 201, headers: new Headers(), body: { conversation_id: "cnv_legacy", status: "working", responder: "agent", events: [] } });
+    const fresh = vi.spyOn(client, "resourceJson").mockResolvedValue({ status: 201, headers: new Headers(), body: { conversation_id: "cnv_legacy", working: true, handoff: "none", responder: "agent", closed: false, events: [] } });
     const scheduled = vi.spyOn(client.host, "schedule").mockResolvedValue(undefined);
     try {
       const next = await sendMessage(client, C, { label: "main", callKey: "new-scoped-thread", sender: "agent", text: "Start a new conversation" });

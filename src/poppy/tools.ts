@@ -206,9 +206,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             website: !found.web ? "not offered"
               : found.web.disabled ? "pages readable only: the company asks agents not to use its website in a browser, so no form is filled or sent; use its agent and APIs"
               : found.web.browserSessionEndpoint
-                ? found.protocolVersion === "0.3" ? "browsable in the session"
-                  // 0.4 (6): the browser is signed in only with poppy:browser-sign-in, which web.unscoped widens to the whole account.
-                  : `browsable in the session; signed in there only when the sign-in includes ${BROWSER_SIGN_IN}${found.web.unscoped ? ", which on this website gives everything the account can do there, so ask the User first" : ""}`
+                // 6: the browser is signed in only with poppy:browser-sign-in, which web.unscoped widens to the whole account.
+                ? `browsable in the session; signed in there only when the sign-in includes ${BROWSER_SIGN_IN}${found.web.unscoped ? ", which on this website gives everything the account can do there, so ask the User first" : ""}`
                 : "browsable signed out",
             extensions: Object.keys(found.extensions),
             ...excludedForModel(tasks),

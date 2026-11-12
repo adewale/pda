@@ -4,7 +4,9 @@
     {
       "protocolVersion": "0.3",
       "status": "published",
-      "runtime": true,
+      "runtime": false,
+      "retired": true,
+      "codeAt": "https://github.com/adewale/pda/blob/7f2cfde7d1dabe49acfd81f09a92d3a308835810",
       "snapshot": "spec/draft-0.3-retrieved-2026-11-03",
       "kit": "spec/company-kit-2026-11-03",
       "revision": "2026-11-03",
@@ -12,7 +14,7 @@
       "operationsVersion": "2",
       "mediatedSignInVersion": "1",
       "source": "https://personalagentprotocol.org/docs/0.3/spec",
-      "note": "Manually reviewed 3 November site snapshot. Its specification, extension, guides and changelog text matches upstream commit 7205250 (2 November) apart from site formatting: code-block titles, heading anchors and link prefixes. Since the 29 October pin: Companies without an OAuth issuer (850a46d), auth.disabled, extension content in messages, session_ended, poppy_dlg and poppy-delegation+jwt, and the Links, Disclosures and UCP extensions. Snapshot hashes are the exact pin. 0.3 was published on 4 November 2026 with this text and is frozen: its pages and changelog entries were unchanged on 9 November, so drift checks only its own pages and changelog entry titles."
+      "note": "Manually reviewed 3 November site snapshot. Its specification, extension, guides and changelog text matches upstream commit 7205250 (2 November) apart from site formatting: code-block titles, heading anchors and link prefixes. Since the 29 October pin: Companies without an OAuth issuer (850a46d), auth.disabled, extension content in messages, session_ended, poppy_dlg and poppy-delegation+jwt, and the Links, Disclosures and UCP extensions. Snapshot hashes are the exact pin. 0.3 was published on 4 November 2026 with this text and is frozen: its pages and changelog entries were unchanged on 9 November, so drift checks only its own pages and changelog entry titles. Retired on 12 November 2026 (decision 49): the agent, validator and mock speak 0.4 only; this pin, its kit and its ledger stay as history, and its ledger links files at codeAt, the last main commit before 0.4."
     },
     {
       "protocolVersion": "0.4",

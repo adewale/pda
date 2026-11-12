@@ -44,7 +44,7 @@ What we need from your code:
    - that lets private addresses through **only for hostnames ending in `.test`**, not by IP range, since the range changes;
    - and that **refuses to start** when it is set together with your production or public sandbox mode.
 
-   Your production and public sandbox protections stay exactly as they are. The current [Print with Poppy adapter](../interop/impls/print-with-poppy-company/adapter.mjs) declares `ALLOW_INTEROP_TEST_HOSTS=true` and sets it only in local demo mode for `*.interop.test` names; its manifest records the upstream safeguards. Retired adapters are not setup examples for the current grid.
+   Your production and public sandbox protections stay exactly as they are. The [Print with Poppy adapter](../interop/impls/print-with-poppy-company/adapter.mjs), kept for when that store serves 0.4 ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)), declares `ALLOW_INTEROP_TEST_HOSTS=true` and sets it only in local demo mode for `*.interop.test` names; its manifest records the upstream safeguards. Retired adapters are not setup examples for the current grid.
 4. **A way for a test to play the person.** Sign-in usually needs someone to read a one-time code or press Allow. In a test mode, store the code where a test can read it (Print with Poppy's demo mode keeps each code email in its database), or accept a fixed code for a test account. Our adapter does the reading; nothing in your production path changes.
 
 We list everything we turn on in your adapter's manifest as a declared relaxation, and we don't patch your code.
@@ -69,7 +69,7 @@ Send passwords and fixed codes to the person who asked, directly, never in a sha
 
 ## If you build a Personal Agent
 
-The same grid runs your agent against our mock Companies: `lenient-company` (the reference), `strict-company` and `evil-company`, all at Poppy 0.3, which tries to make agents leak tokens or act without approval. `evil-company` runs only in our containers, against your agent at its pinned commit, and what it finds goes to you privately first. Your agent publishes its client metadata at `https://<name>.agent.interop.test`, trusts the run's certificate authority, and needs the same narrow exception for `.test` names if it refuses private addresses. How to add an adapter is in [interop/README.md](../interop/README.md#add-an-implementation).
+The same grid runs your agent against our mock Companies: `lenient-company` (the reference), `strict-company` and `evil-company`, which tries to make agents leak tokens or act without approval. All three serve Poppy 0.4 alone. `evil-company` runs only in our containers, against your agent at its pinned commit, and what it finds goes to you privately first. Your agent publishes its client metadata at `https://<name>.agent.interop.test`, trusts the run's certificate authority, and needs the same narrow exception for `.test` names if it refuses private addresses. How to add an adapter is in [interop/README.md](../interop/README.md#add-an-implementation).
 
 ## Talking to us
 

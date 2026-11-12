@@ -3,7 +3,7 @@ import { DIRECTORY_PATH, directoryResponse, operatorKey } from "./operator";
 
 /**
  * The client metadata document (spec 4.1). Its URL is our `client_id`. It
- * lists Operations 2 (Ops 2); Mediated Sign-In needs no listing (MSI 2).
+ * lists no extensions: a Session declares those in `Poppy-Extensions` (3.4).
  */
 export function clientMetadata(env: Env) {
   const identity = readIdentity(env);
@@ -13,8 +13,7 @@ export function clientMetadata(env: Env) {
     logo_uri: identity.logoUri,
     jwks_uri: identity.jwksUri,
     redirect_uris: [identity.redirectUri],
-    token_endpoint_auth_method: "private_key_jwt",
-    extensions: { operations: { version: "2" } }
+    token_endpoint_auth_method: "private_key_jwt"
   };
 }
 

@@ -29,16 +29,16 @@ Use the source below for the question it owns. Link to that source when another 
 | What does the discovery validator check? | [Validator](validator.md) |
 | What must a grid adapter provide? | [Harness contract](interop-spec.md) |
 | Which adversarial scenarios exist, and what remains? | [Adversarial interop](adversarial-interop.md) |
-| Which protocol text and changes are implemented? | [0.3 requirement ledger](poppy-0.3-upgrade.md); [active pin](../spec/upstream.json) |
-| What has actually been verified, with what limits? | [Current verification](poppy-0.3-conformance.md#current-verification) |
+| Which protocol text and changes are implemented? | [0.4 requirement ledger](poppy-0.4-upgrade.md#the-11-november-changelog-entry-by-entry); [active pin](../spec/upstream.json) |
+| What has actually been verified, with what limits? | [Current verification](poppy-0.4-conformance.md#current-verification) |
 | What did the independent Company kit establish? | [Company kit review](company-kit-review.md) |
-| Which upstream ambiguities remain, and how do we read them? | [28 October 0.3 issue list](poppy-0.3-issues.md); [our readings](readings.md) |
+| Which upstream ambiguities remain, and how do we read them? | [0.4 issue list](poppy-0.4-issues.md); [our readings](readings.md) |
 | Which peers implement the protocol? | [Current ecosystem observations](ecosystem.md#current-ecosystem) |
 | What product work remains? | [TODO](../TODO.md) |
 
 ## Historical records and drafts
 
-- [History index](history/README.md): earlier draft reviews, upgrade plans, audits, ecosystem surveys and testing reports. The 25–26 October 0.3 review describes different wire rules from the 28 October rewrite.
+- [History index](history/README.md): earlier draft reviews, upgrade plans, audits, ecosystem surveys and testing reports. The 25–26 October 0.3 review describes different wire rules from the 28 October rewrite. The [0.3 requirement ledger](poppy-0.3-upgrade.md), [0.3 issue list](poppy-0.3-issues.md) and [0.3 review](poppy-0.3-conformance.md) record 0.3, which PDA dropped on 12 November.
 - [Grid reports](interop-results/README.md): dated runs, with their original outcomes and limitations.
 - [Proposals](proposals/README.md): parked external drafts and the conditions for reviewing them before submission.
 - [Changelog](../CHANGELOG.md): completed changes, migrations and rollback notes.

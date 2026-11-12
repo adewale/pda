@@ -91,7 +91,7 @@ export async function dpopProof(
 }
 
 /**
- * 0.3: a delegated key and the delegation that vouches for it (5.2). The key
+ * A delegated key and the delegation that vouches for it (5.2). The key
  * is a non-extractable P-256 pair, like a DPoP key, used for one User ID
  * only; the delegation is signed by our `jwks_uri` key and names nothing
  * about the User or the Company.
@@ -128,7 +128,7 @@ export function delegationUsable(delegated: Delegated): boolean {
 }
 
 /**
- * 0.3: the Session JWT for one request (5.2): `typ` poppy-session+jwt,
+ * The Session JWT for one request (5.2): `typ` poppy-session+jwt,
  * signed with the delegated key, its delegation in `poppy_dlg`, and claims
  * naming the Session, the User and the request. `ath` only with an access
  * token. A fresh one for every request and retry.

@@ -62,5 +62,5 @@
     ]
   },
   "positiveControlProfile": "bearer",
-  "notes": "The 10 November 0.4 kit against the mock serving 0.4 alone. These are reviewed observations, not rewritten upstream verdicts: any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The DPoP prerequisite findings are the 0.3 kit's, unchanged. Mock skips: discovery.supported-versions and discovery.versions-same-company, because the reviewed run serves one version (docs/readings.md#v04-version-missing). The issuerless profile adds the OAuth checks that need an issuer."
+  "notes": "The pinned 0.4 kit (11 November) against the mock serving 0.4 alone. These are reviewed observations, not rewritten upstream verdicts: any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. The DPoP prerequisite findings are the 0.3 kit's, unchanged. Mock skips: discovery.supported-versions and discovery.versions-same-company, because the reviewed run serves one version (docs/readings.md#v04-version-missing). The issuerless profile adds the OAuth checks that need an issuer."
 }

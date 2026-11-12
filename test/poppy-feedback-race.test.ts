@@ -77,7 +77,7 @@ it("does not serialize or suppress a different task or Company behind an unrelat
     let pending: Promise<unknown> | undefined;
     let paused = false;
     const remote = vi.spyOn(client.host, "fetcher").mockImplementation(async request => {
-      if (!paused && new URL(request.url).origin === new URL(A.feedback!.endpoint).origin && new URL(request.url).pathname.endsWith("/feedback")) {
+      if (!paused && new URL(request.url).origin === new URL(A.tasks!.endpoint).origin && new URL(request.url).pathname.endsWith("/feedback")) {
         paused = true;
         entered();
         await held;

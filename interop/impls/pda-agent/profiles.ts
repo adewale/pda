@@ -28,6 +28,7 @@
  */
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import { levelOf, type Basis, type Level } from "../../../src/validator/levels.ts";
+import { PROTOCOL_VERSIONS } from "../../../src/poppy/protocol-version.ts";
 import { traceChecks } from "../../runner/checks.ts";
 import { documentChecks } from "../../runner/documents.ts";
 import { direction, isServerMetadata, type Exchange } from "../../runner/har.ts";
@@ -172,7 +173,8 @@ export class StrictObserver {
   readonly recorded: Recorded[] = [];
   /** Set by a finding, read and cleared by the step that was running. */
   refusal: StrictRefusal | null = null;
-  #version = "0.3";
+  /** The version the Company's poppy.json declares, once fetched; until then, the newest we speak. */
+  #version: string = PROTOCOL_VERSIONS.at(-1)!;
 
   /**
    * `ownHost` is the agent's own host. In the local lane every host is a `*.interop.test` name

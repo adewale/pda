@@ -23,12 +23,12 @@ import worker from "./worker";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
- * `describe` is a section of Personal Agent Protocol draft 0.3 (as rewritten
- * on 28 October 2026, spec/draft-0.3-retrieved-2026-10-28) or its Operations
- * extension, version 2. After every test, every mock it created must have
+ * `describe` is a section of Personal Agent Protocol 0.4
+ * (spec/draft-0.4-retrieved-2026-11-11), whose section numbers follow 0.3's,
+ * or its Operations extension, version 3. After every test, every mock it created must have
  * recorded no violations, unless the test said which it expects
- * (`company()` and the check are in agent-helpers.ts). test/poppy-0.3.test.ts
- * has the end-to-end 0.3 tests these build on.
+ * (`company()` and the check are in agent-helpers.ts). test/poppy-core.test.ts
+ * has the end-to-end tests these build on.
  */
 
 const ORIGIN = "https://agent.test";
@@ -73,7 +73,8 @@ describe("4.1 agent identity", () => {
     expect(doc.jwks_uri).toBe(`${ORIGIN}/poppy/jwks.json`);
     expect(doc.redirect_uris).toEqual([`${ORIGIN}/poppy/callback`]);
     expect(doc.token_endpoint_auth_method).toBe("private_key_jwt");
-    expect(doc.extensions).toEqual({ operations: { version: "2" } });
+    // Extensions are declared per Session (3.4), not here.
+    expect(doc).not.toHaveProperty("extensions");
   });
 
   it("publishes only public keys, each with a kid", async () => {
@@ -1264,11 +1265,14 @@ describe("4.4 rotation with reuse detection", () => {
   });
 });
 
+/** A sign-in the website acts on: 0.4 signs the browser in only with poppy:browser-sign-in (6). */
+const BROWSING = ["orders:read", "orders:write", "poppy:browser-sign-in"];
+
 describe("6 web browsing", () => {
   it("joins the browser to the Session before browsing, and sees the account", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signInDirect(a, c, BROWSING);
     const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" });
     expect(page.isError).toBe(false);
     expect(page.text).toContain("Signed in as acct_ada");
@@ -1308,7 +1312,7 @@ describe("6 web browsing", () => {
   it("keeps each User's and each Session's browser cookies apart", async () => {
     const c = await company();
     const ada = await agent();
-    await signInDirect(ada, c);
+    await signInDirect(ada, c, BROWSING);
     const orders = (a: Agent, session?: string) =>
       tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders", ...(session ? { session } : {}) });
     expect((await orders(ada)).text).toContain("Signed in as acct_ada");
@@ -1360,7 +1364,7 @@ describe("6 web browsing", () => {
   it("reads a page's title, text, links and forms, and never its scripts or styles", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signInDirect(a, c, BROWSING);
     const page = JSON.parse((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/account/address" })).text);
     expect(page.title).toBe("Your address & details");
     expect(page.text).toContain("Signed in as acct_ada");
@@ -1376,7 +1380,7 @@ describe("6 web browsing", () => {
   it("clicks links, and never a form's button, which would send the form without approval", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signInDirect(a, c, BROWSING);
     const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/" });
     const clicked = await browse({ action: "click", selector: "#orders" });
@@ -1397,7 +1401,7 @@ describe("6 web browsing", () => {
   it("never types into a credential or hidden field, whatever its selector", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signInDirect(a, c, BROWSING);
     await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/account/address" });
     const fill = (selector: string) => tool(a, "poppy_browse", { domain: c.domain, action: "fill", selector, value: "123456" });
     // A password input named and labelled innocently.
@@ -1410,7 +1414,7 @@ describe("6 web browsing", () => {
   it("sends a form only after the User approves exactly what it sends, hidden fields included", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signInDirect(a, c, BROWSING);
     const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/account/address" });
     // A fill without a value is refused, not taken as an empty one.
@@ -2282,7 +2286,7 @@ describe("8 conversations", () => {
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     const handed = JSON.parse((await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." })).text);
-    expect(handed.status).toBe("queued");
+    expect(handed).toMatchObject({ closed: false, responder: "agent" });
     await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam. I can help with that.");
     await a.stub.poppyWaitForNotice("A person at");
     const sent = (await c.stub.state()).conversations[0]!.sent;
@@ -2456,7 +2460,7 @@ describe("8 conversations", () => {
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     const handed = JSON.parse((await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." })).text);
-    expect(handed.status).toBe("working");
+    expect(handed).toMatchObject({ handoff: "none", responder: "agent" });
     await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam. I can help with that.");
     await a.stub.poppyWaitForNotice("A person at");
   });
@@ -2501,7 +2505,7 @@ describe("8 conversations", () => {
  * permissions. A write that needs the User's approval is refused with the
  * operation; the User approves that revision on its card; and the same
  * request goes again with `Poppy-Approval`, which the Company performs at
- * most once. test/poppy-0.3.test.ts has the round trip by API, MCP and
+ * most once. test/poppy-core.test.ts has the round trip by API, MCP and
  * conversation; these are the properties around it.
  */
 describe("Operations 2", () => {
@@ -2551,7 +2555,8 @@ describe("Operations 2", () => {
     await approve(a, card);
     // The same request again, with the approval of exactly that revision (Ops 6).
     const sent = await approved(c);
-    expect(sent.map((request) => [request.status, request.headers["poppy-approval"]])).toEqual([[201, `operation_id="${operationId}", revision="${revision}"`]]);
+    // Who approved, when, how and with which reference (Ops 6).
+    expect(sent.map((request) => [request.status, request.headers["poppy-approval"]])).toEqual([[201, expect.stringMatching(new RegExp(`^operation_id="${operationId}", revision="${revision}", approver="user", approved_at=\\d+, input_type="tap", reference="[\\w-]+"$`))]]);
     expect((await c.stub.state()).performs).toBe(1);
     expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "done", result: expect.stringContaining(`"exchange_id":"${operationId}"`) });
     expect(await a.stub.poppyWaitForNotice(`Done, as the User approved: Mock Shop ${c.id} asks for your approval`)).toContain("Result:");
@@ -2694,12 +2699,13 @@ describe("Operations 2", () => {
     ["a space in its id", { operation_id: "exc 1" }, "its operation_id isn't 1 to 256 URL-safe characters"],
     ["an id of more than 256 characters", { operation_id: "x".repeat(257) }, "its operation_id isn't 1 to 256 URL-safe characters"],
     ["0.2's integer revision", { revision: 2 }, "its revision isn't 1 to 256 URL-safe characters"],
-    ["no expiry", { expires_at: null }, "its expires_at isn't an RFC 3339 time"]
+    ["no expiry", { expires_at: null }, "its expires_at isn't an RFC 3339 time"],
+    ["no terms", { terms: undefined }, "it has no terms"]
   ] as const)("tells the User when a Company Agent's operation has %s, and offers nothing to approve", async (_, change, problem) => {
     const c = await company();
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
-    const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
+    const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", terms: { price_difference: { amount: "70.00", currency: "USD" } }, expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
     await c.stub.say(first.conversationId, "Shall I go ahead?", { extensions: { operations: { operation } } });
     const notice = await until(async () => (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-")));
     expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used (${problem}), so nothing was done.`);
@@ -3081,7 +3087,7 @@ describe("8.13 conversation errors", () => {
     const { a, id, release } = await started();
     try {
       expect(JSON.parse(await a.stub.poppySql("SELECT protocol_version, extensions, working, handoff FROM poppy_conversations WHERE id = ?", id))).toEqual([
-        { protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
+        { protocol_version: "0.4", extensions: `"operations";v="3"`, working: 0, handoff: "none" }
       ]);
     } finally {
       await release();
@@ -3105,7 +3111,7 @@ describe("8.13 conversation errors", () => {
     }
   });
 
-  it("treats 0.4's request_id_conflict as message_id_conflict: the agent's bug, never sent under a new id", async () => {
+  it("treats a request_id_conflict the mock is told to answer as the agent's bug, never sent under a new id", async () => {
     const { c, a, id, release } = await started();
     try {
       await c.stub.configure({ refuseMessages: { status: 409, body: { error: "request_id_conflict" } } });
@@ -3119,19 +3125,19 @@ describe("8.13 conversation errors", () => {
     }
   });
 
-  it("reports a message id the Company already has with other content as the agent's bug, and never sends it under a new id (message_id_conflict)", async () => {
+  it("reports a request id the Company already has with other content as the agent's bug, and never sends it under a new id (request_id_conflict)", async () => {
     const { c, a, id, release } = await started();
     // Our bug, simulated: the replayed call's stored message changed after it was sent.
-    c.expectViolations(/^\[message\.id-reused\] message id msg_\S+ reused with different content$/);
+    c.expectViolations(/^\[request\.id-reused\] request id \S+ reused with a different path or body$/);
     try {
       expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
       await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE 'message|%|call-2'");
-      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE 'message|%|call-2'")) as { message: string }[];
+      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.id') AS message FROM poppy_intents WHERE call_key LIKE 'message|%|call-2'")) as { message: string }[];
       const logMark = await a.stub.poppyLogMark();
       const replayed = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2");
       expect(replayed.isError).toBe(true);
       expect(replayed.text).toBe(
-        `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [message_id_conflict]`
+        `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [request_id_conflict]`
       );
       // On the tool call's turn event, at level error, by its code (src/log.ts).
       // The turn that made the refused call: the first call's turn, or a background turn (a Company's
@@ -3140,7 +3146,7 @@ describe("8.13 conversation errors", () => {
         (await wideEvents(a, logMark)).find((event) => event.kind === "turn" && String(event.tool_outcomes ?? "").includes("poppy_message:error"))
       );
       expect(turn).toMatchObject({ level: "error", tool_outcomes: expect.stringContaining("poppy_message:error") });
-      expect(turn!.errors).toContainEqual(expect.objectContaining({ type: "PoppyError", code: "message_id_conflict", step: "poppy.conversation_send" }));
+      expect(turn!.errors).toContainEqual(expect.objectContaining({ type: "PoppyError", code: "request_id_conflict", step: "poppy.conversation_send" }));
       // Two sends of that id, the second refused; nothing under another id, and the Company kept the first.
       expect(await posts(c, id)).toEqual({ messages: [202, 409], started: 1 });
       expect((await c.stub.state()).conversations[0]!.sent).toEqual(["agent:hello", "agent:First version."]);
@@ -3177,6 +3183,8 @@ describe("8.13 conversation errors", () => {
     { code: "invalid_cursor", status: 400, notice: false }
   ])("sends a message whose reply can't start at the saved cursor once, reading from the start ($code)", async ({ code, status, notice }) => {
     const { c, a, id, release } = await started();
+    // The message names the cursor it last handled (8.4), here one the Company never gave.
+    if (code === "invalid_cursor") c.expectViolations(/^\[message\.as-of-cursor\] conversation message: as_of_cursor "evt_nothing_like_it"/);
     try {
       if (code === "cursor_expired") {
         // The agent last read up to an event the Company then stops keeping.
@@ -3188,7 +3196,7 @@ describe("8.13 conversation errors", () => {
       }
       const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Do you have it in blue?" });
       expect(result.isError, result.text).toBe(false);
-      expect(JSON.parse(result.text).replies).toEqual([{ sender: "agent", text: "Hi! How can I help?" }]);
+      expect(JSON.parse(result.text).replies).toEqual([{ sender: "agent", text: "Hi! How can I help?", asOfRequest: "your latest message" }]);
       // The same message twice, so the Company took it once: refused at the cursor, then answered from the start.
       const sent = (await requests(c)).filter((request) => request.method === "POST" && request.url.startsWith(`${c.hosts.conversationsEndpoint}/${id}/messages`));
       expect(sent.map((request) => [request.status, new URL(request.url).searchParams.has("cursor")])).toEqual([[status, true], [202, false]]);
@@ -3463,17 +3471,24 @@ describe("parsed once at the edge", () => {
     }
   });
 
-  it("decodes an operation (Ops 3): ids of URL-safe characters, a summary, terms an object, and an RFC 3339 expires_at", () => {
-    const base = { operation_id: "exc_1", revision: "r-2", summary: "Exchange the jacket", expires_at: "2026-10-20T00:00:00Z" };
+  it("decodes an operation (Ops 3): ids of URL-safe characters, terms an object, an optional summary, and an RFC 3339 expires_at", () => {
+    const terms = { total: { amount: "1.00", currency: "USD" } };
+    const base = { operation_id: "exc_1", revision: "r-2", summary: "Exchange the jacket", terms, expires_at: "2026-10-20T00:00:00Z" };
     // Members it doesn't know are left out.
-    expect(parseOperationV2({ ...base, terms: { total: { amount: "1.00", currency: "USD" } }, state: "proposed", extra: 1 })).toEqual({ ...base, terms: { total: { amount: "1.00", currency: "USD" } } });
+    expect(parseOperationV2({ ...base, state: "proposed", extra: 1 })).toEqual(base);
     expect(parseOperationV2(base)).toEqual(base);
     expect(parseOperationV2({ ...base, operation_id: "booking:1" })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
     expect(parseOperationV2({ ...base, operation_id: "x".repeat(257) })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
-    // 0.2's integer revisions aren't 0.3's.
+    // 0.2's integer revisions aren't strings.
     expect(parseOperationV2({ ...base, revision: 2 })).toEqual({ problem: "its revision isn't 1 to 256 URL-safe characters" });
-    expect(parseOperationV2({ ...base, summary: "  " })).toEqual({ problem: "it has no summary" });
+    // A blank summary says nothing, so the terms are shown instead (Ops 3).
+    const { summary: _summary, ...unsummarized } = base;
+    expect(parseOperationV2({ ...base, summary: "  " })).toEqual(unsummarized);
+    expect(parseOperationV2(unsummarized)).toEqual(unsummarized);
+    expect(parseOperationV2({ ...base, summary: 3 })).toEqual({ problem: "its summary isn't a string" });
     expect(parseOperationV2({ ...base, summary: "x".repeat(4_001) })).toEqual({ problem: "its summary is too long to show" });
+    const { terms: _terms, ...termless } = base;
+    expect(parseOperationV2(termless)).toEqual({ problem: "it has no terms" });
     expect(parseOperationV2({ ...base, terms: ["70.00"] })).toEqual({ problem: "its terms aren't an object" });
     expect(parseOperationV2({ ...base, expires_at: "tomorrow" })).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
     expect(parseOperationV2([base])).toEqual({ problem: "it isn't an object" });

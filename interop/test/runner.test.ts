@@ -275,15 +275,15 @@ describe("the report", () => {
 });
 
 /**
- * Live Companies as the registry describes them. Every live peer spoke 0.1 or
- * 0.2 and was retired with them (docs/interop-spec.md), so these are made up.
+ * Live Companies as the registry describes them. Every live peer spoke 0.1,
+ * 0.2 or 0.3 and was retired with them (docs/interop-spec.md), so these are made up.
  */
 const liveEntry = (name: string, extra: Record<string, unknown> = {}) => ({ name, role: "company" as const, source: "https://example.com", commit: "unknown", url: `https://${name}.example`, notes: "A made-up live Company.", ...extra });
 
 // A live peer's declared version is the one its cells are attributed to.
 it("attributes live cells to the configured wire version, and an entry without one to the version we speak", () => {
   const scenarios = loadScenarios();
-  expect(liveCompanyManifest(liveEntry("current", { protocolVersion: "0.3" }), scenarios).poppy).toEqual(["0.3"]);
+  expect(liveCompanyManifest(liveEntry("current", { protocolVersion: "0.4" }), scenarios).poppy).toEqual(["0.4"]);
   expect(liveCompanyManifest(liveEntry("unversioned"), scenarios).poppy).toEqual([...PROTOCOL_VERSIONS].slice(-1));
 });
 
@@ -293,12 +293,12 @@ describe("a run that runs nothing", () => {
   // On 29 October the grid's mock still declared 0.1 while our agent spoke 0.3: CI ran 88 cells, every one
   // unsupported for "No common Poppy protocol version", and passed.
   it("blames the harness when two of our own builds share no version", () => {
-    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("lenient-company", ["0.1"], "self"))).toEqual({
-      reason: "No common Poppy protocol version (pda 0.3; lenient-company 0.1)",
+    expect(negotiateVersion(impl("pda", ["0.4"], "self"), impl("lenient-company", ["0.3"], "self"))).toEqual({
+      reason: "No common Poppy protocol version (pda 0.4; lenient-company 0.3)",
       harness: true
     });
-    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("someone-else", ["0.1"]))).toMatchObject({ harness: false });
-    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("lenient-company", ["0.2", "0.3"], "self"))).toEqual({ version: "0.3" });
+    expect(negotiateVersion(impl("pda", ["0.4"], "self"), impl("someone-else", ["0.3"]))).toMatchObject({ harness: false });
+    expect(negotiateVersion(impl("pda", ["0.4"], "self"), impl("lenient-company", ["0.3", "0.4"], "self"))).toEqual({ version: "0.4" });
   });
 
   it("fails a run in which no cell passed or failed, and only then", () => {
@@ -320,17 +320,17 @@ it("limits a live Company to the scenarios its entry allows: a real store gets d
   const live = scenarios.filter((scenario) => scenario.live);
   expect(live.map((scenario) => scenario.id)).toContain("CL");
   expect(live.filter((scenario) => scenario.steps.some((step) => "agent" in step && step.agent === "send") && !scenario.steps.some((step) => "agent" in step && step.agent === "close")).map((scenario) => scenario.id)).toEqual([]);
-  expect(liveCompanyManifest(liveEntry("open", { protocolVersion: "0.3" }), scenarios).scenarios).toHaveLength(scenarios.length);
+  expect(liveCompanyManifest(liveEntry("open", { protocolVersion: "0.4" }), scenarios).scenarios).toHaveLength(scenarios.length);
 });
 
 it("stops a live version mismatch before a Session request can send credentials", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "live-version-mismatch-"));
   const registry = loadRegistry();
   const agentEntry = registry.implementations.find((entry) => entry.name === "pda" && entry.role === "agent")!;
-  const companyEntry = { ...liveEntry("current-live", { protocolVersion: "0.3" }) } as unknown as typeof agentEntry;
+  const companyEntry = { ...liveEntry("current-live", { protocolVersion: "0.4" }) } as unknown as typeof agentEntry;
   const implementation = (entry: typeof agentEntry) => ({ entry, target: entry.name, domain: "company.example", manifest: null, hooks: [], broken: null });
   const calls: string[] = [];
-  const cell: Cell = { agent: "pda", company: "current-live", scenario: "S0", protocolVersion: "0.3", outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
+  const cell: Cell = { agent: "pda", company: "current-live", scenario: "S0", protocolVersion: "0.4", outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
   try {
     await runOne(cell, loadScenarios().find((scenario) => scenario.id === "S0")!, implementation(agentEntry), implementation(companyEntry), {
       resultsDir: dir, proxy: null,

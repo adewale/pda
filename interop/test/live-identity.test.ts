@@ -188,7 +188,7 @@ describe("the agent adapter under the live identity", () => {
     const audience = "https://auth.company.example/token";
     const company: Company = {
       issuer: toIssuer("https://auth.company.example"), domain: "company.example", name: "Fixture",
-      protocolVersion: "0.3", endpoints: { token: audience, revocation: "https://auth.company.example/revoke" },
+      protocolVersion: "0.4", endpoints: { token: audience, revocation: "https://auth.company.example/revoke" },
       signIn: {}, customScopes: {}, apis: [], extensions: {}
     };
     expect((await client.oauthRequest(company, audience, async () => ({ grant_type: "fixture" }), { dpop: false })).status).toBe(200);

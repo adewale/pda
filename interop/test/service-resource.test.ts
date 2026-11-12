@@ -12,7 +12,7 @@ const ISSUER = "https://auth.books.example";
 
 function company(domain: string, issuer: string): Company {
   return {
-    issuer: toIssuer(issuer), domain, name: domain, protocolVersion: "0.3",
+    issuer: toIssuer(issuer), domain, name: domain, protocolVersion: "0.4",
     endpoints: { token: `${issuer}/token`, revocation: `${issuer}/revoke` },
     signIn: {}, customScopes: {}, extensions: {},
     apis: [{ type: "openapi", url: SERVICE, description: "The listed API" }]

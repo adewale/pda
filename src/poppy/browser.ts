@@ -78,7 +78,7 @@ export interface BrowserContextHandle {
   postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number; retryAfter?: string }>;
   goto(url: string): Promise<PageSnapshot>;
   /**
-   * 0.3: load the browser-session page (6, step 1) and read its one-time
+   * Load the browser-session page (6, step 1) and read its one-time
    * code, in software the model never sees: the hidden `code` of the form
    * that posts back to it. Nothing when the page isn't that.
    */
@@ -330,9 +330,9 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   const { code } = page;
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
   let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number; readonly scope: string; readonly accountGeneration: number } | undefined;
-  // 0.4: the website acts with the token only when it has poppy:browser-sign-in (6), so without it the
+  // The website acts with the token only when it has poppy:browser-sign-in (6), so without it the
   // code is authorized signed out; a Company that refuses the token anyway gets the same code again without it.
-  const signsInWebsite = company.protocolVersion === "0.3" || scopeSet(entry.scope).has(BROWSER_SIGN_IN);
+  const signsInWebsite = scopeSet(entry.scope).has(BROWSER_SIGN_IN);
   const authorizeCode = (noToken: boolean) => client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code } }), {
     label,
     ...(noToken ? { noToken: true } : {}),
@@ -354,7 +354,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
     await authorizeCode(!signsInWebsite);
     entry.websiteSignedOut = !signsInWebsite && entry.account !== null;
   } catch (error) {
-    if (!signsInWebsite || entry.account === null || company.protocolVersion === "0.3" || !hasCode(error, "insufficient_scope")) throw error;
+    if (!signsInWebsite || entry.account === null || !hasCode(error, "insufficient_scope")) throw error;
     await authorizeCode(true);
     entry.websiteSignedOut = true;
   }
@@ -622,7 +622,7 @@ async function proposeWebOperation(
 ): Promise<string> {
   const { status, body } = answer;
   if (status === 403 && isObject(body) && body.error === "approval_required") {
-    const operation = parseOperationV2(body.operation, "3");
+    const operation = parseOperationV2(body.operation);
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
       throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
@@ -678,7 +678,7 @@ registerExecutor("web-operation", async (client, company, approval, label, execu
   if (recorded.status === 403) {
     const declined = readDecline(company, recorded.body, approval.approval, true);
     if (declined) throw withAnswer(declined, 403);
-    const operation = isObject(recorded.body) ? parseOperationV2(recorded.body.operation, "3") : null;
+    const operation = isObject(recorded.body) ? parseOperationV2(recorded.body.operation) : null;
     // An approved revision returned unchanged is a refusal, never a new card (Ops 6).
     if (operation && !("problem" in operation) && operation.operation_id === approval.approval.operation_id && operation.revision === approval.approval.revision) {
       throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first; nothing was done`, 403), 403);

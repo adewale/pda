@@ -51,16 +51,11 @@ const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes",
 const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at", "protocol_version", "working", "handoff");
 
 /**
- * What a conversation's state says, for the User (8.7). Under 0.4 its four
- * fields, read separately: who is answering, whether the Company is working,
+ * What a conversation's state says, for the User (8.7): its four fields,
+ * read separately: who is answering, whether the Company is working,
  * and whether a person has been asked to join, which can all hold at once.
  */
 function conversationNote(row: RowOf<typeof conversationRow>, company: string): string {
-  if (row.protocol_version === "0.3") {
-    return row.responder === "human" ? `A person at ${company} is answering.`
-      : row.status === "working" || row.status === "queued" ? `${company}'s agent is working on it.`
-      : `${company}'s agent is answering.`;
-  }
   const who = row.responder === "human" ? `A person at ${company}` : `${company}'s agent`;
   const note = row.working ? `${who} is working on it.` : `${who} is waiting for the next message.`;
   return row.handoff === "pending" ? `${note} A person at ${company} has been asked to join.` : note;

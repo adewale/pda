@@ -4,10 +4,7 @@ import { PoppyClient, type PoppyHost } from "../../src/poppy/client";
 import { recoverSignIns } from "../../src/poppy/signin";
 import { migrate } from "../../src/poppy/store";
 import type { Company } from "../../src/poppy/discovery";
-import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
-
-// These are 0.3 records, so 0.3's revision.
-const PROTOCOL_REVISION = PROTOCOL_REVISIONS["0.3"];
+import { PROTOCOL_REVISION } from "../../src/poppy/protocol-version";
 
 const ISSUER = "https://auth.shop.example";
 
@@ -29,7 +26,7 @@ function fixture() {
         grant_types_supported: ["refresh_token"], scopes_supported: ["orders:read"], protected_resources: ["https://shop.example"]
       });
       if (url.pathname === "/.well-known/oauth-protected-resource") return Response.json({ resource: "https://shop.example", authorization_servers: [ISSUER] });
-      return Response.json({ protocol_version: "0.3", organization: { name: "Shop", domain: "shop.example" }, auth: { scopes: { "orders:read": "See orders" } }, agent: { protocols: [{ type: "poppy", endpoint: "https://shop.example/conversations" }] } });
+      return Response.json({ protocol_version: "0.4", organization: { name: "Shop", domain: "shop.example" }, auth: { scopes: { "orders:read": "See orders" } }, agent: { protocols: [{ type: "poppy", endpoint: "https://shop.example/conversations" }] } });
     },
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: Date.now
@@ -45,12 +42,15 @@ async function unfinished(f: ReturnType<typeof fixture>, company: Company, id: s
   return secret;
 }
 
-describe("state retained across the 0.3 upgrade", () => {
-  it.each(["exchanging", "exchanged", "stored"])("retires an incompatible %s sign-in without blocking new signed-out tasks", async status => {
+// The last revision of each version the agent no longer speaks: 0.3 was dropped on 12 November (decision 49).
+const RETIRED: Record<string, string> = { "0.2": "2026-10-19", "0.3": "2026-11-03" };
+
+describe("state retained across protocol upgrades", () => {
+  it.each(Object.keys(RETIRED).flatMap(version => ["exchanging", "exchanged", "stored"].map(status => [version, status])))("retires an incompatible %s %s sign-in without blocking new signed-out tasks", async (version, status) => {
     const f = fixture();
     const company = await f.client.company("shop.example");
-    const legacy = { ...company, protocolVersion: "0.2", specificationRevision: "2026-10-19" };
-    const secret = await unfinished(f, legacy, "old-signin", status);
+    const legacy = { ...company, protocolVersion: version!, specificationRevision: RETIRED[version!]! };
+    const secret = await unfinished(f, legacy, "old-signin", status!);
     migrate(f.sql);
     await recoverSignIns(f.client);
     expect(await f.client.token(company, { label: "new-task" })).toBeNull();
@@ -62,7 +62,7 @@ describe("state retained across the 0.3 upgrade", () => {
     expect(f.requests.every(url => url.includes("/.well-known/"))).toBe(true);
   });
 
-  it("keeps current 0.3 pending and recovery records, their secrets and cards on repeated migrations", async () => {
+  it("keeps current 0.4 pending and recovery records, their secrets and cards on repeated migrations", async () => {
     const f = fixture();
     const company = await f.client.company("shop.example");
     expect(company.specificationRevision).toBe(PROTOCOL_REVISION);

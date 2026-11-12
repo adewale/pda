@@ -101,7 +101,7 @@ try {
     await pda.rpc({ action: "authenticate" });
     const companyCall = (method, ...args) => company.call("crash", method, ...args);
     const call = (method, ...args) => pda.call(name, method, ...args);
-    await companyCall("configure", { protocolVersion: "0.3", strictAssertions: true, dpopTokens: true });
+    await companyCall("configure", { strictAssertions: true, dpopTokens: true });
     const domain = "crash.shop.test";
     const started = await call("poppyTool", "poppy_sign_in", { domain, scopes: ["orders:read", "orders:write"], reason: "Process-crash verification" });
     assert.equal(started.isError, false);
@@ -183,8 +183,8 @@ try {
     const companyCall = (method, ...args) => company.call("crash", method, ...args);
     const call = (method, ...args) => pda.call(name, method, ...args);
     const domain = "crash.shop.test";
-    // No Operations extension is a current 0.3 routine write, not a legacy approval flow.
-    await companyCall("configure", { protocolVersion: "0.3", strictAssertions: true, dpopTokens: true, operations: point === "task-after-terms-link" });
+    // No Operations extension is a current 0.4 routine write, not a legacy approval flow.
+    await companyCall("configure", { strictAssertions: true, dpopTokens: true, operations: point === "task-after-terms-link" });
     assert.equal((await call("poppyTool", "poppy_sign_in", { domain, scopes: ["orders:read", "orders:write"], reason: "Initial task crash verification" })).isError, false);
     const signin = JSON.parse(await call("poppyCards")).find(card => card.kind === "signin_link" && card.open);
     await call("crashCompleteSignIn", await companyCall("approveAuthorization", signin.url, { approve: true, account: "acct_ada" }));

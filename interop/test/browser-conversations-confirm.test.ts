@@ -22,11 +22,11 @@ const SITE = "https://acme.company.interop.test";
 const ENDPOINT = `${SITE}/poppy/browser-session`;
 const POPPY_JSON: Spec = {
   url: `${SITE}/.well-known/poppy.json`,
-  response: { protocol_version: "0.3", organization: { name: "Acme", domain: "acme.company.interop.test" }, web: { browser_session_endpoint: ENDPOINT } }
+  response: { protocol_version: "0.4", organization: { name: "Acme", domain: "acme.company.interop.test" }, web: { browser_session_endpoint: ENDPOINT } }
 };
 
 const COOKIE = "sid=abc; Path=/; Secure; HttpOnly; SameSite=Lax";
-/** 0.3's join (6): the page with its code, the agent's authorize, then the browser's form with the code alone. */
+/** The join (6): the page with its code, the agent's authorize, then the browser's form with the code alone. */
 const page: Spec = { url: ENDPOINT, method: "GET", status: 200, responseHeaders: { "set-cookie": "__Host-poppy_join=j1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Strict" } };
 function join(response: Partial<Spec> = {}): Spec {
   return { url: ENDPOINT, form: { code: "bc_1" }, status: 303, responseHeaders: { location: `${SITE}/`, "set-cookie": COOKIE }, ...response };
@@ -59,7 +59,7 @@ describe("browser Session joins (spec 6, scenario W)", () => {
   });
 
   it("browser_joined: inapplicable without an endpoint, failed without an accepted form, and says whether the cookie came back", () => {
-    expect(browserJoined(recording({ ...POPPY_JSON, response: { protocol_version: "0.3" } })).kind).toBe("inapplicable");
+    expect(browserJoined(recording({ ...POPPY_JSON, response: { protocol_version: "0.4" } })).kind).toBe("inapplicable");
     expect(browserJoined(recording(POPPY_JSON)).kind).toBe("failed");
     // The page's GET sets the join's own cookie: it is never the join.
     expect(browserJoined(recording(POPPY_JSON, page)).kind).toBe("failed");
@@ -78,38 +78,31 @@ describe("browser Session joins (spec 6, scenario W)", () => {
 const CONVERSATIONS = `${API}/poppy/conversations`;
 const post = (url: string, status: number, response: unknown, body: unknown = {}): Spec => ({ url, method: "POST", body: JSON.stringify(body), status, response });
 
-describe("handoff (7.9, scenario H)", () => {
-  it("an accepted handoff answers 202 with status and responder; a refusal isn't judged here", () => {
+describe("handoff (8.9, scenario H)", () => {
+  it("an accepted handoff answers 202 with conversation_id, and no state (8.9, 8.3); a refusal isn't judged here", () => {
     const url = `${CONVERSATIONS}/c1/handoff`;
-    expect(handoffChecks(recording(post(url, 202, { conversation_id: "c1", status: "queued", responder: "agent" })))).toEqual([]);
-    expect(ids(handoffChecks(recording(post(url, 200, { status: "queued", responder: "agent" }))))).toEqual(["company.handoff-response:error"]);
-    expect(ids(handoffChecks(recording(post(url, 202, { conversation_id: "c1" }))))).toEqual(["company.handoff-response:error"]);
-    expect(handoffChecks(recording(post(url, 409, { error: "conversation_closed" })))).toEqual([]);
-  });
-
-  it("at 0.4 an accepted handoff answers 202 with conversation_id, and no state (8.9, 8.3)", () => {
-    const url = `${CONVERSATIONS}/c1/handoff`;
-    const at04 = (status: number, response: unknown): Spec => ({ ...post(url, status, response, { id: "hnd_1" }), headers: { "Poppy-Version": "0.4" } });
-    expect(handoffChecks(recording(at04(202, { conversation_id: "c1" })))).toEqual([]);
-    expect(ids(handoffChecks(recording(at04(202, { status: "queued", responder: "agent" }))))).toEqual(["company.handoff-response:error"]);
-    expect(ids(handoffChecks(recording(at04(200, { conversation_id: "c1" }))))).toEqual(["company.handoff-response:error"]);
+    const handoff = (status: number, response: unknown): Spec => ({ ...post(url, status, response, { id: "hnd_1" }), headers: { "Poppy-Version": "0.4" } });
+    expect(handoffChecks(recording(handoff(202, { conversation_id: "c1" })))).toEqual([]);
+    expect(ids(handoffChecks(recording(handoff(202, { status: "queued", responder: "agent" }))))).toEqual(["company.handoff-response:error"]);
+    expect(ids(handoffChecks(recording(handoff(200, { conversation_id: "c1" }))))).toEqual(["company.handoff-response:error"]);
+    expect(handoffChecks(recording(handoff(409, { error: "conversation_closed" })))).toEqual([]);
   });
 });
 
-describe("Direct Conversations (7.10, scenario DC)", () => {
-  const open = post(CONVERSATIONS, 201, { conversation_id: "d1", status: "idle", responder: "agent" }, { parent_conversation_id: "p1", message: { id: "m1", sender: "human", text: "Hi" } });
+describe("Direct Conversations (8.10, scenario DC)", () => {
+  const open = post(CONVERSATIONS, 201, { conversation_id: "d1" }, { id: "m1", parent_conversation_id: "p1", message: { author: { type: "human" }, text: "Hi" } });
 
   it("the parent refuses messages and handoffs while its Direct Conversation is open, naming it", () => {
     expect(directParentChecks(recording(open, post(`${CONVERSATIONS}/p1/messages`, 409, { error: "direct_conversation_open", conversation_id: "d1" })))).toEqual([]);
     expect(ids(directParentChecks(recording(open, post(`${CONVERSATIONS}/p1/messages`, 202, { conversation_id: "p1" }))))).toEqual(["company.direct-parent-open:error"]);
-    expect(ids(directParentChecks(recording(open, post(`${CONVERSATIONS}/p1/handoff`, 202, { status: "queued", responder: "agent" }))))).toEqual(["company.direct-parent-open:error"]);
+    expect(ids(directParentChecks(recording(open, post(`${CONVERSATIONS}/p1/handoff`, 202, { conversation_id: "p1" }))))).toEqual(["company.direct-parent-open:error"]);
     expect(ids(directParentChecks(recording(open, post(`${CONVERSATIONS}/p1/messages`, 409, { error: "direct_conversation_open", conversation_id: "p1" }))))).toEqual(["company.direct-parent-open:error"]);
   });
 
   it("the parent takes messages again once the Direct Conversation closes, by a close or a direct_closed event", () => {
     const after = post(`${CONVERSATIONS}/p1/messages`, 202, { conversation_id: "p1" });
-    expect(directParentChecks(recording(open, post(`${CONVERSATIONS}/d1/close`, 200, { status: "closed", responder: "agent" }), after))).toEqual([]);
-    const closedEvent = { url: `${CONVERSATIONS}/p1/events`, response: { events: [{ id: "e9", type: "direct_closed", conversation_id: "d1" }], cursor: "e9", has_more: false, status: "idle", responder: "agent" } };
+    expect(directParentChecks(recording(open, post(`${CONVERSATIONS}/d1/close`, 202, { conversation_id: "d1" }), after))).toEqual([]);
+    const closedEvent = { url: `${CONVERSATIONS}/p1/events`, response: { events: [{ id: "e9", type: "direct_closed", conversation_id: "d1" }], cursor: "e9", has_more: false, working: false, handoff: "none", responder: "agent", closed: false } };
     expect(directParentChecks(recording(open, closedEvent, after))).toEqual([]);
     const streamed = { url: `${CONVERSATIONS}/p1/events`, responseHeaders: { "content-type": "text/event-stream" }, response: `id: e9\ndata: ${JSON.stringify({ id: "e9", type: "direct_closed", conversation_id: "d1" })}\n\n` };
     expect(directParentChecks(recording(open, streamed, after))).toEqual([]);

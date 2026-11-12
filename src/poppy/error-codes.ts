@@ -45,12 +45,9 @@ export const AGENT_ERROR_CODES = [
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
 /**
- * Codes 0.3 and 0.4, their extensions and the OAuth RFCs they build on
- * define for a Company to answer (spec 5.3, 7, 8.13; Operations 2 4;
- * Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449). 0.4 adds
- * `version_unsupported` (3.4), `version_mismatch` (8.2) and
- * `request_id_conflict`, 0.3's `message_id_conflict` for every request
- * (8.3), and Operations 3 `approval_declined` (Ops 6). A Company's code outside the list is still read, as a short token
+ * Codes 0.4, its extensions and the OAuth RFCs they build on define for a
+ * Company to answer (spec 3.4, 5.3, 7, 8.2, 8.3, 8.13; Operations 3 4, 6;
+ * Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449). A Company's code outside the list is still read, as a short token
  * (`companyErrorCode`).
  */
 export const PROTOCOL_ERROR_CODES = [
@@ -75,7 +72,6 @@ export const PROTOCOL_ERROR_CODES = [
   "invalid_session",
   "invalid_target",
   "invalid_token",
-  "message_id_conflict",
   "request_id_conflict",
   "server_error",
   "session_ended",

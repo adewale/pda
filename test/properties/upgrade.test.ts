@@ -9,13 +9,13 @@ const ISSUER = "https://auth.shop.example";
 
 /**
  * Real SQLite migrations and discovery, with transport fixtures; no token or
- * network needed. Each domain serves a 0.3 poppy.json and protected resource
+ * network needed. Each domain serves a 0.4 poppy.json and protected resource
  * metadata naming one issuer, whose metadata lists both domains (3.2).
  */
 function fixture() {
   const sql = memorySql();
   migrate(sql);
-  let version = "0.3";
+  let version = "0.4";
   let conversations = "https://shop.example/conversations";
   let scopes: Record<string, string> = { "orders:read": "See your orders" };
   const cards: Card[] = [];
@@ -66,7 +66,7 @@ describe("upgrade state and pending-work compatibility", () => {
     expect(sql.exec("SELECT session_id, declared FROM poppy_sessions").toArray()).toEqual([{ session_id: "sid_1", declared: JSON.stringify({ version: "0.3", extensions: "" }) }]);
   });
 
-  it("keeps an older agent's open conversations open as 0.3 conversations when it adds the 0.4 columns (F5)", () => {
+  it("closes an older agent's open 0.3 conversations, keeping their evidence, when it adds the 0.4 columns (F5, decision 49)", () => {
     const sql = memorySql();
     // poppy_conversations as agents before 10 November 2026 created it.
     sql.exec(`CREATE TABLE poppy_conversations (id TEXT PRIMARY KEY, issuer TEXT NOT NULL, remote_id TEXT NOT NULL DEFAULT '', quarantined INTEGER NOT NULL DEFAULT 0,
@@ -79,17 +79,16 @@ describe("upgrade state and pending-work compatibility", () => {
     sql.exec("INSERT INTO poppy_task_contexts VALUES ('conversation', 'cnv_1', ?, ?)", ISSUER, JSON.stringify({ issuer: ISSUER, domain: "shop.example", protocolVersion: "0.3", specificationRevision: "2026-11-03" }));
     migrate(sql);
     migrate(sql);
-    expect(sql.exec("SELECT status, responder, retired_at, protocol_version, extensions, working, handoff FROM poppy_conversations").toArray()).toEqual([
-      { status: "idle", responder: "human", retired_at: null, protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
-    ]);
-    // The status trigger, recreated after the columns exist, logs a 0.3 conversation's status and responder as before;
-    // 0.3 has no handoff field, and a 0.4 conversation's four fields are named as they change.
-    sql.exec("UPDATE poppy_conversations SET status = 'working'");
+    // A conversation keeps the version it started in (8.2), and this agent no longer speaks 0.3.
+    const [row] = sql.exec("SELECT status, responder, retired_at, protocol_version, extensions, working, handoff, remote_id FROM poppy_conversations").toArray();
+    expect(row).toMatchObject({ status: "closed", responder: "human", protocol_version: "0.3", extensions: "", working: 0, handoff: "none", remote_id: "cnv_1" });
+    expect(row.retired_at).toEqual(expect.any(Number));
+    expect(JSON.parse(String(sql.exec("SELECT card FROM poppy_cards WHERE id = 'conversation-retired-cnv_1'").one().card))).toMatchObject({ kind: "notice", domain: "shop.example", open: false });
+    // The status trigger, recreated after the columns exist, names a conversation's four fields as they change.
     sql.exec("UPDATE poppy_conversations SET handoff = 'pending'");
-    sql.exec("UPDATE poppy_conversations SET protocol_version = '0.4'");
     sql.exec("UPDATE poppy_conversations SET handoff = 'none', working = 1");
-    expect(sql.exec("SELECT result FROM poppy_protocol_log WHERE step = 'conversation.status' ORDER BY seq").toArray().map((row) => row.result)).toEqual([
-      "status idle → working, responder human → human",
+    expect(sql.exec("SELECT result FROM poppy_protocol_log WHERE step = 'conversation.status' ORDER BY seq").toArray().map((row) => row.result).slice(-2)).toEqual([
+      "handoff none → pending",
       "working false → true, handoff pending → none"
     ]);
   });
@@ -105,7 +104,7 @@ describe("upgrade state and pending-work compatibility", () => {
     const restarted = new PoppyClient(f.host);
     expect(restarted.userId(company.issuer)).toBe(userId);
     expect(await restarted.sealer.open(secret, `account|${company.issuer}|default`)).toBe("account-token");
-    expect((await restarted.resumeCompany(company.issuer, "approval", "apr_1")).protocolVersion).toBe("0.3");
+    expect((await restarted.resumeCompany(company.issuer, "approval", "apr_1")).protocolVersion).toBe("0.4");
   });
 
   it.each([
@@ -130,20 +129,10 @@ describe("upgrade state and pending-work compatibility", () => {
     expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
   });
 
-  it("holds a pending approval when its Company moves from 0.3 to 0.4, which this agent speaks, without replaying an action", async () => {
-    const f = fixture();
-    const original = await f.client.company("shop.example");
-    f.client.rememberCompany("approval", "apr_1", original);
-    f.change({ version: "0.4" });
-    await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ code: "company_changed" });
-    expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
-    expect(f.cards.at(-1)).toMatchObject({ kind: "notice", domain: original.domain });
-  });
-
-  it("holds a task begun under 0.2, before this agent spoke 0.3 only, without replaying it", async () => {
+  it.each(["0.2", "0.3"])("holds a task begun under %s, a version this agent no longer speaks, without replaying it", async (version) => {
     const f = fixture();
     const current = await f.client.company("shop.example");
-    const legacy = { ...current, protocolVersion: "0.2" } as Company & { specificationRevision?: string };
+    const legacy = { ...current, protocolVersion: version } as Company & { specificationRevision?: string };
     delete legacy.specificationRevision;
     f.client.rememberCompany("approval", "apr_old", legacy);
     await expect(f.client.resumeCompany(current.issuer, "approval", "apr_old")).rejects.toMatchObject({ code: "company_changed" });
@@ -162,14 +151,14 @@ describe("upgrade state and pending-work compatibility", () => {
   it("rediscovers an entry an older agent cached, without changing exact issuer identity", async () => {
     const f = fixture();
     const original = await f.client.company("shop.example");
-    const legacy = { ...original, protocolVersion: "0.2" } as Company & { specificationRevision?: string };
+    const legacy = { ...original, protocolVersion: "0.3" } as Company & { specificationRevision?: string };
     delete legacy.specificationRevision;
     // Still fresh, but from a version this agent no longer speaks: never used as it is.
     f.sql.exec("UPDATE poppy_domains SET company = ?", JSON.stringify(legacy));
     const before = f.requests.length;
     const current = await f.client.company("shop.example");
     expect(f.requests.length).toBeGreaterThan(before);
-    expect(current.protocolVersion).toBe("0.3");
+    expect(current.protocolVersion).toBe("0.4");
     expect(current.specificationRevision).toBe(original.specificationRevision);
     expect(current.issuer).toBe(original.issuer);
     expect(f.client.userId(current.issuer)).toBe(f.client.userId(original.issuer));

@@ -2,7 +2,7 @@
  * Interop-only: Workers' `HTMLRewriter` for Node, over `html-rewriter-wasm`,
  * Cloudflare's lol-html compiled to WebAssembly (BSD-3-Clause). Node has no
  * `HTMLRewriter`, and src/poppy/fetch-browser.ts reads every page with one.
- * At 0.3 that matters to the grid: the browser join reads its one-time code
+ * That matters to the grid: the browser join reads its one-time code
  * from the Company's page (6, step 1), so a stand-in that reads every page as
  * empty can't join a browser at all. Only what fetch-browser.ts uses is here:
  * `on`, `onDocument` and `transform` of a whole response.

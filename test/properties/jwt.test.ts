@@ -46,7 +46,7 @@ async function companyWith(config: Partial<MockConfig>): Promise<Company> {
   return company;
 }
 
-/** The mock's readings of the draft's open questions (S2, S23), drawn like any other input. 0.3 settles S1: the audience is the issuer (4.1). */
+/** The mock's readings of the draft's open questions (S2, S23), drawn like any other input. 0.3 settled S1, and 0.4 keeps it: the audience is the issuer (4.1). */
 const readings = gs.record({
   strictAssertions: gs.booleans(),
   requireNonce: gs.booleans(),
@@ -74,7 +74,8 @@ async function attempt<T>(check: () => Promise<T>): Promise<{ ok: true; value: T
 }
 
 function inbound(method: string, url: string, headers: Record<string, string>): Inbound {
-  return { request: new Request(url, { method, headers }), url: new URL(url), bodyText: "", bodyBytes: new Uint8Array() };
+  // Every Session request declares its version (3.4).
+  return { request: new Request(url, { method, headers: { "Poppy-Version": "0.4", ...headers } }), url: new URL(url), bodyText: "", bodyBytes: new Uint8Array() };
 }
 
 const endpointNames = ["tokenEndpoint", "revocationEndpoint", "deviceEndpoint"] as const;

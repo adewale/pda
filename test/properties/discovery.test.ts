@@ -6,7 +6,7 @@ import { gs, jsonValues, propertyAsync, property, type Json } from "./hegel";
 
 /**
  * Discovery (spec 3) and the validator that gates it. Accept: any Company
- * draft 0.3 calls valid is discovered, as its documents say. Reject: each
+ * 0.4 calls valid is discovered, as its documents say. Reject: each
  * broken MUST refuses it. And no document, however broken, makes either
  * throw anything but a DiscoveryError.
  */
@@ -65,7 +65,7 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
       expect(Object.keys(found.signIn).sort()).toEqual(types.sort());
       expect(found.signIn.direct?.scopes ?? metadata.scopes_supported).toEqual(metadata.scopes_supported);
       expect(found.signIn.device?.scopes ?? metadata.scopes_supported).toEqual(metadata.scopes_supported);
-      expect(found.signIn.mediated?.scopes).toEqual(poppy.extensions?.["mediated-sign-in"]?.scopes);
+      expect(found.signIn.mediated?.scopes).toEqual(poppy.extensions?.["mediated-sign-in"]?.[0].scopes);
       // Mediated Sign-In's credentials go to the token endpoint and nowhere else (Mediated Sign-In 3).
       expect(found.signIn.mediated?.endpoint).toBe(found.signIn.mediated ? metadata.token_endpoint : undefined);
       expect(found.endpoints!.token).toBe(metadata.token_endpoint);
@@ -78,8 +78,7 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
       );
       expect(found.conversations?.endpoint).toBe(poppy.agent?.protocols.find((entry: { type: string }) => entry.type === "poppy").endpoint);
       expect(found.web?.browserSessionEndpoint).toBe(poppy.web?.browser_session_endpoint);
-      expect(found.feedback?.endpoint).toBe(poppy.feedback?.endpoint);
-      expect(found.excludedTasks?.url).toBe(poppy.excluded_tasks?.url);
+      expect(found.tasks?.endpoint).toBe(poppy.tasks?.endpoint);
       expect(found.extensions.operations).toBe(poppy.extensions?.operations ? true : undefined);
       expect(found.customScopes).toEqual(poppy.auth.scopes);
     })
@@ -89,7 +88,7 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
     "lets every host poppy.json lists for a service that takes the Session header and access tokens have them (N10)",
     propertyAsync(async (tc) => {
       const found = await discovered(tc.draw(companies));
-      const services = [found.conversations?.endpoint, found.feedback?.endpoint, found.web?.browserSessionEndpoint, ...found.apis.map((api) => api.url)];
+      const services = [found.conversations?.endpoint, found.tasks?.endpoint, found.web?.browserSessionEndpoint, ...found.apis.map((api) => api.url)];
       for (const service of services.filter((value): value is string => !!value)) {
         expect(tokenHostAllowed(found, new URL(service)), service).toBe(true);
       }
@@ -107,7 +106,7 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
         found.endpoints!.deviceAuthorization,
         found.conversations?.endpoint,
         found.web?.browserSessionEndpoint,
-        found.feedback?.endpoint
+        found.tasks?.endpoint
       ];
       for (const endpoint of poppyEndpoints.filter((value): value is string => !!value)) {
         const suffix = tc.draw(gs.fromRegex("(/[A-Za-z0-9_-]{1,8}){0,3}", { fullmatch: true }));
@@ -161,7 +160,7 @@ describe("discovery of a Company without an OAuth issuer (3.2)", () => {
       expect(result.signIn).toEqual({});
       expect(result.endpoints).toBeUndefined();
       expect(requests.some((url) => url.includes("/.well-known/oauth-authorization-server"))).toBe(false);
-      const services = [result.conversations?.endpoint, result.feedback?.endpoint, result.web?.browserSessionEndpoint, ...result.apis.map((api) => api.url)];
+      const services = [result.conversations?.endpoint, result.tasks?.endpoint, result.web?.browserSessionEndpoint, ...result.apis.map((api) => api.url)];
       for (const service of services.filter((value): value is string => !!value)) expect(tokenHostAllowed(result, new URL(service))).toBe(true);
     })
   );
@@ -172,7 +171,7 @@ describe("discovery of a Company without an OAuth issuer (3.2)", () => {
       const company = tc.draw(issuerless);
       const poppy = structuredClone(company.poppy);
       if (tc.draw(gs.booleans())) poppy.auth.issuer = company.issuer;
-      else poppy.extensions = { ...(poppy.extensions ?? {}), "mediated-sign-in": { version: "1", fields: [{ name: "email", label: "Email", secret: false }], scopes: Object.keys(poppy.auth.scopes).slice(0, 1) } };
+      else poppy.extensions = { ...(poppy.extensions ?? {}), "mediated-sign-in": [{ version: "1", fields: [{ name: "email", label: "Email", secret: false }], scopes: Object.keys(poppy.auth.scopes).slice(0, 1) }] };
       const report = await validateCompany(serving({ ...company, poppy }).fetcher, company.requested);
       expect(report.messages.map((message) => message.id)).toContain("issuer-required");
       expect(report.refused).toBe(true);
@@ -189,12 +188,12 @@ async function errors(company: Documents): Promise<string[]> {
 
 describe("discovery refuses a Company whose documents break a MUST (3, 3.1, 3.2)", () => {
   it(
-    "refuses any protocol_version but 0.3 (3.1: before 1.0, every major.minor can break compatibility)",
+    "refuses any protocol_version but 0.4 (3.1: before 1.0, every major.minor can break compatibility)",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const major = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
       const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
-      tc.assume(`${major}.${minor}` !== "0.3");
+      tc.assume(`${major}.${minor}` !== "0.4");
       const changed = { ...company, poppy: { ...company.poppy, protocol_version: `${major}.${minor}` } };
       expect((await outcome(changed)).ok).toBe(false);
       expect(await errors(changed)).toEqual([major === 0 ? "version-unsupported" : "version-unsupported-major"]);
@@ -348,8 +347,8 @@ const DOCUMENT = { poppy: "poppy", resource: "protected-resource", metadata: "oa
 /**
  * Every member of a generated Company's documents that is a URL, and so must
  * be HTTPS (3), but the issuer, which is in all three and has its own
- * property: the conversation, API, browser-session, feedback and
- * excluded-tasks URLs in poppy.json, and the endpoints and other protected
+ * property: the conversation, API, browser-session and tasks
+ * URLs in poppy.json, and the endpoints and other protected
  * resources in the issuer's metadata.
  */
 function urlFields(company: GeneratedCompany): { document: "poppy" | "metadata"; path: (string | number)[] }[] {
@@ -358,8 +357,7 @@ function urlFields(company: GeneratedCompany): { document: "poppy" | "metadata";
   (poppy.agent?.protocols ?? []).forEach((_: unknown, index: number) => fields.push({ document: "poppy", path: ["agent", "protocols", index, "endpoint"] }));
   (poppy.apis ?? []).forEach((_: unknown, index: number) => fields.push({ document: "poppy", path: ["apis", index, "url"] }));
   if (poppy.web?.browser_session_endpoint) fields.push({ document: "poppy", path: ["web", "browser_session_endpoint"] });
-  if (poppy.feedback) fields.push({ document: "poppy", path: ["feedback", "endpoint"] });
-  if (poppy.excluded_tasks) fields.push({ document: "poppy", path: ["excluded_tasks", "url"] });
+  if (poppy.tasks) fields.push({ document: "poppy", path: ["tasks", "endpoint"] });
   for (const key of ["token_endpoint", "revocation_endpoint", "authorization_endpoint", "device_authorization_endpoint"]) {
     if (key in metadata) fields.push({ document: "metadata", path: [key] });
   }
@@ -442,7 +440,7 @@ describe("what these properties found, as examples", () => {
     const domain = "shop.example";
     const company = {
       requested: domain, domain,
-      poppy: { protocol_version: "0.3", organization: { name: "Shop", domain }, web: { browser_session_endpoint: `https://${domain}/poppy/browser-session` } },
+      poppy: { protocol_version: "0.4", organization: { name: "Shop", domain }, web: { browser_session_endpoint: `https://${domain}/poppy/browser-session` } },
       resource: { resource: `https://${domain}`, authorization_servers: [issuer] },
       metadata: {}
     };
@@ -462,7 +460,7 @@ describe("what these properties found, as examples", () => {
     const domain = "shop.example";
     const issuer = "https://auth.shop.example";
     // Parsed from text, as a Company's document is, so `__proto__` is a member, not the prototype.
-    const poppy = JSON.parse(`{"protocol_version":"0.3","organization":{"name":"Shop","domain":"${domain}"},"auth":{"scopes":{"__proto__":"A scope by any name","constructor":"Another"}},"agent":{"protocols":[{"type":"poppy","endpoint":"https://api.${domain}/poppy/conversations"}]}}`);
+    const poppy = JSON.parse(`{"protocol_version":"0.4","organization":{"name":"Shop","domain":"${domain}"},"auth":{"scopes":{"__proto__":"A scope by any name","constructor":"Another"}},"agent":{"protocols":[{"type":"poppy","endpoint":"https://api.${domain}/poppy/conversations"}]}}`);
     const company = {
       requested: domain,
       domain,

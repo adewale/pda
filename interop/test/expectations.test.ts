@@ -13,7 +13,7 @@ import type { Manifest, RegistryEntry } from "../runner/types.ts";
 
 const registry = loadRegistry();
 const entry = (name: string): RegistryEntry => registry.implementations.find((item) => item.name === name)!;
-const manifest = (fields: Partial<Manifest>): Manifest => ({ interop: 1, name: "x", role: "agent", commit: "c", poppy: ["0.3"], scenarios: [], ...fields });
+const manifest = (fields: Partial<Manifest>): Manifest => ({ interop: 1, name: "x", role: "agent", commit: "c", poppy: ["0.4"], scenarios: [], ...fields });
 
 describe("each implementation is what the registry says", () => {
   it("passes an agent that runs its registry profile, and names one that doesn't", () => {
@@ -30,7 +30,7 @@ describe("each implementation is what the registry says", () => {
     // A registry version the manifest doesn't speak, and an adversary that isn't one, with made-up entries.
     const versioned = { ...entry("lenient-company"), env: { INTEROP_POPPY_VERSION: "0.4" } };
     expect(manifestMismatch(versioned, manifest({ role: "company", poppy: ["0.4"] }))).toBeNull();
-    expect(manifestMismatch(versioned, manifest({ role: "company" }))).toMatch(/registry sets Poppy 0\.4/);
+    expect(manifestMismatch(versioned, manifest({ role: "company", poppy: ["0.3"] }))).toMatch(/registry sets Poppy 0\.4/);
     expect(manifestMismatch(entry("evil-company"), manifest({ role: "company" }))).toMatch(/isn't adversarial/);
     expect(manifestMismatch(entry("evil-company"), manifest({ role: "company", adversarial: true }))).toBeNull();
   });

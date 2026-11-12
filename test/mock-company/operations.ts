@@ -57,7 +57,7 @@ type ApprovalRecord = {
   approvals: number;
   /** Who approved the revision it was performed for: `approver` under version 3, or the User under version 2. */
   approvedBy: string | null;
-  /** Revisions whose approval it declined (0.4 Ops 6, "Declining an approval"). */
+  /** The approvals it declined (0.4 Ops 6, "Declining an approval"), by `declinedKey`. */
   readonly declined: Set<string>;
   /** Revisions it returned in answer to an agent approval, which only the User may approve (Ops 5). */
   readonly afterAgent: Set<string>;
@@ -233,7 +233,7 @@ export class Operations {
           // 0.4 Ops 6: once the checks pass, a Company may decline, for its own reasons, such as `approver`.
           const declines = co.config.declineApprovals;
           if (version3 && (declines === "all" || (declines === "agent" && agent))) {
-            record.declined.add(approval.revision);
+            record.declined.add(declinedKey(approval as Approval & { revision: string }));
             return { declined: this.#decline(record, approval.revision) };
           }
           record.approvedBy = version3 && typeof approval.approver === "string" ? approval.approver : "user";
@@ -335,7 +335,7 @@ export class Operations {
    */
   #checkAfterDecline(record: ApprovalRecord, approval: Approval & { readonly operation_id: string; readonly revision: string }, agent: boolean): void {
     const co = this.company;
-    if (record.declined.has(approval.revision)) {
+    if (record.declined.has(declinedKey(approval))) {
       co.violation("approval.declined-resent", `the declined approval of ${approval.operation_id} revision ${approval.revision} was sent again`);
     } else if (agent && record.declined.size > 0) {
       co.violation("approval.agent-after-decline", `after a decline, the agent approved a new revision of ${approval.operation_id} itself, without the User`);
@@ -441,7 +441,7 @@ export class Operations {
         const declines = co.config.declineApprovals;
         if (declines === "all" || (declines === "agent" && agent)) {
           // Never recorded, so the website never finds it (Ops 6).
-          record.declined.add(sent.revision);
+          record.declined.add(declinedKey(sent));
           return { status: 403, body: { error: "approval_declined", ...this.#decline(record, sent.revision) } };
         }
         if (!record.recorded.includes(sent.revision)) record.recorded.push(sent.revision);
@@ -469,4 +469,14 @@ export class Operations {
     const record = this.#records.get(id);
     return record ? record.revisions.get(record.latest)!.operation : null;
   }
+}
+
+/**
+ * A declined approval, as it would be sent again: its revision and who
+ * approved. The User's own approval of a revision whose agent approval was
+ * declined is a new approval, which is what Ops 6 leaves the agent to ask
+ * for (readings v04-agent-approval-again).
+ */
+function declinedKey(approval: Approval & { readonly revision: string }): string {
+  return `${approval.revision} ${approval.approver === "agent" ? "agent" : "user"}`;
 }

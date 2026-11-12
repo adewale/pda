@@ -52,7 +52,8 @@ try {
   runtime = new Miniflare(options({ COMPANY_ORIGIN: companyOrigin, PDA_ORIGIN: pdaOrigin, COMPANY_PASSWORD: password, COMPANY_CONTROL_SECRET: control }));
   const fetch = (route, init) => runtime.dispatchFetch(`${companyOrigin}${route}`, init);
   const discovery = await (await fetch("/.well-known/poppy.json")).json();
-  assert.equal(discovery.protocol_version, "0.3");
+  assert.equal(discovery.protocol_version, "0.4");
+  assert.equal(discovery.tasks, undefined, "The hosted Company has no tasks endpoint");
   assert.deepEqual(discovery.apis.map(api => api.url), [`${companyOrigin}/openapi.json`, `${companyOrigin}/mcp`]);
   const issuer = await (await fetch("/.well-known/oauth-authorization-server/issuer")).json();
   assert.equal(issuer.issuer, `${companyOrigin}/issuer`);
@@ -101,6 +102,8 @@ try {
   const delegated = await delegate(signing, clientId, await newDpopKey());
   const userId = `usr_${crypto.randomUUID().replaceAll("-", "")}`;
   const sid = crypto.randomUUID();
+  // Every request with the Session header declares the Session's version and extensions (3.4).
+  const DECLARED = { "Poppy-Version": "0.4", "Poppy-Extensions": '"operations";v="3"' };
   const resource = async (route, payload, extras = {}) => {
     const method = payload ? "POST" : "GET";
     const url = `${companyOrigin}${route}`;
@@ -109,6 +112,7 @@ try {
         Authorization: `DPoP ${token.access_token}`,
         DPoP: await dpopProof(dpop, { method, url, accessToken: token.access_token, nonce }),
         "Poppy-Session": await sessionJwt(delegated, { clientId, issuer: issuer.issuer, sid, userId, method, url, accessToken: token.access_token }),
+        ...DECLARED,
         ...(payload ? { "Content-Type": "application/json" } : {}), ...extras
       }, ...(payload ? { body: JSON.stringify(payload) } : {})
     });
@@ -120,10 +124,10 @@ try {
   assert.equal(proposed.status, 403);
   const operation = (await proposed.json()).operation;
   assert.ok(operation?.operation_id && operation?.revision);
-  const approved = await resource("/orders/ord_7Hk2/exchanges", exchange, { "Idempotency-Key": crypto.randomUUID(), "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}"` });
+  const approved = await resource("/orders/ord_7Hk2/exchanges", exchange, { "Idempotency-Key": crypto.randomUUID(), "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}", approver="user", approved_at=${Math.floor(Date.now() / 1000)}, input_type="tap", reference="apr_local_check"` });
   assert.equal(approved.status, 201, "The approved single-origin strict dummy action must execute");
   const mcp = await fetch("/mcp", {
-    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", "Poppy-Session": await sessionJwt(delegated, { clientId, issuer: issuer.issuer, sid: crypto.randomUUID(), userId, method: "POST", url: `${companyOrigin}/mcp` }) },
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", "Poppy-Session": await sessionJwt(delegated, { clientId, issuer: issuer.issuer, sid: crypto.randomUUID(), userId, method: "POST", url: `${companyOrigin}/mcp` }), ...DECLARED },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "hosted-local-check", version: "1" } } })
   });
   assert.equal(mcp.status, 200);

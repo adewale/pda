@@ -1,6 +1,6 @@
 # What the agent can do, and where each part comes from
 
-The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.3](../spec/draft-0.3-retrieved-2026-11-03/README.md) (3 November text), the Operations extension (Ops, version 2) or the Mediated Sign-In extension (MSI) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
+The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Poppy 0.4](../spec/draft-0.4-retrieved-2026-11-11/README.md) (11 November text, whose section numbers follow 0.3's), the Operations extension (Ops, version 3) or the Mediated Sign-In extension (MSI) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
 
 Back to the [README](../README.md)
 
@@ -29,8 +29,8 @@ No tool approves anything. A scheduled task's run is a background turn like a Co
 
 | Capability | Draft | Tool | Needs the User | Defined in |
 | --- | --- | --- | --- | --- |
-| Find out whether a Company supports Poppy 0.3 and what it offers, the tasks it leaves out and where it takes feedback; the validator checks its documents first | §3, §3.1–3.3, §9.1 | `poppy_discover` | No | `src/poppy/tools.ts`, `src/poppy/discovery.ts`, `src/poppy/coverage.ts`, `src/validator/` |
-| The agent's public identity at Companies | §4.1 | None: the Worker serves `/poppy/client.json` (listing Operations 2) and `/poppy/jwks.json` | No | `src/poppy/routes.ts` |
+| Find out whether a Company supports Poppy 0.4 and what it offers, and, from its tasks endpoint, the tasks it leaves out and where it takes feedback; the validator checks its documents first | §3, §3.1–3.3, §9.1 | `poppy_discover` | No | `src/poppy/tools.ts`, `src/poppy/discovery.ts`, `src/poppy/coverage.ts`, `src/validator/` |
+| The agent's public identity at Companies | §4.1 | None: the Worker serves `/poppy/client.json` (no extensions: a Session declares them, §3.4) and `/poppy/jwks.json` | No | `src/poppy/routes.ts` |
 | A Session for each task, named in a Session header signed with a delegated key on every request | §5.1–5.3, §5.6 | None: every Company tool starts one when it needs one | No | `src/poppy/client.ts`, `src/poppy/jwt.ts` |
 | Sign in at the Company when a task needs the User's account: Direct, Device or Mediated Sign-In, reusing a refresh token that covers the scopes, the Company's scopes described with their hints | §4.2–4.4, §4.7, §5.4, MSI | `poppy_sign_in` | Yes: the User signs in on the Company's page or on the card; the tool never takes a password | `src/poppy/signin.ts` |
 | Sign out of a Company | §4.6, §5.5 | None: the Companies page | It is the User's action | `src/poppy/signout.ts` |

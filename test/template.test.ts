@@ -224,9 +224,10 @@ describe("the committed template", () => {
   });
 
   it("knows the upstream repositories the harness pins, so their owners' names in those references aren't identities", () => {
-    // print-with-poppy alone since the 0.1 and 0.2 peers were retired (docs/interop-spec.md); our own fakes, the evil Company among them, are never upstream.
-    expect([...UPSTREAM_REPOS]).toEqual(["spenciefy/print-with-poppy"]);
-    expect(registry.implementations.filter((entry) => !REPO_URLS.has(entry.source)).map((entry) => entry.name)).toEqual(["print-with-poppy", "print-with-poppy-live"]);
+    // None since print-with-poppy, which serves 0.3, left the registry (decision 49; docs/interop-spec.md);
+    // our own fakes, the evil Company among them, are never upstream.
+    expect([...UPSTREAM_REPOS]).toEqual([]);
+    expect(registry.implementations.filter((entry) => !REPO_URLS.has(entry.source)).map((entry) => entry.name)).toEqual([]);
     for (const repo of UPSTREAM_REPOS) expect(repo).toMatch(/^[\w.-]+\/[\w.-]+$/);
   });
 

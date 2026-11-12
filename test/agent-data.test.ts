@@ -66,8 +66,8 @@ describe("personal data controls", () => {
     expect(Object.keys(build).sort()).toEqual(["commit", "dirty", "protocolRevision", "protocolRevisions", "protocolVersions", "workerVersion"]);
     // The newest version's revision, and each version's.
     expect(build.protocolRevision).toBe("2026-11-11");
-    expect(build.protocolRevisions).toEqual({ "0.3": "2026-11-03", "0.4": "2026-11-11" });
-    expect(build.protocolVersions).toEqual(["0.3", "0.4"]);
+    expect(build.protocolRevisions).toEqual({ "0.4": "2026-11-11" });
+    expect(build.protocolVersions).toEqual(["0.4"]);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
   it("exports the caller's records and chunked photos without stored credentials or another person's records", async () => {
@@ -384,7 +384,8 @@ describe("personal data controls", () => {
   it("stops the website browser while deleting: its cookie-bearing requests and saved forms stay here", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    // The browser is signed in only with poppy:browser-sign-in (6).
+    await signInDirect(a, c, ["orders:read", "orders:write", "poppy:browser-sign-in"]);
     const browse = (args: Record<string, unknown>) => a.stub.poppyTool("poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/account/address" });
     const saved = JSON.parse((await browse({ action: "submit", selector: "#address" })).text).proposed;

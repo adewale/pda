@@ -33,7 +33,7 @@ export async function dataControlsJourney({ runtime, browser, createSession, age
   const domain = "cdata.shop.test";
   const company = companies.getByName("cdata");
   // Refusing with invalid_client is what a Company does with a token issued to an earlier client_id.
-  await company.configure({ protocolVersion: "0.3", deviceInterval: 1, refuseRevocations: 1000 });
+  await company.configure({ deviceInterval: 1, refuseRevocations: 1000 });
 
   await page.goto("https://agent.test/", { waitUntil: "networkidle0" });
   await page.waitForSelector(COMPANIES);

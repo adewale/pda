@@ -1,5 +1,7 @@
 # Issues in Personal Agent Protocol draft 0.3
 
+> PDA dropped 0.3 on 12 November 2026 ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). The issues stay as written for 0.3; [0.4's list](poppy-0.4-issues.md) has the current ones.
+
 From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.3, and only 0.3 since 28 October.
 
 These are issues in the upstream text. The [PDA conformance review](poppy-0.3-conformance.md) records local implementation fixes and the disposition or mitigation of all 43 audit entries; a local mitigation does not close an upstream issue.

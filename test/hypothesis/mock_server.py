@@ -51,10 +51,15 @@ class MockServer:
             headers={"Authorization": f"Bearer {self.secret}"},
             timeout=30,
             # A long state-machine run repeatedly observes the same localhost
-            # server. Never reuse an idle control socket: a reset by the peer
-            # otherwise becomes a non-replayable Hypothesis failure. No
-            # protocol request is retried and every oracle still runs.
-            limits=httpx.Limits(max_keepalive_connections=0),
+            # server. Never reuse a control socket the server may be closing:
+            # a reset by the peer otherwise becomes a non-replayable
+            # Hypothesis failure. So an idle socket is dropped after a second,
+            # well inside Node's 5 s keep-alive timeout. Reusing busy ones
+            # matters: the invariants read /violations and /state after
+            # every step, and a socket per read left enough in TIME_WAIT to
+            # exhaust macOS's ephemeral ports within one 0.4 run. No protocol
+            # request is retried and every oracle still runs.
+            limits=httpx.Limits(keepalive_expiry=1.0),
             trust_env=False,
         )
 

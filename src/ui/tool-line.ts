@@ -233,7 +233,7 @@ export function describeToolCall(
       return line(`Looked up what ${company} offers personal agents`, null);
     case "poppy_sign_in": {
       const granted = isRecord(outcome?.details) && typeof outcome.details.status === "string" && outcome.details.status.startsWith("signed in");
-      // 0.3 defines no scopes: each Company's are its own (spec 4.7), so a sign-in names no access level.
+      // Poppy defines no scopes: each Company's are its own (spec 4.7), so a sign-in names no access level.
       return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in");
     }
     case "poppy_status":

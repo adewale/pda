@@ -11,7 +11,7 @@ These records describe the dates, source revisions and protocol drafts stated in
 | [Specification issues: earlier 0.3 draft](spec-issues-0.3.md) | T-numbered findings against the 25–26 October text, before its wire rules were rewritten |
 | [Earlier 0.3 upgrade plan](poppy-0.3-upgrade-plan-2026-10-26.md) | The plan against that same 25–26 October text, separated from the current generated ledger |
 
-The active [0.3 issue list](../poppy-0.3-issues.md), [requirement ledger](../poppy-0.3-upgrade.md), [upgrade procedure](../upgrading.md), and [verification summary](../poppy-0.3-conformance.md#current-verification) remain outside this archive.
+The current [0.4 issue list](../poppy-0.4-issues.md), [requirement ledger](../poppy-0.4-upgrade.md), [upgrade procedure](../upgrading.md), and [verification summary](../poppy-0.4-conformance.md#current-verification) remain outside this archive, beside 0.3's [issue list](../poppy-0.3-issues.md), [ledger](../poppy-0.3-upgrade.md) and [review](../poppy-0.3-conformance.md), kept as 0.3's record.
 
 ## Ecosystem and interoperability
 

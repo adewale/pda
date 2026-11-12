@@ -8,7 +8,7 @@ export type PoppyFacts = {
   signIn: { direct: boolean; device: boolean; mediated: boolean };
   /**
    * poppy.json lists something that uses Sessions (an API, the Company
-   * Agent, feedback, browser join or an extension), so the Company's
+   * Agent, the tasks endpoint, browser join or an extension), so the Company's
    * identifier matters: its issuer, from the domain's protected resource
    * metadata (3.2), or `https://{organization.domain}` when it has none.
    */
@@ -39,7 +39,7 @@ export type ClientFacts = { jwksUri?: string };
 /** Rules for one explicitly supported wire version; incompatible drafts get separate profiles. */
 export type Profile = {
   readonly version: string;
-  /** Human name, such as "Draft 0.3". */
+  /** Human name, such as "Draft 0.4". */
   readonly name: string;
   /** poppy.json; `requestedDomain` is the host that served it, after redirects. */
   poppy(c: Checker, doc: unknown, context: { requestedDomain?: string }): PoppyFacts;

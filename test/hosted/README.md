@@ -75,7 +75,7 @@ Delete the separate GitHub OAuth App and remove the local generated directory an
 
 ## Local verification
 
-The [official Company-kit review](../../docs/company-kit-review.md) runs the unmodified upstream 0.3 validator against these same handlers in local workerd. Its signed-out checks and token-error probes do not authenticate a live User or establish a deployed journey.
+The [official Company-kit review](../../docs/company-kit-review.md) runs the unmodified upstream 0.4 validator against these same handlers in local workerd. Its signed-out checks and token-error probes do not authenticate a live User or establish a deployed journey.
 
 ```sh
 node test/hosted/company-security.node.mjs

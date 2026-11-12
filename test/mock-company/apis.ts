@@ -411,7 +411,7 @@ export class Apis {
    */
   #orderPrints(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (!co.config.operations || !co.operationsVersion(context)) throw this.#extensionRequired("operations", context);
+    if (!co.config.operations || !co.operationsVersion(context)) throw this.#extensionRequired("operations");
     const key = inbound.request.headers.get("Idempotency-Key");
     if (!key) {
       co.violation("idempotency.key-missing", `POST /prints without the Idempotency-Key its description requires`);
@@ -495,10 +495,9 @@ export class Apis {
     };
   }
 
-  /** `extension_required` at an API, OpenAPI or MCP (3.3): in `WWW-Authenticate` under 0.3, in a JSON body under 0.4. */
-  #extensionRequired(extension: string, context: ResourceContext): HttpError {
-    if (context.session.declaration && context.session.declaration.version !== "0.3") return new HttpError(json({ error: "extension_required", extension }, 403));
-    return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
+  /** `extension_required` at an API, OpenAPI or MCP (3.3), in a JSON body. */
+  #extensionRequired(extension: string): HttpError {
+    return new HttpError(json({ error: "extension_required", extension }, 403));
   }
 
   /**
@@ -508,10 +507,10 @@ export class Apis {
    */
   #exchange(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
+    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
     const usesOperations = co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing;
     if (!usesOperations) {
-      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations", context);
+      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations");
       co.performExchange(context.account, "direct API call");
       return json({ exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }, 201);
     }
@@ -823,7 +822,7 @@ export class Apis {
         } };
       }
       // 3.3: an extension the request doesn't declare refuses the call as at any API, here at the HTTP level.
-      if (name === "exchange_item" && co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
+      if (name === "exchange_item" && co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
       if (name === "exchange_item" && co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
         const meta = record(params._meta) ?? {};

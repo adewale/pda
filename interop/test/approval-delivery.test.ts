@@ -9,9 +9,13 @@ const conversation = { id: "local_conversation", remote_id: "remote_conversation
 const approval = { operation_id: "op_one", revision: "revision_one", expires_at: "2026-10-29T12:00:00Z" };
 const binding = { account: "acct_ada", sessionId: "ses_one", authorityGeneration: 0 };
 const row = { status: "unknown", request: storedApproval({ kind: "message-approval", conversationId: conversation.id, approval, binding }) };
-const request = () => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: { id: "msg_one", author: { type: "agent" }, extensions: { operations: { approval: { operation_id: approval.operation_id, revision: approval.revision } } } } }) });
+const extensions = { operations: { approval: { operation_id: approval.operation_id, revision: approval.revision } } };
+const send = (body: unknown) => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json", "Poppy-Version": "0.4" }, body: JSON.stringify(body) });
+// A message's id is its request's (8.3).
+const request = () => send({ id: "msg_one", message: { author: { type: "agent" }, extensions } });
 const response = (value: unknown, status = 202) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
-const acknowledgement = { conversation_id: conversation.remote_id, status: "working", responder: "agent" };
+// 8.3: the acknowledgement may be conversation_id alone.
+const acknowledgement = { conversation_id: conversation.remote_id };
 
 describe("approval message acknowledgement is delivery evidence, never completion evidence", () => {
   it("reports an acknowledged unknown message approval as sent with its outcome still unknown", async () => {
@@ -20,21 +24,16 @@ describe("approval message acknowledgement is delivery evidence, never completio
     expect(deliveries.outcome(row, endpoint, conversation)).toEqual({ status: "sent", outcome: "unknown" });
     expect(deliveries.outcome({ ...row, status: "done" }, endpoint, conversation)).toBeNull();
   });
-  it("takes a 0.4 acknowledgement, conversation_id alone, for a request whose id is the message's (8.3)", async () => {
-    const at04 = (body: unknown) => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json", "Poppy-Version": "0.4" }, body: JSON.stringify(body) });
-    const extensions = { operations: { approval: { operation_id: approval.operation_id, revision: approval.revision } } };
-    const deliveries = new ApprovalAcknowledgements();
-    await deliveries.observe(at04({ id: "msg_one", message: { author: { type: "agent" }, extensions } }), response({ conversation_id: conversation.remote_id }));
-    expect(deliveries.outcome(row, endpoint, conversation)).toEqual({ status: "sent", outcome: "unknown" });
+  it("takes no acknowledgement for a request without its own id, even when the message names one (8.3)", async () => {
     const withoutRequestId = new ApprovalAcknowledgements();
-    await withoutRequestId.observe(at04({ message: { id: "msg_one", author: { type: "agent" }, extensions } }), response({ conversation_id: conversation.remote_id }));
+    await withoutRequestId.observe(send({ message: { id: "msg_one", author: { type: "agent" }, extensions } }), response(acknowledgement));
     expect(withoutRequestId.outcome(row, endpoint, conversation)).toBeNull();
   });
   it("keeps a lost response unknown even if the peer might have performed the action", () => {
     expect(new ApprovalAcknowledgements().outcome(row, endpoint, conversation)).toBeNull();
   });
   it("malformed, incomplete, error and wrong-conversation 2xx responses provide no valid acknowledgement", async () => {
-    for (const body of [{}, { conversation_id: conversation.remote_id }, { ...acknowledgement, conversation_id: "different_conversation" }, { ...acknowledgement, error: "server_error" }]) {
+    for (const body of [{}, { status: "working", responder: "agent" }, { ...acknowledgement, conversation_id: "different_conversation" }, { ...acknowledgement, error: "server_error" }]) {
       const deliveries = new ApprovalAcknowledgements();
       await deliveries.observe(request(), response(body));
       expect(deliveries.outcome(row, endpoint, conversation)).toBeNull();

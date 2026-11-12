@@ -58,9 +58,7 @@ describe("the interop test client, configured", () => {
       client_id: CLIENT,
       client_name: "Poppy Demo Agent (interop tests)",
       jwks_uri: JWKS,
-      token_endpoint_auth_method: "private_key_jwt",
-      // Operations 2 (0.3 Operations page), as the real client.
-      extensions: { operations: { version: "2" } }
+      token_endpoint_auth_method: "private_key_jwt"
     });
   });
 

@@ -23,7 +23,7 @@ const attachment = object({
   size: integer
 });
 
-/** 0.3: the operation revision the User approved, sent with the request that returned it (Ops 6). */
+/** The operation revision the User approved, sent with the request that returned it (Ops 6). */
 const approvalV2 = object({ operation_id: string, revision: string, expires_at: string });
 
 /** An OpenAPI call (apis.ts `OpenApiCall`), as the model asked for it. */
@@ -62,7 +62,7 @@ const approval = tagged("kind", {
    * it is sent to the operations endpoint, and the browser then makes `submission` again (Ops 6).
    */
   "web-operation": object({ v: literal(APPROVAL_VERSION), kind: literal("web-operation"), ref: string, approval: approvalV2, submission, binding: browserBinding }),
-  /** 0.3: an operation a Company Agent returned in a conversation; approved, it goes back in a message's `approval` (Ops 6). */
+  /** An operation a Company Agent returned in a conversation; approved, it goes back in a message's `approval` (Ops 6). */
   "message-approval": object({ v: literal(APPROVAL_VERSION), kind: literal("message-approval"), conversationId: string, approval: approvalV2, binding })
 });
 

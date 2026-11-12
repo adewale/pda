@@ -1,5 +1,7 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
 // photo-print store (spenciefy/print-with-poppy), pinned at b340741 (28 Oct), Poppy 0.3.
+// Not in the registry since our agent dropped 0.3 on 11 November (docs/interop-spec.md
+// section 15): kept as the record, and as a start for when the store serves 0.4.
 //
 // Starts the store (server/index.ts under tsx) on PORT (8080) in its demo mode and serves
 // the control API on ADAPTER_PORT (8081). The store takes the Session header on every API

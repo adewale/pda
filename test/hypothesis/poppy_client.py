@@ -1,21 +1,28 @@
 """
-A minimal Personal Agent Protocol (Poppy) 0.3 client, written from the
-28 October text (spec/draft-0.3-retrieved-2026-10-28/pages/), brought to
-the 3 November text (spec/draft-0.3-retrieved-2026-11-03/pages/), and our
-spec's readings (pda-spec.md, "Poppy client"), not ported from src/poppy.
+A minimal Personal Agent Protocol (Poppy) 0.4 client, written from the
+11 November text (spec/draft-0.4-retrieved-2026-11-11/pages/: the spec, and
+the Operations and Mediated Sign-In extensions) and the `v04-*` rows of
+docs/readings.md, not ported from src/poppy. Ported from the 0.3 client on
+12 November 2026; nothing of 0.3 is left.
 
-It is deliberately small: discovery through the domain's protected
-resource metadata (3, 3.2), including a Company with no issuer (a 404 or
-no authorization servers: signed out only, identified by
-https://{domain}), Web Bot Auth operator signatures on resource requests
-(5.3), client assertions naming the issuer (4.1),
-delegated keys and a Session JWT on every resource request (5.2), plain
-OAuth refresh and access tokens with DPoP only when the issuer lists it
-(4.4, 4.5), Direct, Device and Mediated Sign-In, conversations with handoff
-and Direct Conversations, sign-out, Operations 2, MCP, the browser join
-(6), task coverage (9) and rate limits (5.6). It returns what the Company
-said (`Reply`) and leaves judging it to the caller, so the state machines
-in test_*.py can hold the Company to a model.
+It is deliberately small: discovery (3), including redirects of the
+well-known URL, the choice among `protocol_version` and
+`supported_versions` (3.4), the issuer from the domain's protected resource
+metadata (3.2), and a Company with no issuer (a 404 or no authorization
+servers: signed out only, identified by https://{domain}); `Poppy-Version`
+and `Poppy-Extensions` on every request with the Session header, the same
+for the whole Session (3.4); Web Bot Auth operator signatures on resource
+requests (5.3); client assertions naming the issuer (4.1); delegated keys
+and a Session JWT on every resource request (5.2), and a signed-out one on
+website pages fetched without a browser; plain OAuth refresh and access
+tokens with DPoP only when the issuer lists it (4.4, 4.5); Direct, Device
+and Mediated Sign-In; conversations with request IDs, handoff and its
+cancel, and Direct Conversations, including accepting a `user_requested`
+event (8); sign-out; Operations 3; MCP; the browser join with
+`poppy:browser-sign-in` (6); the tasks endpoint, skills and feedback (9);
+and rate limits (5.6). It returns what the Company said (`Reply`) and
+leaves judging it to the caller, so the state machines in test_*.py can
+hold the Company to a model.
 
 The reject-direction rules need to break things on purpose (replay a JWT,
 use a wrong `aud`, sign with another key). Those knobs are explicit
@@ -46,6 +53,8 @@ DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code"
 MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in"
 CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 APPROVAL_META = "personalagentprotocol.org/approval"
+PROTOCOL_VERSION = "0.4"  # the one version this client implements (3.4)
+BROWSER_SIGN_IN = "poppy:browser-sign-in"  # the scope that signs the browser in (4.7, 6)
 ASSERTION_LIFETIME = 60  # seconds; strict Companies allow 60 (readings S2)
 DELEGATION_HOURS = 4  # the guides' "a few hours", from an iat rounded down to the hour
 MAX_LIMITED_RETRIES = 6  # 429s waited out before a request gives up
@@ -136,6 +145,9 @@ class Exchange:
     status: int
     at_ms: int  # the clock stamp it carried
     retry_after: float | None  # a 429's Retry-After
+    version: str | None = None  # Poppy-Version (3.4)
+    extensions: str | None = None  # Poppy-Extensions, as sent (3.4)
+    sid: str | None = None  # the Session JWT's `sid`, read without verifying it
 
 
 def retry_after_seconds(value: str | None, now_ms: int) -> float | None:
@@ -202,7 +214,12 @@ class LocalTransport(httpx.BaseTransport):
         authorization = request.headers.get("authorization")
         seconds = retry_after_seconds(response.headers.get("retry-after"), stamp) if response.status_code == 429 else None
         scheme = authorization.split(" ", 1)[0] if authorization else None
-        self.log.append(Exchange(request.method, str(url), scheme, "poppy-session" in request.headers, response.status_code, stamp, seconds))
+        self.log.append(
+            Exchange(
+                request.method, str(url), scheme, "poppy-session" in request.headers, response.status_code, stamp, seconds,
+                request.headers.get("poppy-version"), request.headers.get("poppy-extensions"), jwt_sid(request.headers.get("poppy-session")),
+            )
+        )
         if response.status_code == 429:
             self.limited.append(Sent429(request.method, str(url), seconds, self.clock.now_ms()))
             # Without a readable Retry-After, wait a second: the request isn't sent again at once.
@@ -399,7 +416,6 @@ class PersonalAgent:
 
     origin: str = "https://agent.hypothesis.test"
     signing_key: Es256Key = field(default_factory=lambda: Es256Key(kid=random_id("k_", 8)))
-    lists_operations: bool = False
     # 5.3 (a SHOULD): an operator key whose directory is at `origin` + DIRECTORY_PATH; None sends no operator signature.
     operator_key: OperatorKey | None = field(default_factory=OperatorKey)
 
@@ -423,9 +439,7 @@ class PersonalAgent:
             "redirect_uris": [self.redirect_uri],
             "token_endpoint_auth_method": "private_key_jwt",
         }
-        if self.lists_operations:
-            # 3.3: one major version per extension; Operations 2 counts only when both sides list "2".
-            metadata["extensions"] = {"operations": {"version": "2"}}
+        # 0.4 declares extensions per Session, in Poppy-Extensions (3.3, 3.4), not in client metadata.
         documents: dict[str, Any] = {self.client_id: metadata, self.jwks_uri: {"keys": [self.signing_key.public_jwk()]}}
         if self.operator_key is not None:
             documents[self.origin + DIRECTORY_PATH] = {"keys": [self.operator_key.public_jwk()]}
@@ -455,20 +469,33 @@ class Company:
     """What discovery (3, 3.2) established about one Company."""
 
     domain: str
-    document: dict[str, Any]
+    document: dict[str, Any]  # the chosen version's document (3.4)
     issuer: str
     metadata: dict[str, Any]
     conversations: str | None
     openapi: str | None
     mcp: str | None = None  # the MCP server's `url` (7)
     browser_session: str | None = None  # `web.browser_session_endpoint` (6)
-    feedback: str | None = None  # `feedback.endpoint` (9.3)
-    excluded_tasks: str | None = None  # `excluded_tasks.url` (9.1)
-    operations: bool = False  # lists Operations version 2 (Ops 2)
+    tasks: str | None = None  # `tasks.endpoint` (9): excluded tasks, skills and the feedback endpoint, per Session
+    operations: dict[str, Any] | None = None  # the Operations extension's version 3 entry (Ops 2)
     mediated: dict[str, Any] | None = None  # the Mediated Sign-In extension's entry, when its grant is listed too
     # 3.2: no OAuth issuer (a 404, or no authorization servers): `issuer` is then the Company's identifier,
     # https://{organization.domain}, the Session JWT's `aud`; `metadata` is empty and nothing signs in.
     issuerless: bool = False
+    resource_scopes: list[str] = field(default_factory=list)  # `scopes_supported` of the domain's protected resource metadata (3.2, 4.7)
+    version: str = PROTOCOL_VERSION  # the version chosen (3.4)
+
+    @property
+    def web_disabled(self) -> bool:
+        """6: `web.disabled`: no browser on the website; pages may still be fetched with the Session header (5.2)."""
+        web = self.document.get("web")
+        return isinstance(web, dict) and web.get("disabled") is True
+
+    @property
+    def sign_in_disabled(self) -> bool:
+        """3.2: `auth.disabled`: no Direct, Device or Mediated Sign-In."""
+        auth = self.document.get("auth")
+        return isinstance(auth, dict) and auth.get("disabled") is True
 
     @property
     def organization_domain(self) -> str:
@@ -494,10 +521,17 @@ class Company:
         """
         The scopes a sign-in type (`direct`, `device`, `mediated`) can ask
         for, or [] when it isn't offered: sign-in types come from
-        `grant_types_supported` (3.2), each able to ask for any of
-        `scopes_supported` (4.7); Mediated Sign-In for its extension's scopes.
+        `grant_types_supported` (3.2), none with `auth.disabled`, each able
+        to ask for any scope in the issuer's `scopes_supported` or the
+        domain's protected resource metadata's (4.7); Mediated Sign-In for
+        its extension's scopes. `poppy:browser-sign-in` only from a Company
+        that lists `browser_session_endpoint` (6).
         """
-        supported = [str(s) for s in self.metadata.get("scopes_supported", [])]
+        if self.sign_in_disabled:
+            return []
+        supported = list(dict.fromkeys([str(s) for s in self.metadata.get("scopes_supported", [])] + self.resource_scopes))
+        if self.browser_session is None:
+            supported = [s for s in supported if s != BROWSER_SIGN_IN]
         if kind == "direct":
             return supported if "authorization_code" in self.grants() else []
         if kind == "device":
@@ -563,9 +597,11 @@ class User:
 @dataclass
 class Session:
     """
-    A Session (5): a `sid` the agent chose, its User, and, while signed in,
-    the access token it sends, its scheme and the key a DPoP-bound one is
-    bound to. Nothing is requested to start one (5.2, 5.3).
+    A Session (5): a `sid` the agent chose, its User, the protocol version
+    and extensions it declares on every request (3.4: the same for the whole
+    Session; another choice is another Session), and, while signed in, the
+    access token it sends, its scheme and the key a DPoP-bound one is bound
+    to. Nothing is requested to start one (5.2, 5.3).
     """
 
     user: User
@@ -573,6 +609,14 @@ class Session:
     token: str | None = None
     token_type: str | None = None  # "DPoP" or "Bearer", as the token response named it (4.5)
     key: Es256Key | None = None  # the DPoP key the token is bound to
+    version: str = PROTOCOL_VERSION
+    extensions: dict[str, str] = field(default_factory=dict)  # name: version, each listed by the Company (3.3)
+
+    def extensions_header(self) -> str | None:
+        """`Poppy-Extensions`: an RFC 9651 List of Strings, each with its version as a String `v` parameter; none when it uses none."""
+        if not self.extensions:
+            return None
+        return ", ".join(f"{sf_string(name)};v={sf_string(version)}" for name, version in self.extensions.items())
 
     def sign_in(self, body: dict[str, Any], key: Es256Key) -> None:
         self.token = body["access_token"]
@@ -592,15 +636,39 @@ class Sent:
     proof: str | None = None
 
 
-def approval_header(operation_id: str, revision: str) -> str:
-    """`Poppy-Approval` (Ops 6): an RFC 9651 Dictionary with `operation_id` and `revision` as Strings."""
+def approval(operation_id: str, revision: str, approver: str, *, input_type: str | None = "tap", reference: str | None = None, approved_at: int | None = None) -> dict[str, Any]:
+    """
+    An Operations 3 approval (Ops 6): `operation_id`, `revision`, and
+    `approver` (`user` or `agent`), which MUST be there; `approved_at` in Unix
+    seconds; `input_type` only with `user` (`tap`, as readings v04-input-type
+    has it); and a `reference` of our own, new for each approval, so it is
+    unique among the User's approvals and never reaches two Companies
+    (readings v04-reference).
+    """
+    given: dict[str, Any] = {"operation_id": operation_id, "revision": revision, "approver": approver, "approved_at": approved_at or int(time.time())}
+    if approver == "user" and input_type is not None:
+        given["input_type"] = input_type
+    given["reference"] = reference or random_id("apr_", 12)
+    return given
 
-    def sf_string(value: str) -> str:
-        if not re.fullmatch(r"[\x20-\x7e]*", value):
-            raise ValueError("not an RFC 9651 String")
-        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    return f"operation_id={sf_string(operation_id)}, revision={sf_string(revision)}"
+def approval_header(given: dict[str, Any]) -> str:
+    """
+    `Poppy-Approval` (Ops 6): an RFC 9651 Dictionary, its members in the
+    order given: Strings, and Integers for whole numbers (`approved_at`).
+    Booleans and other values are only for the reject rules, as Tokens.
+    """
+    parts = []
+    for name, value in given.items():
+        if isinstance(value, bool):
+            parts.append(name if value else f"{name}=?0")
+        elif isinstance(value, int):
+            parts.append(f"{name}={value}")
+        elif isinstance(value, str):
+            parts.append(f"{name}={sf_string(value)}")
+        else:
+            raise ValueError(f"{name}: {value!r} has no RFC 9651 form here")
+    return ", ".join(parts)
 
 
 class Poppy:
@@ -614,22 +682,65 @@ class Poppy:
 
     # ---- discovery (3) ----
 
+    def fetch_document(self, url: str) -> tuple[httpx.Response, str]:
+        """
+        3: the well-known URL, following redirects, each to an HTTPS URL. The
+        document is used only when the last URL's path is exactly
+        `/.well-known/poppy.json` with no query. Returns the response and the
+        host that served it.
+        """
+        for _ in range(6):
+            response = self.http.get(url, follow_redirects=False)
+            if response.status_code not in (301, 302, 303, 307, 308):
+                parts = urllib.parse.urlsplit(url)
+                if parts.path != "/.well-known/poppy.json" or parts.query:
+                    raise DiscoveryError(f"poppy.json came from {url}, not a well-known path")
+                return response, (parts.hostname or "").lower()
+            target = urllib.parse.urljoin(url, response.headers.get("location", ""))
+            if not target.startswith("https://"):
+                raise DiscoveryError(f"poppy.json redirected to {target}, not HTTPS")
+            url = target
+        raise DiscoveryError("poppy.json redirected too often")
+
     def discover(self, domain: str) -> Company:
-        response = self.http.get(f"https://{domain}/.well-known/poppy.json", follow_redirects=False)
+        response, host = self.fetch_document(f"https://{domain}/.well-known/poppy.json")
         if response.status_code != 200:
             raise DiscoveryError(f"poppy.json: HTTP {response.status_code}")
         document = strict_json(response.text)
-        if not isinstance(document, dict) or document.get("protocol_version") != "0.3":
-            raise DiscoveryError("protocol_version isn't 0.3 (3.1: MUST NOT use a major.minor it doesn't support)")
+        if not isinstance(document, dict):
+            raise DiscoveryError("poppy.json isn't an object")
         org = str(document.get("organization", {}).get("domain", ""))
-        if org.lower() != domain.lower():
-            raise DiscoveryError(f"organization.domain {org!r} isn't the host that served it, {domain!r}")
+        if org.lower() != host:
+            raise DiscoveryError(f"organization.domain {org!r} isn't the host that served it, {host!r}")
+        # 3.4: the newest version, among protocol_version and supported_versions, compatible with one we implement;
+        # before 1.0, compatible is the same major.minor. We implement 0.4 alone.
+        linked = document.get("supported_versions") if isinstance(document.get("supported_versions"), dict) else {}
+        if document.get("protocol_version") != PROTOCOL_VERSION:
+            url = linked.get(PROTOCOL_VERSION)
+            if not isinstance(url, str):
+                raise DiscoveryError(f"no version we implement: {document.get('protocol_version')!r} and {sorted(linked)} (3.4: MUST NOT use any)")
+            parts = urllib.parse.urlsplit(url)
+            # 3.4: HTTPS on the host that served poppy.json, never by redirect; readings v04-linked-document: else as if unlisted.
+            if parts.scheme != "https" or (parts.hostname or "").lower() != host:
+                raise DiscoveryError(f"the {PROTOCOL_VERSION} document {url} isn't HTTPS on {host}")
+            linked_response = self.http.get(url, follow_redirects=False)
+            if linked_response.status_code != 200:
+                raise DiscoveryError(f"the {PROTOCOL_VERSION} document: HTTP {linked_response.status_code}")
+            document = strict_json(linked_response.text)
+            if not isinstance(document, dict) or document.get("protocol_version") != PROTOCOL_VERSION or "supported_versions" in document:
+                raise DiscoveryError(f"the document linked for {PROTOCOL_VERSION} names another version, or links others (3.4)")
+            if str(document.get("organization", {}).get("domain", "")).lower() != org.lower():
+                raise DiscoveryError("the linked document names another organization.domain (3.4)")
         auth = document.get("auth") if isinstance(document.get("auth"), dict) else {}
         extensions = document.get("extensions", {}) if isinstance(document.get("extensions"), dict) else {}
         protocols = document.get("agent", {}).get("protocols", [])
+        web = document.get("web") if isinstance(document.get("web"), dict) else {}
+        if web.get("disabled") is True and "browser_session_endpoint" in web:
+            raise DiscoveryError("web.disabled with a browser_session_endpoint (6: MUST NOT list it)")
         # 3.2: the issuer from the domain's protected resource metadata (RFC 9728). A 404, or metadata
         # without authorization servers, means none; any other status settles nothing.
         prm_response = self.http.get(protected_resource_metadata_url(f"https://{org.lower()}"), follow_redirects=False)
+        resource_scopes: list[str] = []
         if prm_response.status_code == 404:
             servers: list[str] = []
         elif prm_response.status_code != 200:
@@ -639,9 +750,13 @@ class Poppy:
             if prm.get("resource") != f"https://{org.lower()}":
                 raise DiscoveryError("the protected resource metadata names another resource")
             servers = [str(s) for s in prm.get("authorization_servers", [])]
+            resource_scopes = [str(s) for s in prm.get("scopes_supported", [])]
+        signs_in = "mediated-sign-in" in extensions or any(p.get("access") == "signed_in" for p in protocols if isinstance(p, dict))
+        if auth.get("disabled") is True and signs_in:
+            raise DiscoveryError("auth.disabled with Mediated Sign-In or signed_in access (3.2)")
         if not servers:
             # 3.2: valid only when nothing offers sign-in: no auth.issuer, no Mediated Sign-In, no signed_in access.
-            if "issuer" in auth or "mediated-sign-in" in extensions or any(p.get("access") == "signed_in" for p in protocols if isinstance(p, dict)):
+            if "issuer" in auth or signs_in:
                 raise DiscoveryError("poppy.json offers sign-in, but the Company has no issuer")
             return self._company(domain, document, f"https://{org.lower()}", {}, protocols, extensions, issuerless=True)
         if isinstance(auth.get("issuer"), str):
@@ -666,27 +781,36 @@ class Poppy:
             if not isinstance(metadata.get(name), str):
                 raise DiscoveryError(f"no {name}")
         grants = metadata.get("grant_types_supported", [])
+        if "refresh_token" not in grants:
+            raise DiscoveryError("grant_types_supported without refresh_token (3.2)")
         if "authorization_code" in grants and "authorization_endpoint" not in metadata:
             raise DiscoveryError("Direct Sign-In without authorization_endpoint")
         if DEVICE_CODE in grants and "device_authorization_endpoint" not in metadata:
             raise DiscoveryError("Device Sign-In without device_authorization_endpoint")
-        return self._company(domain, document, issuer, metadata, protocols, extensions)
+        return self._company(domain, document, issuer, metadata, protocols, extensions, resource_scopes=resource_scopes)
 
-    def _company(self, domain: str, document: dict[str, Any], identifier: str, metadata: dict[str, Any], protocols: list[Any], extensions: dict[str, Any], *, issuerless: bool = False) -> Company:
+    def _company(
+        self, domain: str, document: dict[str, Any], identifier: str, metadata: dict[str, Any], protocols: list[Any], extensions: dict[str, Any],
+        *, issuerless: bool = False, resource_scopes: list[str] | None = None,
+    ) -> Company:
         grants = metadata.get("grant_types_supported", [])
         conversations = next((p["endpoint"] for p in protocols if p.get("type") == "poppy"), None)
         openapi = next((a["url"] for a in document.get("apis", []) if a.get("type") == "openapi"), None)
         mcp = next((a["url"] for a in document.get("apis", []) if a.get("type") == "mcp"), None)
-        # 3.3: an extension counts only at a major version we support; anything else is ignored.
-        operations = isinstance(extensions.get("operations"), dict) and extensions["operations"].get("version") == "2"
-        mediated_entry = extensions.get("mediated-sign-in")
-        mediated = mediated_entry if isinstance(mediated_entry, dict) and mediated_entry.get("version") == "1" and MEDIATED_GRANT in grants else None
+
+        def entry(name: str, version: str) -> dict[str, Any] | None:
+            """3.3: an extension is a list with an entry per major version; one we don't support, or another shape, is ignored."""
+            entries = extensions.get(name)
+            found = [e for e in entries if isinstance(e, dict) and e.get("version") == version] if isinstance(entries, list) else []
+            return found[0] if found else None
+
+        mediated = entry("mediated-sign-in", "1")
         web = document.get("web") if isinstance(document.get("web"), dict) else {}
-        feedback = document.get("feedback", {}).get("endpoint") if isinstance(document.get("feedback"), dict) else None
-        excluded = document.get("excluded_tasks", {}).get("url") if isinstance(document.get("excluded_tasks"), dict) else None
+        tasks = document.get("tasks", {}).get("endpoint") if isinstance(document.get("tasks"), dict) else None
         return Company(
             domain, document, identifier, metadata, conversations, openapi, mcp,
-            web.get("browser_session_endpoint"), feedback, excluded, operations, mediated, issuerless,
+            None if web.get("disabled") is True else web.get("browser_session_endpoint"), tasks,
+            entry("operations", "3"), mediated if MEDIATED_GRANT in grants else None, issuerless, resource_scopes or [],
         )
 
     # ---- JWTs (4.1, 4.5, 5.2) ----
@@ -894,16 +1018,22 @@ class Poppy:
         operator: bool = True,
         operator_omit: tuple[str, ...] = (),
         operator_corrupt: bool = False,
+        version: Any = DEFAULT,
+        extensions: Any = DEFAULT,
+        accept: str = "application/json",
     ) -> Reply:
         """
-        A request with the Session header (5.2), the agent's operator
-        signature when it has an operator key (5.3), and, signed in, the access
-        token with the scheme its `token_type` named (4.5), and a DPoP proof
-        with `ath` when it is DPoP-bound. Only to the Company's hosts, never
-        with a token or Session JWT in the URL. Retries once on
-        `use_dpop_nonce`, and after a 429 once its `Retry-After` has passed,
-        each time with a new Session JWT and proof. `token`, `scheme`, `key`,
-        `proof` and `session_jwt` are only for the reject rules.
+        A request with the Session header (5.2), `Poppy-Version` and, when
+        the Session uses extensions, `Poppy-Extensions`, as the Session
+        declares them (3.4), the agent's operator signature when it has an
+        operator key (5.3), and, signed in, the access token with the scheme
+        its `token_type` named (4.5), and a DPoP proof with `ath` when it is
+        DPoP-bound. Only to the Company's hosts, never with a token or
+        Session JWT in the URL. Retries once on `use_dpop_nonce`, and after a
+        429 once its `Retry-After` has passed, each time with a new Session
+        JWT and proof. `token`, `scheme`, `key`, `proof`, `session_jwt`,
+        `version` and `extensions` (None: left out) are only for the reject
+        rules.
         """
         if not company.may_receive_tokens(url):
             raise AssertionError(f"refusing to send a Session JWT or token to {url}")
@@ -923,7 +1053,13 @@ class Poppy:
                 header_value = session_jwt
             else:
                 header_value = self.session_jwt(company, session, method, url, sent_token)
-            request_headers = {"Poppy-Session": header_value, "Accept": "application/json"}
+            request_headers = {"Poppy-Session": header_value, "Accept": accept}
+            sent_version = session.version if version is DEFAULT else version
+            sent_extensions = session.extensions_header() if extensions is DEFAULT else extensions
+            if sent_version is not None:
+                request_headers["Poppy-Version"] = sent_version
+            if sent_extensions is not None:
+                request_headers["Poppy-Extensions"] = sent_extensions
             sent_proof = None
             if sent_token is not None:
                 request_headers["Authorization"] = f"{sent_scheme} {sent_token}"
@@ -952,7 +1088,7 @@ class Poppy:
 
     # ---- APIs (7): the OpenAPI writes the state machines use ----
 
-    def exchange(self, session: Session, company: Company, api_base: str, idempotency_key: str | None, *, approval: tuple[str, str] | None = None) -> Reply:
+    def exchange(self, session: Session, company: Company, api_base: str, idempotency_key: str | None, *, approval: dict[str, Any] | None = None) -> Reply:
         """
         `POST /orders/ord_7Hk2/exchanges` (the fixture's `openapi_write`),
         with an `Idempotency-Key`, and with `Poppy-Approval` when it is the
@@ -962,7 +1098,7 @@ class Poppy:
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         if approval is not None:
-            headers["Poppy-Approval"] = approval_header(*approval)
+            headers["Poppy-Approval"] = approval_header(approval)
         body = {"item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m"}
         return self.resource(session, "POST", f"{api_base}/orders/ord_7Hk2/exchanges", company, body=body, headers=headers)
 
@@ -978,10 +1114,10 @@ class Poppy:
             session, "POST", f"{api_base}/photos", company, content=content, content_type=f"multipart/form-data; boundary={boundary}"
         )
 
-    def order_prints(self, session: Session, company: Company, api_base: str, order: dict[str, Any], idempotency_key: str, *, approval: tuple[str, str] | None = None) -> Reply:
+    def order_prints(self, session: Session, company: Company, api_base: str, order: dict[str, Any], idempotency_key: str, *, approval: dict[str, Any] | None = None) -> Reply:
         headers = {"Idempotency-Key": idempotency_key}
         if approval is not None:
-            headers["Poppy-Approval"] = approval_header(*approval)
+            headers["Poppy-Approval"] = approval_header(approval)
         return self.resource(session, "POST", f"{api_base}/prints", company, body=order, headers=headers)
 
     # ---- MCP (7) ----
@@ -1079,74 +1215,134 @@ class Poppy:
 
     # ---- conversations (8) ----
 
-    def post_message(
+    def conversation_post(
         self,
         session: Session,
         company: Company,
-        raw_message: str,
-        conversation: str | None,
+        path: str,
+        request_id: str | None,
+        members: str = "",
         *,
         wait: int | None = None,
         cursor: str | None = None,
-        parent: str | None = None,
+        raw_body: str | None = None,
     ) -> Reply:
         """
-        Start a conversation (`conversation` None) or send to one (8.3).
-        `raw_message` is the message's JSON text. `parent` starts a Direct
-        Conversation linked to that one (8.10).
+        One conversation `POST` (8.2, 8.3): a JSON body with the request `id`
+        first, then `members` (JSON text of further members, each followed by
+        a comma), and `wait` and `cursor` as query parameters, which aren't
+        part of what a retry repeats. `raw_body` replaces the body, and a
+        `request_id` of None leaves the id out, for the reject rules.
         """
         assert company.conversations is not None
-        assert parent is None or conversation is None
-        url = company.conversations if conversation is None else f"{company.conversations}/{conversation}/messages"
         params: dict[str, str] = {}
         if wait is not None:
             params["wait"] = str(wait)
         if cursor is not None:
             params["cursor"] = cursor
-        prefix = "{" + (f'"parent_conversation_id":{json.dumps(parent)},' if parent is not None else "")
-        return self.resource(session, "POST", url, company, raw_body=prefix + '"message":' + raw_message + "}", params=params)
+        if raw_body is None:
+            inner = (f'"id":{json.dumps(request_id)},' if request_id is not None else "") + members
+            raw_body = "{" + inner.rstrip(",") + "}"
+        return self.resource(session, "POST", company.conversations + path, company, raw_body=raw_body, params=params)
 
-    def handoff(self, session: Session, company: Company, conversation: str) -> Reply:
-        """Ask for a person at the Company (8.9): an empty JSON object."""
-        assert company.conversations is not None
-        return self.resource(session, "POST", f"{company.conversations}/{conversation}/handoff", company, body={})
+    def post_message(
+        self,
+        session: Session,
+        company: Company,
+        request_id: str | None,
+        raw_message: str | None,
+        conversation: str | None,
+        *,
+        wait: int | None = None,
+        cursor: str | None = None,
+        parent: str | None = None,
+        invitation: str | None = None,
+    ) -> Reply:
+        """
+        Start a conversation (`conversation` None) or send to one (8.3). The
+        request `id` is the message's id, so the message has none.
+        `raw_message` is the message's JSON text. `parent` starts a Direct
+        Conversation linked to that one, and `invitation` accepts that
+        parent's `user_requested` event, with or without a message (8.10).
+        """
+        assert parent is None or conversation is None
+        members = ""
+        if parent is not None:
+            members += f'"parent_conversation_id":{json.dumps(parent)},'
+        if invitation is not None:
+            members += f'"user_requested_event_id":{json.dumps(invitation)},'
+        if raw_message is not None:
+            members += f'"message":{raw_message},'
+        path = "" if conversation is None else f"/{conversation}/messages"
+        return self.conversation_post(session, company, path, request_id, members, wait=wait, cursor=cursor)
 
-    def read_events(self, session: Session, company: Company, conversation: str, cursor: str | None, *, stream: bool) -> tuple[Reply, list[dict[str, Any]] | None]:
+    def handoff(self, session: Session, company: Company, conversation: str, request_id: str) -> Reply:
+        """Ask for a person at the Company (8.9): the request `id` alone."""
+        return self.conversation_post(session, company, f"/{conversation}/handoff", request_id)
+
+    def cancel_handoff(self, session: Session, company: Company, conversation: str, request_id: str) -> Reply:
+        """Withdraw a request for a person (8.9): the request `id` alone, to `handoff/cancel`."""
+        return self.conversation_post(session, company, f"/{conversation}/handoff/cancel", request_id)
+
+    def close_conversation(self, session: Session, company: Company, conversation: str, request_id: str) -> Reply:
+        """Close it (8.12): the request `id` alone."""
+        return self.conversation_post(session, company, f"/{conversation}/close", request_id)
+
+    def read_events(self, session: Session, company: Company, conversation: str, cursor: str | None, *, stream: bool) -> tuple[Reply, list[dict[str, Any]] | None, list[Any]]:
         """
         One read (8.5, 8.6). JSON: `cursor` as a query parameter. A stream:
         `Last-Event-ID` in place of `cursor`; `text-delta` pieces and
         comments are dropped, and each event's SSE `id` must be its own.
+        Returns the reply, the events, and a stream's `working` events, in
+        order, with whether each came before every conversation event.
         """
         assert company.conversations is not None
         url = f"{company.conversations}/{conversation}/events"
         if not stream:
             reply = self.resource(session, "GET", url, company, params={"cursor": cursor} if cursor is not None else None)
-            return reply, (reply.body.get("events") if reply.status == 200 and isinstance(reply.body, dict) else None)
+            return reply, (reply.body.get("events") if reply.status == 200 and isinstance(reply.body, dict) else None), []
         headers = {"Accept": "text/event-stream, application/json"}
         if cursor is not None:
             headers["Last-Event-ID"] = cursor
         reply = self.resource(session, "GET", url, company, headers=headers)
         if reply.status != 200:
-            return reply, None
+            return reply, None, []
         if reply.body is not None:  # the Company answered JSON after all
-            return reply, reply.body.get("events")
-        return reply, parse_sse(reply.text)
-
-    def close_conversation(self, session: Session, company: Company, conversation: str) -> Reply:
-        assert company.conversations is not None
-        return self.resource(session, "POST", f"{company.conversations}/{conversation}/close", company, body={})
+            return reply, reply.body.get("events"), []
+        events, working = parse_sse(reply.text)
+        return reply, events, working
 
     # ---- task coverage (9) ----
 
-    def excluded(self, company: Company) -> Reply:
-        """9.1: the excluded-tasks document, fetched like discovery: a GET with no token or Session header."""
-        assert company.excluded_tasks is not None
-        return Reply.of(self.http.get(company.excluded_tasks, follow_redirects=False))
+    def tasks(self, session: Session, company: Company, *, token: Any = None) -> Reply:
+        """9: `GET {tasks.endpoint}`, with the Session header and no access token, even signed in (`token` only for the reject rule)."""
+        assert company.tasks is not None
+        return self.resource(session, "GET", company.tasks, company, token=token)
 
-    def report(self, session: Session, company: Company, task: str, description: str) -> Reply:
-        """9.3: a feedback report, with the Session header and, signed in, the token; no scope needed."""
-        assert company.feedback is not None
-        return self.resource(session, "POST", company.feedback, company, body={"task": task, "description": description})
+    def report(self, session: Session, company: Company, endpoint: str, body: Any) -> Reply:
+        """
+        9.3: a feedback report to the endpoint the tasks response named, with
+        the Session header. No scope is needed, so no access token
+        (readings v04-tasks).
+        """
+        if not company.may_receive_tokens(endpoint):
+            raise AssertionError(f"a feedback endpoint off the Company's hosts: {endpoint}")
+        return self.resource(session, "POST", endpoint, company, body=body, token=None)
+
+    # ---- website pages without a browser (5.2) ----
+
+    def fetch_page(self, session: Session, company: Company, url: str, **options: Any) -> Reply:
+        """
+        5.2: a page of the website fetched with our own HTTP client, not a
+        browser: the Session header, signed out (no access token, so no
+        `ath`), only for HTTPS URLs on exactly `organization.domain`. Where
+        the Company lists `browser_session_endpoint`, the fetch browser joins
+        instead and sends no header (readings v04-fetch-browser).
+        """
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme != "https" or (parts.hostname or "").lower() != company.organization_domain:
+            raise AssertionError(f"the Session header goes only to pages on {company.organization_domain}, not {url}")
+        return self.resource(session, "GET", url, company, token=options.pop("token", None), accept="text/html", **options)
 
 
 class Browser:
@@ -1199,23 +1395,6 @@ class Browser:
             return response
 
 
-def join_browser(poppy: Poppy, browser: Browser, session: Session, company: Company) -> tuple[Reply, httpx.Response | None]:
-    """
-    The browser join (6): the browser loads the page, our own request
-    authorizes its code at `{browser_session_endpoint}/authorize` with the
-    Session header and, signed in, the access token, and the browser submits
-    the code. The token never reaches the browser. Returns the authorize
-    reply and, when it was accepted, the browser's submit.
-    """
-    assert company.browser_session is not None
-    _, code, action = browser.open_join(company.browser_session)
-    assert code is not None and action is not None, "the browser-session page gave no code to join with"
-    authorized = poppy.resource(session, "POST", f"{company.browser_session.rstrip('/')}/authorize", company, body={"code": code})
-    if authorized.status != 204:
-        return authorized, None
-    return authorized, browser.submit_join(action, code)
-
-
 def htu(url: str) -> str:
     """`htu`: the request URL without its query or fragment (RFC 9449 4.2; 0.3 5.2)."""
     parts = urllib.parse.urlsplit(url)
@@ -1249,13 +1428,17 @@ def strict_json(text: str) -> Any:
     return json.loads(text, object_pairs_hook=pairs)
 
 
-def parse_sse(text: str) -> list[dict[str, Any]]:
+def parse_sse(text: str) -> tuple[list[dict[str, Any]], list[tuple[Any, bool]]]:
     """
-    Server-sent events (HTML Living Standard 9.2.6), as Poppy uses them:
-    each `message` event's data is one conversation event, whose `id` the
-    SSE `id` field repeats. `text-delta` events are only for display (7.6).
+    Server-sent events (HTML Living Standard 9.2.6), as Poppy 0.4 uses them
+    (8.6): each `message` event's data is one conversation event, whose `id`
+    the SSE `id` field repeats. `working` arrives as a `working` event with
+    no SSE `id`; `text-delta` events are only for display. Returns the
+    conversation events, and each `working` value with whether it came
+    before every conversation event.
     """
     events: list[dict[str, Any]] = []
+    working: list[tuple[Any, bool]] = []
     for block in re.split(r"\r\n\r\n|\n\n|\r\r", text):
         kind, data, sse_id = "message", [], None
         for line in re.split(r"\r\n|\n|\r", block):
@@ -1269,10 +1452,26 @@ def parse_sse(text: str) -> list[dict[str, Any]]:
                 data.append(value)
             elif name == "id":
                 sse_id = value
-        if not data or kind != "message":
+        if not data:
+            continue
+        if kind == "working":
+            if sse_id is not None:
+                raise AssertionError(f"a working event with an SSE id {sse_id!r} (8.6: it has none)")
+            working.append((json.loads("\n".join(data)).get("working"), not events))
+            continue
+        if kind != "message":
             continue
         event = json.loads("\n".join(data))
         if sse_id != event.get("id"):
             raise AssertionError(f"SSE id {sse_id!r} isn't the event's id {event.get('id')!r}")
         events.append(event)
-    return events
+    return events, working
+
+
+def jwt_sid(value: str | None) -> str | None:
+    """The `sid` in a Session JWT's payload, read without verifying it, for the transport's log."""
+    try:
+        payload = (value or "").split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("sid")
+    except (IndexError, ValueError, AttributeError):
+        return None

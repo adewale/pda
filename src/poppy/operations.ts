@@ -1,7 +1,7 @@
 /**
  * Local approvals: a request the agent makes only once the User has
  * approved it on a card of ours: uploads of the User's files, website forms,
- * and operations a Company returned (0.3 Operations 2, `operations-v2.ts`).
+ * and operations a Company returned (Operations 3, `operations-v2.ts`).
  * Task requests share their durable dispatch/recovery machinery without
  * inventing a preliminary approval; exact requests and outcomes survive replay. Also what a card shows of an operation's
  * terms, and where they disagree with its summary or the request (Ops 5).

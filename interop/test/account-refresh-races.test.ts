@@ -20,7 +20,7 @@ async function fixture(answer: PoppyHost["fetcher"], previousEncryptionKey?: str
   migrate(sql);
   const issuer = toIssuer("https://auth.shop.example");
   const company: Company = {
-    issuer, domain: "shop.example", name: "Shop", protocolVersion: "0.3",
+    issuer, domain: "shop.example", name: "Shop", protocolVersion: "0.4",
     endpoints: { token: `${issuer}/token`, revocation: `${issuer}/revoke` },
     signIn: {}, customScopes: {}, extensions: {}, apis: [],
     conversations: { endpoint: "https://api.shop.example/conversations" }

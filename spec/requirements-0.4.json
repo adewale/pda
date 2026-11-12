@@ -27,10 +27,10 @@
     },
     {
       "change": "Extensions declared per request",
-      "disposition": "Planned",
-      "implementation": "src/poppy/routes.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "F1 (done) reads each extension as a list of versions; F2 (done) sends Poppy-Extensions, fixed per Session, and keeps the client metadata's extensions for 0.3 Companies, which 0.4 ignores; M1 takes the declaration from the header."
+      "disposition": "Done",
+      "implementation": "src/poppy/declaration.ts",
+      "evidence": "test/properties/session-declaration.test.ts",
+      "notes": "F1 reads each extension as a list of versions; F2 sends Poppy-Extensions, fixed per Session; M1 takes the declaration from the header. The client metadata lists no extensions since 0.3 was dropped (decision 49)."
     },
     {
       "change": "Conversations across versions",
@@ -48,10 +48,10 @@
     },
     {
       "change": "`web.unscoped`",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "W2 reads it before requesting the scope. Kit: discovery.web-unscoped."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W2: discovery reads it, and the model and the sign-in card are told what poppy:browser-sign-in gives before it is requested; an instruction never approves a website's operation when the website is unscoped. Kit: discovery.web-unscoped."
     },
     {
       "change": "`web.disabled`",
@@ -65,14 +65,14 @@
       "disposition": "Done",
       "implementation": "src/poppy/fetch-browser.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "W4 is done, 0.4 only: under 0.3 website pages never carry the header. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header with the Session's declared versions and the operator signature, to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry of a page (not a form) after invalid_session. The mock verifies a page's header and records one off-host (page.session-off-host), beside a token (page.token), or in a 0.3 request (page.session-0.3)."
+      "notes": "W4 is done. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header with the Session's declared versions and the operator signature, to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry of a page (not a form) after invalid_session. The mock verifies a page's header and records one off-host (page.session-off-host) or beside a token (page.token)."
     },
     {
       "change": "Conversation state in four fields",
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "Done. C1: a 0.4 conversation stores working, handoff and responder from reads, POST replies, state events and streamed working events, and derives a local status (closed, queued, working or idle) for scheduling; F5 migrated the rows, index and protocol-log trigger. U1 to U3: the model's tools, Activity and the protocol log show the four fields, never the derived status; 0.3 conversations keep status and responder. Kit: conversations.events-schema, conversations.closed-not-working and conversations.working-settles pass."
+      "notes": "Done. C1: a 0.4 conversation stores working, handoff and responder from reads, POST replies, state events and streamed working events, and derives a local status (closed, queued, working or idle) for scheduling; F5 migrated the rows, index and protocol-log trigger. U1 to U3: the model's tools, Activity and the protocol log show the four fields, never the derived status. Kit: conversations.events-schema, conversations.closed-not-working and conversations.working-settles pass."
     },
     {
       "change": "Requests are accepted, then acted on",
@@ -93,7 +93,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "C3: poppy_handoff_cancel sends a request ID to handoff/cancel and reads the result, since the Company may keep looking; a 0.3 conversation refuses it. Kit: conversations.cancel-without-handoff, conversations.closed-handoff-cancel and conversations.request-id-other-url pass."
+      "notes": "C3: poppy_handoff_cancel sends a request ID to handoff/cancel and reads the result, since the Company may keep looking. Kit: conversations.cancel-without-handoff, conversations.closed-handoff-cancel and conversations.request-id-other-url pass."
     },
     {
       "change": "What a message took into account",
@@ -135,7 +135,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/instructions.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "O3: 0.4 Sessions declare operations version 3, 0.3 Sessions keep version 2, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2 (decision 44): the User writes standing instructions on the Companies page, never the model; when an operation arrives, a deterministic check approves it as the agent (approver agent, no input_type) only if every condition of one instruction holds on its terms, in exact decimal arithmetic and the same currency, its budget has room, and the Session holds no scope that can make changes that can't be undone. Otherwise the User's card stays. A withdrawn instruction stops approvals not yet sent; Activity shows each one and the instruction it rested on. A revision answering an agent approval, or after a decline, goes to the User (11 November text). Kit: approval.schema.json through the schema oracle (V0)."
+      "notes": "O3: Sessions declare operations version 3, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2 (decision 44): the User writes standing instructions on the Companies page, never the model; when an operation arrives, a deterministic check approves it as the agent (approver agent, no input_type) only if every condition of one instruction holds on its terms, in exact decimal arithmetic and the same currency, its budget has room, and the Session holds no scope that can make changes that can't be undone. Otherwise the User's card stays. A withdrawn instruction stops approvals not yet sent; Activity shows each one and the instruction it rested on. A revision answering an agent approval, or after a decline, goes to the User (11 November text). Kit: approval.schema.json through the schema oracle (V0)."
     },
     {
       "change": "Operations require terms",
@@ -170,21 +170,21 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "0.4 only: discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's; a 0.3 Company's issuer list stays the only one. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. Mock: resourceScopes."
+      "notes": "Discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. Mock: resourceScopes."
     },
     {
       "change": "`extension_required` in a JSON body at APIs",
       "disposition": "Done",
       "implementation": "src/poppy/client.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "X1 is done: one reading of the JSON body names the extension for the model and the User at OpenAPI operations, MCP servers and protocol endpoints, beside 0.3's WWW-Authenticate challenge. The mock answers in a body under 0.4, at its OpenAPI and MCP servers alike."
+      "notes": "X1 is done: one reading of the JSON body names the extension for the model and the User at OpenAPI operations, MCP servers and protocol endpoints. The mock answers in a body under 0.4, at its OpenAPI and MCP servers alike."
     },
     {
       "change": "Device sign-in links on the issuer or Company domain",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "K3 applies to the 0.4 profile only: under 0.3 a multi-domain issuer may legally put its device page on another protected resource's host, and refusing it ends the sign-in."
+      "evidence": "test/ui/device-link.test.tsx",
+      "notes": "K3: a device link is shown only on the issuer's host or organization.domain, or a subdomain of either. Another protected resource of the same issuer is refused, which 0.3 allowed; done once 0.3 was dropped (decision 49)."
     },
     {
       "change": "Refresh token lifetimes left to the Company",
@@ -209,10 +209,10 @@
     },
     {
       "change": "Scopes described twice",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "K2: describeScopes prefers an OpenAPI description today, the 0.3 order; 0.4 prefers auth.scopes."
+      "evidence": "test/poppy-core.test.ts",
+      "notes": "K2: describeScopes prefers auth.scopes, and uses an OpenAPI description only for a scope auth.scopes doesn't describe; 0.3's order was the reverse. Done once 0.3 was dropped (decision 49)."
     },
     {
       "change": "One User ID per delegated key at the Company",
@@ -254,7 +254,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/authority.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "A1 is done, per decision 43: under Operations 3 an API, MCP or conversation approval holds in any Session of the same agent and User with the same account, so one the Company ends before the approval is sent is followed by the new Session. Signed-out stays separate from signed-in, and a sign-out still voids an approval (local policy: the withdrawal generation must match). 0.3 approvals and website form consent stay in their Session."
+      "notes": "A1 is done, per decision 43: under Operations 3 an API, MCP or conversation approval holds in any Session of the same agent and User with the same account, so one the Company ends before the approval is sent is followed by the new Session. Signed-out stays separate from signed-in, and a sign-out still voids an approval (local policy: the withdrawal generation must match). Website form consent stays in its Session."
     },
     {
       "change": "When and how the User approved",
@@ -288,7 +288,7 @@
       "change": "Feedback operations for other clients",
       "disposition": "Done",
       "implementation": "src/poppy/coverage.ts",
-      "evidence": "test/poppy-0.3.test.ts",
+      "evidence": "test/poppy-core.test.ts",
       "notes": "Feedback goes only to feedback.endpoint through poppy_feedback; under 0.4 that endpoint comes from the tasks response (T1)."
     },
     {

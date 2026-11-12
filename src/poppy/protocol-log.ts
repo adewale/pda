@@ -26,7 +26,7 @@ type Sql = SqlStorage;
 
 export { PROTOCOL_LOG_LIMIT };
 
-/** Each step's section of 0.3 ("§"), the Operations extension ("Ops §") or the Mediated Sign-In extension ("MSI §"), and its subject. */
+/** Each step's section of the core protocol ("§"), the Operations extension ("Ops §") or the Mediated Sign-In extension ("MSI §"), and its subject. */
 export const PROTOCOL_STEPS = {
   "discovery.poppy": { section: "§3", title: "Discovery" },
   "discovery.resource": { section: "§3.2", title: "Protected resource" },
@@ -57,6 +57,7 @@ export const PROTOCOL_STEPS = {
   "conversation.handoff": { section: "§8.9", title: "Handoff" },
   "conversation.direct": { section: "§8.10", title: "Direct Conversation" },
   "conversation.close": { section: "§8.12", title: "Closing" },
+  "tasks.read": { section: "§9", title: "Task coverage" },
   "feedback.send": { section: "§9.3", title: "Feedback" },
   "operation.approval_required": { section: "Ops §4", title: "Asking for approval" },
   "operation.decided": { section: "Ops §5", title: "The User's approval" },
@@ -118,26 +119,22 @@ export function migrateProtocolLog(sql: Sql): void {
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, CASE WHEN new.direct THEN 'conversation.direct' ELSE 'conversation.opened' END, 'info',
         CASE WHEN new.direct THEN 'Direct Conversation ' ELSE 'Conversation ' END || substr(new.id, 1, 64) || ' opened'
           || CASE WHEN new.parent IS NOT NULL THEN ' under ' || substr(new.parent, 1, 64) ELSE '' END,
-        CASE WHEN new.protocol_version = '0.3' THEN 'status ' || substr(new.status, 1, 32) || ', responder ' || substr(new.responder, 1, 32)
-          ELSE 'working ' || CASE WHEN new.working THEN 'true' ELSE 'false' END || ', handoff ' || substr(new.handoff, 1, 32)
-            || ', responder ' || substr(new.responder, 1, 32) END);
+        'working ' || CASE WHEN new.working THEN 'true' ELSE 'false' END || ', handoff ' || substr(new.handoff, 1, 32)
+          || ', responder ' || substr(new.responder, 1, 32));
     END`,
-    // 0.3's status and responder; 0.4's four fields as the Company sent them (8.7), naming only those that changed.
+    // The four fields as the Company sent them (8.7), naming only those that changed.
     poppy_protocol_conversation_status: `AFTER UPDATE OF status, responder, handoff, working ON poppy_conversations
       WHEN old.status IS NOT new.status OR old.responder IS NOT new.responder
-        OR (new.protocol_version != '0.3' AND (old.handoff IS NOT new.handoff OR old.working IS NOT new.working)) BEGIN
+        OR old.handoff IS NOT new.handoff OR old.working IS NOT new.working BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'conversation.status', 'info',
         'Conversation ' || substr(new.id, 1, 64),
-        CASE WHEN new.protocol_version = '0.3' THEN
-          'status ' || substr(old.status, 1, 32) || ' → ' || substr(new.status, 1, 32)
-            || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32)
-        ELSE substr(
+        substr(
           CASE WHEN (old.status = 'closed') IS NOT (new.status = 'closed') THEN ', closed ' || CASE WHEN new.status = 'closed' THEN 'false → true' ELSE 'true → false' END ELSE '' END
             || CASE WHEN old.working IS NOT new.working THEN ', working ' || CASE WHEN new.working THEN 'false → true' ELSE 'true → false' END ELSE '' END
             || CASE WHEN old.handoff IS NOT new.handoff THEN ', handoff ' || substr(old.handoff, 1, 32) || ' → ' || substr(new.handoff, 1, 32) ELSE '' END
             || CASE WHEN old.responder IS NOT new.responder THEN ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32) ELSE '' END,
-          3) END);
+          3));
     END`,
     // Operations a Company returned, wherever (Ops 4), and the User's answer (Ops 5): ids and revision, never the summary or terms.
     poppy_protocol_operation_new: `AFTER INSERT ON poppy_approvals WHEN new.terms IS NOT NULL BEGIN
@@ -340,7 +337,7 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
       issuer,
       step: "discovery.verdict",
       outcome: report.refused ? "refused" : "ok",
-      // `checkedAgainst` is the validator's own name for the profile, such as "Draft 0.3".
+      // `checkedAgainst` is the validator's own name for the profile, such as "Draft 0.4".
       summary: `Validated against ${report.checkedAgainst}`,
       result: [
         `${VERDICT[report.outcome] ?? "unknown"}: ${error} error${error === 1 ? "" : "s"}, ${warning} warning${warning === 1 ? "" : "s"}, ${info} info`,
@@ -522,8 +519,9 @@ function waitOf(url: URL): string | null {
 function messageFields(body: unknown): string | null {
   if (!isObj(body) || !isObj(body.message)) return null;
   const message = body.message;
-  const fields = ["text", "data", "context", "approval"].filter((field) => message[field] !== undefined);
-  const id = label(message.id);
+  const fields = ["text", "data", "context", "extensions"].filter((field) => message[field] !== undefined);
+  // A message's ID is its request's (8.3).
+  const id = label(body.id);
   const author = writtenBy(message);
   return [id ? `message ${id}` : "message", author ? `author ${author}` : null, fields.length ? `with ${fields.join(", ")}` : null].filter(Boolean).join(" ");
 }
@@ -547,6 +545,8 @@ function classify(company: Company, request: ResourceRequest, url: URL): { step:
   const at = bareUrl(url);
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
   const approval = approvalOf(request);
+  // 9: the tasks response, read with the Session header and no token.
+  if (below(company.tasks?.endpoint, url)?.length === 0) return { step: "tasks.read", summary: "Read the excluded tasks and the feedback endpoint", url: at };
   const conversation = below(company.conversations?.endpoint, url);
   if (conversation) {
     const id = label(conversation[0] ?? "");
@@ -564,17 +564,13 @@ function classify(company: Company, request: ResourceRequest, url: URL): { step:
       const stream = (request.accept ?? "").includes("text/event-stream");
       return { step: "conversation.read", summary: join(`Read events of ${id ?? "a conversation"}`, url.searchParams.has("cursor") ? "from the saved cursor" : "from the start", waitOf(url), stream ? "stream or JSON" : null), url: at };
     }
-    if (conversation.length === 2 && action === "handoff") return { step: "conversation.handoff", summary: `Hand ${id ?? "the conversation"} off to a person, with {}`, url: at };
-    if (conversation.length === 2 && action === "close") return { step: "conversation.close", summary: `Close ${id ?? "the conversation"}, with {}`, url: at };
+    if (conversation.length === 2 && action === "handoff") return { step: "conversation.handoff", summary: `Hand ${id ?? "the conversation"} off to a person, with its request id`, url: at };
+    if (conversation.length === 2 && action === "close") return { step: "conversation.close", summary: `Close ${id ?? "the conversation"}, with its request id`, url: at };
     return { step: "conversation.request", summary: `${request.method} a conversation endpoint`, url: at };
   }
   const join_ = below(company.web?.browserSessionEndpoint, url);
   if (join_ && join_.length === 1 && join_[0] === "authorize") {
     return { step: "website.join", summary: "Authorize the browser's one-time code, never recorded, for this Session", url: at };
-  }
-  if (below(company.feedback?.endpoint, url)?.length === 0) {
-    const kind = isObj(request.body) ? token(request.body.type) : null;
-    return { step: "feedback.send", summary: join("Send feedback", kind ? `type ${kind}` : null), url: at };
   }
   const mcp = company.apis.find((api) => api.type === "mcp" && bareUrl(api.url) === at);
   if (mcp) {

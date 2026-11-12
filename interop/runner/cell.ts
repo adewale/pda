@@ -37,7 +37,7 @@ export type CellRun = {
   readonly reason?: string;
 };
 
-/** The scopes scenarios sign in with when a Company's fixture names none: none, since 0.3 defines no scopes (4.7), so a sign-in step fails rather than guess (spec section 5.3). */
+/** The scopes scenarios sign in with when a Company's fixture names none: none, since Poppy leaves scopes to each Company (4.7), so a sign-in step fails rather than guess (spec section 5.3). */
 export const DEFAULT_SCOPES = { read: [], write: [] } as const;
 
 /**

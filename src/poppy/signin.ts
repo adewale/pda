@@ -30,11 +30,11 @@ function own<T>(record: Readonly<Record<string, T>> | undefined, key: string): T
 export function describeScopes(company: Company, scopes: readonly string[], fromApis: Readonly<Record<string, string>> = {}): ScopeInfo[] {
   return scopes.map((scope) => {
     const hint = own(company.scopeHints, scope);
-    // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
+    // 4.7: described in auth.scopes, or otherwise in an OpenAPI description's OAuth scheme; auth.scopes wins when both do.
     // Guides, "Choosing how to sign in": use the conservative default (upstream audit 30; docs/readings.md).
     // 6: web.unscoped means the website gives a signed-in browser the account's full access, whatever else is granted.
     const unscoped = scope === BROWSER_SIGN_IN && company.web?.unscoped;
-    return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope,
+    return { scope, description: own(company.customScopes, scope) ?? own(fromApis, scope) ?? scope,
       hint: unscoped ? "On the website: anything your account can do there" : hintText(hint ?? { changes: "irreversible", personalData: true }) };
   });
 }
@@ -74,7 +74,8 @@ export function deviceLink(company: Company, value: unknown): string | null {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
-  const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
+  // 4.3: the issuer's host or organization.domain; another protected resource of the issuer isn't enough.
+  const allowed = [new URL(company.issuer).hostname, company.domain].map((domain) => domain.toLowerCase());
   return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
 }
 

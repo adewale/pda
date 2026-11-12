@@ -526,7 +526,7 @@ The preliminary-card policy below was superseded by [decision 38](#38-task-reque
 
 ## 37. 0.3 alone: what dropping 0.1 and 0.2 overturns and settles
 
-The one-version rule below was superseded for 0.3 and 0.4 by [decision 43](#43-03-beside-04-both-versions-website-operations-and-approvals-across-sessions). Dropping 0.1 and 0.2 stands.
+The one-version rule below was superseded for 0.3 and 0.4 by [decision 43](#43-03-beside-04-both-versions-website-operations-and-approvals-across-sessions). Dropping 0.1 and 0.2 stands, and [decision 49](#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone) returned to one version, 0.4.
 
 - **Context.** Decision 36 ran 0.3 beside 0.1 and 0.2. Keeping three wires meant two client metadata documents, two operation models with two sets of tables and cards, `poppy:*` scopes beside Companies' own, and every rule asking which version it was in. The owner chose to drop 0.1 and 0.2 on 28 October, the day upstream rewrote 0.3.
 - **Decision.** The client, the page, the mock Company, the validator and the interop harness speak 0.3 alone (`PROTOCOL_VERSIONS = ["0.3"]` in `src/poppy/protocol-version.ts`); a `poppy.json` that declares 0.1 or 0.2 is refused before its issuer is used (3.1). What that overturns:
@@ -587,6 +587,8 @@ The one-version rule below was superseded for 0.3 and 0.4 by [decision 43](#43-0
 - **When.** 6 November 2026, at the owner's request.
 
 ## 43. 0.3 beside 0.4: both versions, website operations, and approvals across Sessions
+
+Speaking both versions was superseded by [decision 49](#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone), which dropped 0.3. The other choices below stand.
 
 - **Context.** Upstream published 0.3 on 4 November and froze it, and started a 0.4 draft that will get more snapshots. 0.4 is built for Companies and Personal Agents that speak several versions: `supported_versions` in `poppy.json`, `Poppy-Version` on every Session request, `version_unsupported` and a conversation's `version_mismatch` (3.4, 8.13). Print with Poppy, the Company we test against most, still serves 0.3. The owner made these choices on 9 November, after the [0.4 plan](poppy-0.4-upgrade.md) and its audit.
 - **Decision.**
@@ -656,4 +658,18 @@ The one-version rule below was superseded for 0.3 and 0.4 by [decision 43](#43-0
 - **Why.** The extension is optional (Browser Control 3), so an agent that doesn't declare it is fully conformant, and the Company handles the step as it would without the extension. Shipping off avoids putting an untested remote browser, and a live view link that controls it, in front of Users before the live check in [deployment-tasks.md](deployment-tasks.md) has run.
 - **Alternatives.** *On*: Users at a marked step get the handover, with the untested path as the risk. *Remove the code*: nothing to maintain, but turning it on later would mean building it again. *Reuse `BROWSER_RUN`*: one switch, but turning the handover off would also stop `read_url`'s rendering.
 - **Consequences.** As shipped, a deployment behaves as one without Browser Run did under decision 47. Turning it on is `"BROWSER_CONTROL": "on"` in `deployment.local.json` and a redeploy, after the live check.
+- **When.** 12 November 2026, at the owner's request.
+
+## 49. 0.3 dropped: the agent, mock, validator and interop speak 0.4 alone
+
+- **Context.** Decision 43 kept 0.3 beside 0.4 so that Print with Poppy, then the only live Company, could keep working, and so that migration would not close every open conversation. 0.4 was published on 10 November as the 1.0 release candidate and is frozen (decision 45's pin). Keeping 0.3 meant two sets of rules in every version-dependent path: Operations 2 and 3, conversation status and four-field state, `feedback` and `excluded_tasks` beside the tasks endpoint, message IDs beside request IDs, and Session declarations sent or not. The owner chose on 12 November to remove 0.3 everywhere, in a pull request after #57.
+- **Decision.**
+  - **0.4 alone.** `PROTOCOL_VERSIONS` is `["0.4"]`. The agent refuses a Company that serves only 0.3 as `version-unsupported`, as it would any version it doesn't speak (3.1). The mock serves 0.4 alone, the validator checks 0.4 documents alone, and the interop harness pairs only 0.4 implementations.
+  - **The multi-version code stays.** Choosing the newest version a Company offers, `supported_versions`, `version_unsupported` rediscovery and the per-Session declaration stay as generic code, tested with a hypothetical newer version, so the next version is added as data ([upgrading](upgrading.md)).
+  - **Stored 0.3 state follows decision 45's re-pin rule.** A conversation keeps the version it started in (8.2), so migration closes an open 0.3 conversation locally with a notice, keeping its messages and evidence. A pending approval or other task begun with a 0.3 Company is held as `company_changed` until the User reviews it, and is never replayed. A Session stored with a 0.3 declaration, or none, is never used again: the next request starts a new Session with the same account.
+  - **History stays.** The 0.3 snapshot, kit and requirement ledger stay in `spec/` and are still checked. The pin is marked `retired` in `spec/upstream.json`, and its ledger links files at the last main commit before 0.4.
+  - **The Hypothesis client moves to 0.4** rather than being dropped, so the independent oracle keeps checking the mock.
+- **Why.** No live Company the agent needs serves 0.3 alone, and 0.3 is frozen with no further revisions. One version halves the rules each request path must choose between, and the strict mock no longer has to accept both shapes. The rules for stored state already exist for re-pins, so dropping a version needs no new migration policy.
+- **Alternatives.** *Keep 0.3 until 1.0*: no interruption for a 0.3 Company, at the cost of two rule sets until then. *Drop 0.3 in the agent only*: smaller, but the mock, validator and interop would keep testing a version nothing speaks. *Delete the 0.3 pin*: less to check, but the ledger and kit review would lose their source text.
+- **Consequences.** Print with Poppy, while it serves 0.3 alone, is refused at discovery and is no longer an interop pairing; its adapter is kept for when it moves to 0.4. Users with open 0.3 conversations see retirement notices after the update. This supersedes decision 43's "Both versions" and its reasons for keeping 0.3; its other choices stand.
 - **When.** 12 November 2026, at the owner's request.

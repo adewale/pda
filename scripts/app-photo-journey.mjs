@@ -47,7 +47,7 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
       const id = `cphoto${viewport}`;
       const domain = `${id}.shop.test`;
       const company = companies.getByName(id);
-      await company.configure({ protocolVersion: "0.3", printShop: true });
+      await company.configure({ printShop: true });
       await page.setViewport(viewport === "desktop" ? { width: 1440, height: 1000, deviceScaleFactor: 1 } : { width: 390, height: 844, deviceScaleFactor: 1 });
       await page.goto("https://agent.test/", { waitUntil: "networkidle0" });
       await page.waitForSelector('textarea[aria-label="Message your agent"]');
