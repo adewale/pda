@@ -87,8 +87,8 @@ export class Web {
     }
     // 6: a Company that sets web.disabled lists no browser_session_endpoint.
     if (config.web) {
-      const web: Record<string, unknown> = config.webDisabled ? { disabled: true } : config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
-      if (config.webUnscoped && config.browserSession && !config.webDisabled) web.unscoped = true;
+      const web: Record<string, unknown> = config.webDisabled ? { disabled: true } : co.browserJoin ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
+      if (config.webUnscoped && co.browserJoin) web.unscoped = true;
       document.web = web;
     }
     // Excluded tasks and feedback come from the tasks endpoint, per Session (9).
@@ -101,10 +101,10 @@ export class Web {
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
     // Ops 2: a website that returns operations lists `endpoint`, and only beside browser join.
-    const operationsEndpoint = config.webOperations && config.browserSession && !config.webDisabled;
+    const operationsEndpoint = config.webOperations && co.browserJoin;
     if (config.operations) extensions.operations = entries({ version: "3", ...(operationsEndpoint ? { endpoint: `${hosts.web}/poppy/operations` } : {}) });
     // Browser Control 3: listed only beside browser join.
-    if (config.browserControl && config.browserSession && !config.webDisabled) extensions["browser-control"] = entries({ version: "1" });
+    if (config.browserControl && co.browserJoin) extensions["browser-control"] = entries({ version: "1" });
     const mediated = co.offeredScopes("mediated");
     if (mediated) {
       extensions["mediated-sign-in"] = entries({
@@ -297,7 +297,7 @@ export class Web {
    */
   async browserSession(inbound: Inbound): Promise<Response> {
     const co = this.company;
-    if (!co.config.browserSession) return new Response("Not found", { status: 404 });
+    if (!co.browserJoin) return new Response("Not found", { status: 404 });
     const method = inbound.request.method;
     const page = (id: ViolationId | null, message: string, status = 400) => {
       if (id) co.violation(id, `browser join: ${message}`);
@@ -349,7 +349,7 @@ export class Web {
   /** `POST {browser_session_endpoint}/authorize`, the agent's own request with the code (6, step 2). */
   async authorizeBrowserJoin(inbound: Inbound): Promise<Response> {
     const co = this.company;
-    if (!co.config.browserSession) return json({ error: "not_found" }, 404);
+    if (!co.browserJoin) return json({ error: "not_found" }, 404);
     const context = await co.authorizeResource(inbound);
     let body: unknown;
     try {
@@ -387,6 +387,17 @@ export class Web {
     return { ...session, account: live ? grant.account : null, scope: live ? [...grant.scope] : [] };
   }
 
+  /**
+   * Whether the cookie's Session may do what `scope` allows on the website.
+   * A `web.unscoped` website doesn't apply the other scopes, so
+   * `poppy:browser-sign-in` is the account's full access there (3.1, 6).
+   */
+  #allows(session: Session, scope: string): boolean {
+    if (session.scope.includes(scope)) return true;
+    const co = this.company;
+    return co.config.webUnscoped && co.browserJoin && session.scope.includes("poppy:browser-sign-in");
+  }
+
   /** `POST /account/address`: the address form, sent with the Session's cookie and its hidden field. */
   saveAddress(inbound: Inbound): Response {
     if (this.company.config.webDisabled) {
@@ -417,7 +428,7 @@ export class Web {
     if (co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
     if (inbound.request.headers.has("Poppy-Approval")) co.violation("web-operation.approval-in-browser", "the exchange form came with Poppy-Approval");
     const session = this.#session(inbound);
-    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to exchange an item.</p>", 403);
+    if (!session || session.ended || !session.account || !this.#allows(session, co.orderScopes.write)) return page("<p>Sign in to exchange an item.</p>", 403);
     const declared = session.declaration?.declared.get("operations") === "3";
     if (!co.config.webOperations || !declared) return page("<p>Confirm this exchange on our website: we'll email you a link.</p>", 403);
     const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
@@ -449,7 +460,7 @@ export class Web {
       new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     if (co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
     const session = this.#session(inbound);
-    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to return an item.</p>", 403);
+    if (!session || session.ended || !session.account || !this.#allows(session, co.orderScopes.write)) return page("<p>Sign in to return an item.</p>", 403);
     const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
     const controller = asked.controller ?? "";
     const declared = session.declaration?.declared.get("browser-control") === "1";
@@ -463,7 +474,7 @@ export class Web {
   /** `POST {operations endpoint}` (0.4 Ops 4, 6): the agent's own request, with the Session header and token. */
   async operationsEndpoint(inbound: Inbound): Promise<Response> {
     const co = this.company;
-    if (!co.config.webOperations || !co.config.browserSession) return json({ error: "not_found" }, 404);
+    if (!co.config.webOperations || !co.browserJoin) return json({ error: "not_found" }, 404);
     const context = await co.authorizeResource(inbound);
     let body: unknown;
     try {
@@ -559,7 +570,7 @@ export class Web {
     }
     if (inbound.url.pathname === "/orders" || inbound.url.pathname.startsWith("/orders/")) {
       // The cookie follows the Session's current state (6).
-      if (session && !session.ended && session.account && session.scope.includes(co.orderScopes.read)) {
+      if (session && !session.ended && session.account && this.#allows(session, co.orderScopes.read)) {
         if (inbound.url.pathname === "/orders/ord_7Hk2/exchange") {
           return html(`<h1>Exchange an item</h1><form id="exchange" method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="itm_4Qa"><label>Replacement <select name="replacement_sku"><option value="stormline-insulated-m" selected>Stormline Insulated Jacket (M)</select></label><button>Exchange</button></form>`);
         }

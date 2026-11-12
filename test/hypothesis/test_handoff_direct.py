@@ -280,18 +280,19 @@ class HandoffDirectRules:
     def parent_while_direct_is_open(self, data: st.DataObject) -> None:
         """
         8.10: while a Direct Conversation is open, the parent can be read,
-        but a message or handoff request to it is `direct_conversation_open`,
-        with the Direct Conversation's id in `conversation_id`. A handoff
-        is sent only while none is pending in the parent: the mock takes a
-        refused handoff's id as the latest request, which a later Company
-        message would name (MOCK-1). A cancel isn't sent: the mock accepts it
-        (MOCK-2). Both are in test_findings.py.
+        but a message, handoff request or handoff cancel to it is
+        `direct_conversation_open`, with the Direct Conversation's id in
+        `conversation_id`. A refused request isn't accepted, so no later
+        Company message names it in `as_of_request` (8.4).
         """
         conversation, ms = data.draw(st.sampled_from([(c, s) for c, s in self.readable() if c.direct_child is not None]))
         assert conversation.direct_child is not None
         request_id = self.new_request_id(data, ms.user)
-        if conversation.handoff != "pending" and data.draw(st.booleans(), label="handoff"):
+        kind = data.draw(st.sampled_from(["message", "handoff", "handoff/cancel"]), label="request")
+        if kind == "handoff":
             reply = self.poppy.handoff(ms.session, self.co, conversation.id, request_id)
+        elif kind == "handoff/cancel":
+            reply = self.poppy.cancel_handoff(ms.session, self.co, conversation.id, request_id)
         else:
             message = self.a_message(data, ms.user)
             reply = self.poppy.post_message(ms.session, self.co, request_id, data.draw(serialisations(message)), conversation.id)

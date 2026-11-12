@@ -94,7 +94,7 @@ class MOperation:
     order: dict[str, Any] | None = None  # a print order, as sent
     keys: list[tuple[MSession, str]] = field(default_factory=list)  # Idempotency-Keys of requests without an approval that returned it
     performed_keys: list[tuple[str, str | None]] = field(default_factory=list)  # a print order's keys that got the performed response, each with the account it was sent under
-    declined: dict[str, dict[str, Any]] = field(default_factory=dict)  # declined revisions, each with the approval declined (Ops 6)
+    declined: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)  # (revision, approver) declined, each with the approval declined (Ops 6)
     user_only: set[str] = field(default_factory=set)  # revisions that answered an agent approval: only the User approves them (Ops 5)
     agent_used: bool = False  # the agent approved a revision of it itself (readings v04-agent-approval-again)
     last_approval: dict[str, Any] | None = None  # the approval it was performed with, which a retry sends again (Ops 7)
@@ -231,13 +231,12 @@ class OperationsRules:
 
     def honest_revisions(self, op: MOperation) -> list[str]:
         """
-        What the User may approve: a revision returned, not one whose
+        What the User may approve: a revision returned, not one whose User
         approval was declined (Ops 6: "MUST NOT send that approval again").
-        A User's approval of a revision whose agent approval was declined
-        would be a new approval, but the mock records it (MOCK-5,
-        test_findings.py), so the honest agent stays clear of it.
+        A revision whose agent approval was declined is the User's to approve:
+        that is a new approval (readings v04-agent-approval-again).
         """
-        return sorted(r for r in op.revisions if r not in op.declined)
+        return [r for r in op.revisions if (r, "user") not in op.declined]
 
     def agent_may_approve(self, op: MOperation, revision: str) -> bool:
         """Ops 5, 6 and readings v04-agent-approval-again: not after a decline, not twice, and not a revision that answered the agent's own approval."""
@@ -470,7 +469,7 @@ class OperationsRules:
         for violation in self.member_violations(ms, given):
             self.violation(violation)
         if op.performed is None:
-            if revision in op.declined:
+            if (revision, "agent" if agent else "user") in op.declined:
                 self.violation("approval.declined-resent")
             elif agent and op.declined:
                 self.violation("approval.agent-after-decline")
@@ -496,7 +495,7 @@ class OperationsRules:
         if declines == "all" or (declines == "agent" and agent):
             assert kind == "declined", f"{kind}: {got}"
             self.check_declined(got, op, revision, with_error=op.channel != "conversation")
-            op.declined[revision] = given
+            op.declined[(revision, "agent" if agent else "user")] = given
             return "declined"
         assert kind == "performed", f"an approval of {op.id} revision {revision} wasn't performed: {kind} {got}"
         self.perform(op, got)
@@ -517,7 +516,7 @@ class OperationsRules:
         if op.performed is not None and op.last_approval is not None:
             given = op.last_approval
         else:
-            revision = data.draw(st.sampled_from(self.honest_revisions(op) or sorted(op.revisions)), label="revision approved")
+            revision = data.draw(st.sampled_from(self.honest_revisions(op) or list(op.revisions)), label="revision approved")
             approvers = ["user", "agent"] if self.agent_may_approve(op, revision) else ["user"]
             approver = data.draw(st.sampled_from(approvers), label="approver")
             given = approval(op.id, revision, approver, input_type=data.draw(st.sampled_from(["tap", None])) if approver == "user" else None)
@@ -556,11 +555,11 @@ class OperationsRules:
         """
         op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.channel in ("api", "mcp", "prints")]))
         flaw = data.draw(st.sampled_from(["unknown revision", "changed request"] if op.channel != "prints" else ["unknown revision"]))
-        named = random_id("rev_") if flaw == "unknown revision" else data.draw(st.sampled_from(self.honest_revisions(op) or sorted(op.revisions)))
+        named = random_id("rev_") if flaw == "unknown revision" else data.draw(st.sampled_from(self.honest_revisions(op) or list(op.revisions)))
         given = approval(op.id, named, "user")
         for violation in self.member_violations(ms, given):
             self.violation(violation)
-        if named in op.declined:
+        if (named, "user") in op.declined:
             self.violation("approval.declined-resent")
         op.approvals += 1
         if op.channel == "api":
@@ -670,7 +669,7 @@ class OperationsRules:
         reached(f"reference reused: {self.approve_and_check(op, ms, given)}")
 
     def references_of(self, op: MOperation) -> list[tuple[str, str]]:
-        return sorted((ref, approved) for (user, ref), approved in self.references.items() if user == op.user.user.user_id)
+        return [(ref, approved) for (user, ref), approved in self.references.items() if user == op.user.user.user_id]
 
     def declined_ops(self) -> list[tuple[MOperation, MSession]]:
         return [(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.declined]
@@ -680,8 +679,8 @@ class OperationsRules:
     def declined_approval_again(self, data: st.DataObject) -> None:
         """Reject: a declined approval sent again (Ops 6: MUST NOT); recorded, and declined again."""
         op, ms = data.draw(st.sampled_from(self.declined_ops()))
-        revision = data.draw(st.sampled_from(sorted(op.declined)))
-        reached(f"{op.channel}: declined approval again, {self.approve_and_check(op, ms, op.declined[revision])}")
+        declined = data.draw(st.sampled_from(list(op.declined)))
+        reached(f"{op.channel}: declined {declined[1]} approval again, {self.approve_and_check(op, ms, op.declined[declined])}")
 
     @precondition(lambda self: self.declined_ops())
     @rule(data=st.data())
@@ -698,14 +697,14 @@ class OperationsRules:
         reached(f"{op.channel}: agent after a decline, {self.approve_and_check(op, ms, given)}")
 
     def answered_agent(self) -> list[tuple[MOperation, MSession]]:
-        return [(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.user_only - set(o.declined)]
+        return [(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.user_only - {r for r, _ in o.declined}]
 
     @precondition(lambda self: self.answered_agent())
     @rule(data=st.data())
     def agent_approves_its_answer(self, data: st.DataObject) -> None:
         """Reject: the agent approves a revision that answered its own approval (Ops 5: MUST NOT "on the same instruction"); recorded, and checked as usual."""
         op, ms = data.draw(st.sampled_from(self.answered_agent()))
-        revision = data.draw(st.sampled_from(sorted(op.user_only - set(op.declined))))
+        revision = data.draw(st.sampled_from([r for r in op.revisions if r in op.user_only and r not in {d for d, _ in op.declined}]))
         given = approval(op.id, revision, "agent")
         reached(f"{op.channel}: agent approves its answer, {self.approve_and_check(op, ms, given)}")
 

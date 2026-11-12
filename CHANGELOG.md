@@ -15,6 +15,15 @@ The agent, the mock Company, the validator, the interop harness and the Python H
 - Scope descriptions prefer `auth.scopes` over an OpenAPI description, and a device sign-in link is shown only on the issuer's host or `organization.domain` (0.4 4.3, 4.7; K2 and K3, which 0.3 had held back).
 - The mock serves 0.4 alone: no 0.3 shapes, no `excluded-tasks.json`, `poppy:browser-sign-in` whenever it has browser join, and `version_unsupported` for a request without `Poppy-Version`. The hosted dummy Company serves 0.4 too.
 - The validator checks 0.4 documents alone; a 0.3 document is `version-unsupported`.
+- The Python Hypothesis client is ported to 0.4. The port found nine places where the mock departed from the 0.4 text, now fixed with regression tests in both suites ([its README](test/hypothesis/README.md#what-it-found)):
+  - A refused handoff, cancel or close is not taken as accepted, so a retry is refused again and `as_of_request` never names it.
+  - A handoff cancel to a parent with an open Direct Conversation is `direct_conversation_open`.
+  - Handoff, cancel and close answer `wait` with a read.
+  - An invitation keeps its request id, and the id's hash includes `user_requested_event_id`.
+  - The User's approval of a revision whose agent approval was declined is a new approval.
+  - `Poppy-Extensions` is compared and parsed as an RFC 9651 List, so a space after `;` changes nothing.
+  - With `web.disabled`, the mock offers no `poppy:browser-sign-in` and serves no browser join.
+  - A `web.unscoped` website gives `poppy:browser-sign-in` the account's full access.
 - Interop pairs 0.4 implementations only: the Print with Poppy pairing is removed (its adapter is kept), and the raw `evil-personal-agent` speaks 0.4. CI runs the 0.4 kit alone.
 - The 0.3 pin is `retired` in `spec/upstream.json`: its snapshot, kit and ledger stay and are still checked, and its ledger links files at the last main commit before 0.4. `npm run check:spec` accepts retired pins.
 - [Current verification](docs/poppy-0.4-conformance.md#current-verification) moves to a 0.4 review; the 0.3 review is kept as its record.

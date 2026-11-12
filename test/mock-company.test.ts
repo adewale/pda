@@ -3035,6 +3035,148 @@ describe("the mock Company, as the Hypothesis model found it", () => {
       "rate-limit.retry-after-ignored"
     ]);
   });
+
+  // ---- Found by the 0.4 port (12 November): MOCK-1 to 3 and 5 to 9 in test/hypothesis/README.md ----
+
+  /** A handoff, cancel or close (8.3): a body of only the request `id`. */
+  const post = (c: C, s: Session, path: string, id = `req_${jti()}`, query = "") =>
+    call(c, s, "POST", `${c.hosts.conversationsEndpoint}${path}${query}`, { body: { id } });
+  /** A Direct Conversation linked to `parent` (8.10), with the User's words: its id. */
+  const direct = async (c: C, s: Session, parent: string) => {
+    const opened = await call(c, s, "POST", c.hosts.conversationsEndpoint, { body: { id: `req_${jti()}`, parent_conversation_id: parent, message: { author: { type: "human" }, text: "Hi" } } });
+    expect(opened.status).toBe(201);
+    return ((await opened.json()) as { conversation_id: string }).conversation_id;
+  };
+
+  it("refuses a refused handoff again when it is retried: it was never accepted (8.3)", async () => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    expect((await post(c, s, `/${id}/close`)).status).toBe(202);
+    const request = `req_${jti()}`;
+    for (const _attempt of [1, 2]) {
+      const reply = await post(c, s, `/${id}/handoff`, request);
+      expect(reply.status).toBe(409);
+      expect(await reply.json()).toEqual({ error: "conversation_closed" });
+    }
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("names in as_of_request only a request it took into account, never a refused handoff (8.4, 8.10)", async () => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    const accepted = `req_${jti()}`;
+    expect((await post(c, s, `/${id}/handoff`, accepted)).status).toBe(202);
+    await direct(c, s, id);
+    expect((await post(c, s, `/${id}/handoff`)).status).toBe(409);
+    await c.stub.staffUnavailable(id, "No one is free.");
+    const read = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`)).json()) as { events: { type: string; message?: Record<string, unknown> }[] };
+    const said = read.events.filter((event) => event.type === "message" && event.message?.role === "company").at(-1)?.message;
+    expect(said).toMatchObject({ text: "No one is free.", as_of_request: accepted });
+  });
+
+  it("refuses a handoff cancel to a parent whose Direct Conversation is open (8.10)", async () => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    expect((await post(c, s, `/${id}/handoff`)).status).toBe(202);
+    const child = await direct(c, s, id);
+    const reply = await post(c, s, `/${id}/handoff/cancel`);
+    expect(reply.status).toBe(409);
+    expect(await reply.json()).toEqual({ error: "direct_conversation_open", conversation_id: child });
+  });
+
+  it.each(["handoff", "handoff/cancel", "close"])("answers a %s with wait as a read (8.3)", async (path) => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    const reply = await post(c, s, `/${id}/${path}`, undefined, "?wait=0");
+    expect(reply.status).toBe(202);
+    expect(await reply.json()).toMatchObject({ conversation_id: id, events: expect.any(Array), has_more: false, closed: path === "close" });
+  });
+
+  it("refuses a bad wait on a handoff before it changes anything (8.3, 8.13)", async () => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    expect((await post(c, s, `/${id}/handoff`, undefined, "?wait=soon")).status).toBe(400);
+    const read = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`)).json()) as { handoff: string };
+    expect(read.handoff).toBe("none");
+  });
+
+  it("takes the User's approval of a revision whose agent approval was declined as a new approval (Ops 6)", async () => {
+    const c = company();
+    await c.stub.configure({ declineApprovals: "agent" });
+    const s = await signedIn(c);
+    const { operation } = (await (await exchange(c, s)).json()) as { operation: Operation };
+    const declined = await exchange(c, s, approval(operation, "agent"));
+    expect(declined.status).toBe(403);
+    expect(await declined.json()).toMatchObject({ error: "approval_declined", revision: operation.revision });
+    expect((await exchange(c, s, approval(operation, "user"))).status).toBe(201);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it.each([
+    { name: "an invitation accepted without a message, reused for a new conversation", accepted: null, reused: (_parent: string) => request(message()) },
+    { name: "the same message and parent without the invitation", accepted: { author: { type: "human" }, text: "I'm here." }, reused: (parent: string) => ({ parent_conversation_id: parent, message: { author: { type: "human" }, text: "I'm here." } }) }
+  ])("keeps an invitation's request id, so $name is request_id_conflict (8.3, 8.10)", async ({ accepted, reused }) => {
+    const c = company();
+    const s = await session();
+    const parent = await conversation(c, s);
+    const event = await c.stub.pushEvent(parent, { type: "user_requested", reason: "To confirm the address." });
+    const id = `req_${jti()}`;
+    const invitation = { id, parent_conversation_id: parent, user_requested_event_id: event, ...(accepted ? { message: accepted } : {}) };
+    const first = await call(c, s, "POST", c.hosts.conversationsEndpoint, { body: invitation });
+    expect(first.status).toBe(201);
+    const { conversation_id } = (await first.json()) as { conversation_id: string };
+    // The same request again is a retry: the same Direct Conversation.
+    const retried = await call(c, s, "POST", c.hosts.conversationsEndpoint, { body: invitation });
+    expect(retried.status).toBe(201);
+    expect(await retried.json()).toEqual({ conversation_id });
+    const conflict = await call(c, s, "POST", c.hosts.conversationsEndpoint, { body: { ...reused(parent), id } });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: "request_id_conflict" });
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["request.id-reused"]);
+  });
+
+  it("takes Poppy-Extensions written with a space after ';' as the same RFC 9651 List (3.4, RFC 9651 3.1.2)", async () => {
+    const c = company();
+    const s = await signedIn(c);
+    const spaced = { "Poppy-Extensions": `"operations"; v="3"` };
+    // Declared with the space, the Session has Operations 3: the exchange comes back as an operation.
+    const asked = await exchange(c, s, spaced);
+    expect(asked.status).toBe(403);
+    expect(await asked.json()).toMatchObject({ error: "approval_required", operation: { operation_id: expect.any(String) } });
+    // The same List written without it is the same declaration.
+    expect((await exchange(c, s)).status).toBe(403);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("lists and grants no poppy:browser-sign-in with web.disabled, whatever browserSession says (6)", async () => {
+    const c = company();
+    await c.stub.configure({ webDisabled: true, browserSession: true });
+    expect(((await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { web: unknown }).web).toEqual({ disabled: true });
+    const metadata = (await (await c.call(`${c.hosts.issuer}/.well-known/oauth-authorization-server`)).json()) as { scopes_supported: string[] };
+    expect(metadata.scopes_supported).not.toContain("poppy:browser-sign-in");
+    expect((await c.call(c.hosts.browserSessionEndpoint)).status).toBe(404);
+    const started = await form(c, c.hosts.deviceEndpoint, { scope: "orders:read poppy:browser-sign-in" }, null);
+    expect(started.status).toBe(400);
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["browser-sign-in.no-endpoint"]);
+  });
+
+  it.each([
+    { webUnscoped: true, sees: true },
+    { webUnscoped: false, sees: false }
+  ])("with webUnscoped $webUnscoped, a browser signed in with poppy:browser-sign-in alone sees orders: $sees (3.1, 6)", async ({ webUnscoped, sees }) => {
+    const c = company();
+    await c.stub.configure({ webUnscoped });
+    const s = await signedIn(c, { scope: "poppy:browser-sign-in" });
+    const cookie = await joinBrowser(c, s);
+    const orders = await (await c.call(`${c.hosts.web}/orders`, { headers: { Cookie: cookie } })).text();
+    expect(orders.includes("ord_7Hk2")).toBe(sees);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
 });
 
 /**

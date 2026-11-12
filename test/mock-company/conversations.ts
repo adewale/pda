@@ -226,20 +226,29 @@ export class Conversations {
     return { ...message, id: requestId };
   }
 
+  /** Where a request id is kept: per client and User (8.3). */
+  #key(context: ResourceContext, requestId: string): string {
+    return `${context.session.clientId}|${context.session.userId}|${requestId}`;
+  }
+
   /**
-   * A handoff, cancel or close (8.3): the same `id`, path and body again
-   * is a retry, and true; a different path or body is `request_id_conflict`.
+   * A handoff, cancel or close (8.3): the same `id`, path and body as a
+   * request it accepted is a retry, and true; a different path or body is
+   * `request_id_conflict`. A refused request was never accepted, so its id
+   * is taken only once it is (`#take`).
    */
-  #retried(inbound: Inbound, context: ResourceContext, conversation: Conversation, body: Record<string, unknown>): boolean {
+  #retried(inbound: Inbound, context: ResourceContext, body: Record<string, unknown>): boolean {
     const requestId = this.#requestId(body);
-    const key = `${context.session.clientId}|${context.session.userId}|${requestId}`;
-    const hash = canonicalJson({ path: inbound.url.pathname, body });
-    const seen = this.#messageIds.get(key);
-    if (seen && seen.hash !== hash) this.#conflict(requestId);
-    if (seen) return true;
-    this.#messageIds.set(key, { hash, conversationId: conversation.id });
+    const seen = this.#messageIds.get(this.#key(context, requestId));
+    if (seen && seen.hash !== canonicalJson({ path: inbound.url.pathname, body })) this.#conflict(requestId);
+    return seen !== undefined;
+  }
+
+  /** A handoff, cancel or close accepted: its id is taken, and is the latest request the Company Agent takes into account (8.3, 8.4). */
+  #take(inbound: Inbound, context: ResourceContext, conversation: Conversation, body: Record<string, unknown>): void {
+    const requestId = body.id as string;
+    this.#messageIds.set(this.#key(context, requestId), { hash: canonicalJson({ path: inbound.url.pathname, body }), conversationId: conversation.id });
     conversation.lastRequest = requestId;
-    return false;
   }
 
   #conflict(id: string): never {
@@ -305,22 +314,20 @@ export class Conversations {
    * (8.3). The same content is the same JSON value, whatever its members'
    * order (RFC 8259 4: an object is an unordered collection).
    */
-  #idempotent(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null): Conversation | null {
-    const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    const seen = this.#messageIds.get(key);
+  #idempotent(context: ResourceContext, requestId: string, hash: string): Conversation | null {
+    const seen = this.#messageIds.get(this.#key(context, requestId));
     if (!seen) return null;
-    if (seen.hash !== this.#hash(inbound, context, message, parent)) this.#conflict(message.id as string);
+    if (seen.hash !== hash) this.#conflict(requestId);
     return this.#conversations.get(seen.conversationId) ?? null;
   }
 
-  #remember(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null, conversation: Conversation): void {
-    const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    this.#messageIds.set(key, { hash: this.#hash(inbound, context, message, parent), conversationId: conversation.id });
+  #remember(context: ResourceContext, requestId: string, hash: string, conversation: Conversation): void {
+    this.#messageIds.set(this.#key(context, requestId), { hash, conversationId: conversation.id });
   }
 
-  /** What a retry must repeat: the message, its parent and the path (8.3). */
-  #hash(inbound: Inbound, context: ResourceContext, message: IncomingMessage, parent: string | null): string {
-    return canonicalJson({ message, parent, path: inbound.url.pathname });
+  /** What a retry must repeat: the message, its parent, the invitation it accepts and the path (8.3, 8.10). */
+  #hash(inbound: Inbound, message: IncomingMessage | null, parent: string | null, invitation: string | null = null): string {
+    return canonicalJson({ message, parent, invitation, path: inbound.url.pathname });
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
@@ -503,15 +510,23 @@ export class Conversations {
    * invitation, which MUST be a user_requested event in that parent
    * (`invalid_request` otherwise). Without `message`, the Company speaks
    * first. Repeating the same ids returns the same Direct Conversation without
-   * another message, even after it closes, once ownership is checked.
+   * another message, even after it closes, once ownership is checked. The
+   * request's id is kept like a message's, with the invitation in its hash.
    */
-  async #acceptInvitation(inbound: Inbound, context: ResourceContext, parentId: string | null, eventId: string, incoming: IncomingMessage | undefined): Promise<Response> {
+  async #acceptInvitation(inbound: Inbound, context: ResourceContext, parentId: string | null, eventId: string, requestId: string, incoming: IncomingMessage | undefined): Promise<Response> {
     const invalid = (why: string) => new HttpError(json({ error: "invalid_request", error_description: why }, 400));
     if (parentId === null) throw invalid("user_requested_event_id needs parent_conversation_id");
+    const hash = this.#hash(inbound, incoming ?? null, parentId, eventId);
+    const retried = this.#idempotent(context, requestId, hash);
+    if (retried) return this.#answer(inbound, this.#owned(context, retried.id), 201);
     const parent = this.#owned(context, parentId);
     const key = `${parent.id}|${eventId}`;
     const accepted = this.#acceptances.get(key);
-    if (accepted) return this.#answer(inbound, this.#owned(context, accepted), 201);
+    if (accepted) {
+      const conversation = this.#owned(context, accepted);
+      this.#remember(context, requestId, hash, conversation);
+      return this.#answer(inbound, conversation, 201);
+    }
     if (!parent.events.some((event) => event.id === eventId && event.type === "user_requested")) throw invalid("user_requested_event_id doesn't name a user_requested event in the parent");
     const message = incoming === undefined ? null : this.#validate(incoming);
     if (parent.direct) throw invalid("the parent is a Direct Conversation");
@@ -538,8 +553,8 @@ export class Conversations {
     this.#acceptances.set(key, conversation.id);
     parent.directChild = conversation.id;
     this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
+    this.#remember(context, requestId, hash, conversation);
     if (message) {
-      this.#remember(inbound, context, message, parent.id, conversation);
       this.#accept(context, conversation, message);
     } else {
       // The Company's first message, recorded as a message event (8.10).
@@ -554,10 +569,14 @@ export class Conversations {
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const eventId = typeof body.user_requested_event_id === "string" ? body.user_requested_event_id : null;
     // 8.10: accepting a user_requested event, with or without the User's first message.
-    if (eventId !== null) return this.#acceptInvitation(inbound, context, parentId, eventId, this.#incoming(body));
+    if (eventId !== null) {
+      const incoming = this.#incoming(body);
+      return this.#acceptInvitation(inbound, context, parentId, eventId, body.id as string, incoming);
+    }
     const message = this.#validate(this.#incoming(body));
+    const hash = this.#hash(inbound, message, parentId);
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
-    const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(inbound, context, message, parentId);
+    const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message.id as string, hash);
     // A retry gets the original response only if it may still read the
     // conversation: once it used the account, 8.11 wins (S8), as in message().
     if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
@@ -599,7 +618,7 @@ export class Conversations {
       context: {}
     };
     this.#conversations.set(conversation.id, conversation);
-    this.#remember(inbound, context, message, parentId, conversation);
+    this.#remember(context, message.id as string, hash, conversation);
     if (parent) {
       parent.directChild = conversation.id;
       this.#add(parent, { type: "direct_opened", conversation_id: conversation.id });
@@ -613,7 +632,8 @@ export class Conversations {
     const conversation = this.#owned(context, id);
     const body = this.#body(inbound);
     const message = this.#validate(this.#incoming(body));
-    const existing = this.#idempotent(inbound, context, message, null);
+    const hash = this.#hash(inbound, message, null);
+    const existing = this.#idempotent(context, message.id as string, hash);
     if (existing) return this.#answer(inbound, existing, 202);
     if (conversation.status === "closed") {
       throw new HttpError(json({ error: "conversation_closed" }, 409));
@@ -636,7 +656,7 @@ export class Conversations {
     if (conversation.direct && this.#writer(message) !== "human" && (message.text !== undefined || message.data !== undefined)) {
       this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
     }
-    this.#remember(inbound, context, message, null, conversation);
+    this.#remember(context, message.id as string, hash, conversation);
     this.#accept(context, conversation, message);
     return this.#answer(inbound, conversation, 202);
   }
@@ -679,55 +699,63 @@ export class Conversations {
     });
   }
 
-  /** A handoff, cancel or close body: only the request `id` (8.3). True for a retry. */
-  #emptyBody(inbound: Inbound, context: ResourceContext, conversation: Conversation, id: "handoff.body" | "close.body"): boolean {
+  /**
+   * A handoff, cancel or close body: only the request `id` (8.3). `wait` is
+   * checked first, so a bad one is refused before anything changes.
+   */
+  #emptyBody(inbound: Inbound, context: ResourceContext, id: "handoff.body" | "close.body"): { body: Record<string, unknown>; retried: boolean } {
     const body = this.#body(inbound);
-    const retried = this.#retried(inbound, context, conversation, body);
+    this.#params(inbound);
+    const retried = this.#retried(inbound, context, body);
     if (Object.keys(body).some((key) => key !== "id")) {
       this.company.violation(id, `${id.split(".")[0]} body should be only the request id, got ${inbound.bodyText}`);
     }
-    return retried;
+    return { body, retried };
+  }
+
+  /** A conversation that takes no handoff or cancel: closed, or a parent with its Direct Conversation open (8.10). */
+  #refuseWhileDirect(conversation: Conversation): void {
+    if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
+    if (conversation.directChild) {
+      throw new HttpError(json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409));
+    }
   }
 
   /** `POST {endpoint}/{id}/handoff` (8.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation);
-    if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
-    if (conversation.directChild) {
-      throw new HttpError(
-        json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409)
-      );
-    }
+    const { body, retried } = this.#emptyBody(inbound, context, "handoff.body");
+    if (retried) return this.#answer(inbound, conversation, 202);
+    this.#refuseWhileDirect(conversation);
+    this.#take(inbound, context, conversation, body);
     // A person already handles it: there's no one to find, and while queued
     // `responder` stays `agent` (8.7), so nothing changes.
     if (conversation.responder !== "human") {
       this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
     }
-    return this.#accepted(conversation);
-  }
-
-  /** A handoff, cancel or close accepted: its `conversation_id` alone (8.3). */
-  #accepted(conversation: Conversation): Response {
-    return json({ conversation_id: conversation.id }, 202);
+    return this.#answer(inbound, conversation, 202);
   }
 
   /** `POST {endpoint}/{id}/handoff/cancel` (8.9): stop looking for a person; nothing while no handoff is pending. */
   async cancelHandoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    if (this.#emptyBody(inbound, context, conversation, "handoff.body")) return this.#accepted(conversation);
-    if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
+    const { body, retried } = this.#emptyBody(inbound, context, "handoff.body");
+    if (retried) return this.#answer(inbound, conversation, 202);
+    this.#refuseWhileDirect(conversation);
+    this.#take(inbound, context, conversation, body);
     if (conversation.status === "queued") this.#setState(conversation, "idle");
-    return this.#accepted(conversation);
+    return this.#answer(inbound, conversation, 202);
   }
 
-  /** `POST {endpoint}/{id}/close` (8.12). */
+  /** `POST {endpoint}/{id}/close` (8.12): 202, also for a conversation already closed. */
   async close(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    this.#emptyBody(inbound, context, conversation, "close.body");
-    this.#closeConversation(conversation);
-    // 0.4: 202, also for a conversation already closed (8.12).
-    return this.#accepted(conversation);
+    const { body, retried } = this.#emptyBody(inbound, context, "close.body");
+    if (!retried) {
+      this.#take(inbound, context, conversation, body);
+      this.#closeConversation(conversation);
+    }
+    return this.#answer(inbound, conversation, 202);
   }
 
   #closeConversation(conversation: Conversation): void {

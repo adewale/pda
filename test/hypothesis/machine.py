@@ -1314,17 +1314,8 @@ class ConversationRules:
         assert reply.body == {"conversation_id": conversation.id}, f"a retry answers as the original did (8.3): {reply.body}"
 
     def reusable_ids(self) -> list[tuple[MSession, str]]:
-        """
-        Accepted request ids the Company keeps, with a live Session of their
-        User. An invitation accepted without a message is left out: the mock
-        doesn't keep its id (MOCK-6, test_findings.py).
-        """
-        return [
-            (s, rid)
-            for s in self.live()
-            for rid in sorted(s.user.requests)
-            if not (rid in s.user.sent and s.user.sent[rid].message is None)
-        ]
+        """Accepted request ids the Company keeps, an invitation's among them, with a live Session of their User (8.3)."""
+        return [(s, rid) for s in self.live() for rid in sorted(s.user.requests)]
 
     @precondition(lambda self: self.reusable_ids())
     @rule(data=st.data())

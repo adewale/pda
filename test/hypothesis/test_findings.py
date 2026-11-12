@@ -1,12 +1,9 @@
 """
-Where the mock Company departs from the 0.4 text (11 November), each as a
-short script that asserts what the text says. They are strict xfails: each
-fails today at its last check (a `Divergence`), and passes, so fails the
-suite, once the mock is fixed, when the xfail and the machine's matching
-workaround should go. Any other failure on the way is a real failure.
-
-The machines stay clear of these cases (see each `MOCK-n` in the machine
-files); the README lists them.
+Where the mock Company departed from the 0.4 text (11 November), found by the
+0.4 port and fixed on 12 November: each a short script that asserts what the
+text says, kept as a regression test beside the machines, which now model
+each case too. The README lists them; `test/mock-company.test.ts` has the
+same cases for CI.
 """
 
 from __future__ import annotations
@@ -22,19 +19,6 @@ from machine import OPERATIONS, READ
 from mock_server import DOMAIN, SUFFIX, MockServer
 from poppy_client import BROWSER_SIGN_IN, Browser, Clock, Company, LocalTransport, PersonalAgent, Poppy, Session, User, approval, random_id
 from test_operations import PHOTO, SHIP_TO
-
-
-class Divergence(AssertionError):
-    """The text's behaviour, which the mock doesn't have."""
-
-
-def diverges(condition: bool, message: str) -> None:
-    if not condition:
-        raise Divergence(message)
-
-
-def finding(reason: str) -> pytest.MarkDecorator:
-    return pytest.mark.xfail(strict=True, raises=Divergence, reason=reason)
 
 
 class Harness:
@@ -104,13 +88,12 @@ def harness(mock_server: MockServer) -> Iterator[Any]:
 # ---- 8.3, 8.4: a refused request isn't accepted (MOCK-1) ----
 
 
-@finding("MOCK-1: the mock records a handoff's request id before it refuses it, so a retry gets 202")
 def test_a_refused_handoff_retried_is_refused_again(harness: Any) -> None:
     """
     8.3: "If the Company has already accepted a request with that ID, path,
     and body, it returns the original response." A handoff refused with
     `conversation_closed` wasn't accepted, so the same request again is
-    refused again; the mock answers it 202.
+    refused again.
     """
     h = harness()
     cid, _ = h.start()
@@ -119,16 +102,15 @@ def test_a_refused_handoff_retried_is_refused_again(harness: Any) -> None:
     first = h.poppy.handoff(h.session, h.co, cid, request_id)
     assert (first.status, first.error) == (409, "conversation_closed"), first.text
     again = h.poppy.handoff(h.session, h.co, cid, request_id)
-    diverges((again.status, again.error) == (409, "conversation_closed"), f"a refused handoff retried: {again.status} {again.text}")
+    assert (again.status, again.error) == (409, "conversation_closed"), f"a refused handoff retried: {again.status} {again.text}"
 
 
-@finding("MOCK-1: as_of_request can name a handoff the mock refused")
 def test_as_of_request_names_only_what_was_taken_into_account(harness: Any) -> None:
     """
     8.4: `as_of_request` is "the ID of the latest message, handoff request,
     or handoff cancel from the Personal Agent that it took into account". A
-    handoff refused with `direct_conversation_open` (8.10) wasn't; the mock
-    names it in the message it sends when no one is available.
+    handoff refused with `direct_conversation_open` (8.10) wasn't, so the
+    message the Company Agent sends when no one is available doesn't name it.
     """
     h = harness()
     cid, _ = h.start()
@@ -141,13 +123,12 @@ def test_as_of_request_names_only_what_was_taken_into_account(harness: Any) -> N
     h.server.hook("staff_unavailable", conversation=cid, text="No one is free.")
     said = [e["message"] for e in h.events(cid) if e["type"] == "message" and e["message"].get("role") == "company"]
     assert said and said[-1].get("text") == "No one is free.", said
-    diverges(said[-1].get("as_of_request") != refused, f"as_of_request names the refused handoff {refused}: {said[-1]}")
+    assert said[-1].get("as_of_request") != refused, f"as_of_request names the refused handoff {refused}: {said[-1]}"
 
 
 # ---- 8.10: a cancel to a parent with an open Direct Conversation (MOCK-2) ----
 
 
-@finding("MOCK-2: the mock accepts a handoff cancel to a parent whose Direct Conversation is open")
 def test_cancel_to_a_parent_with_an_open_direct_conversation(harness: Any) -> None:
     """8.10: "messages, handoff requests, and handoff cancels to the parent return `direct_conversation_open`"."""
     h = harness()
@@ -155,38 +136,36 @@ def test_cancel_to_a_parent_with_an_open_direct_conversation(harness: Any) -> No
     assert h.poppy.handoff(h.session, h.co, cid, random_id("req_")).status == 202
     child = h.direct(cid)
     reply = h.poppy.cancel_handoff(h.session, h.co, cid, random_id("req_"))
-    diverges((reply.status, reply.error) == (409, "direct_conversation_open"), f"cancel to a parent: {reply.status} {reply.text}")
+    assert (reply.status, reply.error) == (409, "direct_conversation_open"), f"cancel to a parent: {reply.status} {reply.text}"
     assert reply.body.get("conversation_id") == child, reply.text
 
 
 # ---- 8.3: `wait` on any POST (MOCK-3) ----
 
 
-@finding("MOCK-3: handoff, cancel and close ignore `wait`")
 @pytest.mark.parametrize("path", ["handoff", "handoff/cancel", "close"])
 def test_wait_on_a_handoff_cancel_or_close(harness: Any, path: str) -> None:
     """
     8.3: the agent "adds the `wait` query parameter to any POST", and the
-    Company then "responds as a read"; the mock answers `{conversation_id}`.
+    Company then "responds as a read", not with `{conversation_id}` alone.
     """
     h = harness()
     cid, _ = h.start()
     reply = h.poppy.conversation_post(h.session, h.co, f"/{cid}/{path}", random_id("req_"), wait=0)
     assert reply.status in (200, 202), reply.text
-    diverges(isinstance(reply.body, dict) and isinstance(reply.body.get("events"), list), f"{path} with wait=0: {reply.text}")
+    assert isinstance(reply.body, dict) and isinstance(reply.body.get("events"), list), f"{path} with wait=0: {reply.text}"
 
 
 # ---- Ops 6: the User approves after an agent's approval was declined (MOCK-5) ----
 
 
-@finding("MOCK-5: a User's approval of a revision whose agent approval was declined is recorded as declined-resent")
 def test_the_user_approves_after_the_agents_approval_was_declined(harness: Any) -> None:
     """
     Ops 6: after a decline the agent "MUST NOT send that approval again" and
     "MUST NOT approve a new revision for the same action without asking the
     User" (readings v04-agent-approval-again). Asking the User is what's
     left: the User's approval is a new approval, not the declined one sent
-    again. The mock keys `approval.declined-resent` by revision.
+    again, so it is performed and nothing is recorded.
     """
     h = harness({"declineApprovals": "agent", "requireOperationsExtension": True}, extensions=OPERATIONS)
     api_base = h.http.get(h.co.openapi).json()["servers"][0]["url"]
@@ -200,7 +179,7 @@ def test_the_user_approves_after_the_agents_approval_was_declined(harness: Any) 
     assert (declined.status, declined.error) == (403, "approval_declined"), declined.text
     assert h.violations() == [], h.violations()
     approved = h.poppy.order_prints(h.session, h.co, api_base, order, random_id("idk_"), approval=approval(op["operation_id"], op["revision"], "user"))
-    diverges(h.violations() == [], f"the User's approval was recorded: {h.violations()} ({approved.status} {approved.text[:200]})")
+    assert h.violations() == [], f"the User's approval was recorded: {h.violations()} ({approved.status} {approved.text[:200]})"
     assert approved.status == 201, approved.text
 
 
@@ -214,7 +193,6 @@ def invitation(h: Harness) -> tuple[str, str]:
     return cid, event["id"] if isinstance(event, dict) else event
 
 
-@finding("MOCK-6: the mock doesn't remember the request id of an invitation accepted without a message")
 def test_an_invitations_request_id_reused_for_a_new_conversation(harness: Any) -> None:
     """8.3: `request_id_conflict` for "A request reused an ID that the Company accepted with a different path or body"."""
     h = harness()
@@ -223,10 +201,9 @@ def test_an_invitations_request_id_reused_for_a_new_conversation(harness: Any) -
     accepted = h.poppy.post_message(h.session, h.co, request_id, None, None, parent=parent, invitation=event)
     assert accepted.status == 201, accepted.text
     reused = h.poppy.post_message(h.session, h.co, request_id, json.dumps({"author": {"type": "agent"}, "text": "Hello"}), None)
-    diverges((reused.status, reused.error) == (409, "request_id_conflict"), f"an invitation's id reused: {reused.status} {reused.text}")
+    assert (reused.status, reused.error) == (409, "request_id_conflict"), f"an invitation's id reused: {reused.status} {reused.text}"
 
 
-@finding("MOCK-6: the mock's request hash for a Direct Conversation omits user_requested_event_id")
 def test_the_same_id_without_the_invitation_is_a_conflict(harness: Any) -> None:
     """8.3: the same id with a different body (the invitation's event left out) is `request_id_conflict`, not a retry."""
     h = harness()
@@ -236,13 +213,12 @@ def test_the_same_id_without_the_invitation_is_a_conflict(harness: Any) -> None:
     accepted = h.poppy.post_message(h.session, h.co, request_id, message, None, parent=parent, invitation=event)
     assert accepted.status == 201, accepted.text
     other = h.poppy.post_message(h.session, h.co, request_id, message, None, parent=parent)
-    diverges((other.status, other.error) == (409, "request_id_conflict"), f"another body under the same id: {other.status} {other.text}")
+    assert (other.status, other.error) == (409, "request_id_conflict"), f"another body under the same id: {other.status} {other.text}"
 
 
 # ---- 3.4: the same extensions, written differently (MOCK-7) ----
 
 
-@finding("MOCK-7: the mock compares Poppy-Extensions as text, not as RFC 9651 values")
 def test_the_same_extensions_written_differently(harness: Any) -> None:
     """
     3.4: a Session's requests declare the same version and extensions. The
@@ -254,38 +230,33 @@ def test_the_same_extensions_written_differently(harness: Any) -> None:
     assert h.violations() == [], h.violations()
     reply = h.poppy.resource(h.session, "GET", h.co.tasks, h.co, token=None, extensions='"operations"; v="3"')
     assert reply.status == 200, reply.text
-    diverges(h.violations() == [], f"the same extensions, written with a space: {h.violations()}")
+    assert h.violations() == [], f"the same extensions, written with a space: {h.violations()}"
 
 
 # ---- 6: browser-sign-in with web.disabled (MOCK-8) ----
 
 
-@finding("MOCK-8: with webDisabled and browserSession the mock still offers and grants browser-sign-in, unrecorded")
 def test_a_disabled_website_offers_no_browser_sign_in(harness: Any) -> None:
     """
     6: "A Company that sets `web.disabled` MUST NOT list
     `browser_session_endpoint`", and "A Personal Agent requests
     `poppy:browser-sign-in` only from a Company that lists
-    `browser_session_endpoint`". The mock lists no endpoint, as it must, but
-    still lists the scope, and takes a sign-in asking for it without
-    recording `browser-sign-in.no-endpoint`, as it does where
-    `browserSession` is off: its scope checks (auth.ts, core.ts) test
-    `web && browserSession`, not `web.disabled`.
+    `browser_session_endpoint`". With `web.disabled`, the Company lists
+    neither the endpoint nor the scope, and records a sign-in asking for it,
+    whatever its `browserSession` knob says.
     """
     h = harness({"webDisabled": True, "browserSession": True})
     assert h.co.web_disabled and h.co.browser_session is None, h.co.document.get("web")
     listed = [str(s) for s in h.co.metadata.get("scopes_supported", [])] + list(h.co.resource_scopes)
     started = h.poppy.device_start(h.co, [BROWSER_SIGN_IN])
-    diverges(
-        BROWSER_SIGN_IN not in listed and "browser-sign-in.no-endpoint" in h.violations(),
-        f"web.disabled, yet scopes {listed}; a device start for {BROWSER_SIGN_IN}: {started.status}, recorded {h.violations()}",
+    assert BROWSER_SIGN_IN not in listed and "browser-sign-in.no-endpoint" in h.violations(), (
+        f"web.disabled, yet scopes {listed}; a device start for {BROWSER_SIGN_IN}: {started.status}, recorded {h.violations()}"
     )
 
 
 # ---- 3.1, 6: web.unscoped (MOCK-9) ----
 
 
-@finding("MOCK-9: with webUnscoped the website still applies orders:read to a browser signed in with browser-sign-in alone")
 def test_an_unscoped_website_gives_browser_sign_in_full_access(harness: Any) -> None:
     """
     3.1: `web.unscoped` is "`true` if the website doesn't apply the
@@ -309,4 +280,4 @@ def test_an_unscoped_website_gives_browser_sign_in_full_access(harness: Any) -> 
         orders = browser.get(f"https://{DOMAIN}/orders")
     finally:
         browser.close()
-    diverges("ord_7Hk2" in orders.text, f"orders, signed in with {BROWSER_SIGN_IN} alone on an unscoped website (needs {READ} there): {orders.text[:200]}")
+    assert "ord_7Hk2" in orders.text, f"orders, signed in with {BROWSER_SIGN_IN} alone on an unscoped website (needs {READ} there): {orders.text[:200]}"

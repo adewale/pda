@@ -286,20 +286,17 @@ class BrowsingRules:
         refresh token is revoked: orders need `orders:read`; the address
         form needs the account. An ended Session's cookie is no Session at
         all, and a browser never joined is a signed-out visitor. A website
-        that sets `web.unscoped` gives a browser signed in with
-        `poppy:browser-sign-in` the account's full access; the mock's
-        doesn't (MOCK-9, test_findings.py), so that case isn't held here.
+        that sets `web.unscoped` doesn't apply the other scopes, so
+        `poppy:browser-sign-in` gives the account's full access there (3.1, 6).
         """
         ms = data.draw(st.sampled_from([s for s in self.all_sessions() if s.browser is not None]))
         assert ms.browser is not None
         active = ms.joined and not ms.ended and ms.joined_as is not None and ms.joined_grant is not None and not ms.joined_grant.revoked
-        if self.unscoped() and active and READ not in ms.joined_scope:
-            reached("unscoped, without orders:read: MOCK-9")
-            return
         orders = ms.browser.get(f"https://{DOMAIN}/orders")
         address = ms.browser.get(f"https://{DOMAIN}/account/address")
         assert orders.status_code == 200 and address.status_code == 200, (orders.status_code, address.status_code)
-        sees_orders = active and READ in ms.joined_scope
+        unscoped = self.unscoped() and BROWSER_SIGN_IN in ms.joined_scope
+        sees_orders = active and (READ in ms.joined_scope or unscoped)
         for page, signed_in in [(orders, sees_orders), (address, active)]:
             if signed_in:
                 assert f"Signed in as {ms.joined_as}" in page.text, page.text[:200]
@@ -310,7 +307,7 @@ class BrowsingRules:
                     assert private_marker not in page.text, page.text[:200]
         if sees_orders:
             assert "ord_7Hk2" in orders.text, orders.text[:200]
-        reached("orders seen" if sees_orders else "signed in" if active else "signed out")
+        reached(("orders seen, unscoped" if READ not in ms.joined_scope else "orders seen") if sees_orders else "signed in" if active else "signed out")
 
     def unscoped(self) -> bool:
         web = self.co.document.get("web")
@@ -428,12 +425,12 @@ class BrowsingRules:
         self.violation("browser-sign-in.no-endpoint")
 
 
-# 6: browser join or not; a website Personal Agents are asked not to browse, which lists no browser join (MOCK-8:
-# the mock would still offer `poppy:browser-sign-in` with both set); one that doesn't apply the Company's scopes.
+# 6: browser join or not; a website Personal Agents are asked not to browse, which lists no browser join even
+# with the mock's browserSession on; one that doesn't apply the Company's scopes.
 BROWSE_CONFIGS = st.tuples(
     CONFIGS,
     st.fixed_dictionaries({"browserSession": st.sampled_from([True, True, True, False]), "webDisabled": st.sampled_from([False, False, False, True]), "webUnscoped": st.booleans()}),
-).map(lambda pair: pair[0] | pair[1] | ({"browserSession": False} if pair[1]["webDisabled"] else {}))
+).map(lambda pair: pair[0] | pair[1])
 
 
 class McpBrowsingMachine(WarmUp, Base, SessionRules, McpRules, BrowsingRules):

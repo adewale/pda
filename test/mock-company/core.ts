@@ -457,9 +457,14 @@ export class Company {
     const { read, write } = this.orderScopes;
     // A Company with browser join and sign-in supports poppy:browser-sign-in (6).
     // Unscoped, it MUST be described as the account's full access on the website (6).
-    const browserSignIn: Record<string, string> = this.config.web && this.config.browserSession
+    const browserSignIn: Record<string, string> = this.browserJoin
       ? { "poppy:browser-sign-in": this.config.webUnscoped ? "Browse the website, and see and do anything your account can do there" : "Use the website signed in, with the other access you approve" } : {};
     return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...browserSignIn, ...this.config.customScopes };
+  }
+
+  /** Whether `poppy.json` lists a `browser_session_endpoint` (6), which it never does with `web.disabled`. */
+  get browserJoin(): boolean {
+    return this.config.web && this.config.browserSession && !this.config.webDisabled;
   }
 
   /** What the Company calls reading and changing orders: its own scopes, since the protocol defines none (4.7). */
@@ -1209,7 +1214,8 @@ export class Company {
     if (header === null) this.violation("version.missing", `a request without Poppy-Version (${where})`);
     else if (!this.#listed.has(version)) this.violation("version.unlisted", `Poppy-Version ${header}, which this Company never listed (${where})`);
     if (!this.servedVersions.includes(version)) throw new HttpError(json({ error: "version_unsupported" }, 400, { "Cache-Control": "no-store" }));
-    if (session.declaration && (session.declaration.version !== version || session.declaration.extensions !== extensions)) {
+    // The same RFC 9651 List however it is written: `"operations";v="3"` and `"operations"; v="3"` alike.
+    if (session.declaration && (session.declaration.version !== version || extensionsKey(session.declaration.extensions) !== extensionsKey(extensions))) {
       this.violation("version.changed-in-session", `Session ${session.sid} declared ${session.declaration.version} ${JSON.stringify(session.declaration.extensions)}, then ${version} ${JSON.stringify(extensions)} (${where})`);
     }
     session.declaration ??= { version, extensions, declared: parseExtensions(extensions) };
@@ -1325,16 +1331,24 @@ export class Company {
 export function parseExtensions(value: string): ReadonlyMap<string, string> {
   const declared = new Map<string, string>();
   if (value.trim() === "") return declared;
-  const member = /^\s*"((?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*)"((?:;[a-z*][a-z0-9_.*-]*(?:=(?:"(?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*"|[^;,\s]+))?)*)\s*(?:,|$)/;
+  // RFC 9651 3.1.2: a parameter is `";" *SP param-key [ "=" param-value ]`.
+  const member = /^\s*"((?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*)"((?:; *[a-z*][a-z0-9_.*-]*(?:=(?:"(?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*"|[^;,\s]+))?)*)\s*(?:,|$)/;
   let rest = value;
   while (rest.trim() !== "") {
     const match = member.exec(rest);
     if (!match) return new Map();
-    const version = /;v="([^"]*)"/.exec(match[2]!)?.[1];
+    const version = /; *v="([^"]*)"/.exec(match[2]!)?.[1];
     if (version === undefined) return new Map();
     declared.set(match[1]!.replace(/\\(["\\])/g, "$1"), version);
     rest = rest.slice(match[0].length);
     if (match[0].trimEnd().endsWith(",") && rest.trim() === "") return new Map();
   }
   return declared;
+}
+
+/** A `Poppy-Extensions` value to compare with another: its parsed members, or the text when it doesn't parse. */
+function extensionsKey(value: string): string {
+  const declared = parseExtensions(value);
+  if (declared.size === 0 && value.trim() !== "") return `text:${value}`;
+  return JSON.stringify([...declared].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
