@@ -415,7 +415,9 @@ export class Operations {
    * `POST {endpoint}` (0.4 Ops 4, 6): a reference the website returned gets
    * its operation; with `Poppy-Approval`, the approval is recorded (204) or
    * declined, and performs nothing; once recorded, the reference alone gets
-   * the operation's state. Anything else is `invalid_request`.
+   * the operation's state. A signed-out Session of the same agent and User
+   * gets a challenge for an account's operation; anything else is
+   * `invalid_request`.
    */
   atEndpoint(context: ResourceContext, ref: string, approval: Approval | null): EndpointAnswer {
     const co = this.company;
@@ -423,6 +425,11 @@ export class Operations {
     if (!record?.web || !record.refs.has(ref)) {
       co.violation("web-operation.unknown-ref", `the reference ${JSON.stringify(ref.slice(0, 80))} came to endpoint, but the website never returned it`);
       return { status: 400, body: { error: "invalid_request" } };
+    }
+    // Ops 3, 4: a challenge for the account, naming what the browser's request needs to perform the
+    // action, since the endpoint itself needs no scope. Only the exchange is ever an account's.
+    if (record.account && !context.signedIn && record.clientId === context.session.clientId && record.userId === context.session.userId) {
+      co.requireScopes(context, [co.orderScopes.write]);
     }
     if (!this.#owner(record, context)) return { status: 400, body: { error: "invalid_request" } };
     const now = Date.now();

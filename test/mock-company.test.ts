@@ -2846,6 +2846,30 @@ describe("the mock Company's operations on its website (0.4 Ops 2, 4, 6, 7)", ()
     expect(own.headers.get("Poppy-Operation")).toBeNull();
     expect((await c.stub.state()).violations).toEqual([]);
   });
+
+  it("challenges a signed-out Session of the same User for an account's operation, and refuses another User's (Ops 3, 4)", async () => {
+    const c = company();
+    await c.stub.configure(WEB_OPERATIONS);
+    const { s, cookie } = await webSession(c);
+    const { ref } = poppyOperation(await exchangeForm(c, cookie));
+    const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+    const approve = { "Poppy-Approval": `${approval(operation, null)["Poppy-Approval"]}, approver="user"` };
+    // Signed out, as after the User signs out (5.5): a challenge naming the scope the browser's exchange needs (7).
+    const signedOut = await session();
+    for (const headers of [{}, approve]) {
+      const challenged = await operationsAt(c, signedOut, ref, headers);
+      expect(challenged.status).toBe(401);
+      expect(challenged.headers.get("WWW-Authenticate")).toContain('scope="orders:write"');
+    }
+    // Another User's Session learns nothing about the reference.
+    expect(await (await operationsAt(c, await session(OTHER_USER), ref)).json()).toEqual({ error: "invalid_request" });
+    // Nothing was recorded: signed in to the account, the operation still waits for approval.
+    const still = await operationsAt(c, s, ref);
+    expect(still.status).toBe(403);
+    expect(await still.json()).toMatchObject({ error: "approval_required", operation: { operation_id: operation.operation_id } });
+    expect((await c.stub.state()).performs).toBe(0);
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
 });
 
 // Found by the Hypothesis stateful test (test/hypothesis), each a reading the mock got wrong.
