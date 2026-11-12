@@ -362,11 +362,13 @@ class BrowsingRules:
     def page_without_a_version(self, data: st.DataObject) -> None:
         """Reject: a page's Session header goes with `Poppy-Version` like any other (3.4); without it, `version_unsupported`."""
         ms = data.draw(st.sampled_from(self.live()))
+        before = len(self.transport.log)
         reply = self.poppy.fetch_page(ms.session, self.co, f"https://{self.co.organization_domain}/", version=None)
         self.seen_only(ms)
         expect(reply, 400, "version_unsupported")
-        self.version_misdeclared += 1
-        self.violation("version.missing")
+        sent, checked = self.sent_since(before)
+        self.version_misdeclared += sent
+        self.expected += ["version.missing"] * checked
 
     @precondition(lambda self: self.live())
     @rule(data=st.data())

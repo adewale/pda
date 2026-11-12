@@ -265,6 +265,15 @@ class Base(RuleBasedStateMachine):
     def violation(self, violation_id: str) -> None:
         self.expected.append(violation_id)
 
+    def sent_since(self, before: int) -> tuple[int, int]:
+        """
+        The requests logged since `before`, and how many of them got past the
+        Company's rate limit to its Session check. The client sends a request
+        again after `use_dpop_nonce` or a 429, so one call can be several.
+        """
+        sent = self.transport.log[before:]
+        return len(sent), sum(x.status != 429 for x in sent)
+
     def live(self, user: MUser | None = None) -> list[MSession]:
         users = [user] if user else self.users
         return [s for u in users for s in u.sessions if not s.ended]

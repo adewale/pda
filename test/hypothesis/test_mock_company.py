@@ -331,11 +331,13 @@ class VersionRules:
         """
         ms = data.draw(st.sampled_from(self.live()))
         version = data.draw(st.none() | st.sampled_from(["0.3", "0.5", "1.0", "2.0", "0.2"]), label="Poppy-Version")
+        before = len(self.transport.log)
         reply = self.poppy.resource(ms.session, "GET", self.public_url(), self.co, version=version)
         self.seen_only(ms)
         expect(reply, 400, "version_unsupported")
-        self.version_misdeclared += 1
-        self.violation("version.missing" if version is None else "version.unlisted")
+        sent, checked = self.sent_since(before)
+        self.version_misdeclared += sent
+        self.expected += ["version.missing" if version is None else "version.unlisted"] * checked
 
     @precondition(lambda self: any(s.declared for s in self.live()))
     @rule(data=st.data())
@@ -348,11 +350,13 @@ class VersionRules:
         ms = data.draw(st.sampled_from([s for s in self.live() if s.declared]))
         current = ms.session.extensions_header()
         changed = data.draw(st.sampled_from([None, '"operations";v="3"', '"operations";v="2"', '"mock.test/gift-wrap";v="1"']).filter(lambda v: v != current))
+        before = len(self.transport.log)
         reply = self.poppy.resource(ms.session, "GET", self.public_url(), self.co, extensions=changed)
         self.touch(ms, reply)
         expect(reply, 200)
-        self.extensions_changed += 1
-        self.violation("version.changed-in-session")
+        sent, checked = self.sent_since(before)
+        self.extensions_changed += sent
+        self.expected += ["version.changed-in-session"] * checked
 
 
 class TaskRules:
