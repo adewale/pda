@@ -17,7 +17,7 @@ import { settleSpend, standingInstructionFor, type Instruction } from "./instruc
 import { ApprovalDeclined, declineForModel, declineText, recordDecline } from "./declines";
 import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
-import { approvalBatchesTable, approvalsTable, cardsTable, intent, taskCallsTable } from "./store";
+import { approvalBatchesTable, approvalsTable, cardsTable, intent, intentsTable, taskCallsTable, type Sql } from "./store";
 import { approvalResult, checkedOutcomeText, isTaskRequest, storedResolution } from "./approval-outcome";
 import { linkedDecision, taskRequested } from "./approval-projection";
 import type { CardWriteOptions } from "./cards";
@@ -1101,6 +1101,16 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
   }
 }
 
+/**
+ * An approved request the Company answered with success, but whose result it
+ * said wasn't ready, kept before the agent follows it up (openapi-dispatch.ts
+ * `settledAnswer`): the result a restart during those waits finishes it with.
+ */
+const answeredKey = (approvalId: string) => `answered-before-follow-up|${approvalId}`;
+export function recordAnsweredBeforeFollowUp(sql: Sql, approvalId: string, result: string): void {
+  intent(sql, answeredKey(approvalId), () => result);
+}
+
 /** Recover interrupted attempts without resending, and repair reconciled receipts without reviving history. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   // A known approval_required handoff belongs to its terms card even if publication
@@ -1116,10 +1126,28 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
     "SELECT a.id FROM poppy_approvals a JOIN poppy_approval_batches b ON b.id = a.notification_batch_id WHERE b.told = 0").map(row => row.id));
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
     let company = "the company";
+    let domain: string | undefined;
     try {
-      company = client.companyByIssuer(row.issuer).name;
+      ({ name: company, domain } = client.companyByIssuer(row.issuer));
     } catch {
       // Unknown issuer; keep the generic name.
+    }
+    // The Company answered with success before the agent stopped following it up: it was done.
+    const answered = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", answeredKey(row.id))?.value;
+    if (answered !== undefined) {
+      client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ?, notification_pending = 1 WHERE id = ? AND status = 'executing'", answered, row.id);
+      await showResultLinks(client, row.id, company, answered);
+      await client.host.showCard({
+        id: `approval-${row.id}`, kind: "approval", company, ...(domain ? { domain } : {}), open: false, approvalId: row.id, summary: row.summary, status: "done",
+        ...(taskRequested(client.sql, row.id) ? { taskRequested: true } : {}),
+        ...(row.terms ? { terms: row.terms } : {}),
+        result: answered,
+        ...approvalAttachments(row.request), ...batchKeyOf(row.issuer, row.request)
+      });
+      if (batched.has(row.id)) continue;
+      await notifyApprovalDecision(client, row.id,
+        `[system] Done, as approved: ${row.summary}. ${company} said its result wasn't ready yet, and the agent restarted before it was, so details such as a payment link may be missing. Result: ${answered} Tell the User, and offer to check with ${company}; don't send the request again.`);
+      continue;
     }
     client.sql.exec(
       "UPDATE poppy_approvals SET status = 'unknown', result = ?, notification_pending = 1 WHERE id = ?",

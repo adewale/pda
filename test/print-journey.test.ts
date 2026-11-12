@@ -3,6 +3,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { callOpenApi, openApi } from "../src/poppy/apis";
 import { TaskFiles } from "../src/poppy/task-files";
+import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
 import { attachmentMarker, KEEP_MS, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../src/attachments";
 import { agent as poppyAgent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, signInDirect, tool, until, type Company } from "./agent-helpers";
 import { obey } from "./worker";
@@ -969,6 +970,33 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(6);
     await a.stub.poppyAdvance(120_000);
     expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(6);
+  });
+
+  it("finishes an order whose answer came but whose checkout wasn't ready as done, not unknown, when the agent restarts while waiting", async () => {
+    const c = await company({ printShop: true, checkoutPending: 100 });
+    const a = await poppyAgent();
+    const { terms } = await termsForPrint(a, c);
+    await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      // The wait before the first follow-up never ends: the agent stops there, as a restart would stop it.
+      const sleep = vi.spyOn(client.host, "sleep").mockImplementation(() => new Promise<void>(() => {}));
+      try {
+        void decideLocal(client, terms.approvalId, "approve");
+        await until(async () => client.sql.exec("SELECT 1 FROM poppy_intents WHERE call_key = ?", `answered-before-follow-up|${terms.approvalId}`).toArray().length === 1 || undefined);
+        expect(client.sql.exec("SELECT status FROM poppy_approvals WHERE id = ?", terms.approvalId).toArray()).toEqual([{ status: "executing" }]);
+        await recoverInterruptedApprovals(client);
+      } finally { sleep.mockRestore(); }
+    });
+    const receipt = (await cards(a)).find((item) => item.kind === "approval" && item.approvalId === terms.approvalId)!;
+    expect(receipt).toMatchObject({ status: "done", open: false });
+    const order = JSON.parse(receipt.result!) as { body: { order: { state: string; checkout_url?: string } }; note?: string };
+    expect(order.body.order).toMatchObject({ state: "awaiting_payment" });
+    expect(order.note).toContain("its result wasn't ready yet");
+    expect(await a.stub.poppyWaitForNotice("the agent restarted before it was")).toContain("don't send the request again");
+    // Sent once, and not again after the restart.
+    await a.stub.poppyAdvance(120_000);
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(1);
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "succeeded", confirms: 1 })]);
   });
 
   it("tells the User an order may have happened when the answer to its approved request was lost, and never sends it again (N19)", async () => {
