@@ -9,6 +9,7 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 - An approved request answered 2xx with `Retry-After`, as an order without its checkout link yet is, is sent again with the same approval and `Idempotency-Key` after the wait, up to five times, so the User no longer has to ask the agent to check. If it still isn't ready, the agent says so instead of sending it again ([reading](docs/readings.md#v04-result-not-ready)). A restart while it waits finishes the request as done, with the Company's first answer and the same note, where it used to leave the outcome unknown.
 - A card no longer warns that the terms disagree with the request just because two fields share a key: a recipient's `name` in the terms was compared with a product's or a preview's `name` in the request. A terms field is now compared with a request field whose keys end with the same keys (`address.name` with `body.address.name`), and not at all when those keys lead to two different places in the request.
 - The mock Company can hold an order's checkout link back for a number of answers (`checkoutPending`).
+- The mock Company can send the matching `WWW-Authenticate` challenge on a successful response that carries an `authorization` event (`authorizationChallenge`, 8.11). A test checks that the agent asks for sign-in once and sends the message once. The agent already handled this; nothing had tested it.
 
 ## Unreleased — 0.4 alone: 0.3 dropped
 
