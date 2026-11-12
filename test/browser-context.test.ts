@@ -5,10 +5,13 @@ import { browse } from "../src/poppy/browser";
 import { FetchBrowser } from "../src/poppy/fetch-browser";
 import { decideLocal } from "../src/poppy/operations";
 
+/** A sign-in the website acts on: the browser is signed in only with poppy:browser-sign-in (6). */
+const BROWSING = ["orders:read", "orders:write", "poppy:browser-sign-in"];
+
 it("joins only the agent-controlled browser and leaves an ordinary User visit unjoined", async () => {
   const c = await company();
   const a = await agent();
-  await signInDirect(a, c);
+  await signInDirect(a, c, BROWSING);
   const joined = await runInDurableObject(a.stub, async instance => {
     const client = instance.poppy.client;
     const C = await client.company(c.domain);
@@ -42,7 +45,7 @@ it("joins only the agent-controlled browser and leaves an ordinary User visit un
 it("keeps normal browser navigation and POST303GET while requiring approval of frozen form values", async () => {
   const c = await company();
   const a = await agent();
-  await signInDirect(a, c);
+  await signInDirect(a, c, BROWSING);
   const call = (args: Record<string, unknown>) => a.stub.poppyTool("poppy_browse", { domain: c.domain, ...args });
   expect((await call({ action: "open", url: "/account/address" })).text).toContain("Your address");
   await call({ action: "fill", selector: "#line1", value: "1 High St" });
@@ -59,7 +62,7 @@ it("keeps normal browser navigation and POST303GET while requiring approval of f
 it("rejects an old form approval after its account and cookie context were replaced", async () => {
   const c = await company();
   const a = await agent();
-  await signInDirect(a, c);
+  await signInDirect(a, c, BROWSING);
   const call = (args: Record<string, unknown>) => a.stub.poppyTool("poppy_browse", { domain: c.domain, ...args });
   await call({ action: "open", url: "/account/address" });
   const held = await call({ action: "submit", selector: "#address" });
@@ -89,7 +92,7 @@ it("binds browser contexts to account and Session even without a browser-session
 it("rejoins a website cookie that expired while its Poppy Session remains valid", async () => {
   const c = await company();
   const a = await agent();
-  await signInDirect(a, c);
+  await signInDirect(a, c, BROWSING);
   await runInDurableObject(a.stub, async instance => {
     const client = instance.poppy.client;
     const C = await client.company(c.domain);

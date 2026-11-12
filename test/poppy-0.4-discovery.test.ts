@@ -4,12 +4,11 @@ import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed
 /**
  * Discovery under the 0.4 draft (F1 in docs/poppy-0.4-upgrade.md): the
  * version the agent chooses from poppy.json and `supported_versions` (3.4),
- * and what it reads from a 0.4 document (3.3, 6, 9). The agent speaks 0.3
- * and 0.4; an agent that speaks 0.3 alone is `ONLY_03`.
+ * and what it reads from a 0.4 document (3.3, 6, 9). The agent speaks 0.4
+ * alone; the 0.3 document is one it no longer reads (decision 49).
  */
 
 const ISSUER = "https://auth.shop.test";
-const ONLY_03 = ["0.3"];
 
 const auth = { scopes: { "orders:read": "See your orders", "poppy:browser-sign-in": "Use the website signed in" } };
 const POPPY_03 = {
@@ -71,14 +70,6 @@ async function company(documents: Parameters<typeof serving>[0], versions?: read
 }
 
 describe("choosing a version (3.4)", () => {
-  it("an agent that speaks 0.3 alone uses the 0.3 document a 0.4 poppy.json links", async () => {
-    const { fetcher, requests } = serving({ poppy: POPPY_04, linked: { "https://shop.test/poppy/0.3.json": POPPY_03 } });
-    const { result } = await discover(fetcher, "shop.test", ONLY_03);
-    expect(result).toMatchObject({ protocolVersion: "0.3", feedback: { endpoint: POPPY_03.feedback.endpoint }, excludedTasks: { url: POPPY_03.excluded_tasks.url }, extensions: { operations: true } });
-    expect(result).not.toHaveProperty("tasks");
-    expect(requests).toContain("https://shop.test/poppy/0.3.json");
-  });
-
   it("this agent uses 0.4, the newest it speaks, without fetching the 0.3 document", async () => {
     const { fetcher, requests } = serving({ poppy: POPPY_04, linked: { "https://shop.test/poppy/0.3.json": POPPY_03 } });
     const { result } = await discover(fetcher, "shop.test");
@@ -90,14 +81,17 @@ describe("choosing a version (3.4)", () => {
     const poppy = { ...POPPY_03, supported_versions: { "0.4": "https://shop.test/poppy/0.4.json" } };
     const { supported_versions: _linked, ...linked } = POPPY_04;
     expect(await company({ poppy, linked: { "https://shop.test/poppy/0.4.json": linked } })).toMatchObject({ protocolVersion: "0.4" });
-    expect(await company({ poppy, linked: { "https://shop.test/poppy/0.4.json": linked } }, ONLY_03)).toMatchObject({ protocolVersion: "0.3" });
   });
 
   it("never falls back to a version the Company doesn't list", async () => {
     const { supported_versions: _linked, ...only04 } = POPPY_04;
-    await expect(discover(serving({ poppy: only04 }).fetcher, "shop.test", ONLY_03)).rejects.toBeInstanceOf(DiscoveryError);
-    // The linked 0.3 document is missing: a 404 can't be used, so nothing is left to choose.
-    await expect(discover(serving({ poppy: POPPY_04 }).fetcher, "shop.test", ONLY_03)).rejects.toBeInstanceOf(DiscoveryError);
+    const only05 = { ...only04, protocol_version: "0.5" };
+    await expect(discover(serving({ poppy: only05 }).fetcher, "shop.test")).rejects.toBeInstanceOf(DiscoveryError);
+    // The linked 0.4 document is missing: a 404 can't be used, so nothing is left to choose.
+    const linking = { ...only05, supported_versions: { "0.4": "https://shop.test/poppy/0.4.json" } };
+    await expect(discover(serving({ poppy: linking }).fetcher, "shop.test")).rejects.toBeInstanceOf(DiscoveryError);
+    // A 0.3 document alone is refused too: this agent no longer speaks 0.3 (decision 49).
+    await expect(discover(serving({ poppy: POPPY_03 }).fetcher, "shop.test")).rejects.toBeInstanceOf(DiscoveryError);
     // An agent that speaks 0.4 uses the 0.4 document itself.
     expect((await discover(serving({ poppy: only04 }).fetcher, "shop.test")).result).toMatchObject({ protocolVersion: "0.4" });
   });

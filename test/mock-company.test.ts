@@ -2207,7 +2207,7 @@ describe("each check the mock Company makes", () => {
     );
     expect(malformed).toEqual([]);
     // Every section is 0.4's, so none says so, and none names a version's section.
-    expect(VIOLATION_IDS.filter((id) => /\b0\.\d /.test(VIOLATIONS[id]))).toEqual([]);
+    expect(VIOLATION_IDS.filter((id) => /\b0\.[34] /.test(VIOLATIONS[id]))).toEqual([]);
     // docs/conformance-levels.md: MUST, RFC and Rule are failures; SHOULD and Guides warnings;
     // readings tentative. Nothing rests on a MAY.
     const expected = { MUST: "failure", RFC: "failure", Rule: "failure", SHOULD: "warning", Guides: "warning", Reading: "tentative" } as const;

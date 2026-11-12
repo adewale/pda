@@ -114,11 +114,11 @@ export function parseOperationV2(value: Json | undefined): OperationV2 | { reado
   if (summary !== undefined && typeof summary !== "string") return { problem: "its summary isn't a string" };
   if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: "its summary is too long to show" };
   if (terms === undefined) return { problem: "it has no terms" };
-  if (terms !== undefined && !isObject(terms)) return { problem: "its terms aren't an object" };
+  if (!isObject(terms)) return { problem: "its terms aren't an object" };
   if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: "its expires_at isn't an RFC 3339 time" };
   // A blank summary says nothing, so the terms are shown instead.
   const shown = typeof summary === "string" && summary.trim() !== "" ? summary : undefined;
-  const operation: OperationV2 = { operation_id: id, revision, ...(shown !== undefined ? { summary: shown } : {}), ...(terms !== undefined ? { terms } : {}), expires_at: expiresAt };
+  const operation: OperationV2 = { operation_id: id, revision, ...(shown !== undefined ? { summary: shown } : {}), terms, expires_at: expiresAt };
   if (shown === undefined && described(operation).length > SUMMARY_LIMIT) return { problem: "it has no summary, and its terms are too long to show" };
   return operation;
 }
