@@ -4,7 +4,7 @@ import { covers, grantedScope, parseRateLimit, parseWwwAuthenticate, PoppyError,
 import { boundedCacheSeconds, protocolEndpoint, type Company } from "../../src/poppy/discovery";
 import { assertPublicHost, cacheSeconds, PoppyFetchError, readLimited } from "../../src/poppy/fetch";
 import { htu } from "../../src/poppy/jwt";
-import { highlights, termsDifferences } from "../../src/poppy/operations";
+import { highlights, termsDifferences, wholeAmount } from "../../src/poppy/operations";
 import { chooseSignInType, describeScopes, deviceLink } from "../../src/poppy/signin";
 import { cacheSeconds as validatorCacheSeconds, isPublicHost, metadataUrl } from "../../src/validator/fetch";
 import { hosts, SCOPE_ALPHABET } from "./companies";
@@ -601,6 +601,52 @@ describe("operation highlights (Guides, Operations)", () => {
     property((tc) => {
       const value = tc.draw(gs.optional(termsOf(silentKeys)));
       expect(highlights(value ?? undefined).at(-1)).toBe(UNSAID);
+    })
+  );
+});
+
+/** Digits after the point in each currency the generators use (ISO 4217), kept apart from `Intl`, which the code under test asks. */
+const MINOR_DIGITS = { USD: 2, EUR: 2, GBP: 2, JPY: 0, KWD: 3 } as const;
+
+/** An integer amount in minor units written in whole units, by BigInt: 1200 with 2 digits is "12.00", -5 is "-0.05". */
+function inWholeUnits(amount: bigint, digits: number): string {
+  const scale = 10n ** BigInt(digits);
+  const size = amount < 0n ? -amount : amount;
+  return `${amount < 0n ? "-" : ""}${size / scale}.${String(size % scale).padStart(digits, "0")}`;
+}
+
+describe("amounts in minor units (wholeAmount, 0.4 Ops 3)", () => {
+  const integers = gs.integers({ minValue: -1_000_000_000, maxValue: 1_000_000_000 });
+  const noDigits = gs.text({ maxSize: 20 }).filter((text) => !/\d/.test(text));
+
+  it(
+    "reads an integer in minor units when the summary writes that reading and never the integer",
+    property((tc) => {
+      const currency = tc.draw(gs.sampledFrom(["USD", "EUR", "GBP", "KWD"] as const));
+      const amount = tc.draw(integers.filter((value) => value !== 0));
+      const minor = inWholeUnits(BigInt(amount), MINOR_DIGITS[currency]);
+      const summary = `${tc.draw(noDigits)} ${tc.draw(gs.sampledFrom(["", "$", "£", "€"]))}${minor.replace(/^-/, "")} ${tc.draw(noDigits)}`;
+      expect(wholeAmount(tc.draw(gs.sampledFrom([amount, String(amount)])), currency, summary)).toBe(minor);
+      expect(highlights({ payment: { amount, currency } }, summary)[0]).toBe(`Cost (payment): ${minor} ${currency}`);
+    })
+  );
+
+  it(
+    "keeps an amount as written when the summary writes it, has no summary, or the currency has no minor units",
+    property((tc) => {
+      const amount = tc.draw(integers);
+      const currency = tc.draw(gs.sampledFrom(["USD", "EUR", "GBP", "JPY", "KWD"] as const));
+      const minor = MINOR_DIGITS[currency] ? inWholeUnits(BigInt(amount), MINOR_DIGITS[currency]) : String(amount);
+      const summary = tc.draw(gs.oneOf(gs.just(undefined), gs.just(`${tc.draw(noDigits)} ${amount} ${tc.draw(noDigits)}`), gs.just(`${String(amount)} or ${minor}`)));
+      expect(wholeAmount(amount, currency, summary)).toBe(String(amount));
+    })
+  );
+
+  it(
+    "keeps an amount that isn't an integer as written, whatever the summary says",
+    property((tc) => {
+      const amount = tc.draw(gs.oneOf<string | number>(gs.fromRegex("-?[0-9]{1,6}\\.[0-9]{1,3}", { fullmatch: true }), gs.text().filter((text) => !/^-?\d+$/.test(text))));
+      expect(wholeAmount(amount, tc.draw(gs.sampledFrom(["USD", "JPY", "XYZ", "usd"])), tc.draw(gs.text()))).toBe(String(amount));
     })
   );
 });

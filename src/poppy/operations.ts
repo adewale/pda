@@ -24,11 +24,37 @@ import type { CardWriteOptions } from "./cards";
 import { inspectResultLinks } from "./result-links";
 import { currentEvent, currentTool, id as logId } from "../log";
 
+/** Digits after the decimal point in a currency's amounts (ISO 4217): 2 for USD, 0 for JPY; null for a code this runtime doesn't know. */
+function minorDigits(currency: unknown): number | null {
+  if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency) || !Intl.supportedValuesOf("currency").includes(currency)) return null;
+  return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? null;
+}
+
+/**
+ * An amount in whole units, as the card shows it. 0.4 Ops 3 leaves the keys of `terms`
+ * to the Company, so `{ "amount": 1200, "currency": "USD" }` can be in cents. An
+ * integer amount in a currency with minor units is read in them when the summary,
+ * which MUST name any cost too, writes that reading ("$12.00") and never the amount
+ * as written (1200). Anything else is as written ([reading](../../docs/readings.md#v04-terms-minor-units)).
+ */
+export function wholeAmount(amount: string | number, currency: unknown, summary: string | undefined): string {
+  const written = String(amount);
+  const digits = minorDigits(currency);
+  if (summary === undefined || !digits || !/^-?\d+$/.test(written) || (typeof amount === "number" && !Number.isSafeInteger(amount))) return written;
+  const sign = written.startsWith("-") ? "-" : "";
+  const padded = written.replace(/^-/, "").padStart(digits + 1, "0");
+  const minor = `${sign}${padded.slice(0, -digits)}.${padded.slice(-digits)}`;
+  const numbers = numbersIn(summary);
+  const says = (value: string) => numbers.includes(Math.abs(Number(value)));
+  return says(minor) && !says(written) ? minor : written;
+}
+
 /**
  * What the Guides ask an approval to point out (Operations section): costs,
  * dates and conditions found in `terms`, and whether the action can be undone.
+ * Amounts are in whole units as `wholeAmount` reads them against `summary`.
  */
-export function highlights(terms: Json | undefined): string[] {
+export function highlights(terms: Json | undefined, summary?: string): string[] {
   const found: string[] = [];
   let reversibility: string | null = null;
   const walk = (value: Json, path: string) => {
@@ -37,7 +63,7 @@ export function highlights(terms: Json | undefined): string[] {
       return;
     }
     if (typeof value.amount === "string" || typeof value.amount === "number") {
-      found.push(`Cost (${path || "amount"}): ${value.amount}${typeof value.currency === "string" ? ` ${value.currency}` : ""}`);
+      found.push(`Cost (${path || "amount"}): ${wholeAmount(value.amount, value.currency, summary)}${typeof value.currency === "string" ? ` ${value.currency}` : ""}`);
       return;
     }
     for (const [key, item] of Object.entries(value)) {
@@ -61,10 +87,12 @@ export function highlights(terms: Json | undefined): string[] {
 /**
  * The total `terms` name, shown large on the card: the `{ amount, currency }`
  * under a key with "total" in it (and not "sub") nearest the top, "total"
- * or "grand_total" first. None when terms don't name
+ * or "grand_total" first, or a number there beside a `currency`
+ * (`{ "total": 1200, "currency": "USD" }`), in whole units as `wholeAmount`
+ * reads them against `summary`. None when terms don't name
  * one; the card then has no large figure, and the highlights still list every cost.
  */
-export function termsTotal(terms: Json | undefined): { amount: string; currency: string } | undefined {
+export function termsTotal(terms: Json | undefined, summary?: string): { amount: string; currency: string } | undefined {
   let level: Json[] = terms === undefined ? [] : [terms];
   for (let depth = 0; depth < 4 && level.length; depth++) {
     const next: Json[] = [];
@@ -77,7 +105,10 @@ export function termsTotal(terms: Json | undefined): { amount: string; currency:
         .sort(([a], [b]) => Number(!/^(grand[_ -]?)?total$/i.test(a)) - Number(!/^(grand[_ -]?)?total$/i.test(b)));
       for (const [, item] of totals) {
         if (isObject(item) && (typeof item.amount === "string" || typeof item.amount === "number") && typeof item.currency === "string") {
-          return { amount: String(item.amount), currency: item.currency };
+          return { amount: wholeAmount(item.amount, item.currency, summary), currency: item.currency };
+        }
+        if (typeof item === "number" && typeof value.currency === "string") {
+          return { amount: wholeAmount(item, value.currency, summary), currency: value.currency };
         }
       }
       next.push(...Object.values(value));
@@ -176,7 +207,7 @@ export function termsDifferences(operation: Pick<OperationV2, "summary" | "terms
     if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${path}[${index}]`, [...segments, index]));
     if (!isObject(value)) return;
     if (typeof value.amount === "string" || typeof value.amount === "number") {
-      const amount = Number(value.amount);
+      const amount = Number(wholeAmount(value.amount, value.currency, operation.summary));
       const currency = typeof value.currency === "string" ? ` ${value.currency}` : "";
       if (written && (!Number.isFinite(amount) || !written.includes(Math.abs(amount)))) {
         differences.push(`The terms name ${quoted(value.amount)}${quoted(currency)} (${path || "amount"}), which the summary doesn't mention.`);
@@ -202,13 +233,13 @@ export function termsDifferences(operation: Pick<OperationV2, "summary" | "terms
 
 /** What the approval card shows of an operation (Ops 5): the Company's summary, its expiry, and what its terms name. */
 export function approvalTerms(company: Company, operation: OperationV2, asked: Json | undefined): ApprovalTerms {
-  const total = termsTotal(operation.terms);
+  const total = termsTotal(operation.terms, operation.summary);
   const previews = termsPreviews(company, operation.terms);
   const differences = termsDifferences(operation, asked);
   return {
     summary: described(operation),
     expiresAt: operation.expires_at,
-    highlights: highlights(operation.terms),
+    highlights: highlights(operation.terms, operation.summary),
     ...(total ? { total } : {}),
     ...(previews.length ? { previews } : {}),
     ...(differences.length ? { differences } : {})
