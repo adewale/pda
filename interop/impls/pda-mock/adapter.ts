@@ -76,17 +76,15 @@ if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PRO
   throw new Error(`INTEROP_MOCK_PROFILE must be lenient or strict, not ${process.env.INTEROP_MOCK_PROFILE}`);
 }
 /**
- * The versions the mock serves (3.4): the newest our client speaks in
- * poppy.json, so a pair of our own builds can never drift apart (decision 37),
- * and the one before it linked from `supported_versions`, so the adversarial
- * agent's raw 0.3 requests and 0.3-only peers still share a version with it.
+ * The version the mock serves (3.4): the newest our client speaks, alone in
+ * poppy.json, so a pair of our own builds can never drift apart (decision 37).
+ * 0.4 since 0.3 was dropped (decision 49); the adversarial agent's raw
+ * requests are 0.4 too.
  */
 const WIRE_VERSION = PROTOCOL_VERSIONS.at(-1)!;
-const LINKED_VERSION = PROTOCOL_VERSIONS.at(-2)!;
 const BASE: Partial<MockConfig> = {
   ...MOCK_BASE,
   protocolVersion: WIRE_VERSION,
-  linkedVersion: LINKED_VERSION,
   strictAssertions: PROFILE === "strict"
 };
 
@@ -107,14 +105,14 @@ const MANIFEST = {
   name: NAME,
   role: "company",
   commit: COMMIT,
-  poppy: [LINKED_VERSION, WIRE_VERSION],
+  poppy: [WIRE_VERSION],
   extensions: ["operations"],
   scenarios: ADVERSARY
     ? ATTACK_IDS
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         "H", "DC", "W", "CM", "ML",
-        // Local adversarial agent (0.3, the linked version) and exact authorization-code replay.
+        // Local adversarial agent and exact authorization-code replay.
         "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "NREP", "CDUP", "CIDUP", "ODUP"
       ],
   // S2 lenient-300s: no typ or kid needed, but an assertion living over 300 s is refused (MAX_ASSERTION_LIFETIME).

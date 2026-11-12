@@ -71,7 +71,7 @@ describe("readings against the trace", () => {
   });
 
   it("warns when the trace contradicts a declared reading", () => {
-    // 0.3 settles S1 (the issuer, 4.1); an agent that declares it and sends the token endpoint contradicts itself.
+    // 0.3 settled S1 and 0.4 keeps it (the issuer, 4.1); an agent that declares it and sends the token endpoint contradicts itself.
     const client = clientAssertion({ header: { typ: undefined }, payload: { aud: TOKEN } });
     const checks = readingChecks(recording(metadata, sessionStart(0, { client })), { S1: "issuer", S2: "jwt-60s" });
     expect(checks.map((check) => check.id)).toEqual(["reading.S1", "reading.S2"]);

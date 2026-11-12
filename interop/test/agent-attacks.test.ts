@@ -13,7 +13,7 @@ import { currentKey } from "../../src/poppy/keys.ts";
 import { API, CLIENT_ID, clientAssertion as fixtureAssertion, proof as fixtureProof, recording, TOKEN } from "./helpers.ts";
 
 const company: Company = {
-  issuer: parseIssuer("https://auth.acme.company.interop.test")!, name: "Acme", domain: "acme.company.interop.test", protocolVersion: "0.3",
+  issuer: parseIssuer("https://auth.acme.company.interop.test")!, name: "Acme", domain: "acme.company.interop.test", protocolVersion: "0.4",
   endpoints: { token: TOKEN, revocation: `${companyIssuer()}/oauth/revoke` },
   signIn: { mediated: { endpoint: TOKEN, scopes: ["orders:read", "orders:write"], fields: [{ name: "email", label: "Email", secret: false }, { name: "password", label: "Password", secret: true }] } },
   dpop: true, apis: [{ type: "openapi", url: `${API}/openapi.json`, description: "Orders" }],
@@ -61,7 +61,7 @@ async function fixture(id: AttackId, refuse = true, options: { brokenSetup?: boo
   return { ctx: { clientId: CLIENT_ID, signingJwks, fetcher }, plan, trace: () => exchanges({ log: { entries } }), publicKey: key.publicKey, performs: () => performs };
 }
 
-describe("Poppy 0.3 raw adversarial adapter and independent trace oracles", () => {
+describe("Poppy 0.4 raw adversarial adapter and independent trace oracles", () => {
   for (const id of ATTACKS) {
     it(`${id}: proves an accepted control, the precise mutation and its refusal`, async () => {
       const f = await fixture(id), plan = await f.plan();
@@ -130,6 +130,14 @@ describe("Poppy 0.3 raw adversarial adapter and independent trace oracles", () =
     expect(decodeJwt(jwt)!.payload.aud).toBe("https://foreign.company.interop.test");
     expect(pair[0].url.href).toBe(pair[1].url.href);
   });
+  it("declares 0.4 and the Operations extension on every Session request, and none on token requests (3.4)", async () => {
+    const f = await fixture("YM"), plan = await f.plan();
+    await plan.run();
+    const session = f.trace().filter((x) => x.requestHeaders.has("poppy-session"));
+    expect(session.length).toBeGreaterThan(0);
+    for (const x of session) expect([x.requestHeaders.get("poppy-version"), x.requestHeaders.get("poppy-extensions")]).toEqual(["0.4", '"operations";v="3"']);
+    for (const x of f.trace().filter((x) => x.url.pathname === "/oauth/token")) expect(x.requestHeaders.has("poppy-version")).toBe(false);
+  });
   it("broken honest setup is a harness error before an attack can be sent", async () => {
     const f = await fixture("YR", true, { brokenSetup: true });
     await expect(f.plan()).rejects.toBeInstanceOf(AttackSetupError);
@@ -145,10 +153,13 @@ describe("Poppy 0.3 raw adversarial adapter and independent trace oracles", () =
       await expect(f.plan()).rejects.toBeInstanceOf(AttackUnsupported);
     }
   });
-  it("Operations 2 exposes approval and replay as separate phases for effect-count checks", async () => {
+  it("Operations 3 exposes approval and replay as separate phases for effect-count checks", async () => {
     const f = await fixture("YM"), plan = await f.plan();
     expect((await plan.run()).status).toBe(403);
     expect(f.performs()).toBe(0);
+    // The invented revision is the only fault: the User's statement is complete (Ops 6).
+    const probe = f.trace().find((x) => x.requestHeaders.get("x-interop-attack") === "YM")!.requestHeaders.get("poppy-approval")!;
+    expect(probe).toMatch(/^operation_id="op-one", revision="invented-[^"]+", approver="user", approved_at=\d+, input_type="tap", reference="apr_[A-Za-z0-9_-]+"$/);
     const approved = await plan.run("approve");
     expect(approved.status).toBe(201);
     expect(f.performs()).toBe(1);

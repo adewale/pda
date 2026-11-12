@@ -16,14 +16,12 @@ export class ApprovalAcknowledgements {
     if (!match || request.method !== "POST" || !response.ok || !(response.headers.get("content-type") ?? "").includes("json")) return;
     try {
       const sent = record(await request.clone().json()), answer = record(await response.clone().json());
-      // Operations 2's approval is extension content in the message (8.4, Ops 6).
+      // The Operations approval is extension content in the message (8.4, Ops 6).
       const message = record(sent?.message), approval = record(record(record(message?.extensions)?.operations)?.approval);
       const conversation = decodeURIComponent(match[1]!);
-      // 0.3 (no Poppy-Version): the message has its own id, and the answer status and responder.
-      // 0.4: the message's id is its request's, and the answer may be conversation_id alone (8.3).
-      const v03 = !request.headers.has("Poppy-Version");
-      const id = v03 ? message?.id : sent?.id;
-      if (!ID.test(conversation) || !answer || answer.conversation_id !== conversation || (v03 && (typeof answer.status !== "string" || typeof answer.responder !== "string")) || Object.hasOwn(answer, "error") || typeof id !== "string" || !ID.test(id) || typeof approval?.operation_id !== "string" || typeof approval.revision !== "string") return;
+      // The message's id is its request's, and the answer may be conversation_id alone (8.3).
+      const id = sent?.id;
+      if (!ID.test(conversation) || !answer || answer.conversation_id !== conversation || Object.hasOwn(answer, "error") || typeof id !== "string" || !ID.test(id) || typeof approval?.operation_id !== "string" || typeof approval.revision !== "string") return;
       this.#accepted.add(key(`${url.origin}${url.pathname}`, approval.operation_id, approval.revision));
     } catch { /* Malformed/unreadable acknowledgements cannot establish delivery. */ }
   }

@@ -1,5 +1,5 @@
 /**
- * Raw, deliberately invalid Poppy 0.3 requests. Only the local adversarial
+ * Raw, deliberately invalid Poppy 0.4 requests. Only the local adversarial
  * adapter imports this; no production client relaxation or live identity.
  * Every probe first establishes an accepted, otherwise equivalent request.
  */
@@ -7,6 +7,8 @@ import type { Company } from "../../../src/poppy/discovery.ts";
 import { MEDIATED_GRANT } from "../../../src/poppy/discovery.ts";
 import { clientAssertion, delegate, dpopProof, newDpopKey, randomId, sessionJwt, type Delegated, type DpopKey } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
+import { declaration, declarationHeaders } from "../../../src/poppy/declaration.ts";
+import { approvalHeader, approvalStatement } from "../../../src/poppy/operations-v2.ts";
 
 export const ATTACKS = ["YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM"] as const;
 export type AttackId = typeof ATTACKS[number];
@@ -62,6 +64,8 @@ export async function prepareAttack(ctx: AttackContext, company: Company, attack
   async function resource(who: User, url: string, options: { method?: string; body?: string; session?: string; proof?: string; proofKey?: DpopKey; audience?: string; marker?: string; approval?: string } = {}): Promise<AttackResult> {
     const method = options.method ?? "GET";
     const headers = new Headers({ "Poppy-Session": options.session ?? await session(who, method, url, options.audience) });
+    // The Session's declaration, on every request with its header (3.4), as an honest Session sends it.
+    for (const [name, value] of declarationHeaders(declaration(company))) headers.set(name, value);
     if (who.tokens) {
       headers.set("Authorization", `${who.tokens.type} ${who.tokens.access}`);
       if (who.tokens.type.toLowerCase() === "dpop") headers.set("DPoP", options.proof ?? await dpopProof(options.proofKey ?? who.dpop, { method, url, accessToken: who.tokens.access }));
@@ -100,7 +104,8 @@ export async function prepareAttack(ctx: AttackContext, company: Company, attack
   if (attack === "YU") {
     if (!company.conversations) throw new AttackUnsupported("The attack needs conversations");
     const endpoint = company.conversations.endpoint;
-    const message = (text: string) => JSON.stringify({ message: { id: randomId("msg_"), author: { type: "agent" }, text } });
+    // A message's id is its request's (8.3).
+    const message = (text: string) => JSON.stringify({ id: randomId("req_"), message: { author: { type: "agent" }, text } });
     const started = await resource(user, endpoint, { method: "POST", body: message("Hello") });
     accepted(started, "User A's new conversation");
     const id = requiredString(record(started.body).conversation_id, "conversation id");
@@ -144,16 +149,22 @@ export async function prepareAttack(ctx: AttackContext, company: Company, attack
     if (tokens(rotated).refresh === original) throw new AttackUnsupported("This Company doesn't rotate refresh tokens");
     return { run: () => grant(user, { grant_type: "refresh_token", refresh_token: original }, attack) };
   }
-  // Operations 2: obtain real terms; an invented revision must not approve
-  // them. Separate phases let the runner inspect effects between requests.
+  // Operations 3: obtain real terms; an invented revision must not approve
+  // them, though the User's statement is otherwise complete (Ops 6). Separate
+  // phases let the runner inspect effects between requests.
   const proposed = await resource(user, write, { method: "POST", body: writeBody });
   const operation = record(record(proposed.body).operation);
   if (proposed.status !== 403 || record(proposed.body).error !== "approval_required") throw new AttackSetupError("An honest write didn't return 403 approval_required");
   const operationId = requiredString(operation.operation_id, "operation_id");
   const revision = requiredString(operation.revision, "revision");
-  const header = (value: string) => `operation_id=${JSON.stringify(operationId)}, revision=${JSON.stringify(value)}`;
+  // One statement per revision: a replay keeps its approval's reference, and another approval has its own (Ops 6).
+  const statements = new Map<string, ReturnType<typeof approvalStatement>>();
+  const header = (value: string) => {
+    if (!statements.has(value)) statements.set(value, approvalStatement(company, { approvalId: randomId("apr_"), approvedAt: Date.now() }));
+    return approvalHeader({ operation_id: operationId, revision: value, ...statements.get(value)! });
+  };
   return { run: (phase = "probe") => {
-    if (!["probe", "approve", "replay"].includes(phase)) throw new AttackSetupError(`Unknown Operations 2 attack phase ${phase}`);
+    if (!["probe", "approve", "replay"].includes(phase)) throw new AttackSetupError(`Unknown Operations 3 attack phase ${phase}`);
     return resource(user, write, { method: "POST", body: writeBody, approval: header(phase === "probe" ? `invented-${randomId()}` : revision), marker: phase === "probe" ? attack : `${attack}-${phase}` });
   } };
 }

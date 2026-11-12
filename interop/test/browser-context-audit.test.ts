@@ -8,7 +8,7 @@ import { migrate } from "../../src/poppy/store";
 import { memorySql } from "../impls/pda-agent/sqlite";
 
 const COMPANY: Company = {
-  issuer: toIssuer("https://auth.shop.example"), domain: "shop.example", name: "Shop", protocolVersion: "0.3",
+  issuer: toIssuer("https://auth.shop.example"), domain: "shop.example", name: "Shop", protocolVersion: "0.4",
   endpoints: { token: "https://auth.shop.example/token", revocation: "https://auth.shop.example/revoke" },
   signIn: {}, customScopes: {}, apis: [], extensions: {}, web: { browserSessionEndpoint: "https://shop.example/browser-session" }
 };

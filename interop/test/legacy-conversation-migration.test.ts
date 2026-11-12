@@ -5,10 +5,7 @@ import { PoppyClient, type PoppyHost } from "../../src/poppy/client";
 import { migrate } from "../../src/poppy/store";
 import { readConversation, updateAvailability } from "../../src/poppy/conversations";
 import { buildActivity, openAtCompanies } from "../../src/poppy/activity";
-import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
-
-// These are 0.3 records, so 0.3's revision.
-const PROTOCOL_REVISION = PROTOCOL_REVISIONS["0.3"];
+import { PROTOCOL_REVISION } from "../../src/poppy/protocol-version";
 import type { Company } from "../../src/poppy/discovery";
 
 const ISSUER = "https://auth.shop.example";
@@ -29,12 +26,12 @@ async function fixture() {
     fetcher: async request => {
       requests.push({ url: request.url, method: request.method });
       const url = new URL(request.url);
-      if (url.pathname === "/.well-known/poppy.json") return Response.json({ protocol_version: "0.3", organization: { name: "Shop", domain: "shop.example" },
+      if (url.pathname === "/.well-known/poppy.json") return Response.json({ protocol_version: "0.4", organization: { name: "Shop", domain: "shop.example" },
         auth: { scopes: { read: "Read orders" } }, agent: { protocols: [{ type: "poppy", endpoint: "https://shop.example/conversations" }] } });
       if (url.pathname === "/.well-known/oauth-protected-resource") return Response.json({ resource: "https://shop.example", authorization_servers: [ISSUER] });
       if (url.pathname === "/.well-known/oauth-authorization-server") return Response.json({ issuer: ISSUER, token_endpoint: `${ISSUER}/token`, revocation_endpoint: `${ISSUER}/revoke`,
         grant_types_supported: ["refresh_token"], protected_resources: ["https://shop.example"] });
-      if (url.pathname === "/conversations/remote_current/messages" && request.method === "POST") return Response.json({ conversation_id: "remote_current", status: "idle", responder: "agent" });
+      if (url.pathname === "/conversations/remote_current/messages" && request.method === "POST") return Response.json({ conversation_id: "remote_current" }, { status: 202 });
       throw new Error(`Unexpected protocol request: ${request.method} ${request.url}`);
     },
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
@@ -46,8 +43,9 @@ async function fixture() {
 
 function addConversation(f: Awaited<ReturnType<typeof fixture>>, id: string, company: Company, direct = false, remember = true) {
   if (remember) f.client.rememberCompany("conversation", id, company);
-  f.sql.exec(`INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, cursor, context, last_event_at, created_at)
-    VALUES (?, ?, ?, 'main', ?, 'idle', 'agent', 'kept-cursor', '{"user_available":false}', ?, ?)`, id, ISSUER, `remote_${id.slice(4)}`, direct ? 1 : 0, Date.now(), Date.now());
+  // A conversation keeps the version it started in (8.2).
+  f.sql.exec(`INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, cursor, context, last_event_at, created_at, protocol_version)
+    VALUES (?, ?, ?, 'main', ?, 'idle', 'agent', 'kept-cursor', '{"user_available":false}', ?, ?, ?)`, id, ISSUER, `remote_${id.slice(4)}`, direct ? 1 : 0, Date.now(), Date.now(), company.protocolVersion);
 }
 
 function evidence(f: Awaited<ReturnType<typeof fixture>>) {
@@ -60,10 +58,16 @@ function evidence(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe("retiring conversations that cannot survive the protocol upgrade", () => {
-  it.each(["0.1", "0.2", "older 0.3 revision"])("stops %s conversations locally, preserves evidence, and lets current presence updates continue", async version => {
+  // 0.3 was dropped on 11 November (decision 49): a 0.3 conversation at its last revision is retired too.
+  const LEGACY: Record<string, { protocolVersion: string; specificationRevision: string }> = {
+    "0.1": { protocolVersion: "0.1", specificationRevision: "2026-10-19" },
+    "0.2": { protocolVersion: "0.2", specificationRevision: "2026-10-19" },
+    "older 0.3 revision": { protocolVersion: "0.3", specificationRevision: "2026-10-28" },
+    "0.3": { protocolVersion: "0.3", specificationRevision: "2026-11-03" }
+  };
+  it.each(Object.keys(LEGACY))("stops %s conversations locally, preserves evidence, and lets current presence updates continue", async version => {
     const f = await fixture();
-    const legacy = { ...f.company, protocolVersion: version === "older 0.3 revision" ? "0.3" : version,
-      specificationRevision: version === "older 0.3 revision" ? "2026-10-28" : "2026-10-19" };
+    const legacy = { ...f.company, ...LEGACY[version]! };
     addConversation(f, "cnv_current", f.company);
     addConversation(f, "cnv_legacy", legacy);
     addConversation(f, "cnv_direct", legacy, true);
@@ -113,7 +117,7 @@ describe("retiring conversations that cannot survive the protocol upgrade", () =
     migrate(f.sql);
     expect(f.sql.exec("SELECT * FROM poppy_conversations WHERE id = 'cnv_current'").one()).toEqual(original);
     expect(f.sql.exec("SELECT * FROM poppy_cards").toArray()).toEqual([]);
-    expect(openAtCompanies(f.client).conversations).toContainEqual(expect.objectContaining({ conversation: "cnv_current", status: "idle" }));
+    expect(openAtCompanies(f.client).conversations).toContainEqual(expect.objectContaining({ conversation: "cnv_current", closed: false, working: false }));
   });
 
   it("uses a legacy cached Company only when an immutable conversation context is missing", async () => {
@@ -147,20 +151,42 @@ describe("retiring conversations that cannot survive the protocol upgrade", () =
     expect(f.sql.exec("SELECT * FROM poppy_cards").toArray()).toHaveLength(1);
   });
 
-  it("adds nullable retirement metadata to an existing conversation table without retiring supported work", async () => {
-    const f = await fixture();
+  /** A conversation table as an agent stored it before `retired_at`: with the 0.4 columns or without them. */
+  function olderTable(company: Company, versioned: boolean) {
     const sql = memorySql();
     sql.exec(`CREATE TABLE poppy_conversations (id TEXT PRIMARY KEY, issuer TEXT NOT NULL, remote_id TEXT NOT NULL DEFAULT '',
       quarantined INTEGER NOT NULL DEFAULT 0, label TEXT NOT NULL, parent TEXT, direct INTEGER NOT NULL, status TEXT NOT NULL,
-      responder TEXT NOT NULL, cursor TEXT, context TEXT, last_event_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`);
+      responder TEXT NOT NULL, cursor TEXT, context TEXT, last_event_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+      ${versioned ? ", protocol_version TEXT NOT NULL DEFAULT '0.3', extensions TEXT NOT NULL DEFAULT '', working INTEGER NOT NULL DEFAULT 0, handoff TEXT NOT NULL DEFAULT 'none'" : ""})`);
     sql.exec("CREATE TABLE poppy_task_contexts (kind TEXT NOT NULL, task_id TEXT NOT NULL, issuer TEXT NOT NULL, company TEXT NOT NULL, PRIMARY KEY (kind, issuer, task_id))");
-    sql.exec("INSERT INTO poppy_task_contexts VALUES ('conversation', 'cnv_current', ?, ?)", ISSUER, JSON.stringify(f.company));
-    sql.exec("INSERT INTO poppy_conversations VALUES ('cnv_current', ?, 'remote_current', 0, 'main', NULL, 0, 'idle', 'agent', 'kept', '{}', 123, 123)", ISSUER);
+    sql.exec("INSERT INTO poppy_task_contexts VALUES ('conversation', 'cnv_current', ?, ?)", ISSUER, JSON.stringify(company));
+    sql.exec(`INSERT INTO poppy_conversations (id, issuer, remote_id, quarantined, label, parent, direct, status, responder, cursor, context, last_event_at, created_at${versioned ? ", protocol_version" : ""})
+      VALUES ('cnv_current', ?, 'remote_current', 0, 'main', NULL, 0, 'idle', 'agent', 'kept', '{}', 123, 123${versioned ? ", ?" : ""})`, ISSUER, ...(versioned ? [company.protocolVersion] : []));
+    return sql;
+  }
+
+  it("adds nullable retirement metadata to an existing conversation table without retiring supported work", async () => {
+    const f = await fixture();
+    const sql = olderTable(f.company, true);
     migrate(sql);
     migrate(sql);
     expect(sql.exec("SELECT status, cursor, context, retired_at FROM poppy_conversations WHERE id = 'cnv_current'").one())
       .toEqual({ status: "idle", cursor: "kept", context: "{}", retired_at: null });
     expect(sql.exec("PRAGMA table_info(poppy_conversations)").toArray().filter(row => row.name === "retired_at")).toHaveLength(1);
     expect(sql.exec("SELECT * FROM poppy_cards").toArray()).toEqual([]);
+  });
+
+  it("retires a conversation stored before conversations recorded their version, which was a 0.3 one (decision 49)", async () => {
+    const f = await fixture();
+    // Even with a Company context the agent still supports: the conversation itself started at 0.3 (8.2).
+    const sql = olderTable(f.company, false);
+    migrate(sql);
+    migrate(sql);
+    expect(sql.exec("SELECT status, cursor, context, protocol_version FROM poppy_conversations WHERE id = 'cnv_current'").one())
+      .toEqual({ status: "closed", cursor: "kept", context: "{}", protocol_version: "0.3" });
+    expect(sql.exec("SELECT retired_at FROM poppy_conversations WHERE id = 'cnv_current'").one()).toEqual({ retired_at: expect.any(Number) });
+    const notice = sql.exec("SELECT card FROM poppy_cards WHERE id = 'conversation-retired-cnv_current'").one();
+    expect(JSON.parse(String(notice.card))).toMatchObject({ kind: "notice", company: "Shop", open: false, text: expect.stringContaining("did not cancel or confirm") });
+    expect(sql.exec("SELECT * FROM poppy_cards").toArray()).toHaveLength(1);
   });
 });

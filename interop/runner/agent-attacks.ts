@@ -1,4 +1,4 @@
-/** Wire preconditions and refusal oracles for the local raw 0.3 agent probes. */
+/** Wire preconditions and refusal oracles for the local raw 0.4 agent probes. */
 import { createHash } from "node:crypto";
 import { authorization, decodeJwt, form, jsonBody, type Exchange } from "./har.ts";
 import type { RunnerReply } from "./cell.ts";

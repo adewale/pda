@@ -82,8 +82,8 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  // Every version src/poppy speaks; the adversarial agent's raw requests are 0.3 only (attacks.ts).
-  poppy: ADVERSARY ? ["0.3"] : [...PROTOCOL_VERSIONS],
+  // Every version src/poppy speaks, 0.4 alone (decision 49); the adversarial agent's raw requests are 0.4 too (attacks.ts).
+  poppy: [...PROTOCOL_VERSIONS],
   extensions: ["operations"],
   scenarios: ADVERSARY ? [...ATTACKS] : [
     "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
@@ -91,7 +91,7 @@ const MANIFEST = {
     // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
     "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XP", "XE", "XR"
   ],
-  // 0.3 settles S1: the issuer (4.1).
+  // 0.3 settled S1, and 0.4 keeps it: the issuer (4.1).
   readings: PROFILE ? PROFILE_READINGS[PROFILE] : { S1: "issuer", S2: "jwt-60s", S3: "insertion", S23: "per-origin" },
   relaxations: [] as string[],
   ...(ADVERSARY ? { adversarial: true, attacks: [...ATTACKS] } : {}),
@@ -99,7 +99,7 @@ const MANIFEST = {
   // The client_id it signs as, which the runner checks against the live identity it passed.
   client_id: LIVE?.clientId ?? `${ORIGIN}/poppy/client.json`,
   ...(FAULT ? { faults: [FAULT] } : {}),
-  notes: ADVERSARY ? "Raw Poppy 0.3 adversarial requests; every probe establishes an accepted baseline; local own-project lane only." : PROFILE
+  notes: ADVERSARY ? "Raw Poppy 0.4 adversarial requests; every probe establishes an accepted baseline; local own-project lane only." : PROFILE
     ? `Fake Personal Agent, ${PROFILE} profile: src/poppy with the adapter's network seam changed (interop/impls/pda-agent/profiles.ts).`
     : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
 };
@@ -493,9 +493,8 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       ...(typeof params.wait === "number" ? { wait: params.wait } : {})
     });
     const intent = rows(agent.client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `message|${callKey}`)[0];
-    // 0.3: the message's own id; 0.4: its request's, which the message takes (8.3).
-    const sentBody = intent ? (JSON.parse(intent.value) as { id?: string; message?: { id?: string } }) : null;
-    const messageId = sentBody ? (sentBody.message?.id ?? sentBody.id ?? null) : null;
+    // A message's id is its request's (8.3).
+    const messageId = intent ? ((JSON.parse(intent.value) as { id?: string }).id ?? null) : null;
     return {
       conversation: sent.conversationId,
       message_id: messageId,
@@ -686,7 +685,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     await closeConversation(agent.client, c, id);
     // 0.4: the 202 says only that the Company accepted the close; a read says when it acted (8.12).
-    for (let read = 0; read < 3 && conversationRow(agent.client, id)!.protocol_version !== "0.3" && conversationRow(agent.client, id)!.status !== "closed"; read++) {
+    for (let read = 0; read < 3 && conversationRow(agent.client, id)!.status !== "closed"; read++) {
       await readConversation(agent.client, id, 2);
     }
     const row = conversationRow(agent.client, id)!;

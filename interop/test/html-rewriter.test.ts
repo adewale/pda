@@ -18,7 +18,7 @@ const serving =
 describe("the interop agent's HTMLRewriter (Node)", () => {
   // Until 29 October the image read every page as empty, so at 0.3 scenario W failed: "the
   // browser-session page didn't give a code to join with", though the mock's page carried one.
-  it("lets the browser join read the one-time code from the Company's page (0.3 6, step 1)", async () => {
+  it("lets the browser join read the one-time code from the Company's page (6, step 1)", async () => {
     const context = await new FetchBrowser(serving(JOIN_PAGE)).newContext(() => {});
     expect(await context.joinCode(ENDPOINT)).toEqual({ status: 200, code: "bc_uhTwNlMO66NcxzZvJ5LuV72i", action: ENDPOINT });
   });

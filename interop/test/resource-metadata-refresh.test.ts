@@ -36,7 +36,7 @@ async function fixture(fetcher: PoppyHost["fetcher"]) {
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
   const company: Company = {
-    issuer: toIssuer(ISSUER), domain: "books.example", name: "Books", protocolVersion: "0.3",
+    issuer: toIssuer(ISSUER), domain: "books.example", name: "Books", protocolVersion: "0.4",
     endpoints: { token: `${ISSUER}/token`, revocation: `${ISSUER}/revoke` }, signIn: {}, customScopes: {}, extensions: {},
     conversations: { endpoint: SERVICE }, apis: [{ type: "openapi", url: SERVICE, description: "Books API" }]
   };

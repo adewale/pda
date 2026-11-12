@@ -8,7 +8,7 @@
     { "company": "arm", "params": { "attack": "XN" } },
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending", "note": "At 0.3 the first DPoP proof goes with a token request (4.5), so the loop starts at the code exchange." },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending", "note": "The first DPoP proof goes with a token request (4.5), so the loop starts at the code exchange." },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "r" },
     { "expect": { "step": "r", "poppy_error": "use_dpop_nonce" } },

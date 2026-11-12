@@ -56,7 +56,7 @@ async function fixture(options: {
 
 function document(domain: string): Record<string, unknown> {
   return {
-    protocol_version: "0.3", organization: { name: "Shop", domain },
+    protocol_version: "0.4", organization: { name: "Shop", domain },
     auth: { scopes: { "orders:read": "Read orders", "orders:write": "Change orders" } },
     agent: { protocols: [{ type: "poppy", endpoint: "https://shop.example/conversations" }] },
     apis: [{ type: "openapi", url: "https://shop.example/openapi.json", description: "Orders" }, { type: "mcp", url: "https://mcp.shop.example/mcp", description: "Support" }]
@@ -108,7 +108,7 @@ describe("scope descriptions and conservative sign-in hints", () => {
       auth: { scopes: { "orders:read": "Read your order history", "orders:write": "Change orders" }, scope_hints: {
         "orders:write": { changes: "none", personal_data: false }
       } },
-      extensions: { "mediated-sign-in": { version: "1", scopes: ["orders:read", "orders:write"], fields: [{ name: "password", label: "Password", secret: true }] } }
+      extensions: { "mediated-sign-in": [{ version: "1", scopes: ["orders:read", "orders:write"], fields: [{ name: "password", label: "Password", secret: true }] }] }
     }) });
     const company = await f.client.company("shop.example");
     const expected = [
@@ -123,7 +123,7 @@ describe("scope descriptions and conservative sign-in hints", () => {
 
   it("prefers listed OpenAPI scope descriptions to auth.scopes in discovery information and the sign-in card", async () => {
     const f = await fixture({
-      doc: domain => ({ ...document(domain), extensions: { "mediated-sign-in": { version: "1", scopes: ["orders:read", "orders:write"], fields: [{ name: "password", label: "Password", secret: true }] } } }),
+      doc: domain => ({ ...document(domain), extensions: { "mediated-sign-in": [{ version: "1", scopes: ["orders:read", "orders:write"], fields: [{ name: "password", label: "Password", secret: true }] }] } }),
       response: request => request.url === "https://shop.example/openapi.json" ? Response.json({
         openapi: "3.1.0", info: { title: "Orders", version: "1" }, paths: {},
         components: { securitySchemes: { oauth: { type: "oauth2", flows: { authorizationCode: {
@@ -147,11 +147,11 @@ describe("Company messages and extensible conversation state", () => {
   it("reads a Company author's name into model notices and the Direct Conversation frame", async () => {
     let read = 0;
     const f = await fixture({ response: request => {
-      if (request.method === "POST" && new URL(request.url).pathname === "/conversations") return Response.json({ conversation_id: "cnv_name", status: "idle", responder: "human" });
+      if (request.method === "POST" && new URL(request.url).pathname === "/conversations") return Response.json({ conversation_id: "cnv_name" }, { status: 201 });
       if (new URL(request.url).pathname.endsWith("/events")) return Response.json({
-        conversation_id: "cnv_name", events: [{ id: `e${++read}`, type: "message", message: {
+        conversation_id: "cnv_name", events: [{ id: `e${++read}`, type: "message", created_at: "2026-11-11T12:00:00Z", message: {
           id: `reply${read}`, role: "company", author: { type: "human", id: "staff-1", name: "  Jamie Rivera  ", image: "https://external.example/avatar.png" }, text: "I can help with your order."
-        } }], cursor: `cursor${read}`, has_more: false, status: "idle", responder: "human"
+        } }], cursor: `cursor${read}`, has_more: false, working: false, handoff: "none", responder: "human", closed: false
       });
     } });
     const company = await f.client.company("shop.example");
@@ -164,19 +164,18 @@ describe("Company messages and extensible conversation state", () => {
     expect(f.requests.some(request => request.url.includes("external.example"))).toBe(false);
   });
 
-  it("maps unknown status and responder values on creation and reads to working and human", async () => {
+  it("maps unknown handoff and responder values in state events and reads to pending and human (8.7)", async () => {
     const f = await fixture({ response: request => {
-      if (request.method === "POST" && new URL(request.url).pathname === "/conversations") return Response.json({ conversation_id: "cnv_future", status: "future-status", responder: "future-responder" });
+      if (request.method === "POST" && new URL(request.url).pathname === "/conversations") return Response.json({ conversation_id: "cnv_future" }, { status: 201 });
       if (new URL(request.url).pathname.endsWith("/events")) return Response.json({
-        conversation_id: "cnv_future", events: [{ id: "e1", type: "state", status: "another-status", responder: "another-responder" }],
-        cursor: "c1", has_more: false, status: "future-status", responder: "future-responder"
+        conversation_id: "cnv_future", events: [{ id: "e1", type: "state", created_at: "2026-11-11T12:00:00Z", handoff: "another-handoff", responder: "another-responder", closed: false }],
+        cursor: "c1", has_more: false, working: false, handoff: "future-handoff", responder: "future-responder", closed: false
       });
     } });
     const company = await f.client.company("shop.example");
     const opened = await sendMessage(f.client, company, { label: "main", callKey: "future", sender: "agent", text: "Hello" });
-    expect(opened).toMatchObject({ status: "working", responder: "human" });
     await readConversation(f.client, opened.conversationId, 0);
-    expect(conversation(f.client, opened.conversationId)).toMatchObject({ status: "working", responder: "human" });
+    expect(conversation(f.client, opened.conversationId)).toMatchObject({ status: "queued", handoff: "pending", responder: "human" });
   });
 });
 
@@ -184,7 +183,7 @@ describe("Mediated Sign-In terminal errors", () => {
   it.each(["access_denied", "invalid_scope"])("ends %s without retaining credentials or retrying", async error => {
     let grants = 0;
     const f = await fixture({
-      doc: domain => ({ ...document(domain), extensions: { "mediated-sign-in": { version: "1", scopes: ["orders:read"], fields: [{ name: "password", label: "Password", secret: true }] } } }),
+      doc: domain => ({ ...document(domain), extensions: { "mediated-sign-in": [{ version: "1", scopes: ["orders:read"], fields: [{ name: "password", label: "Password", secret: true }] }] } }),
       response: request => request.url === `${ISSUER}/token` ? (grants++, Response.json({ error }, { status: 400 })) : undefined
     });
     const company = await f.client.company("shop.example");
@@ -233,9 +232,9 @@ describe("task alternatives are filtered by the advertised interfaces", () => {
     expect(readAlternative(company, { references: [{ type: "unknown", url: "https://shop.example/help" }] })).toBeNull();
   });
 
-  it("ignores unknown excluded-task fields while retaining the Company's supported alternative", async () => {
-    const f = await fixture({ doc: domain => ({ ...document(domain), excluded_tasks: { url: "https://shop.example/excluded.json" } }), response: request => request.url.endsWith("/excluded.json")
-      ? Response.json({ invented_document_field: "ignore", tasks: [{ task: "Close an account", unknown_action: "delete", alternative: { references: [{ type: "web", url: "https://shop.example/help", execute: true }] } }] }) : undefined });
+  it("ignores unknown tasks-response and excluded-task fields while retaining the Company's supported alternative (9, 9.1)", async () => {
+    const f = await fixture({ doc: domain => ({ ...document(domain), tasks: { endpoint: "https://shop.example/tasks" } }), response: request => request.url === "https://shop.example/tasks"
+      ? Response.json({ invented_document_field: "ignore", excluded_tasks: [{ task: "Close an account", unknown_action: "delete", alternative: { references: [{ type: "web", url: "https://shop.example/help", execute: true }] } }] }) : undefined });
     const company = await f.client.company("shop.example");
     expect(await excludedTasks(f.client, company)).toEqual([{ task: "Close an account", alternative: { references: [{ type: "web", url: "https://shop.example/help" }] } }]);
   });

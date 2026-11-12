@@ -8,7 +8,7 @@ const root = path.join(import.meta.dirname, "../..");
 let directory: string;
 beforeAll(() => {
   directory = mkdtempSync(path.join(tmpdir(), "pda-kit-proof-controls-"));
-  cpSync(path.join(root, "spec/company-kit-2026-11-03/kit"), directory, { recursive: true });
+  cpSync(path.join(root, "spec/company-kit-2026-11-11/kit"), directory, { recursive: true });
   execFileSync("git", ["apply", "--unidiff-zero", path.join(root, "test/company-kit/dpop-probes.patch")], { cwd: directory });
 });
 afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });

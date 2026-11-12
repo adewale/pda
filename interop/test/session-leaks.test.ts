@@ -6,7 +6,7 @@ import { API, CLIENT_ID, jwt, NOW, recording, type Spec } from "./helpers.ts";
 const ISSUER = "https://auth.acme.company.interop.test";
 const SINK = "https://runner.interop.test/stolen";
 const discovery: Spec[] = [
-  { url: "https://acme.company.interop.test/.well-known/poppy.json", response: { protocol_version: "0.3", organization: { domain: "acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json` }] } },
+  { url: "https://acme.company.interop.test/.well-known/poppy.json", response: { protocol_version: "0.4", organization: { domain: "acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json` }] } },
   { url: "https://acme.company.interop.test/.well-known/oauth-protected-resource", response: { resource: "https://acme.company.interop.test", authorization_servers: [ISSUER] } },
   { url: `${ISSUER}/.well-known/oauth-authorization-server`, response: { issuer: ISSUER, token_endpoint: `${ISSUER}/oauth/token` } }
 ];
@@ -18,7 +18,7 @@ const session = (url = `${API}/products`, extra: Record<string, unknown> = {}) =
 );
 const sent = (token = session()): Spec => ({ url: `${API}/products`, headers: { "poppy-session": token } });
 
-describe("0.3 Session JWT leakage evidence", () => {
+describe("Session JWT leakage evidence", () => {
   it("accepts signed-out requests on the Company's listed API host without OAuth tokens", () => {
     const all = recording(...discovery, sent());
     expect(traceChecks(all)).toEqual([]);

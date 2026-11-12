@@ -8,7 +8,7 @@
     { "company": "require_nonce", "optional": true, "note": "A Company that always asks for nonces needs no hook." },
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending", "note": "At 0.3 only token requests and DPoP-bound calls carry a proof (4.5), so a nonce needs a sign-in." },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending", "note": "Only token requests and DPoP-bound calls carry a proof (4.5), so a nonce needs a sign-in." },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
     { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "r" },

@@ -20,7 +20,7 @@ const ids = (checks: { id: string; severity: string }[]) => checks.map((check) =
 const DISCOVERY = [
   {
     url: "https://acme.company.interop.test/.well-known/poppy.json",
-    response: { protocol_version: "0.3", organization: { name: "Acme", domain: "acme.company.interop.test" }, auth: { issuer: "https://auth.acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json`, description: "x" }] }
+    response: { protocol_version: "0.4", organization: { name: "Acme", domain: "acme.company.interop.test" }, auth: { issuer: "https://auth.acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json`, description: "x" }] }
   },
   { url: "https://auth.acme.company.interop.test/.well-known/oauth-authorization-server", response: { issuer: "https://auth.acme.company.interop.test", token_endpoint: TOKEN } }
 ];
@@ -168,9 +168,9 @@ describe("trace checks", () => {
     expect(ids(checks)).toEqual(["company.events-shape:error", "company.sse-event-id:error"]);
   });
 
-  describe("every read includes conversation_id, cursor, has_more, status and responder (8.5's MUST)", () => {
+  describe("every read includes conversation_id, cursor, has_more and the state (8.5's MUST, 8.7)", () => {
     const events = `${API}/poppy/conversations/c1/events`;
-    const complete = { conversation_id: "c1", events: [], cursor: "e1", has_more: false, status: "idle", responder: "agent" };
+    const complete = { conversation_id: "c1", events: [], cursor: "e1", has_more: false, working: false, handoff: "none", responder: "agent", closed: false };
     const event = { id: "e2", type: "message", created_at: "2026-10-12T00:00:00Z" };
     const checksOf = (url: string, response: unknown) => companyChecks(recording({ url, response }));
 
@@ -178,13 +178,13 @@ describe("trace checks", () => {
       const checks = checksOf(`${events}?cursor=e1`, { events: [] });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
       expect(checks[0]!.basis).toBe("MUST");
-      expect(checks[0]!.detail).toContain("no has_more; no status; no responder; no cursor");
+      expect(checks[0]!.detail).toContain("no has_more; no working; no handoff; no responder; no closed; no cursor");
     });
 
-    it("fails a read with events and a cursor but no has_more, status or responder", () => {
+    it("fails a read with events and a cursor but no has_more or state", () => {
       const checks = checksOf(`${events}?cursor=e1`, { conversation_id: "c1", events: [event], cursor: "e2" });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
-      expect(checks[0]!.detail).toMatch(/^no has_more; no status; no responder: /);
+      expect(checks[0]!.detail).toMatch(/^no has_more; no working; no handoff; no responder; no closed: /);
     });
 
     it("fails a read without conversation_id, which 8.5 added to the MUST", () => {
@@ -199,10 +199,10 @@ describe("trace checks", () => {
       expect(checksOf(`${events}?cursor=e1`, { ...complete, events: [event], cursor: "e2", has_more: true })).toEqual([]);
     });
 
-    it("fails wrong types: has_more, status, responder", () => {
-      const checks = checksOf(`${events}?cursor=e1`, { ...complete, has_more: "false", status: 1, responder: null });
+    it("fails wrong types: has_more, working, handoff, responder, closed", () => {
+      const checks = checksOf(`${events}?cursor=e1`, { ...complete, has_more: "false", working: "false", handoff: null, responder: null, closed: 0 });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
-      expect(checks[0]!.detail).toContain("has_more isn't a boolean; status isn't a string; responder isn't a string");
+      expect(checks[0]!.detail).toContain("has_more isn't a boolean; working isn't a boolean; handoff isn't a string; responder isn't a string; closed isn't a boolean");
     });
 
     it("needs a string cursor after a request with a cursor, or with events returned", () => {
@@ -218,27 +218,22 @@ describe("trace checks", () => {
       expect(checks[0]!.basis).toBe("Reading");
     });
 
-    it("holds a 0.4 read, a request with Poppy-Version, to 0.4's four state fields instead of status (8.5, 8.7)", () => {
-      const at04 = (url: string, response: unknown) => companyChecks(recording({ url, headers: { "Poppy-Version": "0.4" }, response }));
-      const { status: _status, ...shared } = complete;
-      const state = { ...shared, working: false, handoff: "none", closed: false };
-      expect(at04(`${events}?cursor=e1`, state)).toEqual([]);
-      const missing = at04(`${events}?cursor=e1`, complete);
+    it("doesn't take an older version's status in place of the four state fields (8.7)", () => {
+      const { working: _working, handoff: _handoff, closed: _closed, ...older } = complete;
+      const missing = checksOf(`${events}?cursor=e1`, { ...older, status: "idle" });
       expect(ids(missing)).toEqual(["company.events-shape:error"]);
       expect(missing[0]!.detail).toMatch(/^no working; no handoff; no closed: /);
-      expect(at04(`${events}?cursor=e1`, { ...state, working: "false" })[0]!.detail).toMatch(/^working isn't a boolean: /);
     });
 
-    it("takes 0.4's working stream event without an id, and only at 0.4 (8.6)", () => {
+    it("takes a working stream event without an id, as a text-delta (8.6)", () => {
       const stream = { url: events, responseHeaders: { "content-type": "text/event-stream" }, response: "event: working\ndata: {\"working\":false}\n\nid: e2\nevent: message\ndata: {}\n\n" };
-      expect(companyChecks(recording({ ...stream, headers: { "Poppy-Version": "0.4" } }))).toEqual([]);
-      expect(ids(companyChecks(recording(stream)))).toEqual(["company.sse-event-id:error"]);
+      expect(companyChecks(recording(stream))).toEqual([]);
     });
 
     it("holds a send with wait to the same fields (7.3: it responds as a read would), and a send without wait to none", () => {
       const send = `${API}/poppy/conversations`;
       const later = `${API}/poppy/conversations/c1/messages`;
-      const plain = { conversation_id: "c1", status: "working", responder: "agent" };
+      const plain = { conversation_id: "c1" };
       const post = (url: string, status: number, response: unknown) => companyChecks(recording({ method: "POST", url, body: "{}", status, response }));
       expect(ids(post(`${send}?wait=10`, 201, plain))).toEqual(["company.wait-reply-shape:error"]);
       expect(ids(post(`${later}?cursor=e1&wait=10`, 202, { events: [] }))).toEqual(["company.wait-reply-shape:error"]);

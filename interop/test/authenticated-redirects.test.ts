@@ -15,6 +15,7 @@ const ISSUER = "https://auth.books.example";
 const ORIGIN = "https://api.books.example";
 const CLIENT_ID = "https://agent.example/poppy/client.json";
 type Seen = { method: string; path: string; headers: IncomingHttpHeaders; body: string };
+// `feedback`: the endpoint a tasks response names (9.3), which gets the Session header and never a token.
 const kinds = ["token", "device", "revocation", "api", "authorize", "conversations", "feedback", "mcp"] as const;
 type Kind = typeof kinds[number];
 
@@ -52,7 +53,8 @@ async function fixture(redirect: boolean) {
         expect(fields.get("client_assertion_type")).toBe("urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
         await jwtVerify(fields.get("client_assertion")!, signing.publicKey, { issuer: CLIENT_ID, subject: CLIENT_ID, audience: ISSUER, algorithms: ["ES256"] });
       } else {
-        expect(seen.headers.authorization).toBe("Bearer account-access");
+        const signedIn = seen.path !== "/feedback";
+        expect(seen.headers.authorization).toBe(signedIn ? "Bearer account-access" : undefined);
         const jwt = seen.headers["poppy-session"];
         expect(typeof jwt).toBe("string");
         const header = decodeProtectedHeader(jwt as string);
@@ -61,7 +63,7 @@ async function fixture(redirect: boolean) {
         const session = await jwtVerify(jwt as string, await importJWK(jwk, "ES256"), { issuer: CLIENT_ID, audience: ISSUER, typ: "poppy-session+jwt", algorithms: ["ES256"] });
         expect(session.payload.htm).toBe(seen.method);
         expect(session.payload.htu).toBe(`${ORIGIN}${seen.path}`);
-        expect(session.payload.ath).toBe(await sha256("account-access"));
+        expect(session.payload.ath).toBe(signedIn ? await sha256("account-access") : undefined);
       }
       if (redirect) { response.statusCode = 307; response.setHeader("Location", "/sink"); response.end(); }
       else { response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify({ access_token: "unused-new-access", token_type: "Bearer", expires_in: 3600 })); }
@@ -99,9 +101,9 @@ async function fixture(redirect: boolean) {
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
   const company: Company = {
-    issuer: toIssuer(ISSUER), domain: "books.example", name: "Books", protocolVersion: "0.3",
+    issuer: toIssuer(ISSUER), domain: "books.example", name: "Books", protocolVersion: "0.4",
     endpoints: { token: `${ISSUER}/token`, revocation: `${ISSUER}/revoke`, deviceAuthorization: `${ISSUER}/device` }, signIn: {}, customScopes: {}, extensions: {},
-    conversations: { endpoint: `${ORIGIN}/conversations` }, web: { browserSessionEndpoint: `${ORIGIN}/browser-session` }, feedback: { endpoint: `${ORIGIN}/feedback` },
+    conversations: { endpoint: `${ORIGIN}/conversations` }, web: { browserSessionEndpoint: `${ORIGIN}/browser-session` }, tasks: { endpoint: `${ORIGIN}/tasks` },
     apis: [{ type: "openapi", url: `${ORIGIN}/openapi.json`, description: "Books API" }, { type: "mcp", url: `${ORIGIN}/mcp`, description: "Books MCP" }]
   };
   const client = new PoppyClient(host);
@@ -120,6 +122,7 @@ async function exercise(f: Awaited<ReturnType<typeof fixture>>, kind: Kind) {
   const body = { text: "Private source request", code: "browser-one-time-code" };
   const outgoing = kind === "api" ? await CheckedApiRequest.check(client, company, { operation: "createOrder", body: { note: "Private source request" } })
     : kind === "mcp" ? EndpointRequest.mcp(company, { method: "POST", url: `${ORIGIN}/mcp`, body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: body } })
+      : kind === "feedback" ? EndpointRequest.listed(`${ORIGIN}/feedback`, { method: "POST", url: `${ORIGIN}/feedback`, body })
       : EndpointRequest.to(company, { method: "POST", url: `${ORIGIN}/${kind === "authorize" ? "browser-session/authorize" : kind}`, body });
   // The test authorizes this one fixture call; production approvals still enter through their own guard.
   return client.resource(company, outgoing, { beforeDispatch: () => { expect(client.session(company.issuer, "main")?.account).toBe("default"); } });

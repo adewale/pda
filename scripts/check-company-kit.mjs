@@ -2,8 +2,9 @@
 /**
  * Run the verified upstream CLI (optionally a separately patched copy) against local HTTPS/workerd.
  * `--protocol <version>` picks the pinned kit for that version (spec/upstream.json); the default is the
- * newest version the agent speaks. A kit for a version the mock doesn't speak yet runs against the mock
- * declaring that version, so its results show what the mock still lacks.
+ * newest version the agent speaks. A run needs a version the agent speaks (src/poppy/protocol-version.ts):
+ * 0.4 alone since 0.3 was dropped (decision 49). `--verify-pin` checks any pinned kit's hashes, so the
+ * frozen 0.3 kit is still verified.
  */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
@@ -18,11 +19,12 @@ import { pipeline } from "node:stream/promises";
 import { Miniflare, convertV4MiniflareOptions, Log, LogLevel } from "miniflare";
 import { localAgent, localFetch } from "../test/company-kit/local-https.mjs";
 import { dpopControls } from "../test/company-kit/dpop-controls.mjs";
+import { PROTOCOL_VERSIONS } from "../src/poppy/protocol-version.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const { pins } = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
-const protocol = args.includes("--protocol") ? args[args.indexOf("--protocol") + 1] : pins.filter(pin => pin.runtime).at(-1).protocolVersion;
+const protocol = args.includes("--protocol") ? args[args.indexOf("--protocol") + 1] : PROTOCOL_VERSIONS.at(-1);
 const pin = pins.find(candidate => candidate.protocolVersion === protocol);
 if (!pin) throw new Error(`No pinned Company kit for protocol version ${protocol}`);
 const snapshot = path.join(root, pin.kit);
@@ -37,9 +39,8 @@ const withDpop = args.includes("--with-dpop");
 const output = args.includes("--output") ? args[args.indexOf("--output") + 1] : undefined;
 if (args.includes("--verify-pin")) { process.stdout.write(`Verified ${protocol} Company kit: ${Object.keys(manifest.files).length} unmodified files and original archive.\n`); process.exit(0); }
 if (!output) throw new Error("Usage: node scripts/check-company-kit.mjs [--protocol <version>] --output <receipt.json> [--reviewed-findings] [--with-dpop] | --verify-pin");
-// The DPoP probe patch and the hosted Company are written for the 0.3 kit; the 0.4 kit runs against the mock alone until they move.
-if (withDpop && protocol !== "0.3") throw new Error("--with-dpop patches the 0.3 kit only");
-const findingsFile = path.join(root, protocol === "0.3" ? "test/company-kit/reviewed-findings.json" : `test/company-kit/reviewed-findings-${protocol}.json`);
+if (!PROTOCOL_VERSIONS.includes(protocol)) throw new Error(`The agent doesn't speak ${protocol}, so the mock doesn't serve it; --verify-pin still checks that kit`);
+const findingsFile = path.join(root, `test/company-kit/reviewed-findings-${protocol}.json`);
 const directory = mkdtempSync(path.join(tmpdir(), "pda-company-kit-"));
 chmodSync(directory, 0o700);
 const dpopPatch = path.join(root, "test/company-kit/dpop-probes.patch");
@@ -127,14 +128,12 @@ try {
   const proofControls = [];
   // "issuerless": the mock with no OAuth issuer (3.2, upstream 850a46d), signed-out only, so upstream's own
   // validator, not ours, judges the case of a 404 for the domain's protected resource metadata.
-  for (const profile of ["lenient", "strict", "bearer", ...(protocol === "0.3" ? ["hosted"] : []), "issuerless"]) {
-    if (profile !== "hosted") {
-      // One version only: a mock that also served 0.3 would take a request without Poppy-Version as 0.3,
-      // our reading of 0.4 3.4 for a Company serving both (docs/readings.md#v04-version-missing).
-      await mock.configure({ protocolVersion: protocol, strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, feedbackAlternative: true, issuerless: profile === "issuerless" });
-    }
-    const target = profile === "hosted" ? companyOrigin : "https://kit.shop.test";
-    const run = await command(["--import", path.join(root, "test/company-kit/local-https.mjs"), cli, "check", target, "--allow-private-addresses", "--json", ...(profile === "hosted" ? ["--probe", `${companyOrigin}/products`] : [])], { PDA_COMPANY_KIT_NETWORK: networkFile });
+  // The hosted dummy Company was checked under the 0.3 kit only. It still runs here, so its effects are checked below.
+  for (const profile of ["lenient", "strict", "bearer", "issuerless"]) {
+    // One version, as the agent speaks (docs/readings.md#v04-version-missing).
+    await mock.configure({ protocolVersion: protocol, strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, feedbackAlternative: true, issuerless: profile === "issuerless" });
+    const target = "https://kit.shop.test";
+    const run = await command(["--import", path.join(root, "test/company-kit/local-https.mjs"), cli, "check", target, "--allow-private-addresses", "--json"], { PDA_COMPANY_KIT_NETWORK: networkFile });
     assert.ok(run.code === 0 || run.code === 1, "Upstream CLI did not finish a validation run");
     const report = JSON.parse(run.stdout);
     runs.push({ profile, target, exitCode: run.code, ...report });
@@ -152,7 +151,7 @@ try {
         assert.equal(new Set(run.results.map(item => item.id)).size, limits.catalogChecks);
         const expectedFail = !withDpop && dpop.failureProfiles.includes(run.profile) ? [dpop.failureId] : [];
         const expectedWarn = !withDpop && dpop.warningProfiles.includes(run.profile) ? dpop.warningIds : [];
-        const expectedSkip = limits.skips[run.profile] ?? limits.skips[run.profile === "hosted" ? "hosted" : "mock"];
+        const expectedSkip = limits.skips[run.profile] ?? limits.skips.mock;
         for (const [status, expected] of [["fail", expectedFail], ["warn", expectedWarn], ["skip", expectedSkip]]) {
           const actual = run.results.filter(item => item.status === status);
           assert.deepEqual(sorted(actual.map(item => item.id)), sorted(expected), `Review changed ${status} findings for ${run.profile}`);
@@ -165,7 +164,7 @@ try {
       const control = runs.find(run => run.profile === limits.positiveControlProfile);
       for (const id of [...dpop.warningIds, dpop.failureId]) assert.equal(control.results.find(item => item.id === id)?.status, "pass", `Missing accepted control for ${id}`);
       if (withDpop) for (const run of runs) for (const id of [...dpop.warningIds, dpop.failureId]) {
-        if (!(limits.skips[run.profile] ?? limits.skips[run.profile === "hosted" ? "hosted" : "mock"]).includes(id)) assert.equal(run.results.find(item => item.id === id)?.status, "pass", `Missing DPoP-capable control for ${run.profile}/${id}`);
+        if (!(limits.skips[run.profile] ?? limits.skips.mock).includes(id)) assert.equal(run.results.find(item => item.id === id)?.status, "pass", `Missing DPoP-capable control for ${run.profile}/${id}`);
       }
       review = withDpop ? "The separately patched CLI supplies ES256 DPoP proofs. All applicable checks pass; only documented absent-feature skips remain. The pinned upstream source is unchanged." : "All upstream verdicts retained; only the documented DPoP prerequisite findings and explicit absent-feature skips remain. Accepted controls pass on the bearer profile.";
     } catch (error) { reviewError = error; }
