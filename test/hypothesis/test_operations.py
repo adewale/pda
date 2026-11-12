@@ -19,8 +19,8 @@ Invariants, from the extension's text and the mock's record of it:
   expects (the mock's `performs`), however many times an approved request
   is sent again, whichever key it carries;
 - who can approve it (Ops 3): the same agent and User, signed in to its
-  account, or, returned signed out, only its own Session; an approval from
-  anyone else is no approval;
+  account, or, returned signed out, in any of their Sessions signed out; an
+  approval from anyone else is no approval;
 - an approval names a revision the Company returned for exactly that
   request; anything else gets a new revision, never the one it named (Ops 6);
 - a decline names the revision approved, performs nothing, and is never
@@ -111,11 +111,11 @@ class OperationsRules:
         self.references: dict[tuple[str, str], str] = {}  # each (User, reference) sent, and the "operation revision" it approved (Ops 6)
 
     def can_approve(self, op: MOperation, ms: MSession, account: object = ...) -> bool:
-        """Ops 3: the same agent and User, signed in to its account; returned signed out, only its own Session."""
+        """Ops 3: any live Session of the same agent and User, signed in to its account; returned signed out, signed out."""
         acting = ms.account if account is ... else account
         if ms.user is not op.user or ms.ended:
             return False
-        return acting == op.account if op.account is not None else ms is op.session
+        return acting == op.account if op.account is not None else acting is None
 
     def existing(self, kind: str, request: str, ms: MSession, account: str | None) -> MOperation | None:
         """The first unperformed operation for exactly this request that this Session may approve: the Company returns it again."""

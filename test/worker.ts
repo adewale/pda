@@ -166,8 +166,9 @@ for (const level of ["debug", "log", "info", "warn", "error"] as const) {
  * test's `poppyAdvance` move it, so waits and schedules are exact. It starts
  * an hour ahead of the real clock, so a job scheduled on it (a device poll,
  * operation tracking) never runs on its own, only when a test advances.
+ * A test can hold sleeps (`poppyHoldSleeps`) to act while the client waits.
  */
-type FakeClock = { now: number; sleeps: number[] };
+type FakeClock = { now: number; sleeps: number[]; holding?: boolean; held?: (() => void)[] };
 
 /** Each test agent's waits on a Company: production's, until a test shortens them (`poppySetTimeouts`). */
 const timeouts = new WeakMap<object, { -readonly [K in keyof PoppyTimeouts]: number }>();
@@ -603,8 +604,20 @@ export class PersonalAgent extends ProductionAgent {
   }
 
   /** As Browser Run off (no launcher), or out of browsers; set before the agent first uses Poppy, which asks once. */
-  async handoverSetup(setup: { off?: boolean; failLaunch?: boolean }): Promise<void> {
+  async handoverSetup(setup: { off?: boolean; failLaunch?: boolean; hold?: boolean }): Promise<void> {
     Object.assign(handoverWebOf(this.ctx.id.toString()), setup);
+  }
+
+  /** How many browsers are starting, held by `hold`. */
+  async handoverHeld(): Promise<number> {
+    return handoverWebOf(this.ctx.id.toString()).held.length;
+  }
+
+  /** Let every held browser finish starting. */
+  async handoverRelease(): Promise<void> {
+    const web = handoverWebOf(this.ctx.id.toString());
+    web.hold = false;
+    for (const release of web.held.splice(0)) release();
   }
 
   /** Every browser handed to the User, oldest first. */
@@ -766,11 +779,29 @@ export class PersonalAgent extends ProductionAgent {
       sleep: async (ms: number) => {
         const clock = clockOf(this);
         clock.sleeps.push(ms);
+        if (clock.holding) await new Promise<void>((resolve) => (clock.held ??= []).push(resolve));
         clock.now += ms;
       },
       now: () => clockOf(this).now,
       timeouts: timeoutsOf(this)
     };
+  }
+
+  /** From now, the client's sleeps wait until `poppyReleaseSleeps`, so a test can act while one waits. */
+  async poppyHoldSleeps(): Promise<void> {
+    clockOf(this).holding = true;
+  }
+
+  /** How many of the client's sleeps are waiting. */
+  async poppySleepsHeld(): Promise<number> {
+    return clockOf(this).held?.length ?? 0;
+  }
+
+  /** Let every held sleep finish, and hold no more. */
+  async poppyReleaseSleeps(): Promise<void> {
+    const clock = clockOf(this);
+    clock.holding = false;
+    for (const release of (clock.held ?? []).splice(0)) release();
   }
 
   /** The fake clock: its time, and every wait the client asked for, in ms. */

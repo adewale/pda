@@ -4,7 +4,7 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 
 ## Unreleased — 0.4 alone: 0.3 dropped
 
-The agent, the mock Company, the validator, the interop harness and the Python Hypothesis client speak 0.4 alone ([decision 49](docs/decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). A Company that serves only 0.3, Print with Poppy among them, is refused at discovery as `version-unsupported`.
+The agent, the mock Company, the validator, the interop harness and the Python Hypothesis client speak 0.4 alone ([decision 49](docs/decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). A Company that serves only 0.3 is refused at discovery as `version-unsupported`.
 
 **On upgrade:** migration closes each open 0.3 conversation locally, with a notice; its messages and evidence are kept, and nothing is sent to the Company. A pending approval or other task begun with a 0.3 Company is held as `company_changed` for the User to review, and never replayed. A Session stored with a 0.3 declaration is not used again: the next request starts a new Session with the same account. Nothing needs to be done by hand.
 
@@ -25,7 +25,13 @@ The agent, the mock Company, the validator, the interop harness and the Python H
   - With `web.disabled`, the mock offers no `poppy:browser-sign-in` and serves no browser join.
   - A `web.unscoped` website gives `poppy:browser-sign-in` the account's full access.
   - The operations endpoint challenges a signed-out Session of the same User for an account's operation, instead of answering `invalid_request` ([reading](docs/readings.md#v04-endpoint-challenge)).
-- Interop pairs 0.4 implementations only: the Print with Poppy pairing is removed (its adapter is kept), and the raw `evil-personal-agent` speaks 0.4. CI runs the 0.4 kit alone.
+- A code review found four more departures, now fixed with regression tests:
+  - Browser Control: a Not now, cancel or sign-out while the User's browser is starting closes that browser instead of being overwritten, and two Takes at once start one browser.
+  - Browser Control: the model's clicks, page loads and approved form submissions check that the User doesn't hold the browser right before each request, not only when the action starts.
+  - `poppy_close` sends the close only once a read finds the Company not working (8.12); until then the close waits as a durable intent.
+  - The mock lets any signed-out Session of the same agent and User approve an operation returned signed out, and no signed-in Session (Ops 3). The Python model had the same misreading, and is fixed too.
+- Operations 3 revisions: the same revision returned with only its `summary` reworded keeps the User's card and the words they were shown. Other terms under a revision already shown are refused with a notice, where they used to stop the conversation's reads. An earlier revision isn't offered once a new one arrives ([readings](docs/readings.md#v04-revision-summary)). The mock's `rewordSummary` returns a reworded revision.
+- Interop pairs 0.4 implementations only, and the raw `evil-personal-agent` speaks 0.4. Print with Poppy moved to 0.4 at `ae453ed` (spenciefy/print-with-poppy#33); its adapter is pinned there, and CI runs our agent against it in its own step. CI runs the 0.4 kit alone.
 - The 0.3 pin is `retired` in `spec/upstream.json`: its snapshot, kit and ledger stay and are still checked, and its ledger links files at the last main commit before 0.4. `npm run check:spec` accepts retired pins.
 - [Current verification](docs/poppy-0.4-conformance.md#current-verification) moves to a 0.4 review; the 0.3 review is kept as its record.
 

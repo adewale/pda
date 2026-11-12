@@ -653,7 +653,7 @@ Uploads decided together (`poppy.approvals`, `decideLocalBatch` in `operations.t
 - **Direct Conversation requested by the User.** The User can open one from the conversation's card.
 - **Inside a Direct Conversation.** The User's typed words are sent with `author: {"type": "human"}`, and the Company's replies are shown in the Direct Conversation panel. The parent's `direct_opened` and `direct_closed` events are tracked, and messages to the parent are held while a Direct Conversation is open.
 - **Sign-in during a conversation (§8.11).** A 401 challenge naming scopes triggers the step-up rules. The conversation continues on the new token, or in a new Session, as long as the request matches the conversation's owner.
-- **Closing.** `POST {id}/close` with a request id when the task is done, after reading until the Company isn't working, since a close may drop requests it hasn't acted on. The Company answers 202, and the conversation is closed once a read says so (§8.12). Closing doesn't cancel what the conversation started.
+- **Closing.** `POST {id}/close` with a request id when the task is done, after reading until the Company isn't working, since a close may drop requests it hasn't acted on. A close asked for while it is still working is kept and sent by the read that finds it done. The Company answers 202, and the conversation is closed once a read says so (§8.12). Closing doesn't cancel what the conversation started.
 - **Errors** (`conversation_not_found`, `conversation_closed`, `direct_conversation_open`, `request_id_conflict`, `version_mismatch`, `invalid_cursor`, `cursor_expired`) are each handled as §8.13 says ([reading](docs/readings.md#v04-conversations) for `version_mismatch`).
 
 ### Operations extension (Ops, version 3)

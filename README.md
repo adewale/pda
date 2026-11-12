@@ -22,7 +22,7 @@ PDA uses the document validator during discovery, and the fake agents wrap PDA's
 
 ## See it work: ordering a print
 
-[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents, and it was our demo because its code isn't ours. It moved to 0.3 on 28 October (`b340741`), and on 29 October our validator found printwithpoppy.com's documents valid at 0.3. It still serves 0.3, which PDA no longer speaks, so the agent refuses it at discovery until it moves to 0.4. Repeatable checks use our strict mock Company's print shop, not a real checkout (`test/print-journey.test.ts`). A real order is not a harmless interface test.
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents, and it was our demo because its code isn't ours. It moved to 0.3 on 28 October (`b340741`), and on 29 October our validator found printwithpoppy.com's documents valid at 0.3. It moved to 0.4 on 12 November (`ae453ed`): our validator finds its production and sandbox documents valid at 0.4, and it is an interop pairing again ([interop spec §15](docs/interop-spec.md#15-retired-with-03)). Its API still refuses our Session JWTs, because it reads their delegation from `pap_dlg`, a name from before 0.3 ([details](docs/interop-spec.md#print-with-poppy-delegation)). Repeatable checks use our strict mock Company's print shop, not a real checkout (`test/print-journey.test.ts`). A real order is not a harmless interface test.
 
 | Step | You or the agent | Spec | On the page | Status |
 | --- | --- | --- | --- | --- |

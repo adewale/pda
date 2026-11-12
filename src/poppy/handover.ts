@@ -91,6 +91,18 @@ function browsersOf(client: PoppyClient): Map<string, HandoverBrowser> {
   return browsers;
 }
 
+/** Browsers starting, by handover, so a second Take waits for the first's instead of starting another. */
+const startingBrowsers = new WeakMap<PoppyClient, Map<string, Promise<unknown>>>();
+
+function startingOf(client: PoppyClient): Map<string, Promise<unknown>> {
+  let starting = startingBrowsers.get(client);
+  if (!starting) {
+    starting = new Map();
+    startingBrowsers.set(client, starting);
+  }
+  return starting;
+}
+
 /**
  * Whether the agent can hand this Company's website to the User, and so
  * declares Browser Control 1 there (B5): a launcher, a 0.4 Company that lists
@@ -120,20 +132,26 @@ export function userControl(client: PoppyClient, issuer: Issuer, label: string):
 }
 
 /**
+ * Immediately before each request the model's browsing sends, as well as
+ * when it starts: the User may have taken control while it waited (5).
+ */
+export function refuseWhileUserHasControl(client: PoppyClient, company: Company, label: string): void {
+  if (!userControl(client, company.issuer, label)) return;
+  throw new PoppyError(
+    "user_has_control",
+    `The User has control of the browser at ${company.name}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
+    0
+  );
+}
+
+/**
  * Before any of the model's browser actions on this Session's website:
  * refused while the User holds control (5: "MUST NOT carry out browser
  * actions from its model"), and after they hand back, refused until the
  * agent has opened a page again ("looks at the page again before it continues").
  */
 export function beforeModelAction(client: PoppyClient, company: Company, label: string, opening: boolean): void {
-  const held = userControl(client, company.issuer, label);
-  if (held) {
-    throw new PoppyError(
-      "user_has_control",
-      `The User has control of the browser at ${company.name}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
-      0
-    );
-  }
+  refuseWhileUserHasControl(client, company, label);
   const back = one(client.sql, handoversTable.row, "SELECT * FROM poppy_handovers WHERE issuer = ? AND label = ? AND looked = 0 AND state IN ('returned', 'cancelled')", company.issuer, label);
   if (!back) return;
   if (!opening) throw new PoppyError("invalid_request", `The User used the browser at ${company.name}. Open the page again (poppy_browse with open) to see it as it is now before doing anything else there.`, 0);
@@ -246,6 +264,23 @@ async function endChanged(client: PoppyClient, value: HandoverRow): Promise<void
  * again. Returns the live view for that page alone.
  */
 export async function takeControl(client: PoppyClient, start: HandoverStart, id: string): Promise<{ readonly url: string; readonly expiresAt: number }> {
+  // Checked and claimed before the first await, so two Takes can't both start a browser.
+  const starting = startingOf(client);
+  const earlier = starting.get(id);
+  if (earlier) {
+    await earlier.catch(() => undefined);
+    return takeControl(client, start, id);
+  }
+  const startup = startControl(client, start, id);
+  starting.set(id, startup);
+  try {
+    return await startup;
+  } finally {
+    if (starting.get(id) === startup) starting.delete(id);
+  }
+}
+
+async function startControl(client: PoppyClient, start: HandoverStart, id: string): Promise<{ readonly url: string; readonly expiresAt: number }> {
   const value = row(client, id);
   if (!value || (value.state !== "offered" && value.state !== "user")) throw new PoppyError("invalid_request", "That browser step is no longer open.", 0);
   if (!sameSession(client, value)) {
@@ -278,6 +313,17 @@ export async function takeControl(client: PoppyClient, start: HandoverStart, id:
   } catch {
     await browser.close().catch(() => undefined);
     throw failed;
+  }
+  // The User may have cancelled, or the Session changed, while the browser started; then it closes unused.
+  const current = row(client, id);
+  if (!current || (current.state !== "offered" && current.state !== "user")) {
+    await browser.close().catch(() => undefined);
+    throw new PoppyError("invalid_request", "That browser step ended while its browser was starting.", 0);
+  }
+  if (!sameSession(client, current)) {
+    await browser.close().catch(() => undefined);
+    await endChanged(client, current);
+    throw new PoppyError("approval_changed", "The Session changed while opening the browser, so it wasn't opened.", 0);
   }
   browsersOf(client).set(id, browser);
   client.sql.exec("UPDATE poppy_handovers SET state = 'user', browser = ?, started_at = ? WHERE id = ?", browser.sessionId, now, id);

@@ -5,7 +5,8 @@
  * place of Browser Run). Every test also passes the strict check in
  * agent-helpers: the mock recorded no violation or warning.
  */
-import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:test";
+import { describe, expect, it, vi } from "vitest";
 import { agent, cards, company, requests, signInDirect, tool, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import { FAKE_LIVE_VIEW_MS } from "./fake-handover";
@@ -19,7 +20,7 @@ const json = (text: string) => JSON.parse(text) as Record<string, any>;
 const handover = async (a: Agent) => (await cards(a)).filter((card) => card.kind === "browser_control").at(-1)!;
 
 /** Signed in, on the return page; `setup` runs before the agent first uses Poppy. */
-async function onReturnPage(config: Partial<MockConfig> = MARKED, setup: { off?: boolean; failLaunch?: boolean } = {}) {
+async function onReturnPage(config: Partial<MockConfig> = MARKED, setup: { off?: boolean; failLaunch?: boolean; hold?: boolean } = {}) {
   const c = await company(config);
   const a = await agent();
   await a.stub.handoverSetup(setup);
@@ -189,6 +190,89 @@ describe("Browser Control: the User in control (5, 6)", () => {
     expect(await a.stub.poppyFrameReplies({ type: "poppy.browser.take", handoverId: offered })).toEqual([]);
     expect(await handover(a)).toMatchObject({ state: "offered", open: true });
     expect(JSON.parse(await a.stub.poppySql("SELECT state, browser, started_at FROM poppy_handovers"))).toEqual([{ state: "offered", browser: null, started_at: null }]);
+  });
+});
+
+describe("Browser Control: while the browser starts (5)", () => {
+  /** On the return page with the marked step offered, the User takes control, and the browser is still starting. */
+  async function starting() {
+    const { a, c } = await onReturnPage(MARKED, { hold: true });
+    const offered = json((await browse(a, c, { action: "submit", selector: "#return" })).text).offered as string;
+    const taking = a.stub.poppyFrameReplies({ type: "poppy.browser.take", handoverId: offered });
+    await vi.waitUntil(async () => (await a.stub.handoverHeld()) === 1);
+    return { a, c, id: offered, taking };
+  }
+
+  it("closes the browser when the User turns the step down before it has started", async () => {
+    const { a, taking, id } = await starting();
+    await a.stub.poppyFrame({ type: "poppy.browser.cancel", handoverId: id });
+    await a.stub.handoverRelease();
+    expect(await taking).toEqual([]);
+    expect(await handover(a)).toMatchObject({ state: "declined", open: false });
+    expect((await a.stub.handoverBrowsers()).map((browser) => browser.closed)).toEqual([true]);
+  });
+
+  it("closes the browser when the Session signs out before it has started, since its cookies are the old Session's", async () => {
+    const { a, c, taking, id } = await starting();
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    await a.stub.handoverRelease();
+    expect(await taking).toEqual([]);
+    expect(await handover(a)).toMatchObject({ handoverId: id, state: "ended", open: false });
+    expect((await a.stub.handoverBrowsers()).map((browser) => browser.closed)).toEqual([true]);
+    // The model can use the website again: no handover holds it.
+    expect(JSON.parse(await a.stub.poppySql("SELECT state, browser FROM poppy_handovers"))).toEqual([{ state: "ended", browser: null }]);
+  });
+
+  it("starts one browser when the User takes control twice at once, and gives both pages its live view", async () => {
+    const { a, taking, id } = await starting();
+    const again = a.stub.poppyFrameReplies({ type: "poppy.browser.take", handoverId: id });
+    await a.stub.handoverRelease();
+    const views = [...(await taking), ...(await again)] as { type: string; url: string }[];
+    expect(views.map((view) => view.type)).toEqual(["poppy.browser.view", "poppy.browser.view"]);
+    const browsers = await a.stub.handoverBrowsers();
+    expect(browsers.map((browser) => [browser.sessionId, browser.closed])).toEqual([["brs_1", false]]);
+    expect(views.every((view) => view.url.startsWith("https://live.browser-run.test/brs_1/"))).toBe(true);
+    await a.stub.poppyFrame({ type: "poppy.browser.return", handoverId: id });
+    expect((await a.stub.handoverBrowsers()).map((browser) => browser.closed)).toEqual([true]);
+  });
+});
+
+describe("Browser Control: the model's actions while the User holds control (5)", () => {
+  it("doesn't send a click that was waiting out a rate limit when the User took control", async () => {
+    const { a, c } = await onReturnPage();
+    const offered = json((await browse(a, c, { action: "submit", selector: "#return" })).text).offered as string;
+    expect((await browse(a, c, { action: "open", url: "/orders/ord_7Hk2" })).isError).toBe(false);
+    // The click's page answers 429, and the agent waits before loading it again.
+    await c.stub.configure({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 1_000, retryAfterSeconds: 2 } });
+    await a.stub.poppyHoldSleeps();
+    const before = (await requests(c)).length;
+    const clicking = browse(a, c, { action: "click", selector: "#exchange" });
+    await vi.waitUntil(async () => (await a.stub.poppySleepsHeld()) === 1);
+    await a.stub.poppyFrameReplies({ type: "poppy.browser.take", handoverId: offered });
+    expect(await handover(a)).toMatchObject({ state: "user" });
+    await a.stub.poppyReleaseSleeps();
+    const clicked = await clicking;
+    expect(clicked.isError).toBe(true);
+    expect(clicked.text).toContain("The User has control of the browser");
+    // Only the click sent before the User took control reached the website.
+    expect((await requests(c)).slice(before)).toHaveLength(1);
+  });
+
+  it("doesn't send an approved form that was waiting out a rate limit when the User took control", async () => {
+    const { a, c } = await onReturnPage();
+    const offered = json((await browse(a, c, { action: "submit", selector: "#return" })).text).offered as string;
+    expect((await browse(a, c, { action: "open", url: "/account/address" })).isError).toBe(false);
+    const proposed = json((await browse(a, c, { action: "submit", selector: "#address" })).text).proposed as string;
+    // Another request's Retry-After: the submission waits before it goes.
+    await env.CompanyLimiter.getByName(c.hosts.issuer).blockUntil((await a.stub.poppyClock()).now + 2_000);
+    await a.stub.poppyHoldSleeps();
+    const approving = a.stub.poppyFrame({ type: "poppy.approval", approvalId: proposed, decision: "approve" });
+    await vi.waitUntil(async () => (await a.stub.poppySleepsHeld()) === 1);
+    await a.stub.poppyFrameReplies({ type: "poppy.browser.take", handoverId: offered });
+    await a.stub.poppyReleaseSleeps();
+    await approving;
+    expect((await c.stub.state()).formPosts).toEqual([]);
+    expect((await cards(a)).find((card) => card.approvalId === proposed)).toMatchObject({ status: "failed", result: expect.stringContaining("The User has control of the browser") });
   });
 });
 

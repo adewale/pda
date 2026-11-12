@@ -44,7 +44,6 @@ type ApprovalRecord = {
   readonly kind: Action["kind"];
   readonly clientId: string;
   readonly userId: string;
-  readonly sessionId: string;
   /** The account it was returned for, which may approve it from any of the User's Sessions (Ops 3, "Who can approve it"); null signed out. */
   readonly account: string | null;
   /** The request or tool call that returned it: an approval must repeat it exactly (Ops 6, check 3). */
@@ -186,9 +185,10 @@ export class Operations {
     };
   }
 
+  /** Ops 3: any Session of the same agent and User; signed in to the account an operation belongs to, or signed out for one returned signed out. */
   #owner(record: ApprovalRecord, context: Owner): boolean {
     return record.clientId === context.session.clientId && record.userId === context.session.userId &&
-      (record.account ? context.signedIn && context.account === record.account : record.sessionId === context.session.id);
+      (record.account ? context.signedIn && context.account === record.account : !context.signedIn);
   }
 
   #revise(record: ApprovalRecord, action: Action, asked: Record<string, unknown>): OperationV2 {
@@ -249,7 +249,13 @@ export class Operations {
     for (const record of this.#records.values()) {
       if (record.web || record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, context)) continue;
       const latest = record.revisions.get(record.latest)!;
-      if (latest.expiresAt > Date.now()) return { operation: latest.operation };
+      if (latest.expiresAt > Date.now()) {
+        // 0.4 Ops 3: "A `summary` reworded without changing the terms can keep its revision."
+        if (!co.config.rewordSummary || latest.operation.summary === undefined) return { operation: latest.operation };
+        const reworded = { ...latest.operation, summary: `Reworded: ${latest.operation.summary}` };
+        record.revisions.set(record.latest, { ...latest, operation: reworded });
+        return { operation: reworded };
+      }
       return { operation: this.#revise(record, action, asked) };
     }
     const record = this.#create(action, context, request, asked, false);
@@ -264,7 +270,6 @@ export class Operations {
       kind: action.kind,
       clientId: context.session.clientId,
       userId: context.session.userId,
-      sessionId: context.session.id,
       account: context.signedIn ? context.account : null,
       request,
       revisions: new Map(),

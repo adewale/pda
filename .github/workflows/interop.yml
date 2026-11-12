@@ -1,5 +1,6 @@
-# The interop grid for our own pair: our agent against our mock Company,
-# lenient and strict, in containers behind the recording proxy (interop/).
+# The interop grid: our agent against our mock Company, lenient and strict,
+# and against Print with Poppy, an independent Company at a pinned commit,
+# in containers behind the recording proxy (interop/).
 # Docker makes it slow, so it runs on pushes to main and on pull requests
 # only when something the grid builds or runs has changed: the Poppy client
 # (and the config error it imports), the validator, the mock Company, the
@@ -40,7 +41,7 @@ concurrency:
 jobs:
   interop:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -53,6 +54,9 @@ jobs:
 
       - name: Honest agents and Companies, including injected network faults
         run: npm run interop -- --agents pda --companies lenient-company,strict-company --require-supported --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CL,CC,CI,CS,CA,SO,O,OX,OU,SE,R,AO,AM,AS,RL,DP,H,DC,W,CM,ML,CDUP,CIDUP,ODUP,NREP
+
+      - name: An independent Company, Print with Poppy at its pinned commit
+        run: npm run interop -- --agents pda --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
 
       - name: Our agent refuses malicious Company responses
         run: npm run interop -- --agents pda --companies evil-company --require-supported --scenarios XH,XI,BX,XB,XN,XP,XE,XR

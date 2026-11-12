@@ -729,8 +729,8 @@ class FetchContext implements BrowserContextHandle {
     return { url: fetched.url.href, status: fetched.status, ...(fetched.retryAfter ? { retryAfter: fetched.retryAfter } : {}) };
   }
 
-  async goto(url: string): Promise<PageSnapshot> {
-    return this.#load(await this.#navigate(new URL(url), { method: "GET" }));
+  async goto(url: string, beforeDispatch?: () => void): Promise<PageSnapshot> {
+    return this.#load(await this.#navigate(new URL(url), { method: "GET", ...(beforeDispatch ? { beforeDispatch } : {}) }));
   }
 
   async joinCode(endpoint: string): Promise<{ status: number; code?: string; action?: string; retryAfter?: string }> {
@@ -750,7 +750,7 @@ class FetchContext implements BrowserContextHandle {
   }
 
   /** Follows a link. Never a form: clicking a button would send it without the User's approval. */
-  async click(raw: string): Promise<PageSnapshot> {
+  async click(raw: string, beforeDispatch?: () => void): Promise<PageSnapshot> {
     const page = this.#current();
     const selector = parseSelector(raw);
     const links = page.parsed.links;
@@ -780,7 +780,7 @@ class FetchContext implements BrowserContextHandle {
     }
     // A link within the page: nothing to load.
     if (url.href.split("#")[0] === page.url.href.split("#")[0] && url.hash) return this.#snapshot();
-    return this.goto(url.href);
+    return this.goto(url.href, beforeDispatch);
   }
 
   async fill(raw: string, value: string): Promise<PageSnapshot> {

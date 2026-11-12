@@ -501,6 +501,11 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   );
   // 0.4 Ops 5: a standing instruction of the User's may approve it instead of the card.
   await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
+    // Other terms under a revision already shown (Ops 3): told, and reading goes on past it.
+    if (hasCode(error, "unusable_proposal")) {
+      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${error.message} Nothing was done.` });
+      return;
+    }
     if (!(error instanceof ActionOutcomePending)) throw error;
     // Process this event once, then keep reading: later Company messages may
     // establish the earlier outcome. A new terms card cannot bypass that hold.
@@ -906,7 +911,20 @@ export async function readConversation(
   }
   client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", moreKey);
   const after = conversation(client, id);
-  if (!after || after.status === "closed") return null;
+  if (!after || after.status === "closed") {
+    client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", closeWhenDone(id));
+    return null;
+  }
+  // The close the agent asked for, now that the Company has finished what it accepted (8.12), claimed so one read sends it.
+  if (after.working === 0 && one(client.sql, found, "DELETE FROM poppy_intents WHERE call_key = ? RETURNING 1 AS found", closeWhenDone(id))) {
+    try {
+      await sendClose(client, company, label, after);
+    } catch (error) {
+      client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", closeWhenDone(id), id, Date.now());
+      throw error;
+    }
+    return Date.now() + 1_000;
+  }
   return nextRead(after, Date.now(), idleMinMs);
 }
 
@@ -1094,34 +1112,49 @@ export async function handoff(
   return stateForModel(conversation(client, id)!);
 }
 
+/** A close the agent asked for while the Company was still working: sent by the read that finds it done (8.12). */
+const closeWhenDone = (id: string) => `close-when-done|${id}`;
+
 /**
- * Close a conversation we're done with (8.12). The Company accepts the
- * close and acts on it later, so the conversation stays open here until a
- * read says `closed`; the read is scheduled now. Returns the conversation's
- * status.
+ * Close a conversation we're done with (8.12). A close may drop requests
+ * the Company hasn't acted on, so while it is working the close waits: the
+ * read that finds it done sends it. The Company accepts the close and acts
+ * on it later, so the conversation stays open here until a read says
+ * `closed`; the read is scheduled now. Returns the conversation's status,
+ * and whether the close is still waiting for the Company's work.
  */
-export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<string> {
+export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<{ readonly status: string; readonly waiting: boolean }> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
   requireCompany(company, row);
   let label: string;
   ({ company, label } = await continuing(client, row));
-  // A close may drop requests the Company hasn't acted on, so read until it isn't working first (8.12).
   if (row.working === 1) await readConversation(client, id, 10);
+  const current = conversation(client, id)!;
+  if (current.status !== "closed" && current.working === 1) {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_intents (call_key, value, created_at) VALUES (?, ?, ?)", closeWhenDone(id), id, Date.now());
+    await scheduleRead(client, id, 0);
+    return { status: current.status, waiting: true };
+  }
+  await sendClose(client, company, label, current);
+  await scheduleRead(client, id, 0);
+  return { status: conversation(client, id)!.status, waiting: false };
+}
+
+async function sendClose(client: PoppyClient, company: Company, label: string, row: ConversationRow): Promise<void> {
   try {
     const { body } = await client.resourceJson(
       company,
       EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: requestBody(client, `close|${row.id}`) }),
       tokenOptions(company, label)
     );
-    if (isObject(body)) updateState(client, id, body);
+    if (isObject(body)) updateState(client, row.id, body);
   } catch (error) {
     if (!hasCode(error, "conversation_closed")) throw error;
   }
+  client.sql.exec("DELETE FROM poppy_intents WHERE call_key = ?", closeWhenDone(row.id));
   // The User can no longer accept an invitation in a conversation we are closing.
   await endInvitations(client, company, row);
-  await scheduleRead(client, id, 0);
-  return conversation(client, id)!.status;
 }
 
 /**

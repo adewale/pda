@@ -371,6 +371,15 @@ export async function proposeLocal(
       return recordTask?.(waiting.id) ?? waiting.id;
     }
   }
+  // 0.4 Ops 3: "A `summary` reworded without changing the terms can keep its revision." The card keeps
+  // the words the User was shown. Other terms under a revision already shown break the Company's MUST, and aren't used.
+  if (terms && existing?.terms && existing.issuer === company.issuer && existing.label === label && existing.request === stored) {
+    if (canonicalJson(toJson({ ...existing.terms, summary: "" })) !== canonicalJson(toJson({ ...terms, summary: "" }))) {
+      throw new PoppyError("unusable_proposal", `${company.name} sent other terms under a revision it had already sent, so they weren't used. The earlier card stands.`, 0);
+    }
+    summary = existing.summary;
+    terms = existing.terms;
+  }
   const replacing = replacesExecuting ? one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ? AND issuer = ? AND status = 'executing'", replacesExecuting, company.issuer) : undefined;
   requireKnownOutcome(client, company.issuer, action, [
     ...(existing?.status === "pending" ? [id] : []), ...(replacing ? [replacing.id] : [])

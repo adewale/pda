@@ -2794,6 +2794,48 @@ describe("8.5 an event whose handling fails", () => {
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
   });
 
+  it("keeps the User's card when the Company rewords a revision's summary without changing its terms (0.4 Ops 3)", async () => {
+    const c = await company({ rewordSummary: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" })).text);
+    await a.stub.poppyWaitForNotice("needs the User signed in");
+    await signInDirect(a, c);
+    const ask = () => tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
+    await ask();
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    // Asked again, the Company offers the same revision, its summary reworded: the same terms, so the same decision.
+    await ask();
+    const offers = async () => (JSON.parse(await a.stub.poppySql("SELECT event FROM poppy_inbox WHERE conversation_id = ? AND instr(event, '\"operation\"') > 0 ORDER BY seq", first.conversationId)) as { event: string }[]).map((row) => row.event);
+    await until(async () => (await offers()).length === 2 || (await a.stub.poppyReadNow(first.conversationId), false));
+    const revisions = (await offers()).map((event) => /"revision":"([^"]+)"/.exec(event)![1]);
+    expect(new Set(revisions).size).toBe(1);
+    expect((await offers())[1]).toContain("Reworded:");
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true, summary: card.summary })]);
+    // Reading on goes past the second offer rather than failing on it.
+    expect(await a.stub.poppyReadNow(first.conversationId)).not.toBeNull();
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    await until(async () => (await c.stub.state()).performs === 1);
+  });
+
+  it("refuses other terms under a revision it has already shown the User, and reads on (0.4 Ops 3)", async () => {
+    const c = await company({ rewordSummary: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" })).text);
+    await a.stub.poppyWaitForNotice("needs the User signed in");
+    await signInDirect(a, c);
+    const ask = () => tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
+    await ask();
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    // As if the card had shown other terms under the same revision: the Company's offer no longer matches it.
+    await a.stub.poppySql("UPDATE poppy_approvals SET terms = json_set(terms, '$.highlights', json('[\"Free\"]')) WHERE id = ?", card.approvalId);
+    await ask();
+    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("other terms under a revision"))));
+    expect(notice.text).toContain("Nothing was done.");
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true })]);
+    expect(await a.stub.poppyReadNow(first.conversationId)).not.toBeNull();
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
   it("doesn't repeat an event's effects when it is handled again before being recorded", async () => {
     const c = await company();
     const a = await agent();
