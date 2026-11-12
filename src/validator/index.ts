@@ -11,7 +11,7 @@
  * in any other runtime must supply a fetcher that does the same.
  */
 export { validateText, validateCompany, validateClient, validateTarget, summarize, domainFromInput, VALIDATOR } from "./validate.ts";
-export type { Report, CompanyReport, DocumentResult, Outcome, Skipped, TextOptions } from "./validate.ts";
+export type { Report, CompanyReport, CompanyOptions, DocumentResult, Outcome, Skipped, TextOptions } from "./validate.ts";
 export type { Message, DocumentKind } from "./primitives.ts";
 export type { Fetcher } from "./fetch.ts";
 export { MESSAGES, type MessageId, type Severity } from "./messages.ts";

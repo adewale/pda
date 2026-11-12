@@ -38,18 +38,24 @@ export const AGENT_ERROR_CODES = [
   "too_large",
   "unusable_proposal",
   "untrusted_host",
-  "untrusted_server"
+  "untrusted_server",
+  "user_has_control",
+  "user_step"
 ] as const;
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
 /**
- * Codes 0.3, its extensions and the OAuth RFCs they build on define for a
- * Company to answer (spec 5.3, 7, 8.13; Operations 2 4; Mediated Sign-In 5;
- * RFC 6749, 8628, 8707, 9449). A Company's code outside the list is still
- * read, as a short token (`companyErrorCode`).
+ * Codes 0.3 and 0.4, their extensions and the OAuth RFCs they build on
+ * define for a Company to answer (spec 5.3, 7, 8.13; Operations 2 4;
+ * Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449). 0.4 adds
+ * `version_unsupported` (3.4), `version_mismatch` (8.2) and
+ * `request_id_conflict`, 0.3's `message_id_conflict` for every request
+ * (8.3), and Operations 3 `approval_declined` (Ops 6). A Company's code outside the list is still read, as a short token
+ * (`companyErrorCode`).
  */
 export const PROTOCOL_ERROR_CODES = [
   "access_denied",
+  "approval_declined",
   "approval_required",
   "authorization_pending",
   "code_required",
@@ -70,13 +76,16 @@ export const PROTOCOL_ERROR_CODES = [
   "invalid_target",
   "invalid_token",
   "message_id_conflict",
+  "request_id_conflict",
   "server_error",
   "session_ended",
   "slow_down",
   "temporarily_unavailable",
   "unauthorized_client",
   "unsupported_grant_type",
-  "use_dpop_nonce"
+  "use_dpop_nonce",
+  "version_mismatch",
+  "version_unsupported"
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 

@@ -251,6 +251,8 @@ export function describeToolCall(
       return line("Read the latest replies from a Company's agent", "their agent");
     case "poppy_handoff":
       return line("Asked for a person at the Company to join the conversation", "their agent", null, str(a.summary) ? clip(str(a.summary)!) : undefined);
+    case "poppy_handoff_cancel":
+      return line("Withdrew the request for a person at the Company", "their agent");
     case "poppy_invite_user":
       return line("Offered you a conversation with the Company yourself", "their agent");
     case "poppy_close":

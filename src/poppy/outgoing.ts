@@ -1,6 +1,7 @@
 import { PoppyError } from "./client";
 import { protocolEndpoint, type Company } from "./discovery";
 import type { Json } from "./json";
+import { isPublicHost } from "../validator/fetch.ts";
 
 /** What one request to a Company carries, before the client adds its token and proof. */
 export type RequestInit = {
@@ -30,7 +31,7 @@ export type RequestInit = {
 export class EndpointRequest {
   readonly #init: RequestInit;
 
-  private constructor(init: RequestInit) {
+  private constructor(init: RequestInit, readonly listed = false) {
     this.#init = init;
   }
 
@@ -45,6 +46,20 @@ export class EndpointRequest {
       throw new PoppyError("invalid_request", `${url.origin}${url.pathname} isn't one of ${company.name}'s Poppy endpoints`, 0);
     }
     return new EndpointRequest(init);
+  }
+
+  /**
+   * A request to exactly an endpoint the Company named for this Session in
+   * a protocol response, such as 0.4's `feedback.endpoint` from the tasks
+   * response, which 5.2 makes a Session destination (9.3). It may be on any
+   * public HTTPS host (3, "Redirects and addresses"), so it carries the
+   * Session header and never a token.
+   */
+  static listed(endpoint: string, init: RequestInit): EndpointRequest {
+    if (init.url !== endpoint || !URL.canParse(endpoint) || new URL(endpoint).protocol !== "https:" || !isPublicHost(new URL(endpoint))) {
+      throw new PoppyError("invalid_request", `${init.url} isn't the endpoint the Company named`, 0);
+    }
+    return new EndpointRequest(init, true);
   }
 
   /** A JSON-RPC request to an MCP server the Company lists, at exactly its `url`. */

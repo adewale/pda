@@ -86,6 +86,14 @@ describe("handoff (7.9, scenario H)", () => {
     expect(ids(handoffChecks(recording(post(url, 202, { conversation_id: "c1" }))))).toEqual(["company.handoff-response:error"]);
     expect(handoffChecks(recording(post(url, 409, { error: "conversation_closed" })))).toEqual([]);
   });
+
+  it("at 0.4 an accepted handoff answers 202 with conversation_id, and no state (8.9, 8.3)", () => {
+    const url = `${CONVERSATIONS}/c1/handoff`;
+    const at04 = (status: number, response: unknown): Spec => ({ ...post(url, status, response, { id: "hnd_1" }), headers: { "Poppy-Version": "0.4" } });
+    expect(handoffChecks(recording(at04(202, { conversation_id: "c1" })))).toEqual([]);
+    expect(ids(handoffChecks(recording(at04(202, { status: "queued", responder: "agent" }))))).toEqual(["company.handoff-response:error"]);
+    expect(ids(handoffChecks(recording(at04(200, { conversation_id: "c1" }))))).toEqual(["company.handoff-response:error"]);
+  });
 });
 
 describe("Direct Conversations (7.10, scenario DC)", () => {

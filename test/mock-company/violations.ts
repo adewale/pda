@@ -114,6 +114,7 @@ export const VIOLATIONS = {
 
   // ---- Access tokens at resources (4.5, 7) ----
   "resource.bearer-scheme": "Rule (4.5: the scheme the token response's token_type names; RFC 9449 7.1): An access token sent with another scheme than its token_type",
+  "resource.unverified-target": "MUST (RFC 9728 3.3, which 4.5 names: metadata whose resource isn't the identifier its URL was derived from \"MUST NOT be used\"): A token request for a resource that no protected resource metadata at its own derived URL names",
   "mcp.wrong-token": "MUST (7: \"MUST request a token with resource set to the MCP server's url\"; 4.5): MCP request with a token not issued for this MCP server",
   "mcp.accept": "RFC (MCP 2025-06-18 Streamable HTTP, which 7 names): MCP request doesn't Accept application/json and text/event-stream",
   // MCP 2025-06-18's lifecycle: initialize, then its session and version on every later request.
@@ -175,6 +176,10 @@ export const VIOLATIONS = {
   "message.json-in-text": "Guides (Conversations: put structured details in data, not JSON or other markup in text; 8.4 says the same without a keyword): JSON in a message's text",
   "message.data-type": "Rule (8.4: data is a JSON object): Message data isn't a JSON object",
   "message.context-type": "Rule (8.4: context holds facts about the User's situation, as fields): Message context isn't an object",
+  "request.id": "MUST (0.4 8.3: \"Every POST body has an id\"; 8.2: 1 to 256 URL-safe base64 characters): A conversation request without a valid request id",
+  "message.as-of-human": "MUST NOT (0.4 8.4: a message \"with author.type human, MUST NOT include either field\"): as_of_cursor on a message the User wrote",
+  "message.as-of-cursor": "Rule (0.4 8.4: as_of_cursor is \"the cursor of the last read it had handled\"): as_of_cursor that isn't a cursor of the conversation",
+  "request.id-reused": "MUST (0.4 8.3: the request ID is \"unique for the User across all its requests\"; a retry repeats the path and body): A request id reused with a different path or body",
   "message.id-reused": "MUST (8.3: \"MUST make it unique for the User\"): Message id reused with different content",
   "context.locale": "MUST (8.4: \"it MUST use the field and format defined here\", an RFC 5646 tag): context.locale isn't an RFC 5646 tag",
   "context.time-zone": "MUST (8.4: the field and format defined here, an IANA time zone name): context.time_zone isn't an IANA name",
@@ -188,6 +193,9 @@ export const VIOLATIONS = {
   "message.sender-field": "Reading (8.4 has author where 0.2 had sender; docs/readings.md): A message that still carries sender",
 
   // ---- The Session header (5.2, 5.3) ----
+  "version.missing": "MUST (0.4 3.4: \"On every request with the Session header, the Personal Agent sends the protocol version it implements ... in Poppy-Version\"): A Session request without Poppy-Version to a Company that never served 0.3",
+  "version.unlisted": "MUST (0.4 3.4: the Personal Agent \"chooses the newest version, among protocol_version and the versions in supported_versions\", and \"If none is, it MUST NOT use any of them\"): Poppy-Version naming a version the Company never listed",
+  "version.changed-in-session": "MUST (0.4 3.4: \"MUST send the same values on every request in a Session, and starts a new Session to change them\"): A Session whose Poppy-Version or Poppy-Extensions changed",
   "session-jwt.missing": "MUST (5.2: \"MUST send a Poppy-Session header on every request\" to APIs, conversations and protocol endpoints): A request to a resource without the Session header",
   "session-jwt.missing-with-token": "MUST (5.2; 5.3: the Company MUST reject an access token without the Session header): An access token sent without the Session header",
   "session-jwt.not-jwt": "MUST (5.2: the header holds a JWT): The Session header isn't a JWT",
@@ -240,14 +248,34 @@ export const VIOLATIONS = {
   "browser-join.cookie": "MUST (6, step 3: the Company MUST check \"The request has the cookie from step 1\"): A join form submitted without the cookie set with its code",
   "browser-join.not-authorized": "MUST (6, step 3: the Company MUST check \"The code was authorized in step 2\"): A join form submitted before the agent authorized its code",
   "browser-join.authorize-body": "Rule (6, step 2: a JSON body with the code): An authorize request without the code as JSON",
+  "page.session-off-host": "Rule (0.4 5.2: the header \"covers only HTTPS URLs whose host is exactly organization.domain\", and a redirect is signed again \"only if its host is still organization.domain\"): A Session header on a page on another host",
+  "page.token": "MUST NOT (0.4 5.2: \"MUST NOT send an access token with these requests\"): An access token with a website page",
+  "page.session-0.3": "Reading (5.2 defines no Session header on website pages before 0.4; docs/readings.md#v04-fetch-browser): A Session header on a page in a request without Poppy-Version",
+  "browser-sign-in.no-endpoint": "Rule (0.4 6: \"A Personal Agent requests poppy:browser-sign-in only from a Company that lists browser_session_endpoint\"): A sign-in asking for poppy:browser-sign-in from a Company without browser join",
+  "web.disabled-form": "SHOULD NOT (0.4 6: \"SHOULD NOT use a browser on the website of a Company that sets\" web.disabled; docs/readings.md#v04-web-disabled counts a form as a browser's work): A form sent to a website that sets web.disabled",
+  "browser-control.marked-step": "SHOULD NOT (0.4 Browser Control 5: a Personal Agent that declares the extension \"SHOULD NOT take a marked step\"): A marked form submitted while the page read a controller other than \"user\"",
 
   // ---- Operations extension, version 2 (Ops 6) ----
   "approval.header": "RFC (Ops 6: a Dictionary Structured Field, RFC 9651, with operation_id and revision as Strings): A malformed Poppy-Approval",
   "approval.idempotency-key-reused": "Rule (Ops 6: \"An Idempotency-Key sent with the first request doesn't carry over\"): The approved request reused the first request's Idempotency-Key",
   "approval.mcp-meta": "Rule (Ops 6: the approval as a JSON object in _meta under personalagentprotocol.org/approval): A malformed MCP approval",
   "approval.message": "Rule (Ops 6: the approval as a JSON object in the message's approval): A malformed approval in a message",
+  "approval.approver": "MUST (0.4 Ops 6: \"The Personal Agent MUST include approver\", user or agent): An Operations 3 approval without a valid approver",
+  "approval.approved-at": "Rule (0.4 Ops 6: \"approved_at, in Unix seconds\", an Integer in Poppy-Approval): approved_at that isn't an Integer",
+  "approval.input-type-with-agent": "MUST NOT (0.4 Ops 6: \"The Personal Agent MUST NOT include it with agent\"): input_type in an agent approval",
+  "approval.input-type": "Rule (0.4 Ops 6: input_type \"as a short string\"): input_type that isn't a String",
+  "approval.reference": "Rule (0.4 Ops 6: reference \"has the same characters as the IDs in spec 8.2\"): A malformed reference",
+  "approval.reference-reused": "Rule (0.4 Ops 6: reference \"is unique among the User's approvals at least\"): One reference sent for two approvals",
+  "approval.declined-resent": "MUST NOT (0.4 Ops 6: \"the Personal Agent MUST NOT send that approval again\"): A declined approval sent again",
+  "approval.agent-after-decline": "MUST NOT (0.4 Ops 6: it \"MUST NOT approve a new revision for the same action without asking the User\"): An agent approval after a decline",
+  "web-operation.unknown-ref": "MUST (0.4 Ops 4: \"MUST take a reference only from the Poppy-Operation header of a response that its own browser received\"): A reference at endpoint that the website never returned",
+  "web-operation.approval-in-browser": "Rule (0.4 Ops 6: \"The approval never passes through the browser\"): A browser request to the website carrying Poppy-Approval",
+  "web-operation.approved-elsewhere": "Rule (0.4 Ops 6: \"an operation returned on a website is approved only at endpoint\"): An approval of a website's operation sent to an API, MCP server or conversation",
+  "approval.agent-after-revision": "MUST NOT (0.4 Ops 5: \"the Personal Agent MUST NOT approve the new one on the same instruction\"): An agent approval of a revision that answered an agent approval",
 
   // ---- Feedback (9.3) ----
+  "skills.credentials": "Rule (0.4 9.4: listing an artifact \"does not authorize sending it credentials or Session headers\"): A skill artifact fetched with a token or Session header",
+  "tasks.token": "Rule (0.4 9: \"the request carries no access token, even in a signed-in Session\"): GET {tasks.endpoint} with an access token",
   "feedback.fields": "MUST (9.3: task and description are required, at most 200 and 2,000 characters): A malformed feedback report",
   "feedback.kind": "Reading (9.3 has no kind; the changelog: \"kind removed from feedback\"): A feedback report that still carries kind",
   "feedback.excluded-task": "SHOULD NOT (9.3: \"SHOULD NOT report a task the Company lists as excluded\"): A report about an excluded task",

@@ -1,6 +1,7 @@
-import type { BrowserContextHandle, FormSubmission, PageGuard, PageSnapshot, PoppyBrowser } from "./browser";
+import type { BrowserContextHandle, BrowserCookie, FormSubmission, PageGuard, PageHeaders, PageSnapshot, PoppyBrowser, UserStep } from "./browser";
 import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from "./client";
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
+import { isObject, parseStrictJson } from "./json";
 
 /**
  * Poppy web browsing without a real browser (6): plain HTTPS requests
@@ -27,10 +28,15 @@ const DEFAULTS = { maxBytes: 1_000_000, timeoutMs: 15_000, maxRedirects: 5 } as 
 type Cookie = {
   readonly name: string;
   readonly value: string;
-  /** Host-only: sent back to exactly this host, never its subdomains or parent. */
+  /** The host that set it, or the `Domain` it covers when `hostOnly` is false. */
   readonly host: string;
+  /** Sent back to exactly `host`; otherwise to `host` and the hosts under it (RFC 6265 5.3). */
+  readonly hostOnly: boolean;
   readonly path: string;
   readonly secure: boolean;
+  /** Kept only so a handover browser gets the cookie as the Company set it (Browser Control 5). */
+  readonly httpOnly: boolean;
+  readonly sameSite: "Strict" | "Lax" | "None" | undefined;
   /** Epoch ms; undefined lasts as long as the context. */
   readonly expires: number | undefined;
 };
@@ -52,15 +58,22 @@ function pathMatches(requestPath: string, cookiePath: string): boolean {
 }
 
 /**
- * One context's cookies. Simpler than a browser's on purpose: every cookie
- * is host-only (`Domain` never widens it), and cookies go only over HTTPS.
+ * One context's cookies. Simpler than a browser's on purpose: cookies go
+ * only over HTTPS, and a cookie is host-only unless its `Domain` is one of
+ * `domains` or under one. Those are the Company's own domain, so a
+ * browser-session endpoint on another of its hosts, such as
+ * `accounts.example.com`, can set a Session's cookie for the pages agents
+ * browse (0.4, 6), and no list of public suffixes is needed: any other
+ * `Domain` still leaves the cookie host-only.
  */
 export class CookieJar {
   #cookies: Cookie[] = [];
   readonly #now: () => number;
+  readonly #domains: readonly string[];
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, domains: readonly string[] = []) {
     this.#now = now;
+    this.#domains = domains.map((domain) => domain.toLowerCase());
   }
 
   /** Keep the `Set-Cookie` headers of a response from `url`. */
@@ -80,6 +93,8 @@ export class CookieJar {
     const host = url.hostname.toLowerCase();
     let path: string | undefined;
     let secure = false;
+    let httpOnly = false;
+    let sameSite: Cookie["sameSite"];
     let maxAge: number | undefined;
     let expires: number | undefined;
     let domain: string | undefined;
@@ -88,6 +103,8 @@ export class CookieJar {
       const key = (at === -1 ? attribute : attribute.slice(0, at)).trim().toLowerCase();
       const raw = at === -1 ? "" : attribute.slice(at + 1).trim();
       if (key === "secure") secure = true;
+      else if (key === "httponly") httpOnly = true;
+      else if (key === "samesite") sameSite = ({ strict: "Strict", lax: "Lax", none: "None" } as const)[raw.toLowerCase() as "strict"];
       else if (key === "path" && raw.startsWith("/")) path = raw;
       else if (key === "max-age" && /^-?\d+$/.test(raw)) maxAge = Number(raw);
       else if (key === "expires") {
@@ -102,9 +119,10 @@ export class CookieJar {
     const now = this.#now();
     // Max-Age wins over Expires; zero or less, or a past date, deletes it.
     const expiry = maxAge !== undefined ? now + maxAge * 1000 : expires;
-    const cookie: Cookie = { name, value, host, path: path ?? defaultPath(url), secure, expires: expiry };
+    const shared = domain !== undefined && this.#domains.some((allowed) => domain === allowed || domain.endsWith(`.${allowed}`)) ? domain : undefined;
+    const cookie: Cookie = { name, value, host: shared ?? host, hostOnly: shared === undefined, path: path ?? defaultPath(url), secure, httpOnly, sameSite, expires: expiry };
     this.#cookies = this.#cookies.filter(
-      (old) => !(old.name === cookie.name && old.host === cookie.host && old.path === cookie.path)
+      (old) => !(old.name === cookie.name && old.host === cookie.host && old.hostOnly === cookie.hostOnly && old.path === cookie.path)
     );
     if (expiry !== undefined && expiry <= now) return;
     this.#cookies.push(cookie);
@@ -122,10 +140,20 @@ export class CookieJar {
     this.#cookies = this.#cookies.filter((cookie) => cookie.expires === undefined || cookie.expires > now);
     const host = url.hostname.toLowerCase();
     return this.#cookies
-      .filter((cookie) => cookie.host === host && pathMatches(url.pathname, cookie.path))
+      .filter((cookie) => (cookie.host === host || (!cookie.hostOnly && host.endsWith(`.${cookie.host}`))) && pathMatches(url.pathname, cookie.path))
       .sort((a, b) => b.path.length - a.path.length)
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
+  }
+
+  /** Every cookie still live, for a handover browser joined to the same Session (Browser Control 5). */
+  all(): BrowserCookie[] {
+    const now = this.#now();
+    return this.#cookies
+      .filter((cookie) => cookie.expires === undefined || cookie.expires > now)
+      .map(({ name, value, host, hostOnly, path, secure, httpOnly, sameSite, expires }) => ({
+        name, value, host, hostOnly, path, secure, httpOnly, ...(sameSite ? { sameSite } : {}), ...(expires !== undefined ? { expires } : {})
+      }));
   }
 
   clear(): void {
@@ -168,6 +196,8 @@ type Control = {
   readonly formAction?: string;
   readonly formMethod?: string;
   readonly formEnctype?: string;
+  /** Its `data-poppy-user-step` (Browser Control 4): on a control, always `interaction`. */
+  readonly userStep?: "interaction";
 };
 
 type ParsedForm = {
@@ -177,9 +207,22 @@ type ParsedForm = {
   readonly method: string;
   readonly enctype: string;
   readonly controls: Control[];
+  readonly userStep?: UserStep;
 };
 
-type ParsedLink = { readonly id: string; readonly href: string; text: string };
+type ParsedLink = { readonly id: string; readonly href: string; text: string; readonly userStep?: "interaction" };
+
+/**
+ * An element's `data-poppy-user-step` (Browser Control 4): `submission` only
+ * on a form, and any other value, or `submission` elsewhere, `interaction`.
+ */
+function userStepOf(element: Element, form: boolean): UserStep | undefined {
+  if (!element.hasAttribute("data-poppy-user-step")) return undefined;
+  return form && (element.getAttribute("data-poppy-user-step") ?? "").trim() === "submission" ? "submission" : "interaction";
+}
+
+/** A control's own mark, as a spread. */
+const controlStep = (element: Element): { userStep?: "interaction" } => (element.hasAttribute("data-poppy-user-step") ? { userStep: "interaction" } : {});
 
 type ParsedPage = {
   readonly title: string;
@@ -262,7 +305,7 @@ async function parseHtml(html: string): Promise<ParsedPage> {
       if (element.hasAttribute("href")) base ??= attr(element, "href");
     } else if ((tag === "a" || tag === "area") && element.hasAttribute("href")) {
       if (links.length < MAX_LINKS) {
-        const current: ParsedLink = { id: attr(element, "id"), href: attr(element, "href"), text: tag === "area" ? attr(element, "alt") : "" };
+        const current: ParsedLink = { id: attr(element, "id"), href: attr(element, "href"), text: tag === "area" ? attr(element, "alt") : "", ...controlStep(element) };
         links.push(current);
         if (tag === "a") {
           link = current;
@@ -278,7 +321,8 @@ async function parseHtml(html: string): Promise<ParsedPage> {
           action: attr(element, "action"),
           method: attr(element, "method").toLowerCase() || "get",
           enctype: attr(element, "enctype").toLowerCase(),
-          controls: []
+          controls: [],
+          ...(userStepOf(element, true) ? { userStep: userStepOf(element, true)! } : {})
         };
         forms.push(current);
         form = current;
@@ -292,12 +336,13 @@ async function parseHtml(html: string): Promise<ParsedPage> {
         type: attr(element, "type").toLowerCase() || (tag === "button" ? "submit" : "text"),
         value: attr(element, "value"),
         ...common(element),
+        ...controlStep(element),
         ...(element.hasAttribute("formaction") ? { formAction: attr(element, "formaction") } : {}),
         ...(element.hasAttribute("formmethod") ? { formMethod: attr(element, "formmethod").toLowerCase() } : {}),
         ...(element.hasAttribute("formenctype") ? { formEnctype: attr(element, "formenctype").toLowerCase() } : {})
       });
     } else if (tag === "select") {
-      const control: Control = { tag: "select", type: "select", value: "", ...common(element) };
+      const control: Control = { tag: "select", type: "select", value: "", ...common(element), ...controlStep(element) };
       addControl(control);
       select = control;
       ends.push(() => {
@@ -315,7 +360,7 @@ async function parseHtml(html: string): Promise<ParsedPage> {
       };
       select.options.push(option);
     } else if (tag === "textarea") {
-      const control: Control = { tag: "textarea", type: "textarea", value: "", ...common(element) };
+      const control: Control = { tag: "textarea", type: "textarea", value: "", ...common(element), ...controlStep(element) };
       addControl(control);
       textarea = control;
       ends.push(() => (textarea = undefined));
@@ -402,12 +447,13 @@ type Page = {
   readonly url: URL;
   readonly status: number;
   readonly retryAfter: string | undefined;
+  readonly operationHeader: string | undefined;
   readonly parsed: ParsedPage;
   /** What `fill` set, by control. */
   readonly filled: Map<Control, string>;
 };
 
-type Fetched = { url: URL; status: number; retryAfter: string | undefined; contentType: string; body: Uint8Array };
+type Fetched = { url: URL; status: number; retryAfter: string | undefined; operationHeader: string | undefined; contentType: string; body: Uint8Array };
 
 const CREDENTIAL_AUTOCOMPLETE = /^(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp(-month|-year)?)$/;
 const CREDENTIAL_NAME = /pass(word|code)?|\bpin\b|otp|one.?time|verification.?code|cvv|cvc|card.?number|security.?code/i;
@@ -426,25 +472,45 @@ function isSubmitter(control: Control): boolean {
   return (control.tag === "button" && control.type === "submit") || (control.tag === "input" && (control.type === "submit" || control.type === "image"));
 }
 
+/**
+ * A step the Company marked for the User (Browser Control 4, 5): the agent
+ * doesn't take it, whatever the model asks. `browse` adds how the User can.
+ */
+function userStep(what: string, verb: string): PoppyError {
+  return new PoppyError("user_step", `The website marks ${what} as a step for the User to take themselves, so the agent doesn't ${verb} it`, 0);
+}
+
 const SUBMIT_ADVICE = "This browser only follows links: fill the form's fields with fill, then send it with submit, which waits for the User's approval";
+
+/** Whether a page's 400 is `invalid_session` (5.3), in its JSON body. */
+function refusedSession(bytes: Uint8Array): boolean {
+  try {
+    const body = parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return isObject(body) && body.error === "invalid_session";
+  } catch {
+    return false;
+  }
+}
 
 class FetchContext implements BrowserContextHandle {
   readonly #fetcher: Fetcher;
   readonly #guard: PageGuard;
+  readonly #pageHeaders: PageHeaders | undefined;
   readonly #options: Required<Omit<FetchBrowserOptions, "now">>;
   readonly #jar: CookieJar;
   #page: Page | undefined;
   #closed = false;
 
-  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions) {
+  constructor(fetcher: Fetcher, guard: PageGuard, options: FetchBrowserOptions, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]) {
     this.#fetcher = fetcher;
     this.#guard = guard;
+    this.#pageHeaders = pageHeaders;
     this.#options = {
       maxBytes: options.maxBytes ?? DEFAULTS.maxBytes,
       timeoutMs: options.timeoutMs ?? DEFAULTS.timeoutMs,
       maxRedirects: options.maxRedirects ?? DEFAULTS.maxRedirects
     };
-    this.#jar = new CookieJar(options.now);
+    this.#jar = new CookieJar(options.now, cookieDomains);
   }
 
   /** Every request and every redirect: HTTPS, a public host, and whatever the Company's rules allow. */
@@ -470,10 +536,15 @@ class FetchContext implements BrowserContextHandle {
     let body = init.body;
     let sent = false;
     let answered: number | undefined;
+    // After a page refuses our Session header, the rest of this navigation goes without it (0.4 5.2).
+    let unsigned = false;
     try {
       for (let hop = 0; ; hop++) {
         this.#check(current);
         const headers = new Headers({ Accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5,*/*;q=0.1" });
+        // 0.4: the Session header, signed for this hop's URL; a redirect off the Company's domain gets none.
+        const signed = unsigned || !this.#pageHeaders ? null : await this.#pageHeaders(current, method);
+        if (signed) for (const [name, value] of signed) headers.set(name, value);
         // The Session's cookies, to this host only. Nothing else of ours goes with a page request.
         const cookie = this.#jar.header(current);
         if (cookie) headers.set("Cookie", cookie);
@@ -512,10 +583,17 @@ class FetchContext implements BrowserContextHandle {
           const failure = error instanceof PoppyFetchError ? new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0) : error;
           throw init.method === "POST" ? withUnreadableAnswer(failure, response.status) : failure;
         }
+        // A page that verifies the header and rejects it may be fetched once more without it (5.2). A form isn't sent again.
+        if (signed && method === "GET" && response.status === 400 && refusedSession(bytes)) {
+          unsigned = true;
+          hop--;
+          continue;
+        }
         return {
           url: current,
           status: response.status,
           retryAfter: response.headers.get("Retry-After") ?? undefined,
+          operationHeader: response.headers.get("Poppy-Operation") ?? undefined,
           contentType: (response.headers.get("Content-Type") ?? "").toLowerCase(),
           body: bytes
         };
@@ -547,7 +625,7 @@ class FetchContext implements BrowserContextHandle {
     } else {
       parsed = { title: "", text: `(A ${mime} file, which this browser doesn't show.)`, base: undefined, links: [], forms: [], scripts: 0 };
     }
-    this.#page = { url: fetched.url, status: fetched.status, retryAfter: fetched.retryAfter, parsed, filled: new Map() };
+    this.#page = { url: fetched.url, status: fetched.status, retryAfter: fetched.retryAfter, operationHeader: fetched.operationHeader, parsed, filled: new Map() };
     return this.#snapshot();
   }
 
@@ -590,19 +668,22 @@ class FetchContext implements BrowserContextHandle {
       links: parsed.links.flatMap((link) => {
         const url = this.#resolve(page, link.href);
         if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) return [];
-        return [{ text: link.text, href: url.href, selector: this.#linkSelector(page, link) }];
+        return [{ text: link.text, href: url.href, selector: this.#linkSelector(page, link), ...(link.userStep ? { userStep: link.userStep } : {}) }];
       }),
-      forms: parsed.forms.map((form) => ({
-        selector: this.#formSelector(page, form),
-        action: (this.#resolve(page, form.action) ?? page.url).href,
-        method: form.method.toUpperCase(),
-        fields: [
-          ...new Set(
-            form.controls.filter((control) => control.name && !NOT_FILLABLE.has(control.type) && !control.disabled).map((control) => control.name)
-          )
-        ]
-      })),
-      ...(page.retryAfter ? { retryAfter: page.retryAfter } : {})
+      forms: parsed.forms.map((form) => {
+        const fillable = form.controls.filter((control) => control.name && !NOT_FILLABLE.has(control.type) && !control.disabled);
+        const userFields = [...new Set(fillable.filter((control) => control.userStep).map((control) => control.name))];
+        return {
+          selector: this.#formSelector(page, form),
+          action: (this.#resolve(page, form.action) ?? page.url).href,
+          method: form.method.toUpperCase(),
+          fields: [...new Set(fillable.map((control) => control.name))],
+          ...(form.userStep ? { userStep: form.userStep } : {}),
+          ...(userFields.length > 0 ? { userFields } : {})
+        };
+      }),
+      ...(page.retryAfter ? { retryAfter: page.retryAfter } : {}),
+      ...(page.operationHeader !== undefined ? { operationHeader: page.operationHeader } : {})
     };
   }
 
@@ -691,6 +772,7 @@ class FetchContext implements BrowserContextHandle {
       if (formish) throw new PoppyError("refused", `${raw} is part of a form, not a link. ${SUBMIT_ADVICE}.`, 0);
       throw new PoppyError("invalid_request", `No link ${raw} on this page; use a selector from the page's links`, 0);
     }
+    if (link.userStep) throw userStep(`the link ${raw}`, "follow");
     const url = this.#resolve(page, link.href);
     if (!url) throw new PoppyError("invalid_request", `The link ${raw} doesn't go anywhere`, 0);
     if (url.protocol !== "https:" && url.protocol !== "http:") {
@@ -715,6 +797,10 @@ class FetchContext implements BrowserContextHandle {
       throw new PoppyError("refused", "The agent never types credentials or codes into a website; sign in with poppy_sign_in instead", 0);
     }
     if (isSubmitter(first)) throw new PoppyError("refused", `${raw} is a button. ${SUBMIT_ADVICE}.`, 0);
+    // A submission form's fields are the agent's to fill, but not a field marked for the User (Browser Control 4).
+    const form = found[0]!.form;
+    if (controls.some((control) => control.userStep)) throw userStep(`the field ${raw}`, "fill in");
+    if (form.userStep === "interaction") throw userStep(`the form ${this.#formSelector(page, form)}`, "fill in");
     if (NOT_FILLABLE.has(first.type)) throw new PoppyError("refused", `${raw} is a ${first.type} field, which the website sets itself`, 0);
     if (first.disabled || first.readonly) throw new PoppyError("refused", `${raw} can't be changed`, 0);
     if (first.type === "radio") {
@@ -743,6 +829,9 @@ class FetchContext implements BrowserContextHandle {
       if (buttons.length === 1) ({ form, control: submitter } = buttons[0]!);
     }
     if (!form) throw new PoppyError("invalid_request", `No form ${raw} on this page; use a selector from the page's forms`, 0);
+    // Submitting a form without naming a button activates its default button (HTML 4.10.21.2), whose mark counts too.
+    const activated = submitter ?? form.controls.find(isSubmitter);
+    if (form.userStep || activated?.userStep) throw userStep(`the form ${this.#formSelector(page, form)}`, "submit");
     const fields: { name: string; value: string; hidden: boolean }[] = [];
     for (const control of form.controls) {
       if (!control.name || control.disabled) continue;
@@ -799,6 +888,14 @@ class FetchContext implements BrowserContextHandle {
     return this.#load(await this.#navigate(action, { method: "POST", body, origin: new URL(submission.from).origin, beforeDispatch }));
   }
 
+  cookies(): readonly BrowserCookie[] {
+    return this.#closed ? [] : this.#jar.all();
+  }
+
+  pageUrl(): string | null {
+    return this.#page?.url.href ?? null;
+  }
+
   async close(): Promise<void> {
     this.#closed = true;
     this.#jar.clear();
@@ -816,7 +913,7 @@ export class FetchBrowser implements PoppyBrowser {
     this.#options = options;
   }
 
-  async newContext(guard: PageGuard): Promise<BrowserContextHandle> {
-    return new FetchContext(this.#fetcher, guard, this.#options);
+  async newContext(guard: PageGuard, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]): Promise<BrowserContextHandle> {
+    return new FetchContext(this.#fetcher, guard, this.#options, pageHeaders, cookieDomains);
   }
 }

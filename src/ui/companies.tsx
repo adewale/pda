@@ -6,6 +6,7 @@ import type { PoppyView } from "../use-pi-session";
 import { SendAction, type Send } from "./connection";
 import { Action, EmptyState, PageHeader, Section, Truncated } from "./controls";
 import { ago, fullDate, untilDate, when } from "./format";
+import { InstructionsSection } from "./instructions";
 import type { Issuer } from "../poppy/issuer";
 
 /** One Company the agent knows the User at: its accounts and open conversations. */
@@ -162,6 +163,8 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
         {company.signOuts.some((signOut) => signOut.reason === "sign_out") ? <NotAccepted company={company} reason="sign_out" send={send} /> : null}
         {company.signOuts.some((signOut) => signOut.reason === "step_up") ? <NotAccepted company={company} reason="step_up" send={send} /> : null}
       </Section>
+
+      <InstructionsSection issuer={company.issuer} company={company.name} accounts={company.accounts.map((account) => account.account)} instructions={view.instructions} send={send} />
 
       <Section title="In progress" description={`Approved requests at ${company.name} that haven't finished, signed in or not.`}>
         {operations.length === 0 ? (

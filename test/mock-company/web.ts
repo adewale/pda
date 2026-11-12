@@ -1,4 +1,5 @@
-import { Company, json, MEDIATED_GRANT, randomId, type Inbound, type ResourceContext, type Session } from "./core";
+import { Company, HttpError, json, MEDIATED_GRANT, randomId, resourceError, type Inbound, type ResourceContext, type Session } from "./core";
+import { parseApprovalHeader, type Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
 /** The tasks the mock chose not to offer (9.1); the web reference is filled in per Company. */
@@ -11,6 +12,17 @@ const EXCLUDED: readonly { readonly task: string; readonly alternative?: { reado
 const DEFAULT_CACHING: Readonly<Record<string, string>> = { "Cache-Control": "max-age=300" };
 
 /** Discovery documents, the website, and the browser join (sections 3 and 6). */
+/** The mock's one skill (9.4), in the Agent Skills format. */
+const SKILL_MD = `---
+name: exchange-an-item
+description: Exchange an item on one of the User's orders for another size or model.
+---
+
+1. Find the order with \`GET /orders\` and the item to exchange.
+2. Find the replacement with \`searchProducts\`.
+3. Send \`POST /orders/{order_id}/exchanges\`. The Company returns the terms for the User to approve.
+`;
+
 export class Web {
   /** A report belongs to the verified Personal Agent and User, not every visitor to the Company. */
   readonly #reportedTasks = new Set<string>();
@@ -21,7 +33,7 @@ export class Web {
   /** The browser join's codes (6, steps 1 to 3). */
   readonly #joins = new Map<string, { readonly cookie: string; readonly expiresAt: number; authorized: { readonly sessionId: string; readonly account: string | null; readonly scope: readonly string[]; readonly grant: string | null } | null; used: boolean }>();
 
-  constructor(readonly company: Company) {}
+  constructor(readonly company: Company, readonly operations: Operations) {}
 
   /** poppy.json's caching headers: the configured ones (`{}` for none), or the default. */
   #poppyJsonCaching(): Record<string, string> {
@@ -39,9 +51,12 @@ export class Web {
    * described in `auth.scopes` with `scope_hints`; Operations 2 and
    * Mediated Sign-In as extensions.
    */
-  poppyJson(requestedDomain: string): Record<string, unknown> {
+  poppyJson(requestedDomain: string, version = this.company.config.protocolVersion): Record<string, unknown> {
     const co = this.company;
     const config = co.config;
+    // 0.4 lists an entry per extension version (3.3), and moved feedback and excluded tasks to tasks.endpoint (9).
+    const v04 = version === "0.4";
+    const entries = (entry: Record<string, unknown>) => (v04 ? [entry] : entry);
     const hosts = co.hosts;
     const { read, write } = co.orderScopes;
     const auth: Record<string, unknown> = {
@@ -51,12 +66,12 @@ export class Web {
       scopes: Object.fromEntries(Object.entries(this.#scopeDescriptions()).filter(([scope]) => !config.hideScopesFromAuth.includes(scope) && (requestedDomain.toLowerCase() !== hosts.domain.toLowerCase() || !config.hideScopesOnMainDomain.includes(scope)))),
       scope_hints: {
         [read]: { changes: "none", personal_data: true },
-        [write]: { changes: "irreversible", personal_data: true },
+        [write]: { changes: config.reversibleWrites ? "reversible" : "irreversible", personal_data: true },
         addresses: { changes: "reversible", personal_data: true }
       }
     };
     const document: Record<string, unknown> = {
-      protocol_version: config.protocolVersion,
+      protocol_version: version,
       organization: {
         name: config.organizationName ?? `Mock Shop ${co.id}`,
         domain: config.organizationDomain ?? requestedDomain,
@@ -71,9 +86,16 @@ export class Web {
       protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint });
       document.agent = { protocols };
     }
-    if (config.web) document.web = config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
-    if (config.excludedTasks) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
-    if (config.feedback) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
+    // 6: a Company that sets web.disabled lists no browser_session_endpoint.
+    if (config.web) {
+      const web: Record<string, unknown> = v04 && config.webDisabled ? { disabled: true } : config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
+      if (v04 && config.webUnscoped && config.browserSession && !config.webDisabled) web.unscoped = true;
+      document.web = web;
+    }
+    if (config.excludedTasks && !v04) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
+    if (config.feedback && !v04) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
+    // 0.4: both come from the tasks endpoint, per Session (9).
+    if ((config.excludedTasks || config.feedback || config.skills) && v04) document.tasks = { endpoint: `${hosts.api}/poppy/tasks` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     const listsOpenapi = config.openapi && !(config.openapiOnAltDomainOnly && requestedDomain.toLowerCase() === hosts.domain.toLowerCase());
@@ -81,19 +103,23 @@ export class Web {
     if (config.mcp) apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
     if (apis.length > 0) document.apis = apis;
     const extensions: Record<string, unknown> = {};
-    if (config.operations) extensions.operations = { version: "2" };
+    // 0.4 Ops 2: a website that returns operations lists `endpoint`, and only beside browser join.
+    const operationsEndpoint = v04 && config.webOperations && config.browserSession && !config.webDisabled;
+    if (config.operations) extensions.operations = entries({ version: v04 ? "3" : "2", ...(operationsEndpoint ? { endpoint: `${hosts.web}/poppy/operations` } : {}) });
+    // 0.4 Browser Control 3: listed only beside browser join.
+    if (v04 && config.browserControl && config.browserSession && !config.webDisabled) extensions["browser-control"] = entries({ version: "1" });
     const mediated = co.offeredScopes("mediated");
     if (mediated) {
-      extensions["mediated-sign-in"] = {
+      extensions["mediated-sign-in"] = entries({
         version: "1",
         fields: [
           { name: "email", label: "Email", secret: false },
           { name: "password", label: "Password", secret: true }
         ],
         scopes: mediated
-      };
+      });
     }
-    if (config.unknownExtension) extensions["mock.test/gift-wrap"] = { version: "1", endpoint: `${hosts.api}/gift-wrap` };
+    if (config.unknownExtension) extensions["mock.test/gift-wrap"] = entries({ version: "1", endpoint: `${hosts.api}/gift-wrap` });
     if (Object.keys(extensions).length > 0) document.extensions = extensions;
     if (config.unknownField) document.loyalty_program = { name: "Mock Points" };
     // Interop XB: pad the document past an agent's size cap. An unknown field,
@@ -109,7 +135,11 @@ export class Web {
     if (co.config.issuerless) return json({ error: "not_found" }, 404);
     const host = inbound.url.hostname;
     return json(
-      { resource: co.config.domainResourceOverride ?? `https://${host}`, authorization_servers: co.config.authorizationServersOverride ?? [co.hosts.issuer] },
+      {
+        resource: co.config.domainResourceOverride ?? `https://${host}`,
+        authorization_servers: co.config.authorizationServersOverride ?? [co.hosts.issuer],
+        ...(co.config.resourceScopes ? { scopes_supported: Object.keys(this.#scopeDescriptions()) } : {})
+      },
       200,
       { ...(co.config.metadataCacheHeaders ?? DEFAULT_CACHING) }
     );
@@ -118,7 +148,56 @@ export class Web {
   /** The tasks this Company chose not to offer (9.1), for every User alike. */
   excludedTasks(): Response {
     if (!this.company.config.excludedTasks) return json({ error: "not_found" }, 404);
-    return json({ tasks: EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry) }, 200, DEFAULT_CACHING);
+    return json({ tasks: this.#excluded() }, 200, DEFAULT_CACHING);
+  }
+
+  #excluded() {
+    return EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry);
+  }
+
+  /**
+   * `GET {tasks.endpoint}` (0.4 9): excluded tasks and the feedback
+   * endpoint, after the Session header is verified, and with no access
+   * token. Marked `private`, as a response a Company may vary by Session.
+   */
+  async tasks(context: ResourceContext): Promise<Response> {
+    const co = this.company;
+    if (!context.session.declaration || context.session.declaration.version === "0.3") return json({ error: "not_found" }, 404);
+    if (context.token) co.violation("tasks.token", "GET {tasks.endpoint} carried an access token");
+    return json({
+      ...(co.config.excludedTasks ? { excluded_tasks: this.#excluded() } : {}),
+      ...(co.config.skills ? { skill_index: await this.#skillIndex() } : {}),
+      ...(co.config.feedback ? { feedback: { endpoint: `${co.hosts.api}/poppy/feedback` } } : {})
+    }, 200, { "Cache-Control": "private, max-age=300" });
+  }
+
+  /** The skill index (9.4): one `SKILL.md`, by a reference relative to `tasks.endpoint`, with its digest. */
+  async #skillIndex(): Promise<Record<string, unknown>> {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(SKILL_MD)));
+    return {
+      $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+      skills: [{
+        name: "exchange-an-item",
+        description: "Exchange an item on one of the User's orders for another size or model.",
+        type: "skill-md",
+        url: "skills/exchange-an-item/SKILL.md",
+        digest: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`
+      }]
+    };
+  }
+
+  /**
+   * A skill artifact (9.4). Listing it authorizes no credentials or Session
+   * header, so one sent here is recorded.
+   */
+  skillArtifact(inbound: Inbound): Response {
+    const co = this.company;
+    if (!co.config.skills) return json({ error: "not_found" }, 404);
+    const headers = inbound.request.headers;
+    if (headers.has("Authorization") || headers.has("Poppy-Session") || headers.has("DPoP")) {
+      co.violation("skills.credentials", `a skill artifact fetched with ${["Authorization", "Poppy-Session", "DPoP"].filter((name) => headers.has(name)).join(", ")}`);
+    }
+    return new Response(SKILL_MD, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
   }
 
   /**
@@ -164,7 +243,7 @@ export class Web {
     const host = inbound.url.hostname.replace(/^www\./, "");
     if (host.startsWith("cdn.")) {
       const domain = inbound.url.searchParams.get("for") ?? co.hosts.domain;
-      return json(this.poppyJson(domain), 200, this.#poppyJsonCaching());
+      return json(this.#rootDocument(domain), 200, this.#poppyJsonCaching());
     }
     if (co.config.wellKnownRedirect === "https") {
       return Response.redirect(`https://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
@@ -172,7 +251,21 @@ export class Web {
     if (co.config.wellKnownRedirect === "http") {
       return Response.redirect(`http://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
     }
-    return json(this.poppyJson(host), 200, this.#poppyJsonCaching());
+    return json(this.#rootDocument(host), 200, this.#poppyJsonCaching());
+  }
+
+  /** poppy.json, with `supported_versions` linking the other version's document on the same host (3.4). */
+  #rootDocument(host: string): Record<string, unknown> {
+    const linked = this.company.config.linkedVersion;
+    const document = this.poppyJson(host);
+    return linked ? { ...document, supported_versions: { [linked]: `https://${host}${linkedPath(linked)}` } } : document;
+  }
+
+  /** The linked version's document (3.4): its own `protocol_version`, and no `supported_versions`. */
+  linkedDocument(inbound: Inbound): Response {
+    const linked = this.company.config.linkedVersion;
+    if (!linked || inbound.url.pathname !== linkedPath(linked)) return json({ error: "not_found" }, 404);
+    return json(this.poppyJson(inbound.url.hostname.replace(/^www\./, ""), linked), 200, this.#poppyJsonCaching());
   }
 
   /**
@@ -282,6 +375,10 @@ export class Web {
     const join = this.#joins.get(code);
     if (join?.authorized) co.violation("browser-join.code-reused", "browser join: the code was authorized before");
     if (!join || join.authorized || join.used || join.expiresAt <= co.now()) return json({ error: "invalid_request" }, 400);
+    // 0.4: a token without poppy:browser-sign-in is refused as at an API, and the code stays unauthorized (6).
+    if (context.token && context.session.declaration?.version === "0.4" && !context.scope.includes("poppy:browser-sign-in")) {
+      throw resourceError(context.token.kind === "dpop" ? "DPoP" : "Bearer", 403, "insufficient_scope", { scope: "poppy:browser-sign-in" });
+    }
     join.authorized = { sessionId: context.session.id, account: context.account, scope: context.scope, grant: context.token?.grant ?? null };
     return new Response(null, { status: 204 });
   }
@@ -302,6 +399,9 @@ export class Web {
 
   /** `POST /account/address`: the address form, sent with the Session's cookie and its hidden field. */
   saveAddress(inbound: Inbound): Response {
+    if (this.company.config.protocolVersion === "0.4" && this.company.config.webDisabled) {
+      this.company.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    }
     const session = this.#session(inbound);
     const fields = [...new URLSearchParams(inbound.bodyText)];
     const signedIn = session && !session.ended && session.account;
@@ -311,6 +411,111 @@ export class Web {
     }
     this.company.formPosts.push({ account: session.account, fields });
     return new Response(null, { status: 303, headers: { Location: "/account/address?saved=1" } });
+  }
+
+  /**
+   * `POST /orders/ord_7Hk2/exchange`: the website's exchange form. A browser
+   * joined to a Session that declares Operations 3, signed in to the order's
+   * account, gets 403 and `Poppy-Operation` until the operation's approval
+   * is recorded at `endpoint`; then the same request performs it, once
+   * (0.4 Ops 4, 6). Anyone else gets the website's own approval step.
+   */
+  exchangeForm(inbound: Inbound): Response {
+    const co = this.company;
+    const page = (body: string, status: number, headers: Record<string, string> = {}) =>
+      new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers } });
+    if (co.config.protocolVersion === "0.4" && co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    if (inbound.request.headers.has("Poppy-Approval")) co.violation("web-operation.approval-in-browser", "the exchange form came with Poppy-Approval");
+    const session = this.#session(inbound);
+    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to exchange an item.</p>", 403);
+    const declared = session.declaration?.version === "0.4" && session.declaration.declared.get("operations") === "3";
+    if (!co.config.webOperations || !declared) return page("<p>Confirm this exchange on our website: we'll email you a link.</p>", 403);
+    const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
+    const request = JSON.stringify({ order_id: "ord_7Hk2", item_id: asked.item_id ?? "", replacement_sku: asked.replacement_sku ?? "" });
+    const answer = this.operations.websiteExchange(session, request, asked);
+    if ("performed" in answer) {
+      if (co.config.webErrorAfterPerforming) return page("<p>Something went wrong. Please try again later.</p>", 503);
+      return new Response(null, { status: 303, headers: { Location: "/orders/ord_7Hk2?exchanged=1", "Cache-Control": "no-store" } });
+    }
+    // The body doesn't carry the operation (Ops 4); this reference, in the page's words, is not one to take.
+    return page(
+      `<h1>Waiting for approval</h1><p>This exchange is waiting for your approval in your personal agent.</p><p>Reference: ${answer.ref.split(".")[0]}.page</p><form method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="${asked.item_id ?? ""}"><input type="hidden" name="replacement_sku" value="${asked.replacement_sku ?? ""}"><button id="continue">Continue</button></form>`,
+      403,
+      { "Poppy-Operation": `sid="${session.sid}", ref="${answer.ref}"` }
+    );
+  }
+
+  /**
+   * `POST /orders/ord_7Hk2/return`: the return form, which the page marks for
+   * the User to submit (0.4 Browser Control 4). The page posts who controlled
+   * the browser in its `controller` field (6). A browser joined to a Session
+   * that declared the extension, posting without `"user"`, took a marked step
+   * (5); the Company still decides by its own rules (8.1), so the return is
+   * recorded either way.
+   */
+  returnForm(inbound: Inbound): Response {
+    const co = this.company;
+    const page = (body: string, status: number) =>
+      new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    if (co.config.protocolVersion === "0.4" && co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    const session = this.#session(inbound);
+    if (!session || session.ended || !session.account || !session.scope.includes(co.orderScopes.write)) return page("<p>Sign in to return an item.</p>", 403);
+    const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
+    const controller = asked.controller ?? "";
+    const declared = session.declaration?.version === "0.4" && session.declaration.declared.get("browser-control") === "1";
+    if (co.config.browserControl && declared && controller !== "user") {
+      co.violation("browser-control.marked-step", `the return form, marked submission, came with controller ${JSON.stringify(controller)} from Session ${session.sid}`);
+    }
+    co.returns.push({ account: session.account, controller, reason: asked.reason ?? "", cardLast4: asked.card_last4 ?? "" });
+    return new Response(null, { status: 303, headers: { Location: "/orders/ord_7Hk2?returned=1", "Cache-Control": "no-store" } });
+  }
+
+  /** `POST {operations endpoint}` (0.4 Ops 4, 6): the agent's own request, with the Session header and token. */
+  async operationsEndpoint(inbound: Inbound): Promise<Response> {
+    const co = this.company;
+    if (co.config.protocolVersion !== "0.4" || !co.config.webOperations || !co.config.browserSession) return json({ error: "not_found" }, 404);
+    const context = await co.authorizeResource(inbound);
+    let body: unknown;
+    try {
+      body = JSON.parse(inbound.bodyText);
+    } catch {
+      body = null;
+    }
+    const ref = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as { ref?: unknown }).ref : undefined;
+    if (typeof ref !== "string" || !/^[A-Za-z0-9_.-]{1,2048}$/.test(ref)) return json({ error: "invalid_request" }, 400);
+    const header = inbound.request.headers.get("Poppy-Approval");
+    const approval = header === null ? null : parseApprovalHeader(header);
+    if (header !== null && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
+      co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
+      return json({ error: "invalid_request" }, 400);
+    }
+    const answer = this.operations.atEndpoint(context, ref, approval);
+    return answer.body ? json(answer.body, answer.status) : new Response(null, { status: answer.status });
+  }
+
+  /**
+   * A website page's Session header (0.4 5.2): a page the agent fetches
+   * without a browser may carry one, signed out, on `organization.domain`
+   * only. Verified as at any endpoint, so a failed check is answered with
+   * `invalid_session`; one sent to another host, beside a token, or in a 0.3
+   * request is recorded. Null: serve the page.
+   */
+  async pageSession(inbound: Inbound, offHost: boolean): Promise<Response | null> {
+    const co = this.company;
+    const headers = inbound.request.headers;
+    if (!headers.has("Poppy-Session")) return null;
+    const where = `${inbound.request.method} ${inbound.url.href}`;
+    if (offHost) co.violation("page.session-off-host", `a Session header on a page that isn't on organization.domain (${where})`);
+    if (headers.has("Authorization")) co.violation("page.token", `an access token with a website page (${where})`);
+    if (!headers.has("Poppy-Version")) co.violation("page.session-0.3", `a Session header on a page in a 0.3 request (${where})`);
+    if (co.config.pagesRefuseSession) return co.invalidSession("this page refuses the Session header").response;
+    try {
+      await co.verifySessionHeader(inbound, null);
+    } catch (error) {
+      if (error instanceof HttpError) return error.response;
+      throw error;
+    }
+    return null;
   }
 
   /**
@@ -366,10 +571,37 @@ export class Web {
     if (inbound.url.pathname === "/orders" || inbound.url.pathname.startsWith("/orders/")) {
       // The cookie follows the Session's current state (6).
       if (session && !session.ended && session.account && session.scope.includes(co.orderScopes.read)) {
-        return html(`<p>Signed in as ${session.account}</p><ul><li>Order ord_7Hk2: Stormline Jacket (M)</li></ul>`);
+        if (inbound.url.pathname === "/orders/ord_7Hk2/exchange") {
+          return html(`<h1>Exchange an item</h1><form id="exchange" method="post" action="/orders/ord_7Hk2/exchange"><input type="hidden" name="item_id" value="itm_4Qa"><label>Replacement <select name="replacement_sku"><option value="stormline-insulated-m" selected>Stormline Insulated Jacket (M)</select></label><button>Exchange</button></form>`);
+        }
+        if (inbound.url.pathname === "/orders/ord_7Hk2/return") {
+          // 0.4 Browser Control 4: the form is the User's to submit, the card digits theirs to type, the policy theirs to accept.
+          const marks = co.config.browserControl;
+          const mark = (value: string) => (marks ? ` data-poppy-user-step="${value}"` : "");
+          return html(
+            `<h1>Return an item</h1>
+<form id="return" method="post" action="/orders/ord_7Hk2/return"${mark("submission")}>
+<input type="hidden" name="item_id" value="itm_4Qa">
+<input type="hidden" name="controller" value="">
+<label>Reason <select name="reason"><option value="size" selected>Wrong size<option value="fault">Faulty</select></label>
+<label>Last four digits of the card you paid with <input id="card" name="card_last4"${mark("interaction")}></label>
+<button id="send-return" type="submit">Return</button>
+</form>
+<script>document.getElementById("return").addEventListener("submit", (event) => { event.target.elements.controller.value = navigator.poppy?.controller ?? ""; });</script>
+<a id="policy" href="/orders/ord_7Hk2/return?policy=accepted"${mark("consent")}>Accept the returns policy</a>`
+          );
+        }
+        const exchanged = inbound.url.searchParams.has("exchanged") ? "<p>Exchange placed.</p>" : "";
+        const returned = inbound.url.searchParams.has("returned") ? "<p>Return started.</p>" : "";
+        return html(`<p>Signed in as ${session.account}</p>${exchanged}${returned}<ul><li>Order ord_7Hk2: Stormline Jacket (M) <a id="exchange" href="/orders/ord_7Hk2/exchange">Exchange</a> <a id="return" href="/orders/ord_7Hk2/return">Return</a></li></ul>`);
       }
       return html("<p>Signed out</p><p>Sign in to see your orders.</p>");
     }
     return html("<p>Not found</p>", 404);
   }
+}
+
+/** Where the mock serves a linked version's document (3.4: "Its path can be anything"). */
+export function linkedPath(version: string): string {
+  return `/poppy/v${version}.json`;
 }

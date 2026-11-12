@@ -11,7 +11,7 @@ import {
   type MockConfig,
   type MockState
 } from "./types";
-import { Web } from "./web";
+import { linkedPath, Web } from "./web";
 
 export { companyIdFromHost, hostsFor, DEFAULT_CONFIG };
 export { CLOCK_HEADER } from "./core";
@@ -94,7 +94,7 @@ export class MockCompany extends DurableObject<Env> {
     const operations = new Operations(company);
     conversations.operations = operations;
     const apis = new Apis(company, operations);
-    const web = new Web(company);
+    const web = new Web(company, operations);
     this.#parts = { company, auth, conversations, operations, apis, web };
     return this.#parts;
   }
@@ -155,11 +155,13 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/poppy.json" || (sub === "cdn" && path === "/poppy.json")) {
         return web.wellKnown(inbound);
       }
+      if (method === "GET" && company.config.linkedVersion && path === linkedPath(company.config.linkedVersion)) return web.linkedDocument(inbound);
       if (path === "/poppy/browser-session") {
         if (method === "GET") company.rateLimit("join", inbound);
         return web.browserSession(inbound);
       }
       if (path === "/poppy/browser-session/authorize" && method === "POST") return web.authorizeBrowserJoin(inbound);
+      if (path === "/poppy/operations" && method === "POST") return web.operationsEndpoint(inbound);
       if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
       // An issuer of exactly https://{domain} publishes its metadata on the domain (RFC 8414 3.1).
       if (company.config.issuerOnDomain && !company.config.issuerless && path === company.hosts.metadataPath && method === "GET") return web.authorizationServerMetadata();
@@ -172,9 +174,19 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/logo.svg" && method === "GET") {
         return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { headers: { "Content-Type": "image/svg+xml" } });
       }
+      const refused = await web.pageSession(inbound, sub === "cdn");
+      if (refused) return refused;
       if (path === "/account/address" && method === "POST") {
         company.rateLimit("page", inbound);
         return web.saveAddress(inbound);
+      }
+      if (path === "/orders/ord_7Hk2/exchange" && method === "POST") {
+        company.rateLimit("page", inbound);
+        return web.exchangeForm(inbound);
+      }
+      if (path === "/orders/ord_7Hk2/return" && method === "POST") {
+        company.rateLimit("page", inbound);
+        return web.returnForm(inbound);
       }
       if (method === "GET") {
       company.rateLimit("page", inbound);
@@ -199,6 +211,7 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
         // 7: an MCP server that offers no account access needs no issuer discovery.
         if (company.config.issuerless) return json({ error: "not_found" }, 404);
+        if (company.config.mcpPrmAtRootOnly && path !== "/.well-known/oauth-protected-resource") return json({ error: "not_found" }, 404);
         return json(apis.protectedResourceMetadata());
       }
       if (path === "/mcp") {
@@ -214,20 +227,26 @@ export class MockCompany extends DurableObject<Env> {
     }
     // The API takes only its own tokens when its protected resource metadata names it (4.5).
     if (path.startsWith("/.well-known/oauth-protected-resource") && method === "GET") {
-      return company.config.apiResource && path === "/.well-known/oauth-protected-resource"
+      if (path !== "/.well-known/oauth-protected-resource") return json({ error: "not_found" }, 404);
+      if (company.config.mismatchedApiResourceMetadata) return json({ resource: `${company.hosts.api}/elsewhere`, authorization_servers: [company.hosts.issuer] });
+      return company.config.apiResource
         ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
         : json({ error: "not_found" }, 404);
     }
+    // A skill artifact is Company content anyone may fetch, with no Session header (9.4).
+    if (path.startsWith("/poppy/skills/") && method === "GET") return web.skillArtifact(inbound);
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
     if (path === "/poppy/feedback" && method === "POST") return web.feedbackReport(inbound, context);
-    const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|close))?)?$/.exec(path);
+    if (path === "/poppy/tasks" && method === "GET") return await web.tasks(context);
+    const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|handoff\/cancel|close))?)?$/.exec(path);
     if (conversation) {
       const [, id, action] = conversation;
       if (!id && method === "POST") return conversations.start(inbound, context);
       if (id && action === "messages" && method === "POST") return conversations.message(inbound, context, id);
       if (id && action === "events" && method === "GET") return conversations.events(inbound, context, id);
       if (id && action === "handoff" && method === "POST") return conversations.handoff(inbound, context, id);
+      if (id && action === "handoff/cancel" && method === "POST") return conversations.cancelHandoff(inbound, context, id);
       if (id && action === "close" && method === "POST") return conversations.close(inbound, context, id);
       return json({ error: "not_found" }, 404);
     }
@@ -254,6 +273,7 @@ export class MockCompany extends DurableObject<Env> {
       violations: company.violations,
       warnings: company.warnings,
       requests: company.requests.map((request) => ({ ...request, headers: { ...request.headers } })),
+      sent: company.sent.map((payload) => JSON.stringify(payload)),
       mcp: apis.mcpLog.map((exchange) => ({ ...exchange })),
       revocationHints: [...company.revocationHints],
       userIds: [...company.userIds],
@@ -275,7 +295,8 @@ export class MockCompany extends DurableObject<Env> {
       operations: operations.summary(),
       browserJoins: company.browserJoins,
       feedback: company.feedback.map((entry) => ({ ...entry })),
-      formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
+      formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) })),
+      returns: company.returns.map((entry) => ({ ...entry }))
     };
   }
 

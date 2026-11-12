@@ -303,7 +303,8 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   if (!facts.usesSessions && !auth) c.report("website-only", "", "Nothing here uses Sessions: agents can only browse this Company's website, signed out.");
   const skills = member<Obj>(c, doc, "", "skill_index", "object", false, spec("9.4", "agent-context"));
   if (skills) checkSkillIndex(c, skills);
-  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions", "skill_index"]);
+  // supported_versions is 0.4's (3.4), which validate.ts reads in any version's poppy.json; 0.3 agents ignore it.
+  unknownMembers(c, doc, "", ["protocol_version", "supported_versions", "organization", "auth", "agent", "apis", "web", "feedback", "excluded_tasks", "extensions", "skill_index"]);
   return facts;
 }
 
@@ -384,7 +385,11 @@ export function checkSkillIndex(c: Checker, index: Obj): void {
 }
 
 /** The issuer's metadata (3.2, RFC 8414): `protected_resources`, `grant_types_supported`, and the endpoints and scopes the sign-in types need. */
-export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts | undefined): void {
+/**
+ * `resourceScopes`: 0.4 lets the domain's protected resource metadata list
+ * scopes too (3.2, 4.7), so a Company may list them there instead.
+ */
+export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts | undefined, resourceScopes?: readonly string[]): void {
   const ref = spec("3.2", "oauth-server");
   if (!isObject(doc)) {
     c.report("wrong-type", "", "The OAuth server metadata must be a JSON object.", ref);
@@ -427,10 +432,13 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
   const signsIn = (direct || device || !!poppy?.signIn.mediated) && !poppy?.disabled;
   // 3.2: a Company that offers sign-in SHOULD publish scopes_supported (RFC 8414 §2 makes it optional).
   const scopes = member<unknown[]>(c, doc, "", "scopes_supported", "array", false, ref);
-  if (signsIn && !("scopes_supported" in doc)) c.report("scopes-supported-missing", "/scopes_supported", "The issuer's metadata has no scopes_supported, so agents learn the scopes only from the Company's API descriptions and auth.scopes.");
+  if (signsIn && !("scopes_supported" in doc) && resourceScopes === undefined) {
+    c.report("scopes-supported-missing", "/scopes_supported", "The issuer's metadata has no scopes_supported, so agents learn the scopes only from the Company's API descriptions and auth.scopes.");
+  }
   const supported = scopes ? stringList(c, scopes, "/scopes_supported", ref) : [];
+  const listed = [...new Set([...supported, ...(resourceScopes ?? [])])];
   for (const scope of poppy?.mediatedScopes ?? []) {
-    if (scopes && !supported.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", `Mediated Sign-In offers ${scope}, which isn't in scopes_supported.`);
+    if ((scopes || resourceScopes) && !listed.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", `Mediated Sign-In offers ${scope}, which isn't in scopes_supported.`);
   }
   // 4.7: auth.scopes describes each supported scope, unless an OpenAPI description might.
   const described = poppy?.describedScopes;

@@ -30,6 +30,8 @@ import { poppyExtension } from "../src/poppy/tools";
 import type { BrowserLauncher } from "../src/tools/render";
 import type { Fetcher as WebFetcher } from "../src/tools/web";
 import { fakeBrowserWeb, fakeLauncher, type FakeBrowserWeb, type FakeRender, type FakeRenderLog } from "./fake-browser";
+import { cookieHeader, fakeHandoverLauncher, fakeHandoverWeb, type FakeHandoverBrowser, type FakeHandoverWeb } from "./fake-handover";
+import type { HandoverLauncher } from "../src/poppy/handover";
 import { base64url } from "../src/base64url";
 import type { PushFetcher } from "../src/web-push";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
@@ -450,6 +452,15 @@ function webOf(id: string) {
   return web;
 }
 
+/** Each agent's fake handover browsers (test/fake-handover.ts), by Durable Object id, so they outlive a reset object as Browser Run's would. */
+const handoverWebs = new Map<string, FakeHandoverWeb>();
+
+function handoverWebOf(id: string): FakeHandoverWeb {
+  let web = handoverWebs.get(id);
+  if (!web) handoverWebs.set(id, (web = fakeHandoverWeb()));
+  return web;
+}
+
 /**
  * Agents whose reader calls wait until the test lets them go, by Durable
  * Object id (module state, so it outlives a crash), and the calls waiting,
@@ -583,6 +594,39 @@ export class PersonalAgent extends ProductionAgent {
   protected override browserRenderer(): BrowserLauncher | null {
     const web = webOf(this.ctx.id.toString());
     return web.renderOff ? null : fakeLauncher(web.browser);
+  }
+
+  /** The browser handed to the User: the fake, never Browser Run; null while a test has switched it off. */
+  protected override poppyHandover(): HandoverLauncher | null {
+    const web = handoverWebOf(this.ctx.id.toString());
+    return web.off ? null : fakeHandoverLauncher(web);
+  }
+
+  /** As Browser Run off (no launcher), or out of browsers; set before the agent first uses Poppy, which asks once. */
+  async handoverSetup(setup: { off?: boolean; failLaunch?: boolean }): Promise<void> {
+    Object.assign(handoverWebOf(this.ctx.id.toString()), setup);
+  }
+
+  /** Every browser handed to the User, oldest first. */
+  async handoverBrowsers(): Promise<FakeHandoverBrowser[]> {
+    return handoverWebOf(this.ctx.id.toString()).browsers.map((browser) => ({ ...browser, cookies: [...browser.cookies], opened: [...browser.opened], scripts: [...browser.scripts] }));
+  }
+
+  /**
+   * The User, in a handed-over browser: a request with that browser's
+   * cookies, as their click or submit would send it. The browser follows to
+   * the answer's Location, if any.
+   */
+  async handoverUserRequest(sessionId: string, method: "GET" | "POST", url: string, body?: string): Promise<{ status: number; location: string | null }> {
+    const browser = handoverWebOf(this.ctx.id.toString()).browsers.find((candidate) => candidate.sessionId === sessionId);
+    if (!browser || browser.closed) throw new Error(`No open handover browser ${sessionId}`);
+    const headers: Record<string, string> = { Cookie: cookieHeader(browser.cookies, url) };
+    if (body !== undefined) headers["Content-Type"] = "application/x-www-form-urlencoded";
+    const response = await testFetcher(this.env, () => clockOf(this).now)(new Request(url, { method, headers, body, redirect: "manual" }));
+    await response.body?.cancel();
+    const location = response.headers.get("Location");
+    browser.url = location ? new URL(location, url).href : url;
+    return { status: response.status, location };
   }
 
   /** What the fake browser does when it loads `url`. */
@@ -862,6 +906,14 @@ export class PersonalAgent extends ProductionAgent {
   async poppyFrame(frame: Record<string, unknown>): Promise<boolean> {
     const socket = { send() {} } as unknown as WebSocket;
     return this.poppy.onWebSocketMessage(socket, JSON.stringify(frame));
+  }
+
+  /** A frame from the User's page, and what the agent sent that page alone in answer. */
+  async poppyFrameReplies(frame: Record<string, unknown>): Promise<unknown[]> {
+    const sent: unknown[] = [];
+    const socket = { send: (text: string) => void sent.push(JSON.parse(text)) } as unknown as WebSocket;
+    await this.poppy.onWebSocketMessage(socket, JSON.stringify(frame));
+    return sent;
   }
 
   /** One conversation read, now, instead of waiting for the background job; returns when it would read next (null: never). */

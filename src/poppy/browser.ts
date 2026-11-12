@@ -1,11 +1,24 @@
-import { PoppyClient, PoppyError } from "./client";
-import type { Company } from "./discovery";
+import { answerOf, hasCode, PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
+import { BROWSER_SIGN_IN, type Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
-import { toJson, type Json } from "./json";
+import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { sameAuthority, sessionAuthority } from "./authority";
-import { proposeLocal, registerExecutor } from "./operations";
+import { OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import { EndpointRequest } from "./outgoing";
+import { expired, proposeApproval, unusableApproval } from "./api-approvals";
+import { approvable, approvalHeader, operationsVersion, parseOperationHeader, parseOperationV2, toSend, type SentApproval } from "./operations-v2";
+import { readDecline } from "./declines";
+import { companyErrorCode } from "./error-codes";
+import { beforeModelAction, describeStep, handsOver, offerControl, type HandoverStart } from "./handover";
+
+/**
+ * A step the Company marks for the User (Browser Control 4): `interaction`
+ * leaves changing or activating a control, or a form's controls and its
+ * submit, to the User; `submission`, only on a form, lets the agent fill it
+ * in but leaves submitting it to the User.
+ */
+export type UserStep = "interaction" | "submission";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
 export type PageSnapshot = {
@@ -14,11 +27,17 @@ export type PageSnapshot = {
   readonly title: string;
   readonly text: string;
   /** `selector` is what `click` takes. */
-  readonly links: readonly { text: string; href: string; selector: string }[];
-  /** `selector` is what `submit` takes; `fields` are the names `fill` takes. */
-  readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[] }[];
+  readonly links: readonly { text: string; href: string; selector: string; userStep?: UserStep }[];
+  /**
+   * `selector` is what `submit` takes; `fields` are the names `fill` takes.
+   * `userStep` is the form's mark and `userFields` the fields marked for the
+   * User (Browser Control 4).
+   */
+  readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[]; userStep?: UserStep; userFields?: readonly string[] }[];
   /** The response's `Retry-After`, if any, which a 429 must be waited out by (spec 4.3, MUST) and a 503 too (Guides, "Retries"). */
   readonly retryAfter?: string;
+  /** 0.4: the final response's `Poppy-Operation` field, as received (Ops 4). Read by our own code, never shown to the model. */
+  readonly operationHeader?: string;
 };
 
 /** Exactly what a form submit sends, worked out before the User approves it. */
@@ -30,6 +49,24 @@ export type FormSubmission = {
   readonly enctype: "application/x-www-form-urlencoded" | "multipart/form-data";
   /** In order; `hidden` ones (hidden inputs, password fields) are sent but not shown on the approval card. */
   readonly fields: readonly { readonly name: string; readonly value: string; readonly hidden: boolean }[];
+};
+
+/**
+ * A cookie of a context's, as a second browser for the same Session needs it
+ * (Browser Control 5): never shown to the model, a card, a log or the page.
+ */
+export type BrowserCookie = {
+  readonly name: string;
+  readonly value: string;
+  /** The host that set it, or the domain it covers when `hostOnly` is false. */
+  readonly host: string;
+  readonly hostOnly: boolean;
+  readonly path: string;
+  readonly secure: boolean;
+  readonly httpOnly: boolean;
+  readonly sameSite?: "Strict" | "Lax" | "None";
+  /** Epoch ms; absent for a cookie that lasts as long as the browser. */
+  readonly expires?: number;
 };
 
 /** Throws for a URL the browser must not request; called for every request and every redirect. */
@@ -53,12 +90,20 @@ export interface BrowserContextHandle {
   prepareSubmit(selector: string): Promise<FormSubmission>;
   /** Sends an approved submission, as it was approved. */
   submit(submission: FormSubmission, beforeDispatch?: () => void): Promise<PageSnapshot>;
+  /** The context's live cookies, for the handover browser (handover.ts) and nothing else. */
+  cookies(): readonly BrowserCookie[];
+  /** The page open now, if any. */
+  pageUrl(): string | null;
   close(): Promise<void>;
 }
 
 /** Starts browser contexts (`FetchBrowser` in production), each held to `guard`. */
+/** Headers a page request carries besides the browser's own, for its URL and method; null for none (0.4 5.2). */
+export type PageHeaders = (url: URL, method: string) => Promise<Headers | null>;
+
 export interface PoppyBrowser {
-  newContext(guard: PageGuard): Promise<BrowserContextHandle>;
+  /** `cookieDomains`: the Company's own domain, which a cookie's `Domain` may name to cover its hosts (0.4, 6). */
+  newContext(guard: PageGuard, pageHeaders?: PageHeaders, cookieDomains?: readonly string[]): Promise<BrowserContextHandle>;
 }
 
 type ContextEntry = {
@@ -73,6 +118,11 @@ type ContextEntry = {
   readonly scope: string;
   readonly accountGeneration: number;
   joined: boolean;
+  /**
+   * 0.4: joined signed out though the Session is signed in, because its
+   * access doesn't include `poppy:browser-sign-in` (6).
+   */
+  websiteSignedOut?: boolean;
   /** At most one join may use this context's one-time cookie at once. */
   joining?: Promise<void>;
 };
@@ -203,13 +253,19 @@ async function sessionContext(
     const guard = pageGuard(company, endpoint);
     const fresh: ContextEntry = {
       id: randomId("ctx_"),
-      context: browser.newContext((url) => { guard(url); checkContext(client, company, label, fresh); }),
+      context: browser.newContext(
+        (url) => { guard(url); checkContext(client, company, label, fresh); },
+        (url, method) => client.pageHeaders(company, label, { method, url: url.href }),
+        [company.domain]
+      ),
       sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0,
       scope: canonicalScope(session?.scope), accountGeneration: accountGeneration(client, company, session?.account ?? null), joined: false
     };
     contexts.set(key, fresh);
     return fresh;
   };
+  // Signed pages name the Session, so it exists, as its pages will declare it, before the context binds to it.
+  if (client.signsPages(company)) client.preparedSession(company, label);
   let entry = contexts.get(key);
   const before = client.session(company.issuer, label);
   if (entry && !sameContextSession(client, company, entry, before)) {
@@ -271,10 +327,15 @@ async function join(client: PoppyClient, company: Company, label: string, contex
     throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
+  const { code } = page;
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
   let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number; readonly scope: string; readonly accountGeneration: number } | undefined;
-  await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), {
+  // 0.4: the website acts with the token only when it has poppy:browser-sign-in (6), so without it the
+  // code is authorized signed out; a Company that refuses the token anyway gets the same code again without it.
+  const signsInWebsite = company.protocolVersion === "0.3" || scopeSet(entry.scope).has(BROWSER_SIGN_IN);
+  const authorizeCode = (noToken: boolean) => client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code } }), {
     label,
+    ...(noToken ? { noToken: true } : {}),
     beforeDispatch: () => {
       const session = client.session(company.issuer, label);
       if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration
@@ -289,6 +350,14 @@ async function join(client: PoppyClient, company: Company, label: string, contex
       check();
     }
   });
+  try {
+    await authorizeCode(!signsInWebsite);
+    entry.websiteSignedOut = !signsInWebsite && entry.account !== null;
+  } catch (error) {
+    if (!signsInWebsite || entry.account === null || company.protocolVersion === "0.3" || !hasCode(error, "insufficient_scope")) throw error;
+    await authorizeCode(true);
+    entry.websiteSignedOut = true;
+  }
   const checkAuthorized = () => {
     check();
     if (!authorized || !sameAuthority(entry, authorized) || entry.scope !== authorized.scope || entry.accountGeneration !== authorized.accountGeneration) {
@@ -316,7 +385,13 @@ export type BrowseAction =
 /** Fields that look like credentials are never filled by the agent (Guides); the browser also checks the field itself. */
 const CREDENTIAL = /pass(word)?|pin\b|otp|one.?time|verification.?code|cvv|cvc|card.?number|security.?code/i;
 
-function snapshotForModel(snapshot: PageSnapshot): Json {
+/** Why a signed-in Session's browser is signed out on the website (0.4 6), and what would change it. */
+function websiteSignedOutNote(company: Company): string {
+  const unscoped = company.web?.unscoped ? `; on this website it gives everything the account can do there, so ask the User first` : "";
+  return `The website sees this browser signed out: the sign-in at ${company.name} doesn't include ${BROWSER_SIGN_IN}, which the website needs to act for the account. Call poppy_sign_in with that scope if the task needs the website signed in${unscoped}.`;
+}
+
+function snapshotForModel(snapshot: PageSnapshot): { [key: string]: Json } {
   return {
     url: snapshot.url,
     status: snapshot.status,
@@ -359,6 +434,18 @@ function describeSubmission(company: Company, selector: string, submission: Form
  * domains; never sign-in pages or credential fields. Only links are
  * followed; a form is sent only after the User approves exactly what it sends.
  */
+/**
+ * 0.4's `web.disabled` (6): the Company asks agents not to use a browser on
+ * its website. Pages may still be read, as 5.2 allows a page fetched without
+ * a browser, but a form is a browser's work, so none is filled or sent
+ * ([reading](../../docs/readings.md#v04-web-disabled)).
+ */
+function refuseFormsIfDisabled(company: Company): void {
+  if (company.web?.disabled) {
+    throw new PoppyError("refused", `${company.name} asks agents not to use its website in a browser, so its forms aren't filled or sent; pages can still be read. Use its Company Agent or APIs instead (poppy_discover lists them).`, 0);
+  }
+}
+
 export async function browse(
   client: PoppyClient,
   browser: PoppyBrowser,
@@ -366,6 +453,9 @@ export async function browse(
   label: string,
   action: BrowseAction
 ): Promise<Json> {
+  if (action.kind !== "open" && action.kind !== "click") refuseFormsIfDisabled(company);
+  // Never while the User holds control of the browser, and after they hand back, a fresh look first (Browser Control 5).
+  beforeModelAction(client, company, label, action.kind === "open");
   if (action.kind === "open") {
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
@@ -377,13 +467,41 @@ export async function browse(
       active = await sessionContext(client, browser, company, label, true);
       snapshot = await load(client, company, active.context, url, check);
     }
-    return snapshotForModel(snapshot);
+    if (!active.entry.websiteSignedOut) return snapshotForModel(snapshot);
+    return { ...snapshotForModel(snapshot), note: websiteSignedOutNote(company) };
   }
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry || entry.joining) throw new PoppyError("invalid_request", "Open a page first, and wait for its browser join to finish", 0);
   checkContext(client, company, label, entry);
   const handle = await entry.context;
   checkContext(client, company, label, entry);
+  try {
+    return await act(client, company, label, entry, handle, action);
+  } catch (error) {
+    if (!hasCode(error, "user_step")) throw error;
+    return await userStep(client, company, label, handle, action, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * A step the website marks for the User (Browser Control 4, 5): left undone,
+ * and the User offered control of the browser on a card, where the agent can
+ * hand it over. Nothing waits on the User's answer.
+ */
+async function userStep(client: PoppyClient, company: Company, label: string, handle: BrowserContextHandle, action: Exclude<BrowseAction, { kind: "open" }>, why: string): Promise<Json> {
+  const url = handle.pageUrl();
+  if (!url || !handsOver(client, company)) {
+    return { user_step: true, note: `${why}. Tell the User this step is theirs: they can take it on ${company.domain} themselves.` };
+  }
+  const offered = await offerControl(client, company, label, describeStep(action), { url });
+  return {
+    user_step: true,
+    offered,
+    note: `${why}. The User has been offered control of the browser on a card, to take the step themselves. Tell them, then carry on with other work: don't wait for them. You'll be told when they hand the browser back.`
+  };
+}
+
+async function act(client: PoppyClient, company: Company, label: string, entry: ContextEntry, handle: BrowserContextHandle, action: Exclude<BrowseAction, { kind: "open" }>): Promise<Json> {
   if (action.kind === "click") {
     await client.beforeRequest(company);
     checkContext(client, company, label, entry);
@@ -411,11 +529,30 @@ export async function browse(
 }
 
 /**
- * An approved form submit: exactly the fields the User approved, in the same
- * Session's context, and only where the browser may go for the Company now
- * (its page and action checked again; the browser checks every hop too).
+ * What a handover browser starts from (handover.ts): this Session's joined
+ * context, its cookies, and the authority it was joined with. Joins first
+ * when the context has gone, as any page would.
  */
-registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
+export function handoverStart(client: PoppyClient, browser: PoppyBrowser): HandoverStart {
+  return async (company, label) => {
+    const { entry, context } = await sessionContext(client, browser, company, label);
+    return { cookies: context.cookies(), binding: { sessionId: entry.sessionId, account: entry.account, authorityGeneration: entry.authorityGeneration } };
+  };
+}
+
+type BrowserBinding = { readonly account: string | null; readonly sessionId: string | null; readonly contextId: string; readonly authorityGeneration: number };
+
+/**
+ * The context an approved submission was prepared in, still open and bound
+ * to the same account and Session, and only where the browser may go for
+ * the Company now (its page and action checked again; the browser checks
+ * every hop too).
+ */
+async function approvedContext(client: PoppyClient, company: Company, label: string, submission: FormSubmission, binding: BrowserBinding | undefined) {
+  // The Company may have set web.disabled since the User approved.
+  refuseFormsIfDisabled(company);
+  // Not while the User holds the browser, nor on a page they changed since (Browser Control 5).
+  beforeModelAction(client, company, label, false);
   const guard = pageGuard(company);
   guard(new URL(submission.from));
   guard(new URL(submission.action));
@@ -423,8 +560,161 @@ registerExecutor("browse-submit", async (client, company, { submission, binding 
   if (!entry) throw new Error("The page is no longer open");
   if (!binding || binding.contextId !== entry.id || !sameAuthority(binding, entry)) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
   checkContext(client, company, label, entry);
+  return { entry, handle: await entry.context };
+}
+
+/**
+ * 0.4 Ops 4: the operation a website returned to our browser, taken only
+ * from the final response's own `Poppy-Operation`, never from anything a
+ * page says, and only when `sid` names the Session this browser joined at a
+ * Company that lists its operations endpoint. Any other header is ignored.
+ */
+function websiteOperation(company: Company, entry: ContextEntry, snapshot: PageSnapshot): { readonly ref: string; readonly endpoint: string } | null {
+  const endpoint = company.extensions.operationsEndpoint;
+  if (snapshot.operationHeader === undefined || !endpoint || operationsVersion(company) !== "3" || !company.web?.browserSessionEndpoint) return null;
+  if (!entry.joined || entry.sessionId === null) return null;
+  const header = parseOperationHeader(snapshot.operationHeader);
+  return header && header.sid === entry.sessionId ? { ref: header.ref, endpoint } : null;
+}
+
+/**
+ * Our own request to the Company's operations endpoint with a reference
+ * (0.4 Ops 4, 6): in the browser's Session, never another, with the
+ * Session header and, signed in, the access token; with the approval when
+ * sending one.
+ */
+async function atOperationsEndpoint(
+  client: PoppyClient, company: Company, label: string, entry: ContextEntry, endpoint: string, ref: string, approval: SentApproval | null, beforeDispatch: () => void
+): Promise<{ readonly status: number; readonly body: Json }> {
+  const request = EndpointRequest.to(company, { method: "POST", url: endpoint, body: { ref }, ...(approval ? { headers: { "Poppy-Approval": approvalHeader(approval) } } : {}) });
+  const response = await client.resource(company, request, {
+    label,
+    beforeDispatch: () => {
+      beforeDispatch();
+      if (client.session(company.issuer, label)?.session_id !== entry.sessionId) {
+        throw new PoppyError("approval_changed", "The Session changed since the website returned this operation. Open the page and submit again.", 0);
+      }
+    }
+  });
+  const text = await client.readBody(response);
+  let body: Json = null;
+  try {
+    body = text ? parseStrictJson(text) : null;
+  } catch {
+    body = text.slice(0, 2_000);
+  }
+  return { status: response.status, body };
+}
+
+/** The values the User could see in the form, which the operation's terms are compared with (0.4 Ops 8.2). */
+function formAsked(submission: FormSubmission): Json {
+  return Object.fromEntries(submission.fields.filter((field) => !field.hidden).map((field) => [field.name, field.value]));
+}
+
+/**
+ * The card for the operation the endpoint returned for a reference (0.4
+ * Ops 4, 5): the Company's terms, exactly, approved by the User or by the
+ * agent on the User's standing instruction. Throws for any other answer.
+ */
+async function proposeWebOperation(
+  client: PoppyClient, company: Company, label: string, ref: string, submission: FormSubmission, binding: BrowserBinding,
+  answer: { readonly status: number; readonly body: Json }, executingApproval: string
+): Promise<string> {
+  const { status, body } = answer;
+  if (status === 403 && isObject(body) && body.error === "approval_required") {
+    const operation = parseOperationV2(body.operation, "3");
+    if ("problem" in operation) {
+      await unusableApproval(client, company, operation.problem);
+      throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
+    }
+    const approval = { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at };
+    return proposeApproval(client, company, label, operation, formAsked(submission), { kind: "web-operation", ref, approval, submission, binding }, executingApproval);
+  }
+  // The reference expired, or the Session can't use it (Ops 4): the browser has to make the request again.
+  if (status === 400) {
+    throw withAnswer(new PoppyError("invalid_request", `${company.name} no longer has the operation its website returned, so nothing was done. Submit the form again for current terms.`, 400), 400);
+  }
+  const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
+  throw withAnswer(new PoppyError(code, `${company.name}'s operations endpoint answered ${status}: ${JSON.stringify(body).slice(0, 500)}`, status), status);
+}
+
+const ASKS_FOR_TERMS = (company: Company) => `${company.name}'s website asks you to approve its exact terms first, on the next card. Nothing has happened yet.`;
+
+/**
+ * An approved form submit: exactly the fields the User approved, in the same
+ * Session's context. Under 0.4 the website may answer with an operation
+ * instead of doing it (Ops 4), which then waits on its own card.
+ */
+registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
+  const { entry, handle } = await approvedContext(client, company, label, submission, binding);
   await client.beforeRequest(company);
-  const handle = await entry.context;
-  const snapshot = await handle.submit(submission, () => { execution.beforeDispatch(); checkContext(client, company, label, entry); });
+  const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
+  const snapshot = await handle.submit(submission, check);
+  const operation = websiteOperation(company, entry, snapshot);
+  if (operation) {
+    const answer = await atOperationsEndpoint(client, company, label, entry, operation.endpoint, operation.ref, null, check);
+    throw new TermsRequested(ASKS_FOR_TERMS(company), await proposeWebOperation(client, company, label, operation.ref, submission, binding, answer, execution.approvalId));
+  }
   return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;
+});
+
+/**
+ * An approved operation of the website's (0.4 Ops 6): the approval goes to
+ * the operations endpoint, never through the browser, and is recorded
+ * there; then the browser makes the same request again, which performs it.
+ * A new reference, or no answer, means looking the earlier one up before
+ * anything else (Ops 7): performed is done, performing is unknown, and an
+ * approval still waiting did nothing.
+ */
+registerExecutor("web-operation", async (client, company, approval, label, execution) => {
+  if (!approvable(approval.approval, Date.now())) throw expired(company);
+  const { entry, handle } = await approvedContext(client, company, label, approval.submission, approval.binding);
+  const endpoint = company.extensions.operationsEndpoint;
+  if (!endpoint || operationsVersion(company) !== "3") {
+    throw new PoppyError("approval_changed", `${company.name} no longer lists where its website's operations are approved, so the approval wasn't sent.`, 0);
+  }
+  const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
+  const recorded = await atOperationsEndpoint(client, company, label, entry, endpoint, approval.ref, toSend(company, approval.approval, execution), check);
+  if (recorded.status === 403) {
+    const declined = readDecline(company, recorded.body, approval.approval, true);
+    if (declined) throw withAnswer(declined, 403);
+    const operation = isObject(recorded.body) ? parseOperationV2(recorded.body.operation, "3") : null;
+    // An approved revision returned unchanged is a refusal, never a new card (Ops 6).
+    if (operation && !("problem" in operation) && operation.operation_id === approval.approval.operation_id && operation.revision === approval.approval.revision) {
+      throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first; nothing was done`, 403), 403);
+    }
+    throw new TermsRequested(ASKS_FOR_TERMS(company), await proposeWebOperation(client, company, label, approval.ref, approval.submission, approval.binding, recorded, execution.approvalId));
+  }
+  if (recorded.status !== 204) {
+    const code = companyErrorCode(isObject(recorded.body) ? recorded.body.error : undefined, recorded.status);
+    const why = recorded.status === 400 ? "the operation expired or can't be approved in this Session" : JSON.stringify(recorded.body).slice(0, 500);
+    throw withAnswer(new PoppyError(code, `${company.name} didn't take the approval (${why}), so nothing was done`, recorded.status), recorded.status);
+  }
+  // Recorded, and nothing performed yet: the browser makes the request again, and once more if no answer came (Ops 7).
+  let snapshot: PageSnapshot | undefined;
+  for (let attempt = 0; attempt < 2 && !snapshot; attempt++) {
+    try {
+      await client.beforeRequest(company);
+      snapshot = await handle.submit(approval.submission, check);
+    } catch (error) {
+      if (answerOf(error) !== "none" || attempt === 1) break;
+    }
+  }
+  if (snapshot && snapshot.status < 400 && snapshot.operationHeader === undefined) {
+    return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;
+  }
+  let state: Json | undefined;
+  try {
+    const looked = await atOperationsEndpoint(client, company, label, entry, endpoint, approval.ref, null, check);
+    if (looked.status === 200 && isObject(looked.body) && looked.body.operation_id === approval.approval.operation_id) state = looked.body.status;
+  } catch {
+    // Unknown below.
+  }
+  const page = snapshot ? ` The website now shows ${snapshot.url} (HTTP ${snapshot.status}).` : "";
+  if (state === "performed") return `${company.name} says it performed the operation.${page}`;
+  if (state === "approved") {
+    const why = `${company.name}'s website didn't use the recorded approval for the repeated request, so nothing was done. Open the page and submit the form again before it expires.`;
+    throw snapshot ? withAnswer(new PoppyError("approval_changed", why, snapshot.status), snapshot.status) : new PoppyError("approval_changed", why, 0);
+  }
+  throw new OperationOutcomeUnknown(`${company.name} recorded the approval, but whether its website performed the operation isn't known yet.${page} Check with ${company.name} before approving it again.`);
 });

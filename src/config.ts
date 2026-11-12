@@ -69,6 +69,7 @@ export type ConfigEnv = {
   readonly SIGNUP?: unknown;
   readonly SIGNIN_PROVIDERS?: unknown;
   readonly BROWSER_RUN?: unknown;
+  readonly BROWSER_CONTROL?: unknown;
   readonly SESSION_SECRET?: unknown;
   readonly GOOGLE_CLIENT_ID?: unknown;
   readonly GOOGLE_CLIENT_SECRET?: unknown;
@@ -191,6 +192,21 @@ export function readBrowserRun(env: ConfigEnv): "on" | "off" {
   const value = required(env, "BROWSER_RUN");
   if (value !== "on" && value !== "off") {
     throw new ConfigError(`BROWSER_RUN must be on or off; got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+/**
+ * Whether the agent hands the User a browser at a step a Company marks for
+ * them (0.4 Browser Control; decision 47): `on` or `off`, from
+ * `BROWSER_CONTROL`, and on only with Browser Run on too. Off, the agent
+ * doesn't declare the extension and leaves marked steps to the User on the
+ * website. Shipped off (decision 48).
+ */
+export function readBrowserControl(env: ConfigEnv): "on" | "off" {
+  const value = required(env, "BROWSER_CONTROL");
+  if (value !== "on" && value !== "off") {
+    throw new ConfigError(`BROWSER_CONTROL must be on or off; got ${JSON.stringify(value)}`);
   }
   return value;
 }

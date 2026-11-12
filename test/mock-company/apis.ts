@@ -411,7 +411,7 @@ export class Apis {
    */
   #orderPrints(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (!co.config.operations || !context.client.listsOperations) throw this.#extensionRequired("operations");
+    if (!co.config.operations || !co.operationsVersion(context)) throw this.#extensionRequired("operations", context);
     const key = inbound.request.headers.get("Idempotency-Key");
     if (!key) {
       co.violation("idempotency.key-missing", `POST /prints without the Idempotency-Key its description requires`);
@@ -472,6 +472,7 @@ export class Apis {
     const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname} ${inbound.bodyText}`;
     const result = this.operations.prints(context, request, { summary, terms }, approval);
     if ("operation" in result) return json({ error: "approval_required", operation: result.operation }, 403);
+    if ("declined" in result) return json({ error: "approval_declined", ...result.declined }, 403);
     // Only a performed order is kept: an approval_required answer is decided afresh each time.
     this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result.performed });
     return json(result.performed.body, result.performed.status);
@@ -494,8 +495,9 @@ export class Apis {
     };
   }
 
-  /** `extension_required` at an API, in `WWW-Authenticate` (3.3). */
-  #extensionRequired(extension: string): HttpError {
+  /** `extension_required` at an API, OpenAPI or MCP (3.3): in `WWW-Authenticate` under 0.3, in a JSON body under 0.4. */
+  #extensionRequired(extension: string, context: ResourceContext): HttpError {
+    if (context.session.declaration && context.session.declaration.version !== "0.3") return new HttpError(json({ error: "extension_required", extension }, 403));
     return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
   }
 
@@ -506,10 +508,10 @@ export class Apis {
    */
   #exchange(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
-    const usesOperations = co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing;
+    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
+    const usesOperations = co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing;
     if (!usesOperations) {
-      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations");
+      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations", context);
       co.performExchange(context.account, "direct API call");
       return json({ exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }, 201);
     }
@@ -536,9 +538,10 @@ export class Apis {
     const result = this.operations.exchange(context, request, asked, approval);
     const answer = "operation" in result
       ? { status: 403, body: { error: "approval_required", operation: result.operation } }
+      : "declined" in result ? { status: 403, body: { error: "approval_declined", ...result.declined } }
       : result.performed;
-    // An approval_required answer isn't kept: the next request decides afresh.
-    if (scoped && !("operation" in result)) this.#idempotency.set(scoped, { hash: inbound.bodyText, ...answer });
+    // Only a performed request is kept: approval_required and approval_declined are decided afresh.
+    if (scoped && "performed" in result) this.#idempotency.set(scoped, { hash: inbound.bodyText, ...answer });
     return json(answer.body, answer.status);
   }
 
@@ -819,11 +822,13 @@ export class Apis {
           structuredContent: { products }
         } };
       }
-      if (name === "exchange_item" && co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
+      // 3.3: an extension the request doesn't declare refuses the call as at any API, here at the HTTP level.
+      if (name === "exchange_item" && co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension, context);
+      if (name === "exchange_item" && co.config.operations && co.operationsVersion(context) && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
         const meta = record(params._meta) ?? {};
         const given = meta["personalagentprotocol.org/approval"];
-        const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, string>) : null;
+        const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, unknown>) : null;
         if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
           co.violation("approval.mcp-meta", "the approval in _meta isn't an object with operation_id and revision strings");
         }
@@ -831,8 +836,16 @@ export class Apis {
         if ("operation" in result) {
           return { result: {
             isError: true,
-            content: [{ type: "text", text: `Not done yet. This needs the user's approval: ${result.operation.summary}` }],
+            content: [{ type: "text", text: `Not done yet. This needs approval${result.operation.summary ? `: ${result.operation.summary}` : "."}` }],
             structuredContent: { operation: result.operation }
+          } };
+        }
+        if ("declined" in result) {
+          // 0.4 Ops 6: an error result, the decline's members and error in structuredContent.
+          return { result: {
+            isError: true,
+            content: [{ type: "text", text: `Not done: ${result.declined.reason}` }],
+            structuredContent: { error: "approval_declined", ...result.declined }
           } };
         }
         return { result: { content: [{ type: "text", text: "Exchange placed." }], structuredContent: result.performed.body as Record<string, unknown> } };

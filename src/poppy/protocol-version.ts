@@ -1,26 +1,35 @@
 /**
  * The Poppy versions we speak. Before 1.0 every version can break the one
  * before (3.1), so support is explicit and a document that declares any
- * other version is refused before its issuer is used. We speak 0.3 alone,
- * as retrieved on 3 November 2026 (spec/draft-0.3-retrieved-2026-11-03),
- * decision 37. The list stays a list so a new version is added as data
- * (docs/upgrading.md).
+ * other version is refused before its issuer is used. We speak 0.3 as
+ * retrieved on 3 November 2026 (spec/draft-0.3-retrieved-2026-11-03),
+ * decision 37, and 0.4, the 1.0 release candidate, as retrieved on 11
+ * November 2026 (spec/draft-0.4-retrieved-2026-11-11), decision 43, choosing the newest
+ * a Company offers (3.4). The list is oldest first, and stays a list so a
+ * new version is added as data (docs/upgrading.md).
  */
-export const PROTOCOL_VERSIONS = ["0.3"] as const;
+export const PROTOCOL_VERSIONS = ["0.3", "0.4"] as const;
 export type ProtocolVersion = (typeof PROTOCOL_VERSIONS)[number];
-/** The date of the manually reviewed site snapshot we implement. */
-export const PROTOCOL_REVISION = "2026-11-03";
-/** The upstream commit whose text the snapshot matches (spec/upstream.json). */
-export const PROTOCOL_COMMIT: string | null = "7205250c6fb7d4a181707898fa418911ccbcb163";
+/** The dates of the manually reviewed site snapshots we implement, by version. */
+export const PROTOCOL_REVISIONS: Readonly<Record<ProtocolVersion, string>> = { "0.3": "2026-11-03", "0.4": "2026-11-11" };
+/** The newest version's snapshot date, as build info has always reported it. */
+export const PROTOCOL_REVISION = PROTOCOL_REVISIONS["0.4"];
+/** The upstream commit whose text the newest version's snapshot matches (spec/upstream.json). */
+export const PROTOCOL_COMMIT: string | null = "ed474089d0fdeafae9584a95cfcc485209d8b124";
 
 export function supportsProtocol(value: unknown): value is ProtocolVersion {
   return PROTOCOL_VERSIONS.some((version) => version === value);
 }
 
-export const PROTOCOL_REVISIONS: Readonly<Record<ProtocolVersion, string>> = { "0.3": PROTOCOL_REVISION };
+/**
+ * Drafts pinned beside the runtime versions but not yet spoken: the
+ * validator checks documents against them, and the agent chooses them only
+ * once they are in PROTOCOL_VERSIONS (spec/upstream.json, docs/upgrading.md).
+ */
+export const DRAFT_REVISIONS: Readonly<Record<string, string>> = {};
 
 export function protocolRevision(version: string): string | undefined {
-  return supportsProtocol(version) ? PROTOCOL_REVISIONS[version] : undefined;
+  return supportsProtocol(version) ? PROTOCOL_REVISIONS[version] : DRAFT_REVISIONS[version];
 }
 
 /** Throws for a version we don't speak, so cached state from an older agent can't smuggle one in. */

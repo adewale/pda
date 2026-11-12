@@ -59,6 +59,12 @@ export type McpVersion = "2025-06-18" | "2026-07-28";
 
 export type MockConfig = {
   readonly protocolVersion: string;
+  /**
+   * Another version this Company also serves (3.4): poppy.json lists it in
+   * `supported_versions`, and the mock serves its document on the same host
+   * at `/poppy/v{version}.json`. null: one version.
+   */
+  readonly linkedVersion: string | null;
   /** Overrides `organization.domain` in poppy.json (to test the agent's check). */
   readonly organizationDomain: string | null;
   /** The well-known URL redirects: to an https host, an http URL, or not at all. */
@@ -85,6 +91,20 @@ export type MockConfig = {
   readonly unknownProtocol: boolean;
   readonly web: boolean;
   readonly browserSession: boolean;
+  /** Publish a skill index in 0.4's tasks response, with one `SKILL.md` artifact (9.4). */
+  readonly skills: boolean;
+  /** Answer a website page's Session header with `invalid_session`, as a page whose check fails (0.4 5.2). */
+  readonly pagesRefuseSession: boolean;
+  /** 0.4's `web.disabled` (6): ask Personal Agents not to browse, listing no `browser_session_endpoint`, and record a form they send. */
+  readonly webDisabled: boolean;
+  /**
+   * 0.4's `web.unscoped` (6): the website gives a browser signed in with
+   * `poppy:browser-sign-in` the account's full access, and the scope's
+   * description says so.
+   */
+  readonly webUnscoped: boolean;
+  /** Describe orders:write as reversible in `scope_hints` (3.1), as a Company whose exchanges can be undone would. */
+  readonly reversibleWrites: boolean;
   /** Offer the Operations extension. */
   readonly operations: boolean;
   /** Refuse writes from agents that don't list `operations`, with `extension_required`. */
@@ -137,6 +157,23 @@ export type MockConfig = {
    * endpoints don't move. Null: no path.
    */
   readonly issuerPath: string | null;
+  /** Answer the approval of an operation's first revision with a new revision, as a Company whose terms moved would (Ops 6). */
+  readonly reviseOnFirstApproval: boolean;
+  /** 0.4 Ops 6: decline approvals that pass the checks, every one or only agent approvals, instead of performing them. */
+  readonly declineApprovals: "all" | "agent" | null;
+  /**
+   * 0.4 Ops 4: the website's exchange form returns an operation to a browser
+   * joined to a Session that declares Operations 3, and poppy.json lists the
+   * extension's `endpoint`. Needs `browserSession`.
+   */
+  readonly webOperations: boolean;
+  /** The website's exchange form answers 503 after performing, as a Company whose own system timed out would (0.4 Ops 7). */
+  readonly webErrorAfterPerforming: boolean;
+  /**
+   * 0.4 Browser Control 3, 4: poppy.json lists `browser-control` version 1,
+   * and the return page marks its steps for the User. Needs `browserSession`.
+   */
+  readonly browserControl: boolean;
   /** The exchange's price difference, in its proposal's terms. */
   readonly exchangePrice: { readonly amount: string; readonly currency: string };
   /** Overrides the OpenAPI entry's `url` in poppy.json. */
@@ -153,6 +190,8 @@ export type MockConfig = {
   readonly agentReplies: boolean;
   /** Leave the issuer out of the MCP server's protected resource metadata. */
   readonly mcpPrmOmitIssuer: boolean;
+  /** The MCP server's protected resource metadata is only at the root well-known URL, still naming the server's path URL, so RFC 9728 3.3 says not to use it. */
+  readonly mcpPrmAtRootOnly: boolean;
   readonly accounts: readonly MockAccount[];
   /** Overrides the OpenAPI description's `servers` URL, to name another host (N10). */
   readonly openapiServerOverride: string | null;
@@ -162,6 +201,8 @@ export type MockConfig = {
   readonly requiredExtension: string | null;
   /** The OpenAPI entry names `resource` (RFC 8707), and the API takes only tokens issued for it. */
   readonly apiResource: boolean;
+  /** The API host's protected resource metadata names a `resource` other than the API's URL (RFC 9728 3.3); the API takes the Company's own tokens. */
+  readonly mismatchedApiResourceMetadata: boolean;
   /** Ignore `wait` on conversation POSTs: answer at once, without events. */
   readonly ignoreWait: boolean;
   /** Never say `queued`: a handoff goes straight to `working`. */
@@ -226,6 +267,8 @@ export type MockConfig = {
   readonly operationIdPrefix: string | null;
   /** The exchange operation's summary and terms, in place of the jacket's, for standing-permission tests. */
   readonly exchangeOperation: { readonly summary: string; readonly terms?: Record<string, unknown> } | null;
+  /** Operations leave out `summary`, which version 3 allows when they have `terms` (Ops 3). */
+  readonly omitOperationSummary: boolean;
   /**
    * Interop adversarial options (docs/adversarial-interop.md, Part B; armed
    * by the `evil-company` adapter, never set by a conformance test). Each is
@@ -254,6 +297,20 @@ export type MockConfig = {
    * is checked as usual first. 0: accept every one.
    */
   readonly refuseRevocations: number;
+  /**
+   * Refuse each new message to an existing conversation with this JSON
+   * body and status, after the usual checks: a refusal the agent must
+   * handle that the mock has no other way to give yet, such as 0.4's
+   * `version_mismatch` and `request_id_conflict` (8.2, 8.3). null: accept.
+   */
+  readonly refuseMessages: { readonly status: number; readonly body: Readonly<Record<string, string>> } | null;
+  /**
+   * Refuse a new message on a conversation from a Session declaring other
+   * versions than the one that started it, with `version_mismatch` (8.2,
+   * which allows it): a Company that can't carry conversations over. Reads
+   * are still answered. false: continue them.
+   */
+  readonly keepsConversationVersions: boolean;
   /** Company flaws (`COMPANY_FLAWS`); none by default. */
   readonly flaws: readonly CompanyFlaw[];
   /**
@@ -286,6 +343,8 @@ export type MockConfig = {
   readonly authDisabled: boolean;
   /** Leave `scopes_supported` out of the issuer's metadata, as RFC 8414 allows; 3.2 only recommends it. */
   readonly omitScopesSupported: boolean;
+  /** 0.4 (3.2, 4.7): list the scopes in the domain's protected resource metadata, as a Company whose issuer serves others would. */
+  readonly resourceScopes: boolean;
   /** Refuse this agent these sign-in types with `unauthorized_client`, while accepting it for signed-out Sessions (4.1). */
   readonly refuseSignInTypes: readonly ("device")[];
   /** `organization.logo_uri` (3.1): a PNG, an SVG (which agents must not show), or none. */
@@ -303,6 +362,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   mcpDpop: false,
   mcpVersions: ["2025-06-18"],
   protocolVersion: "0.3",
+  linkedVersion: null,
   organizationDomain: null,
   wellKnownRedirect: "none",
   issuerOverride: null,
@@ -319,6 +379,11 @@ export const DEFAULT_CONFIG: MockConfig = {
   unknownProtocol: true,
   web: true,
   browserSession: true,
+  webDisabled: false,
+  webUnscoped: false,
+  reversibleWrites: false,
+  pagesRefuseSession: false,
+  skills: true,
   operations: true,
   requireOperationsExtension: false,
   unknownExtension: true,
@@ -335,6 +400,11 @@ export const DEFAULT_CONFIG: MockConfig = {
   nonceScope: "company",
   issuerTrailingSlash: false,
   issuerPath: null,
+  reviseOnFirstApproval: false,
+  declineApprovals: null,
+  webOperations: false,
+  webErrorAfterPerforming: false,
+  browserControl: false,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,
@@ -343,6 +413,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   maxWaitSeconds: 2,
   agentReplies: true,
   mcpPrmOmitIssuer: false,
+  mcpPrmAtRootOnly: false,
   accounts: [
     {
       account: "acct_ada",
@@ -361,6 +432,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   omitTokenScope: false,
   requiredExtension: null,
   apiResource: false,
+  mismatchedApiResourceMetadata: false,
   ignoreWait: false,
   neverQueued: false,
   reuseDetection: false,
@@ -377,6 +449,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,
   exchangeOperation: null,
+  omitOperationSummary: false,
   padBytes: null,
   nonceLoop: false,
   organizationName: null,
@@ -384,6 +457,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   endlessEvents: false,
   errorDescription: null,
   refuseRevocations: 0,
+  refuseMessages: null,
+  keepsConversationVersions: false,
   flaws: [],
   dpopTokens: true,
   authorizationServersOverride: null,
@@ -396,12 +471,34 @@ export const DEFAULT_CONFIG: MockConfig = {
   openapiOnAltDomainOnly: false,
   authDisabled: false,
   omitScopesSupported: false,
+  resourceScopes: false,
   refuseSignInTypes: [],
   logo: null,
   protectedResourcesOverride: null,
   excludedTasks: true,
   feedback: false,
   feedbackAlternative: false
+};
+
+/** A JWT's protected header and payload, decoded but not verified. */
+export type DecodedJwt = { readonly header: Record<string, unknown>; readonly payload: Record<string, unknown> };
+
+/**
+ * What the Personal Agent sent, decoded for the official kit's schemas
+ * (test/kit-schemas.ts): a JSON body, the Session JWT and its delegation,
+ * `Poppy-Approval`, or the client metadata the mock fetched. Form bodies,
+ * which carry client assertions and credentials, are left out.
+ */
+export type AgentPayload = {
+  readonly method: string;
+  readonly url: string;
+  readonly json?: unknown;
+  readonly sessionJwt?: DecodedJwt;
+  readonly delegation?: DecodedJwt;
+  readonly approval?: string;
+  readonly clientMetadata?: unknown;
+  /** The request's `Poppy-Version` (0.4, 3.4), which decides the kit whose schemas judge it. */
+  readonly version?: string;
 };
 
 /** One request the mock received, with secrets redacted. */
@@ -450,6 +547,8 @@ export type MockState = {
   /** The recorded checks that are warnings (basis SHOULD, Guides or Reading). */
   readonly warnings: string[];
   readonly requests: MockRequest[];
+  /** What the Personal Agent sent, decoded, in order: each an `AgentPayload` as JSON text, which RPC types can carry. */
+  readonly sent: string[];
   /** Every JSON-RPC message the MCP server answered after the Session's checks, in order, with the lifecycle it was served under. */
   readonly mcp: readonly McpExchange[];
   /** `token_type_hint` of each revocation request, or null when absent (RFC 7009 makes it optional). */
@@ -493,6 +592,8 @@ export type MockState = {
   readonly browserJoins: number;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { readonly account: string | null; readonly fields: [string, string][] }[];
+  /** Returns the website's marked form received (0.4 Browser Control 6): the account, and the controller the page sent. */
+  readonly returns: { readonly account: string; readonly controller: string; readonly reason: string; readonly cardLast4: string }[];
   /** The feedback reports received (9.3): their task phrase, and whether they came signed in. */
   readonly feedback: readonly { readonly task: string; readonly signedIn: boolean }[];
 };

@@ -55,6 +55,46 @@ function fixture() {
 }
 
 describe("upgrade state and pending-work compatibility", () => {
+  it("marks an older agent's Sessions as 0.3 Sessions when it adds their declarations (F2)", () => {
+    const sql = memorySql();
+    // poppy_sessions as agents before 10 November 2026 created it.
+    sql.exec(`CREATE TABLE poppy_sessions (issuer TEXT NOT NULL, label TEXT NOT NULL, session_id TEXT NOT NULL, account TEXT, signed_in INTEGER NOT NULL,
+      scope TEXT NOT NULL, updated_at INTEGER NOT NULL, used_account TEXT, authority_generation INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (issuer, label))`);
+    sql.exec(`INSERT INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at) VALUES ('${ISSUER}', 'main', 'sid_1', NULL, 0, '', 1)`);
+    migrate(sql);
+    migrate(sql);
+    expect(sql.exec("SELECT session_id, declared FROM poppy_sessions").toArray()).toEqual([{ session_id: "sid_1", declared: JSON.stringify({ version: "0.3", extensions: "" }) }]);
+  });
+
+  it("keeps an older agent's open conversations open as 0.3 conversations when it adds the 0.4 columns (F5)", () => {
+    const sql = memorySql();
+    // poppy_conversations as agents before 10 November 2026 created it.
+    sql.exec(`CREATE TABLE poppy_conversations (id TEXT PRIMARY KEY, issuer TEXT NOT NULL, remote_id TEXT NOT NULL DEFAULT '', quarantined INTEGER NOT NULL DEFAULT 0,
+      retired_at INTEGER, label TEXT NOT NULL, parent TEXT, direct INTEGER NOT NULL, status TEXT NOT NULL, responder TEXT NOT NULL, cursor TEXT, context TEXT,
+      last_event_at INTEGER NOT NULL, created_at INTEGER NOT NULL)`);
+    sql.exec(`INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, last_event_at, created_at)
+      VALUES ('cnv_1', '${ISSUER}', 'cnv_1', 'main', 0, 'idle', 'human', 1, 1)`);
+    // Its Company, as the conversation started with it: without one, migration retires a conversation it can't resume.
+    sql.exec("CREATE TABLE poppy_task_contexts (kind TEXT NOT NULL, task_id TEXT NOT NULL, issuer TEXT NOT NULL, company TEXT NOT NULL, PRIMARY KEY (kind, issuer, task_id))");
+    sql.exec("INSERT INTO poppy_task_contexts VALUES ('conversation', 'cnv_1', ?, ?)", ISSUER, JSON.stringify({ issuer: ISSUER, domain: "shop.example", protocolVersion: "0.3", specificationRevision: "2026-11-03" }));
+    migrate(sql);
+    migrate(sql);
+    expect(sql.exec("SELECT status, responder, retired_at, protocol_version, extensions, working, handoff FROM poppy_conversations").toArray()).toEqual([
+      { status: "idle", responder: "human", retired_at: null, protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
+    ]);
+    // The status trigger, recreated after the columns exist, logs a 0.3 conversation's status and responder as before;
+    // 0.3 has no handoff field, and a 0.4 conversation's four fields are named as they change.
+    sql.exec("UPDATE poppy_conversations SET status = 'working'");
+    sql.exec("UPDATE poppy_conversations SET handoff = 'pending'");
+    sql.exec("UPDATE poppy_conversations SET protocol_version = '0.4'");
+    sql.exec("UPDATE poppy_conversations SET handoff = 'none', working = 1");
+    expect(sql.exec("SELECT result FROM poppy_protocol_log WHERE step = 'conversation.status' ORDER BY seq").toArray().map((row) => row.result)).toEqual([
+      "status idle → working, responder human → human",
+      "working false → true, handoff pending → none"
+    ]);
+  });
+
+
   it("reruns additive migration and restarts without changing an issuer's User ID or sealed data", async () => {
     const f = fixture();
     const company = await f.client.company("shop.example");
@@ -85,9 +125,19 @@ describe("upgrade state and pending-work compatibility", () => {
     const f = fixture();
     const original = await f.client.company("shop.example");
     f.client.rememberCompany("approval", "apr_1", original);
-    f.change({ version: "0.4" });
+    f.change({ version: "0.5" });
     await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ name: "DiscoveryError" });
     expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+  });
+
+  it("holds a pending approval when its Company moves from 0.3 to 0.4, which this agent speaks, without replaying an action", async () => {
+    const f = fixture();
+    const original = await f.client.company("shop.example");
+    f.client.rememberCompany("approval", "apr_1", original);
+    f.change({ version: "0.4" });
+    await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ code: "company_changed" });
+    expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+    expect(f.cards.at(-1)).toMatchObject({ kind: "notice", domain: original.domain });
   });
 
   it("holds a task begun under 0.2, before this agent spoke 0.3 only, without replaying it", async () => {

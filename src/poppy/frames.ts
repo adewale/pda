@@ -48,6 +48,20 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.signout": object({ type: literal("poppy.signout"), issuer: issuerDecoder, account: string }),
   "poppy.revoke.retry": object({ type: literal("poppy.revoke.retry"), id: string }),
   "poppy.card.dismiss": object({ type: literal("poppy.card.dismiss"), id: string }),
+  // Their conditions are checked in full by the agent (instructions.ts) before anything is stored.
+  "poppy.instruction.add": object({
+    type: literal("poppy.instruction.add"),
+    issuer: issuerDecoder,
+    account: optional(nullable(string)),
+    text: string,
+    conditions: array(built<Extract<PoppyClientFrame, { type: "poppy.instruction.add" }>["conditions"][number]>()),
+    budget: optional(nullable(built<NonNullable<Extract<PoppyClientFrame, { type: "poppy.instruction.add" }>["budget"]>>()))
+  }),
+  "poppy.instruction.withdraw": object({ type: literal("poppy.instruction.withdraw"), id: string }),
+  "poppy.browser.take": object({ type: literal("poppy.browser.take"), handoverId: string }),
+  "poppy.browser.view": object({ type: literal("poppy.browser.view"), handoverId: string }),
+  "poppy.browser.return": object({ type: literal("poppy.browser.return"), handoverId: string }),
+  "poppy.browser.cancel": object({ type: literal("poppy.browser.cancel"), handoverId: string }),
   "poppy.protocol": object({ type: literal("poppy.protocol"), key: string }),
   "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), flowId: optional(flowId) }),
   "poppy.result_links.checked": object({ type: literal("poppy.result_links.checked"), cardId: string, checks: linkChecks })
@@ -75,7 +89,8 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   "poppy.settings": object({
     type: literal("poppy.settings"),
     accounts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["accounts"][number]>()),
-    signOuts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["signOuts"][number]>())
+    signOuts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["signOuts"][number]>()),
+    instructions: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["instructions"][number]>())
   }),
   "poppy.activity": object({
     type: literal("poppy.activity"),
@@ -94,7 +109,8 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
     issuer: nullable(issuerDecoder),
     entries: array(built<Extract<PoppyServerFrame, { type: "poppy.protocol" }>["entries"][number]>())
   }),
-  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) })
+  "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) }),
+  "poppy.browser.view": object({ type: literal("poppy.browser.view"), handoverId: string, url: string, expiresAt: number })
 });
 
 /** The answer to the page's `history.before`. */

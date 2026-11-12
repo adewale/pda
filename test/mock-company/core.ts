@@ -17,6 +17,8 @@ import {
   hostsFor,
   type CompanyFlaw,
   type Hosts,
+  type AgentPayload,
+  type DecodedJwt,
   type MockConfig,
   type MockRequest
 } from "./types";
@@ -75,6 +77,11 @@ export type Session = {
   grant: string | null;
   scope: string[];
   ended: boolean;
+  /**
+   * What its requests declared (0.4, 3.4): `Poppy-Version`, or 0.3 without
+   * one, and the extensions in `Poppy-Extensions`, fixed for the Session.
+   */
+  declaration?: { readonly version: string; readonly extensions: string; readonly declared: ReadonlyMap<string, string> };
   /** The Agent ID its Session JWTs carry, if any (5.1). */
   readonly agentId: string | null;
 };
@@ -230,6 +237,8 @@ export class Company {
   /** Every check the Company recorded, `[id] detail`, in order: violations and warnings (violations.ts). */
   readonly recorded: string[] = [];
   readonly requests: { -readonly [K in keyof MockRequest]: MockRequest[K] }[] = [];
+  /** What the Personal Agent sent, decoded for the kit's schemas. */
+  readonly sent: AgentPayload[] = [];
   readonly revocationHints: (string | null)[] = [];
   /** Revocation requests refused so far under `refuseRevocations`. */
   revocationsRefused = 0;
@@ -262,6 +271,7 @@ export class Company {
   browserJoins = 0;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { account: string | null; fields: [string, string][] }[] = [];
+  readonly returns: { account: string; controller: string; reason: string; cardLast4: string }[] = [];
   readonly feedback: { task: string; signedIn: boolean }[] = [];
   tokenRequestCount = 0;
   otherRequestCount = 0;
@@ -281,6 +291,14 @@ export class Company {
   get config(): MockConfig {
     return this.#config;
   }
+
+  /** The versions this Company serves now (3.4): poppy.json's, and the one it links. */
+  get servedVersions(): readonly string[] {
+    return [this.#config.protocolVersion, ...(this.#config.linkedVersion ? [this.#config.linkedVersion] : [])];
+  }
+
+  /** Every version this Company has served while taking requests, so an agent declaring one it dropped since isn't at fault. */
+  readonly #listed = new Set<string>();
 
   /** The Company has this flaw (`COMPANY_FLAWS`): one of its protections is off. */
   flawed(flaw: CompanyFlaw): boolean {
@@ -356,7 +374,33 @@ export class Company {
       error: null as string | null
     };
     this.requests.push(entry);
+    this.#capture(inbound, type);
     return entry;
+  }
+
+  #capture(inbound: Inbound, type: string): void {
+    const decode = (jwt: unknown): DecodedJwt | undefined => {
+      if (typeof jwt !== "string") return undefined;
+      try {
+        return { header: { ...decodeProtectedHeader(jwt) }, payload: { ...decodeJwt(jwt) } };
+      } catch {
+        return undefined; // verifySessionHeader records it.
+      }
+    };
+    let json: unknown;
+    if (/^application\/(?:[\w.+-]+\+)?json\b/.test(type)) {
+      try {
+        json = JSON.parse(inbound.bodyText);
+      } catch {
+        // Not JSON; the route refuses it.
+      }
+    }
+    const sessionJwt = decode(inbound.request.headers.get("Poppy-Session"));
+    const delegation = decode(sessionJwt?.header.poppy_dlg);
+    const approval = inbound.request.headers.get("Poppy-Approval") ?? undefined;
+    const version = inbound.request.headers.get("Poppy-Version") ?? undefined;
+    if (json === undefined && !sessionJwt && approval === undefined) return;
+    this.sent.push({ method: inbound.request.method, url: inbound.url.href, json, sessionJwt, delegation, approval, ...(version !== undefined ? { version } : {}) });
   }
 
   /** JTIs are single-use within each kind of JWT. */
@@ -413,7 +457,11 @@ export class Company {
   /** The scopes this Company describes (4.7): its `scopes_supported`, every scope a Personal Agent can request (3.2). */
   scopeDescriptions(): Record<string, string> {
     const { read, write } = this.orderScopes;
-    return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...this.config.customScopes };
+    // 0.4: a Company with browser join and sign-in supports poppy:browser-sign-in (6).
+    // Unscoped, it MUST be described as the account's full access on the website (6).
+    const browserSignIn: Record<string, string> = this.servedVersions.includes("0.4") && this.config.web && this.config.browserSession
+      ? { "poppy:browser-sign-in": this.config.webUnscoped ? "Browse the website, and see and do anything your account can do there" : "Use the website signed in, with the other access you approve" } : {};
+    return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...browserSignIn, ...this.config.customScopes };
   }
 
   /** What the Company calls reading and changing orders: its own scopes, since the protocol defines none (4.7). */
@@ -424,7 +472,10 @@ export class Company {
   /** Scopes a sign-in type can grant, or null when it isn't offered. */
   offeredScopes(type: "direct" | "device" | "mediated"): readonly string[] | null {
     if (this.config.issuerless || (type === "mediated" && this.config.authDisabled)) return null;
-    return this.config.signIn[type];
+    const offered = this.config.signIn[type];
+    // 0.4: a Company with browser join and sign-in MUST support poppy:browser-sign-in (6); Mediated Sign-In keeps its own list.
+    return offered && type !== "mediated" && "poppy:browser-sign-in" in this.scopeDescriptions() && !offered.includes("poppy:browser-sign-in")
+      ? [...offered, "poppy:browser-sign-in"] : offered;
   }
 
   /** The Company's identifier (3.2): its issuer, or `https://{domain}` without one. Session JWTs' audience. */
@@ -568,6 +619,8 @@ export class Company {
     } catch {
       throw fail("client-metadata.not-json", "client metadata is not JSON");
     }
+    // A document a test serves in its place isn't what the agent publishes.
+    if (!this.served.has(clientId)) this.sent.push({ method: "GET", url: clientId, clientMetadata: metadata });
     if (metadata.client_id !== clientId) {
       throw fail("client-metadata.client-id-mismatch", "client_id in the document doesn't equal the URL it was fetched from");
     }
@@ -1134,7 +1187,43 @@ export class Company {
       throw fail("session-jwt.sub-changed", "a known sid with another User ID or Agent ID");
     }
     if (session.ended) throw this.sessionEnded("the Session has ended");
+    this.#checkVersion(inbound, session, where);
     return { client, session };
+  }
+
+  /**
+   * The Operations version a request may get operations under (Ops 2): a
+   * 0.4 request only with `operations` version 3 declared, and a 0.3 one
+   * when the agent's client metadata lists version 2. Null: none.
+   */
+  operationsVersion(context: ResourceContext): "2" | "3" | null {
+    const declaration = context.session.declaration;
+    if (declaration && declaration.version !== "0.3") return declaration.declared.get("operations") === "3" ? "3" : null;
+    return context.client.listsOperations ? "2" : null;
+  }
+
+  /**
+   * `Poppy-Version` and `Poppy-Extensions` (0.4, 3.4). A request without
+   * `Poppy-Version` is a 0.3 request, since 0.3 defines no such header. One
+   * for a version the Company doesn't serve gets `version_unsupported`; the
+   * agent is at fault only when the Company never listed it. The values are
+   * fixed for a Session.
+   */
+  #checkVersion(inbound: Inbound, session: Session, where: string): void {
+    const header = inbound.request.headers.get("Poppy-Version");
+    const version = header ?? "0.3";
+    const extensions = version === "0.3" ? "" : (inbound.request.headers.get("Poppy-Extensions") ?? "");
+    for (const served of this.servedVersions) this.#listed.add(served);
+    if (!this.#listed.has(version)) {
+      this.violation(header === null ? "version.missing" : "version.unlisted", header === null
+        ? `a request without Poppy-Version to a Company that never served 0.3 (${where})`
+        : `Poppy-Version ${header}, which this Company never listed (${where})`);
+    }
+    if (!this.servedVersions.includes(version)) throw new HttpError(json({ error: "version_unsupported" }, 400, { "Cache-Control": "no-store" }));
+    if (session.declaration && (session.declaration.version !== version || session.declaration.extensions !== extensions)) {
+      this.violation("version.changed-in-session", `Session ${session.sid} declared ${session.declaration.version} ${JSON.stringify(session.declaration.extensions)}, then ${version} ${JSON.stringify(extensions)} (${where})`);
+    }
+    session.declaration ??= { version, extensions, declared: parseExtensions(extensions) };
   }
 
   /**
@@ -1236,4 +1325,27 @@ export class Company {
       throw new HttpError(json({ error: "insufficient_scope" }, 403, { "WWW-Authenticate": `${scheme} error="insufficient_scope", scope="${scope}"${metadata}` }));
     }
   }
+}
+
+/**
+ * `Poppy-Extensions` (3.4): an RFC 9651 List of Strings, each with its
+ * version as a String `v` parameter, as name → version. A value that fails
+ * to parse declares no extensions (RFC 9651 4.2). The mock's own parser,
+ * independent of the agent's serializer and the kit oracle's.
+ */
+export function parseExtensions(value: string): ReadonlyMap<string, string> {
+  const declared = new Map<string, string>();
+  if (value.trim() === "") return declared;
+  const member = /^\s*"((?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*)"((?:;[a-z*][a-z0-9_.*-]*(?:=(?:"(?:[\x20\x21\x23-\x5b\x5d-\x7e]|\\["\\])*"|[^;,\s]+))?)*)\s*(?:,|$)/;
+  let rest = value;
+  while (rest.trim() !== "") {
+    const match = member.exec(rest);
+    if (!match) return new Map();
+    const version = /;v="([^"]*)"/.exec(match[2]!)?.[1];
+    if (version === undefined) return new Map();
+    declared.set(match[1]!.replace(/\\(["\\])/g, "$1"), version);
+    rest = rest.slice(match[0].length);
+    if (match[0].trimEnd().endsWith(",") && rest.trim() === "") return new Map();
+  }
+  return declared;
 }

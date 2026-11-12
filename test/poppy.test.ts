@@ -4,7 +4,7 @@ import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { checkParams, openApi, outsidePoppySession, tokenSchemes, type OpenApiOperation } from "../src/poppy/apis";
 import { tokenResponse } from "../src/poppy/client";
-import { parseOperationV2 } from "../src/poppy/operations-v2";
+import { parseOperationHeader, parseOperationV2 } from "../src/poppy/operations-v2";
 import { clientFrame, serverFrame } from "../src/poppy/frames";
 import type { Json } from "../src/poppy/json";
 import { BUSY_WINDOW_MS, nextRead } from "../src/poppy/conversations";
@@ -539,9 +539,12 @@ describe.each(PROFILES)("4.2 Direct Sign-In ($name)", ({ config: profile }) => {
     const a = await agent();
     await signInDirect(a, c, ["orders:read", "orders:write"], { scopes: ["orders:read"] });
     // The model is told about "the User"; the User's own card says "you".
-    expect((await a.stub.poppyNotices()).some((n) => n.includes('the User approved fewer scopes than requested: granted "orders:read", not granted "orders:write"'))).toBe(true);
+    const told = (await a.stub.poppyNotices()).find((n) => n.includes('the User approved fewer scopes than requested: granted "orders:read", not granted "orders:write"'));
+    // 0.4 Guides: the Company may not grant it to this User at all, so the model doesn't send the User to sign in again for it.
+    expect(told).toContain("don't ask the User to sign in again just for them");
     const notice = (await cards(a)).find((item) => item.kind === "notice" && item.text.includes('not granted "orders:write"'))!;
     expect(notice.text).toContain("but you approved fewer scopes than requested");
+    expect(notice.text).not.toContain("account holder");
   });
 
   it("handles a declined sign-in", async () => {
@@ -2058,6 +2061,20 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(after.filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
   });
 
+  it("doesn't use the root metadata document for an MCP server with a path, whose resource it can't be (RFC 9728 3.3)", async () => {
+    const c = await company({ mcpPrmAtRootOnly: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("publishes no protected resource metadata");
+    const seen = await requests(c);
+    expect(seen.some((request) => new URL(request.url).pathname === "/.well-known/oauth-protected-resource/mcp")).toBe(true);
+    expect(seen.filter((request) => new URL(request.url).host === new URL(c.hosts.mcpUrl).host && new URL(request.url).pathname === "/.well-known/oauth-protected-resource")).toEqual([]);
+    expect(seen.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
+    expect(seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"))).toEqual([]);
+  });
+
   it("calls the same MCP server signed out, as poppy.json lists it: 7 asks for the issuer only of a server offering account access", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const a = await agent();
@@ -2173,6 +2190,19 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const forResource = (await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
     expect(forResource.map((request) => request.grant)).toEqual(expect.arrayContaining(["refresh_token"]));
     for (const request of forResource) expect(request.headers.dpop).toBe("<present>");
+  });
+
+  it("treats protected resource metadata for another resource as absent, and uses the Company's own token (RFC 9728 3.3)", async () => {
+    const c = await company({ mismatchedApiResourceMetadata: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(orders.isError, orders.text).toBe(false);
+    expect(orders.text).toContain("ord_7Hk2");
+    const seen = await requests(c);
+    // The metadata was read, at the URL derived from the API's, and not used.
+    expect(seen.some((request) => request.url === `${c.hosts.api}/.well-known/oauth-protected-resource`)).toBe(true);
+    expect(seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"))).toEqual([]);
   });
 
   it("tells the User and the model which extension a Company requires (extension_required)", async () => {
@@ -3047,6 +3077,48 @@ describe("8.13 conversation errors", () => {
     }
   });
 
+  it("records the versions a conversation started in, for its later requests (0.4, 8.2)", async () => {
+    const { a, id, release } = await started();
+    try {
+      expect(JSON.parse(await a.stub.poppySql("SELECT protocol_version, extensions, working, handoff FROM poppy_conversations WHERE id = ?", id))).toEqual([
+        { protocol_version: "0.3", extensions: "", working: 0, handoff: "none" }
+      ]);
+    } finally {
+      await release();
+    }
+  });
+
+  it("tells the model a conversation the Company won't continue in this version can't take the message, and keeps it open for reads (0.4 version_mismatch)", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.configure({ refuseMessages: { status: 409, body: { error: "version_mismatch", protocol_version: "0.4" } } });
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" });
+      expect(result.isError).toBe(true);
+      expect(result.text).toBe(
+        `Mock Shop ${c.id} won't continue conversation ${id} in this protocol version, so the message wasn't sent. Start a new conversation (poppy_message without conversation) if the task still needs one. Nothing from this conversation is carried over: say what the Company needs again. [version_mismatch]`
+      );
+      // Sent once, and not again in a new conversation.
+      expect(await posts(c, id)).toEqual({ messages: [409], started: 1 });
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+    } finally {
+      await release();
+    }
+  });
+
+  it("treats 0.4's request_id_conflict as message_id_conflict: the agent's bug, never sent under a new id", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.configure({ refuseMessages: { status: 409, body: { error: "request_id_conflict" } } });
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" });
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/^Mock Shop \S+ already has message msg_\S+ with different content\. That is a bug in this agent; the message wasn't sent again under a new id\. Tell the User it may not have arrived\. \[request_id_conflict\]$/);
+      expect(await posts(c, id)).toEqual({ messages: [409], started: 1 });
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+    } finally {
+      await release();
+    }
+  });
+
   it("reports a message id the Company already has with other content as the agent's bug, and never sends it under a new id (message_id_conflict)", async () => {
     const { c, a, id, release } = await started();
     // Our bug, simulated: the replayed call's stored message changed after it was sent.
@@ -3405,6 +3477,22 @@ describe("parsed once at the edge", () => {
     expect(parseOperationV2({ ...base, terms: ["70.00"] })).toEqual({ problem: "its terms aren't an object" });
     expect(parseOperationV2({ ...base, expires_at: "tomorrow" })).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
     expect(parseOperationV2([base])).toEqual({ problem: "it isn't an object" });
+  });
+
+  it("reads Poppy-Operation as an RFC 9651 Dictionary with sid and ref Strings, and ignores any other field (0.4 Ops 4)", () => {
+    expect(parseOperationHeader('sid="ses_1", ref="exc_5Rt2.1791487200.k3Jd"')).toEqual({ sid: "ses_1", ref: "exc_5Rt2.1791487200.k3Jd" });
+    // Order, parameters, other members and a repeated key (the last wins) are all as RFC 9651 reads them.
+    expect(parseOperationHeader('ref="old", other=?1;x=1, list=(1 "a");p, sid="ses_1";q="r", ref="new"')).toEqual({ sid: "ses_1", ref: "new" });
+    for (const field of [
+      'sid="ses_1"',
+      'sid="ses_1", ref=exc_token',
+      'sid="ses_1", ref="has space"',
+      `sid="ses_1", ref="${"a".repeat(2049)}"`,
+      'sid="ses_1", ref="ok" garbage',
+      'sid="ses_1", ref="ok",',
+      'sid="", ref="ok"',
+      'Sid="ses_1", ref="ok"'
+    ]) expect(parseOperationHeader(field), field).toBeNull();
   });
 
   it("decodes the page's frames to the agent member by member, and the agent's to the page by type", () => {

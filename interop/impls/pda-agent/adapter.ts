@@ -28,6 +28,7 @@ import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../
 import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
 import { browse } from "../../../src/poppy/browser.ts";
 import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
+import { PROTOCOL_VERSIONS } from "../../../src/poppy/protocol-version.ts";
 import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
 import type { Fetcher } from "../../../src/poppy/fetch.ts";
 import type { Json } from "../../../src/poppy/json.ts";
@@ -81,7 +82,8 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  poppy: ["0.3"],
+  // Every version src/poppy speaks; the adversarial agent's raw requests are 0.3 only (attacks.ts).
+  poppy: ADVERSARY ? ["0.3"] : [...PROTOCOL_VERSIONS],
   extensions: ["operations"],
   scenarios: ADVERSARY ? [...ATTACKS] : [
     "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
@@ -491,11 +493,14 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       ...(typeof params.wait === "number" ? { wait: params.wait } : {})
     });
     const intent = rows(agent.client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `message|${callKey}`)[0];
-    const messageId = intent ? (JSON.parse(intent.value) as { message: { id: string } }).message.id : null;
+    // 0.3: the message's own id; 0.4: its request's, which the message takes (8.3).
+    const sentBody = intent ? (JSON.parse(intent.value) as { id?: string; message?: { id?: string } }) : null;
+    const messageId = sentBody ? (sentBody.message?.id ?? sentBody.id ?? null) : null;
     return {
       conversation: sent.conversationId,
       message_id: messageId,
-      status: sent.status,
+      // The harness contract's status (interop-spec.md): the local one, which 0.4 derives from the four fields.
+      status: conversationRow(agent.client, sent.conversationId)!.status,
       responder: sent.responder,
       messages: sent.replies.map((reply) => ({ role: "company", sender: reply.sender, text: reply.text ?? null, ...(reply.data !== undefined ? { data: reply.data } : {}) }))
     };
@@ -590,6 +595,8 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
             else if (field === "data") data.push(value);
           }
           if (data.length === 0) continue;
+          // 0.4: `working` isn't an event, but the state, streamed with no id (8.6).
+          if (eventType === "working" && eventId === null) continue;
           let payload: Json = data.join("\n");
           try {
             payload = JSON.parse(data.join("\n")) as Json;
@@ -667,7 +674,9 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const id = text(params.conversation, "conversation");
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     const summary = optional(params.text) ?? "The User would like to speak with someone at your company.";
-    return handoff(agent.client, c, id, summary, randomId("call_"));
+    await handoff(agent.client, c, id, summary, randomId("call_"));
+    const row = conversationRow(agent.client, id)!;
+    return { status: row.status, responder: row.responder };
   },
 
   /** Close a conversation (7.12). */
@@ -676,6 +685,10 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const id = text(params.conversation, "conversation");
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     await closeConversation(agent.client, c, id);
+    // 0.4: the 202 says only that the Company accepted the close; a read says when it acted (8.12).
+    for (let read = 0; read < 3 && conversationRow(agent.client, id)!.protocol_version !== "0.3" && conversationRow(agent.client, id)!.status !== "closed"; read++) {
+      await readConversation(agent.client, id, 2);
+    }
     const row = conversationRow(agent.client, id)!;
     return { status: row.status, responder: row.responder };
   },

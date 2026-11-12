@@ -22,6 +22,20 @@ describe("the fetch browser's cookie jar", () => {
     expect(jar.header(new URL("https://api.shop.example/orders"))).toBe("");
   });
 
+  it("lets a cookie's Domain cover the Company's hosts, and only at or under the Company's domain (0.4, 6)", () => {
+    const jar = new CookieJar(Date.now, ["shop.example"]);
+    jar.store(new URL("https://accounts.shop.example/poppy/browser-session"), [
+      "session=1; Domain=shop.example; Path=/; Secure",
+      "wide=1; Domain=example; Path=/; Secure",
+      "__Host-join=1; Path=/; Secure"
+    ]);
+    expect(jar.header(new URL("https://www.shop.example/orders"))).toBe("session=1");
+    expect(jar.header(new URL("https://shop.example/"))).toBe("session=1");
+    expect(jar.header(new URL("https://accounts.shop.example/poppy/browser-session"))).toBe("session=1; wide=1; __Host-join=1");
+    expect(jar.header(new URL("https://other.example/"))).toBe("");
+    expect(jar.header(new URL("https://shop.example.evil.test/"))).toBe("");
+  });
+
   it("sends cookies only over HTTPS, and keeps none from plain HTTP", () => {
     const jar = new CookieJar();
     jar.store(new URL("http://shop.example/"), ["plain=1; Path=/"]);
@@ -134,6 +148,17 @@ describe("the fetch browser", () => {
     expect(seen[1]!.get("cookie")).toBe("sid=1");
   });
 
+  it("keeps the final response's Poppy-Operation for the agent's own code, and none from a redirect on the way (0.4 Ops 4)", async () => {
+    const pages: Record<string, () => Response> = {
+      "https://shop.example/hop": () => new Response(null, { status: 302, headers: { Location: "/waiting", "Poppy-Operation": 'sid="s", ref="from-redirect"' } }),
+      "https://shop.example/waiting": () => html("<p>Waiting</p>", { "Poppy-Operation": 'sid="s", ref="final"' }),
+      "https://shop.example/plain": () => html("<p>Plain</p>")
+    };
+    const context = await new FetchBrowser(async (request) => pages[request.url]!()).newContext(allowAll);
+    expect((await context.goto("https://shop.example/hop")).operationHeader).toBe('sid="s", ref="final"');
+    expect(await context.goto("https://shop.example/plain")).not.toHaveProperty("operationHeader");
+  });
+
   it("says when a page shows nothing without JavaScript, and doesn't show files that aren't pages", async () => {
     const pages: Record<string, Response> = {
       "https://shop.example/app": html('<div id="root"></div><script src="/app.js"></script><noscript>Enable JavaScript</noscript>'),
@@ -146,5 +171,57 @@ describe("the fetch browser", () => {
     expect((await context.goto("https://shop.example/app")).text).toBe("(This page shows nothing without JavaScript, which this browser doesn't run.)");
     expect((await context.goto("https://shop.example/file.pdf")).text).toBe("(A application/pdf file, which this browser doesn't show.)");
     expect((await context.goto("https://shop.example/latin1")).text).toBe("café");
+  });
+});
+
+describe("steps a website marks for the User (0.4 Browser Control 4, 5)", () => {
+  const page = `
+<form id="checkin" method="post" action="/check-in" data-poppy-user-step="submission">
+  <select name="seat"><option value="12A">12A<option value="12C" selected>12C</select>
+  <input id="traveller" name="traveller_name" data-poppy-user-step="interaction">
+  <input id="note" name="note" data-poppy-user-step="SUBMISSION">
+  <button type="submit">Check in</button>
+</form>
+<form id="hands-off" method="post" action="/upgrade" data-poppy-user-step="interaction"><input name="cabin"><button>Upgrade</button></form>
+<form id="odd" method="post" action="/odd" data-poppy-user-step="later"><input name="x"><button>Go</button></form>
+<form id="plain" method="post" action="/plain"><input name="y"><button id="pay" data-poppy-user-step="submission">Pay</button></form>
+<a id="terms" href="/terms" data-poppy-user-step="interaction">Accept</a>
+<a id="help" href="/help">Help</a>`;
+
+  async function opened() {
+    const context = await new FetchBrowser(async (request) => (new URL(request.url).pathname === "/" ? html(page) : html("<p>Next</p>"))).newContext(allowAll);
+    return { context, snapshot: await context.goto("https://air.example/") };
+  }
+  const refused = (what: Promise<unknown>) => expect(what).rejects.toMatchObject({ code: "user_step" });
+
+  it("shows the marks: a value other than the two, or submission on a control, counts as interaction", async () => {
+    const { snapshot } = await opened();
+    expect(snapshot.forms.map(({ selector, userStep, userFields }) => ({ selector, userStep, userFields }))).toEqual([
+      { selector: "#checkin", userStep: "submission", userFields: ["traveller_name", "note"] },
+      { selector: "#hands-off", userStep: "interaction", userFields: undefined },
+      { selector: "#odd", userStep: "interaction", userFields: undefined },
+      { selector: "#plain", userStep: undefined, userFields: undefined }
+    ]);
+    expect(snapshot.links.map(({ selector, userStep }) => ({ selector, userStep }))).toEqual([
+      { selector: "#terms", userStep: "interaction" },
+      { selector: "#help", userStep: undefined }
+    ]);
+  });
+
+  it("fills a submission form's unmarked fields, but neither its marked ones nor any of an interaction form", async () => {
+    const { context } = await opened();
+    await context.fill("#checkin [name=seat]", "12A");
+    await refused(context.fill("#traveller", "Ada Lovelace"));
+    await refused(context.fill("#note", "window"));
+    await refused(context.fill("#hands-off [name=cabin]", "business"));
+    await refused(context.fill("#odd [name=x]", "1"));
+    await context.fill("#plain [name=y]", "1");
+  });
+
+  it("submits no marked form, nor through a marked button, and follows no marked link", async () => {
+    const { context } = await opened();
+    for (const form of ["#checkin", "#hands-off", "#odd", "#plain"]) await refused(context.prepareSubmit(form));
+    await refused(context.click("#terms"));
+    expect((await context.click("#help")).text).toBe("Next");
   });
 });

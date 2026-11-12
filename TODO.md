@@ -11,6 +11,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 
 ## Product
 
+- [ ] **Poppy 0.4** beside 0.3 ([decision 43](docs/decisions.md#43-03-beside-04-both-versions-website-operations-and-approvals-across-sessions)). The [0.4 upgrade](docs/poppy-0.4-upgrade.md) owns the work and its order.
 - [ ] **Skills**, the remaining personal-agent milestone in the [build plan](pda-spec.md#build-plan).
 - [ ] **Web search**, once a provider and funding are chosen.
 - [ ] **Email reminders**, once a sender and verified-address flow are chosen.

@@ -1,5 +1,5 @@
 import { readOwners, readSigninAllowlist, readDemoAllowlist, type ListEnv } from "./allowlist.ts";
-import { ConfigError, readBrowserRun, readModelConfig, readSignInProviders, readSignup, readDemoCaps } from "./config.ts";
+import { ConfigError, readBrowserControl, readBrowserRun, readModelConfig, readSignInProviders, readSignup, readDemoCaps } from "./config.ts";
 import { readInteropKeys } from "./poppy/interop-client.ts";
 import { readIdentity } from "./poppy/keys.ts";
 import { readPrivacyContact } from "./privacy.ts";
@@ -32,6 +32,7 @@ const CHECKS: ReadonlyArray<(env: DeploymentEnv) => unknown> = [
   readDemoCaps,
   readSignInProviders,
   readBrowserRun,
+  readBrowserControl,
   readPrivacyContact,
   readInteropKeys
 ];

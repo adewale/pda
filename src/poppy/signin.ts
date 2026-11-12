@@ -1,7 +1,7 @@
 import { literal, reportError } from "../log";
 import { covers, grantedScope, issuerEndpoints, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
 import { tryDecode } from "../decode";
-import { MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
+import { BROWSER_SIGN_IN, MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
 import { one, rows, type RowOf } from "../rows";
@@ -32,8 +32,10 @@ export function describeScopes(company: Company, scopes: readonly string[], from
     const hint = own(company.scopeHints, scope);
     // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
     // Guides, "Choosing how to sign in": use the conservative default (upstream audit 30; docs/readings.md).
+    // 6: web.unscoped means the website gives a signed-in browser the account's full access, whatever else is granted.
+    const unscoped = scope === BROWSER_SIGN_IN && company.web?.unscoped;
     return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope,
-      hint: hintText(hint ?? { changes: "irreversible", personalData: true }) };
+      hint: unscoped ? "On the website: anything your account can do there" : hintText(hint ?? { changes: "irreversible", personalData: true }) };
   });
 }
 
@@ -133,6 +135,10 @@ export async function startSignIn(
 ): Promise<SignInStart> {
   const requested = [...new Set(request.scopes)];
   if (requested.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
+  // 6: requested only from a Company that lists browser_session_endpoint.
+  if (requested.includes(BROWSER_SIGN_IN) && !company.web?.browserSessionEndpoint) {
+    throw new PoppyError("invalid_scope", `${company.name} has no browser join, so ${BROWSER_SIGN_IN} can't be requested there; its website is used signed out`, 0);
+  }
   if (Object.keys(company.signIn).length === 0) {
     // 3.2: with auth.disabled, refresh tokens the Company issued earlier keep working until it revokes
     // them, so one that covers the scopes is used; only a new Direct, Device or Mediated Sign-In is refused.
@@ -327,9 +333,11 @@ export async function expireSignIn(client: PoppyClient, id: string): Promise<voi
 function signedInText(company: Company, row: SignInRow, scope: string, who: "you" | "the User"): string {
   const granted = scopeSet(scope);
   const missing = row.scopes.split(" ").filter((item) => !granted.has(item));
-  return missing.length
-    ? `Signed in to ${company.name}, but ${who} approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`
-    : `Signed in to ${company.name} with "${scope}".`;
+  if (!missing.length) return `Signed in to ${company.name} with "${scope}".`;
+  const fewer = `Signed in to ${company.name}, but ${who} approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`;
+  // 0.4 Guides, "Choosing how to sign in": the Company may not grant a scope to this User at all, which looks the same.
+  return who === "you" ? fewer
+    : `${fewer} The Company may not grant those to this User at all, such as an action only the account holder can allow, which looks the same. If the task needs them, don't ask the User to sign in again just for them: tell the User the access wasn't granted, and that if they didn't leave it out, someone else on the account, such as the account holder, may need to do the task.`;
 }
 
 /** Close the sign-in's card with how it ended, and tell the model, once; the card can word it for the User. */

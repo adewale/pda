@@ -94,6 +94,21 @@ export type Card =
       /** The Company's `user_requested` event this card answers (8.10); absent when the agent offered. Only then can the Company speak first. */
       readonly eventId?: string;
     })
+  /**
+   * A step a Company's website marks for the User, and the browser handed to
+   * them for it (0.4 Browser Control 5; handover.ts). Never the live view
+   * link, which goes in its own frame to the page that asked.
+   */
+  | (CardBase & {
+      readonly kind: "browser_control";
+      readonly handoverId: string;
+      /** Our words for the step. */
+      readonly step: string;
+      /** The page with the step, on the Company's website. */
+      readonly url: string;
+      readonly state: "offered" | "user" | "returned" | "cancelled" | "declined" | "ended";
+      readonly note?: string;
+    })
   | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
 /**
@@ -137,6 +152,36 @@ export type DirectUpdate = {
   /** Text pieces of a Company message still being written: display only (spec 8.6). */
   readonly partial?: { readonly messageId: string; readonly text: string } | null;
   readonly closed?: boolean;
+};
+
+/** A condition of a standing instruction on an operation's `terms` (0.4 Ops 5; instructions.ts). */
+export type InstructionCondition =
+  | { readonly kind: "at_most"; readonly path: readonly string[]; readonly amount: string; readonly currency: string }
+  | { readonly kind: "one_of"; readonly path: readonly string[]; readonly values: readonly (string | number | boolean)[] }
+  | { readonly kind: "equals"; readonly path: readonly string[]; readonly value: string | number | boolean };
+export type InstructionBudget = { readonly amount: string; readonly currency: string; readonly days: number };
+
+/** A standing instruction as the Companies page shows it, with its ledger: each approval it decided. */
+export type StandingInstruction = {
+  readonly id: string;
+  readonly issuer: Issuer;
+  readonly company: string;
+  readonly account: string | null;
+  readonly text: string;
+  readonly conditions: readonly InstructionCondition[];
+  readonly budget: InstructionBudget | null;
+  readonly createdAt: number;
+  readonly withdrawnAt: number | null;
+  readonly approvals: readonly {
+    readonly approvalId: string;
+    readonly summary: string;
+    /** The approval's own status, and what it counts against the budget. */
+    readonly status: string;
+    readonly spend: "reserved" | "used" | "released";
+    readonly amount: string;
+    readonly currency: string;
+    readonly at: number;
+  }[];
 };
 
 export type ConnectedAccount = {
@@ -194,8 +239,10 @@ export type ActivityEntry = {
   readonly quoteBy?: "company" | "agent" | "you";
   readonly how: ActivityChannel | null;
   readonly access: ActivityAccess | null;
-  /** Who decided: the User. Null when no decision was needed. */
-  readonly decidedBy: "you" | null;
+  /** Who decided: the User, or the agent on a standing instruction of theirs (0.4 Ops 5). Null when no decision was needed. */
+  readonly decidedBy: "you" | "instruction" | null;
+  /** The standing instruction, in the User's own words, when one decided. */
+  readonly instruction?: string;
   readonly result: ActivityResult;
   /** The outcome in words: the Company's account of it, or why it failed. */
   readonly outcome?: string;
@@ -280,6 +327,8 @@ export type PoppyServerFrame =
       readonly accounts: readonly ConnectedAccount[];
       /** Sign-outs the Company hasn't accepted yet. */
       readonly signOuts: readonly PendingSignOut[];
+      /** The User's standing instructions, withdrawn ones too, newest first. */
+      readonly instructions: readonly StandingInstruction[];
     }
   | {
       readonly type: "poppy.activity";
@@ -287,6 +336,12 @@ export type PoppyServerFrame =
       /** Newest first. */
       readonly log: readonly ActivityEntry[];
     }
+  /**
+   * The live view of a browser the User controls (Browser Control 5), to the
+   * page that asked only: whoever holds the link controls the browser, so it
+   * is never stored, logged or shown to the model.
+   */
+  | { readonly type: "poppy.browser.view"; readonly handoverId: string; readonly url: string; readonly expiresAt: number }
   /** The Companies with a protocol log, newest first: sent on connect and whenever one changes. */
   | { readonly type: "poppy.protocol.index"; readonly companies: readonly ProtocolCompany[] }
   /** One Company's protocol log, oldest first, to the page that asked for it. */
@@ -318,6 +373,16 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.code"; readonly signInId: string; readonly code: string }
   | { readonly type: "poppy.signin.cancel"; readonly signInId: string }
   | { readonly type: "poppy.approval"; readonly approvalId: string; readonly decision: "approve" | "decline" }
+  /** Only the User's page writes standing instructions (0.4 Ops 5); the agent checks them again before storing. */
+  | {
+      readonly type: "poppy.instruction.add";
+      readonly issuer: Issuer;
+      readonly account?: string | null;
+      readonly text: string;
+      readonly conditions: readonly InstructionCondition[];
+      readonly budget?: InstructionBudget | null;
+    }
+  | { readonly type: "poppy.instruction.withdraw"; readonly id: string }
   /** Only the User's page can record a checked outcome; this never sends or retries an action. */
   | { readonly type: "poppy.approval.resolve"; readonly approvalId: string; readonly outcome: "performed" | "not_performed" }
   /**
@@ -336,6 +401,12 @@ export type PoppyClientFrame =
   /** Try again: one revocation the Company hasn't accepted (`PendingSignOut.id`), never an account still in use. */
   | { readonly type: "poppy.revoke.retry"; readonly id: string }
   | { readonly type: "poppy.card.dismiss"; readonly id: string }
+  /**
+   * The User takes control of a browser offered on a card, asks for a fresh
+   * live view of it, hands it back, or cancels (Browser Control 5). Only the
+   * User's page sends these; the model has no way to.
+   */
+  | { readonly type: "poppy.browser.take" | "poppy.browser.view" | "poppy.browser.return" | "poppy.browser.cancel"; readonly handoverId: string }
   /** Ask for one Company's protocol log; the answer goes to this page only. */
   | { readonly type: "poppy.protocol"; readonly key: string }
   /** Ask for the agent's diagnostics; the answer goes to this page only. Answered by the agent's log, never Poppy. */

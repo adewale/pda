@@ -37,7 +37,7 @@ CI runs documentation references on every PR. Runtime checks run for code/config
 ## Invariants to preserve
 
 - No authentication bypass, including development and tests. Identity, Company, account and approval authority come from trusted state, never model arguments.
-- Only the person's interface can approve a Company's exact terms. Task-selected photos need no extra disclosure click; unselected files and website forms retain local consent. Preserve unknown-outcome holds and durable replay/notification state.
+- Only the person's interface can approve a Company's exact terms: directly, or under 0.4 through a standing instruction the person wrote there, matched to the exact terms by a deterministic check ([decision 44](docs/decisions.md#44-operations-3-with-agent-approvals-a-real-browser-and-the-fetch-browser-under-04)). Content from a Company, a page or the model never approves. Task-selected photos need no extra disclosure click; unselected files and website forms retain local consent. Preserve unknown-outcome holds and durable replay/notification state.
 - Credentials never reach models, tools, transcripts or logs. Use `src/log.ts`, its safe constructors and redaction; no other source `console` calls. Decode boundary data and SQL rows through the existing decoders.
 - Poppy tests fail on unexpected strict-mock violations or warnings. A new protocol check needs its stable id/basis in `violations.ts` and a negative `TAMPERS` case; [Company testing](docs/company-testing.md) explains why. Keep independent oracles independent.
 - Whole-runtime Durable Object resets belong only in `test/durability/`. Ordinary tests fake external services. Interop-only fault injection stays in adapters.

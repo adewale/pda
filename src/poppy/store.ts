@@ -2,7 +2,7 @@ import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
 import { flag, jsonText, literal, object, string } from "../decode";
-import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
+import { integer, integerOf, nullable, one, table, text, textOf, type RowOf } from "../rows";
 import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
 import { protocolRevision, supportsProtocol } from "./protocol-version";
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS poppy_sessions (
   updated_at INTEGER NOT NULL,
   used_account TEXT,
   authority_generation INTEGER NOT NULL DEFAULT 0,
+  declared TEXT,
   PRIMARY KEY (issuer, label)
 );
 CREATE TABLE IF NOT EXISTS poppy_accounts (
@@ -95,7 +96,11 @@ CREATE TABLE IF NOT EXISTS poppy_conversations (
   cursor TEXT,
   context TEXT,
   last_event_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  protocol_version TEXT NOT NULL DEFAULT '0.3',
+  extensions TEXT NOT NULL DEFAULT '',
+  working INTEGER NOT NULL DEFAULT 0,
+  handoff TEXT NOT NULL DEFAULT 'none'
 );
 CREATE TABLE IF NOT EXISTS poppy_conversation_quarantine (
   kind TEXT NOT NULL,
@@ -146,8 +151,47 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   resolution_notification_pending INTEGER NOT NULL DEFAULT 0,
   resolution_notification TEXT,
   outcome_resolution TEXT,
-  outcome_resolved_at INTEGER
+  outcome_resolved_at INTEGER,
+  approver TEXT,
+  instruction_id TEXT
 );
+-- Steps a Company marked for the User, and the browser handed to them for each (0.4 Browser Control 5,
+-- handover.ts). Never a cookie or a live view link: those stay in memory and in the User's page.
+CREATE TABLE IF NOT EXISTS poppy_handovers (
+  id TEXT PRIMARY KEY,
+  issuer TEXT NOT NULL,
+  label TEXT NOT NULL,
+  url TEXT NOT NULL,
+  step TEXT NOT NULL,
+  state TEXT NOT NULL,
+  browser TEXT,
+  binding TEXT NOT NULL,
+  looked INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  ended_at INTEGER
+);
+-- The User's standing instructions (0.4 Operations 5, instructions.ts): written only from their page.
+CREATE TABLE IF NOT EXISTS poppy_instructions (
+  id TEXT PRIMARY KEY,
+  issuer TEXT NOT NULL,
+  account TEXT,
+  text TEXT NOT NULL,
+  conditions TEXT NOT NULL,
+  budget TEXT,
+  created_at INTEGER NOT NULL,
+  withdrawn_at INTEGER
+);
+-- Each approval an instruction decided, and what it counts against the instruction's budget.
+CREATE TABLE IF NOT EXISTS poppy_instruction_spend (
+  approval_id TEXT PRIMARY KEY,
+  instruction_id TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  state TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS poppy_instruction_spend_by_instruction ON poppy_instruction_spend (instruction_id, at);
 -- Approvals decided together on one card (operations.ts decideLocalBatch): the model is told once, when every one is done.
 -- A row with told = 0 after a restart is told then, from what its approvals' rows say.
 CREATE TABLE IF NOT EXISTS poppy_approval_batches (
@@ -206,10 +250,30 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "authority_generation")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN authority_generation INTEGER NOT NULL DEFAULT 0");
   }
+  // Agents created before 10 November 2026: what a Session declared (0.4, 3.4), null until its first request.
+  // Every Session stored before then spoke 0.3, so it declared 0.3 and no extensions.
+  if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "declared")) {
+    sql.exec("ALTER TABLE poppy_sessions ADD COLUMN declared TEXT");
+    sql.exec(`UPDATE poppy_sessions SET declared = '{"version":"0.3","extensions":""}'`);
+  }
+  // Agents created before 10 November 2026: the versions a conversation started in (0.4, 8.2), and 0.4's
+  // `working` and `handoff` (8.7). Every earlier conversation is a 0.3 one, and its `status` stays as it was.
+  const conversationColumns = sql.exec("PRAGMA table_info(poppy_conversations)").toArray().map((column) => column.name);
+  for (const [name, definition] of [
+    ["protocol_version", "TEXT NOT NULL DEFAULT '0.3'"],
+    ["extensions", "TEXT NOT NULL DEFAULT ''"],
+    ["working", "INTEGER NOT NULL DEFAULT 0"],
+    ["handoff", "TEXT NOT NULL DEFAULT 'none'"]
+  ] as const) {
+    if (!conversationColumns.includes(name)) sql.exec(`ALTER TABLE poppy_conversations ADD COLUMN ${name} ${definition}`);
+  }
   // Local retirement is distinct from the Company confirming a conversation closed.
   if (!sql.exec("PRAGMA table_info(poppy_conversations)").toArray().some(column => column.name === "retired_at")) {
     sql.exec("ALTER TABLE poppy_conversations ADD COLUMN retired_at INTEGER");
   }
+  // Agents created before 11 November 2026: who approved, and the instruction an agent approval rested on (0.4 Ops 5, 6).
+  const approvalColumns = sql.exec("PRAGMA table_info(poppy_approvals)").toArray().map((column) => column.name);
+  for (const name of ["approver", "instruction_id"]) if (!approvalColumns.includes(name)) sql.exec(`ALTER TABLE poppy_approvals ADD COLUMN ${name} TEXT`);
   // Agents created before 28 October 2026: what an approval card shows of a Company's terms (Ops 5).
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms TEXT");
@@ -391,7 +455,9 @@ export const sessionsTable = table("poppy_sessions", {
   /** 0.3: the account the Session was used with, kept after it continues signed out (5.4, 5.5); null before 0.3. */
   used_account: nullable(text),
   /** Local authorization epoch, independent of the Session's protocol identity. */
-  authority_generation: integer
+  authority_generation: integer,
+  /** JSON `Declaration` (declaration.ts) its requests carry, fixed for the `sid`; null before its first request. */
+  declared: nullable(textOf(jsonText(object({ version: string, extensions: string }))))
 });
 export const accountsTable = table("poppy_accounts", {
   issuer: issuerColumn,
@@ -454,7 +520,22 @@ export const conversationsTable = table("poppy_conversations", {
   cursor: nullable(text),
   context: nullable(text),
   last_event_at: integer,
-  created_at: integer
+  created_at: integer,
+  /**
+   * The versions the conversation started in (0.4, 8.2): its protocol
+   * version, and the `Poppy-Extensions` its Session declared (declaration.ts).
+   * Its requests go in a Session with these while the Company lists them.
+   */
+  protocol_version: text,
+  extensions: text,
+  /**
+   * 0.4's `working` and `handoff` (8.7). `status` stays the local marker
+   * every version shares: 0.3's own value, or under 0.4 `closed`, `queued`
+   * (a pending handoff), `working` or `idle`, derived in conversations.ts
+   * `nextState`, so open conversations are found the same way for both.
+   */
+  working: integerOf(flag),
+  handoff: text
 });
 export const conversationQuarantineTable = table("poppy_conversation_quarantine", { kind: text, source_id: text, payload: text, quarantined_at: integer });
 export const conversationMigrationTable = table("poppy_conversation_migration", { slot: integer, state: textOf(literal("pending", "done")) });
@@ -482,8 +563,24 @@ export const approvalsTable = table("poppy_approvals", {
   resolution_notification_pending: integerOf(flag),
   resolution_notification: nullable(savedApprovalNotification),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),
-  outcome_resolved_at: nullable(integer)
+  outcome_resolved_at: nullable(integer),
+  /** Who approved (0.4 Ops 6): null until decided, and for every approval before agent approvals. */
+  approver: nullable(textOf(literal("user", "agent"))),
+  /** The standing instruction an agent approval rested on. */
+  instruction_id: nullable(text)
 });
+export const instructionsTable = table("poppy_instructions", {
+  id: text, issuer: issuerColumn, account: nullable(text), text: text, conditions: text, budget: nullable(text), created_at: integer, withdrawn_at: nullable(integer)
+});
+export const instructionSpendTable = table("poppy_instruction_spend", {
+  approval_id: text, instruction_id: text, amount: text, currency: text, state: textOf(literal("reserved", "used", "released")), at: integer
+});
+export const handoversTable = table("poppy_handovers", {
+  id: text, issuer: issuerColumn, label: text, url: text, step: text,
+  state: textOf(literal("offered", "user", "returned", "cancelled", "declined", "ended")),
+  browser: nullable(text), binding: text, looked: integer, created_at: integer, started_at: nullable(integer), ended_at: nullable(integer)
+});
+export type HandoverRow = RowOf<typeof handoversTable.row>;
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer, notification: nullable(savedApprovalNotification) });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
 export const taskCallsTable = table("poppy_task_calls", { call_id: text, request_id: text, request_hash: text });

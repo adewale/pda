@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-/** Run the verified upstream CLI (optionally a separately patched copy) against local HTTPS/workerd. */
+/**
+ * Run the verified upstream CLI (optionally a separately patched copy) against local HTTPS/workerd.
+ * `--protocol <version>` picks the pinned kit for that version (spec/upstream.json); the default is the
+ * newest version the agent speaks. A kit for a version the mock doesn't speak yet runs against the mock
+ * declaring that version, so its results show what the mock still lacks.
+ */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -15,7 +20,12 @@ import { localAgent, localFetch } from "../test/company-kit/local-https.mjs";
 import { dpopControls } from "../test/company-kit/dpop-controls.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
-const snapshot = path.join(root, "spec/company-kit-2026-11-03");
+const args = process.argv.slice(2);
+const { pins } = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
+const protocol = args.includes("--protocol") ? args[args.indexOf("--protocol") + 1] : pins.filter(pin => pin.runtime).at(-1).protocolVersion;
+const pin = pins.find(candidate => candidate.protocolVersion === protocol);
+if (!pin) throw new Error(`No pinned Company kit for protocol version ${protocol}`);
+const snapshot = path.join(root, pin.kit);
 const kit = path.join(snapshot, "kit");
 let cli = path.join(kit, "validate/index.ts");
 const manifest = JSON.parse(readFileSync(path.join(snapshot, "manifest.json"), "utf8"));
@@ -23,11 +33,13 @@ const digest = data => createHash("sha256").update(data).digest("hex");
 assert.equal(digest(readFileSync(path.join(snapshot, "upstream.zip"))), manifest.archiveSha256, "The original Company kit archive changed");
 for (const [file, sha] of Object.entries(manifest.files)) assert.equal(digest(readFileSync(path.join(snapshot, file))), sha, `Upstream file changed: ${file}`);
 
-const args = process.argv.slice(2);
 const withDpop = args.includes("--with-dpop");
 const output = args.includes("--output") ? args[args.indexOf("--output") + 1] : undefined;
-if (args.includes("--verify-pin")) { process.stdout.write(`Verified Company kit: ${Object.keys(manifest.files).length} unmodified files and original archive.\n`); process.exit(0); }
-if (!output) throw new Error("Usage: node scripts/check-company-kit.mjs --output <receipt.json> [--reviewed-findings] | --verify-pin");
+if (args.includes("--verify-pin")) { process.stdout.write(`Verified ${protocol} Company kit: ${Object.keys(manifest.files).length} unmodified files and original archive.\n`); process.exit(0); }
+if (!output) throw new Error("Usage: node scripts/check-company-kit.mjs [--protocol <version>] --output <receipt.json> [--reviewed-findings] [--with-dpop] | --verify-pin");
+// The DPoP probe patch and the hosted Company are written for the 0.3 kit; the 0.4 kit runs against the mock alone until they move.
+if (withDpop && protocol !== "0.3") throw new Error("--with-dpop patches the 0.3 kit only");
+const findingsFile = path.join(root, protocol === "0.3" ? "test/company-kit/reviewed-findings.json" : `test/company-kit/reviewed-findings-${protocol}.json`);
 const directory = mkdtempSync(path.join(tmpdir(), "pda-company-kit-"));
 chmodSync(directory, 0o700);
 const dpopPatch = path.join(root, "test/company-kit/dpop-probes.patch");
@@ -115,9 +127,11 @@ try {
   const proofControls = [];
   // "issuerless": the mock with no OAuth issuer (3.2, upstream 850a46d), signed-out only, so upstream's own
   // validator, not ours, judges the case of a 404 for the domain's protected resource metadata.
-  for (const profile of ["lenient", "strict", "bearer", "hosted", "issuerless"]) {
+  for (const profile of ["lenient", "strict", "bearer", ...(protocol === "0.3" ? ["hosted"] : []), "issuerless"]) {
     if (profile !== "hosted") {
-      await mock.configure({ protocolVersion: "0.3", strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, issuerless: profile === "issuerless" });
+      // One version only: a mock that also served 0.3 would take a request without Poppy-Version as 0.3,
+      // our reading of 0.4 3.4 for a Company serving both (docs/readings.md#v04-version-missing).
+      await mock.configure({ protocolVersion: protocol, strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true, feedbackAlternative: true, issuerless: profile === "issuerless" });
     }
     const target = profile === "hosted" ? companyOrigin : "https://kit.shop.test";
     const run = await command(["--import", path.join(root, "test/company-kit/local-https.mjs"), cli, "check", target, "--allow-private-addresses", "--json", ...(profile === "hosted" ? ["--probe", `${companyOrigin}/products`] : [])], { PDA_COMPANY_KIT_NETWORK: networkFile });
@@ -127,10 +141,10 @@ try {
     process.stdout.write(`${profile}: ${JSON.stringify(report.summary.total)}\n`);
     if (withDpop && profile !== "bearer" && profile !== "issuerless") proofControls.push({ profile, results: await dpopControls({ kit, directory, target, fetcher: (url, init) => localFetch(agent, url, init) }) });
   }
-  const limits = JSON.parse(readFileSync(path.join(root, "test/company-kit/reviewed-findings.json"), "utf8"));
   let review, reviewError;
   if (args.includes("--reviewed-findings")) {
     try {
+      const limits = JSON.parse(readFileSync(findingsFile, "utf8"));
       const sorted = values => [...values].sort();
       const dpop = limits.dpopPrerequisite;
       for (const run of runs) {
@@ -161,7 +175,7 @@ try {
   const effects = { mock: mockState.performs, hosted: hostedState.performs };
   assert.deepEqual(effects, { mock: 0, hosted: 0 }, "The signed-out kit must perform no Company action");
   const receipt = {
-    archiveSha256: manifest.archiveSha256, source: manifest.source, upstreamFilesVerified: Object.keys(manifest.files).length,
+    protocolVersion: protocol, archiveSha256: manifest.archiveSha256, source: manifest.source, upstreamFilesVerified: Object.keys(manifest.files).length,
     runtime: "local workerd through real HTTPS; certificate and hostname verified", validator: withDpop ? "separate temporary upstream copy with DPoP token-probe patch" : "unmodified upstream CLI",
     ...(withDpop ? { patchSha256: digest(readFileSync(dpopPatch)), dpopScope: "ES256 token proofs; nonce preflight uses an independent assertion before the tested controls" } : {}),
     identity: "fresh upstream-generated test identity, provisioned at the dummy Company's existing allowlisted client_id",

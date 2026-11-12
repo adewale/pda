@@ -20,6 +20,16 @@ describe("approval message acknowledgement is delivery evidence, never completio
     expect(deliveries.outcome(row, endpoint, conversation)).toEqual({ status: "sent", outcome: "unknown" });
     expect(deliveries.outcome({ ...row, status: "done" }, endpoint, conversation)).toBeNull();
   });
+  it("takes a 0.4 acknowledgement, conversation_id alone, for a request whose id is the message's (8.3)", async () => {
+    const at04 = (body: unknown) => new Request(`${endpoint}/${conversation.remote_id}/messages`, { method: "POST", headers: { "content-type": "application/json", "Poppy-Version": "0.4" }, body: JSON.stringify(body) });
+    const extensions = { operations: { approval: { operation_id: approval.operation_id, revision: approval.revision } } };
+    const deliveries = new ApprovalAcknowledgements();
+    await deliveries.observe(at04({ id: "msg_one", message: { author: { type: "agent" }, extensions } }), response({ conversation_id: conversation.remote_id }));
+    expect(deliveries.outcome(row, endpoint, conversation)).toEqual({ status: "sent", outcome: "unknown" });
+    const withoutRequestId = new ApprovalAcknowledgements();
+    await withoutRequestId.observe(at04({ message: { id: "msg_one", author: { type: "agent" }, extensions } }), response({ conversation_id: conversation.remote_id }));
+    expect(withoutRequestId.outcome(row, endpoint, conversation)).toBeNull();
+  });
   it("keeps a lost response unknown even if the peer might have performed the action", () => {
     expect(new ApprovalAcknowledgements().outcome(row, endpoint, conversation)).toBeNull();
   });

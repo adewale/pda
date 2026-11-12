@@ -1,9 +1,9 @@
 /** Durable OpenAPI task dispatch, file consent, replay and approval execution. */
 import { type Json, parseStrictJson, isObject, canonicalJson, toJson } from "./json";
-import { type OperationV2, approvalForModel, parseOperationV2, approvable } from "./operations-v2";
+import { type OperationV2, approvalForModel, parseOperationV2, approvable, operationsVersion, toSend } from "./operations-v2";
 import { type Company } from "./discovery";
 import { UNUSABLE, unusableApproval, proposeApproval, expired } from "./api-approvals";
-import { PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
+import { extensionRequiredBody, PoppyClient, withUnreadableAnswer, withAnswer, PoppyError } from "./client";
 import { CheckedApiRequest, readOnlyScope } from "./openapi-request";
 import { type AuthorityGuard, hasTaskCall, requestGuard, bindingSnapshot, executionGuard } from "./api-authority";
 import { openApi } from "./openapi-document";
@@ -16,6 +16,7 @@ import { taskProjection, resumeRecordedTask, proposeLocal, dispatchTaskRequest, 
 import { TaskFiles } from "./task-files";
 import { isTaskRequest } from "./approval-outcome";
 import { companyErrorCode } from "./error-codes";
+import { readDecline } from "./declines";
 
 /** What a sent API call got back. */
 type ApiAnswer =
@@ -40,7 +41,9 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     label,
     // The server's own protected resource metadata says whether it takes only its own tokens (4.5).
     service: (await openApi(client, api)).base,
-    ...(readOnly ? { scope: readOnly } : {}), ...guard
+    ...(readOnly ? { scope: readOnly } : {}), ...guard,
+    // Without an approval, the call means the same in any version (3.4).
+    ...(checked.call.approval ? {} : { versionNeutral: true })
   });
   const text = await client.readBody(response).catch(error => { throw withUnreadableAnswer(error, response.status); });
   let body: Json = null;
@@ -51,7 +54,7 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
   }
   // The Company wants the User's approval of exact terms first (Ops 4); nothing was done.
   if (response.status === 403 && isObject(body) && body.error === "approval_required" && company.extensions.operations) {
-    const operation = parseOperationV2(body.operation);
+    const operation = parseOperationV2(body.operation, operationsVersion(company) ?? "2");
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
       return { kind: "unusable", body };
@@ -65,18 +68,8 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     }, executingApproval);
     return { kind: "approval", operation, approvalId };
   }
-  if (response.status === 403 && isObject(body) && body.error === "extension_required") {
-    const extension = typeof body.extension === "string" ? body.extension : undefined;
-    throw withAnswer(
-      new PoppyError(
-        "extension_required",
-        `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
-        403,
-        { body, ...(extension ? { extension } : {}) }
-      ),
-      403
-    );
-  }
+  const required = extensionRequiredBody(company, body, response.status);
+  if (required) throw required;
   return { kind: "answered", status: response.status, body };
 }
 
@@ -203,7 +196,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   }
   const guard = executionGuard(client, company, label, approval.binding, execution);
   if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
-  const checked = await CheckedApiRequest.check(client, company, approval.call);
+  // Under version 3 the approval says who approved it, when and how (0.4 Ops 6).
+  const sending = approval.call.approval ? { ...approval.call, approval: toSend(company, approval.call.approval, execution) } : approval.call;
+  const checked = await CheckedApiRequest.check(client, company, sending);
   if (checked.method !== approval.method || checked.url !== approval.url) {
     throw new PoppyError(
       "approval_changed",
@@ -224,6 +219,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   if (answer.kind === "approval") {
     throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
   }
+  // 0.4 Ops 6: the Company declined the approval we sent; nothing was done.
+  const declined = answer.kind === "answered" && answer.status === 403 && approval.call.approval ? readDecline(company, answer.body, approval.call.approval, true) : null;
+  if (declined) throw withAnswer(declined, 403);
   if (answer.kind === "answered" && (answer.status < 200 || answer.status >= 300)) {
     const { status, body } = answer;
     const code = companyErrorCode(isObject(body) ? body.error : undefined, status);

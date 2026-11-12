@@ -1,0 +1,316 @@
+{
+  "protocolVersion": "0.4",
+  "revision": "2026-11-11",
+  "commit": "ed474089d0fdeafae9584a95cfcc485209d8b124",
+  "scope": "Disposition of every entry in the 0.4 changelog as retrieved on 11 November 2026 (upstream commit ed47408), when 0.4 was published as the 1.0 release candidate. Planned names the work item in the upgrade plan that implements it; Done records implementation with the stated evidence and limits. A fix in a draft 1.0 gets its own pin.",
+  "changes": [
+    {
+      "change": "Direct Sign-In preferred",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/properties/poppy.test.ts",
+      "notes": "chooseSignInType already tries Direct, then Device, then Mediated. The 0.4 validator profile warns when a Company offers Device Sign-In but not Direct (direct-sign-in-preferred)."
+    },
+    {
+      "change": "Sign-ins someone else started",
+      "disposition": "Done",
+      "implementation": "src/index.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Already so before 11 November. The Direct Sign-In redirect goes to our own callback, which reaches only the agent of the person signed in to PDA in that browser, and only the agent that recorded the state can finish it (4.2): a link forwarded to someone else fails, whether their browser is signed in to PDA as another person or to no one. Links open in the User's own browser; Device Sign-In keeps RFC 10027's practices (short-lived requests, the User's own approval). The mock's consent page now names the agent, worded as connecting, and says to continue only if the User just asked it to."
+    },
+    {
+      "change": "Several protocol versions",
+      "disposition": "Done",
+      "implementation": "src/poppy/protocol-version.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Done: F1 chooses a version from poppy.json and supported_versions, through the validator; F2 sends Poppy-Version on every Session request of a 0.4 Session; R1 fetches poppy.json afresh after version_unsupported and sends an API call without an approval once more in a new Session if the choice changed; M1 gives the mock linked documents and version checks; F7 validates them. Kit: session.version-missing and session.version-unsupported pass; discovery.supported-versions and discovery.versions-same-company are skipped by the reviewed single-version run (readings.md#v04-version-missing)."
+    },
+    {
+      "change": "Extensions declared per request",
+      "disposition": "Planned",
+      "implementation": "src/poppy/routes.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "F1 (done) reads each extension as a list of versions; F2 (done) sends Poppy-Extensions, fixed per Session, and keeps the client metadata's extensions for 0.3 Companies, which 0.4 ignores; M1 takes the declaration from the header."
+    },
+    {
+      "change": "Conversations across versions",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "F5 stores the versions each conversation started in. C6 is done: its requests go in a Session with those versions, a Session of its own when the Company now chooses others but still lists them; when it doesn't, the conversation closes and the model is told to start a new one. The mock can refuse messages from other versions with version_mismatch."
+    },
+    {
+      "change": "`poppy:browser-sign-in` for signed-in browser join",
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Done (W1). The scope is requested only from a Company that lists browser_session_endpoint, and only when the model asks for it; web.unscoped is read first and shown to the model and on the sign-in card. A join sends the access token only when the Session holds the scope, and authorizes the same code again without it after insufficient_scope, so the browser joins signed out and the model is told why. The mock grants the scope in Direct and Device Sign-In, refuses a token without it, can set web.unscoped, and records a request for it from a Company without browser join. The 0.4 validator profile checks scopes_supported (browser-sign-in-unsupported)."
+    },
+    {
+      "change": "`web.unscoped`",
+      "disposition": "Planned",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "W2 reads it before requesting the scope. Kit: discovery.web-unscoped."
+    },
+    {
+      "change": "`web.disabled`",
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W2 is done: poppy_discover says pages are readable only, poppy_browse opens pages and follows links but refuses to fill or submit a form, and an approved submit is refused if the Company has set it since. The mock can set it and records a form sent there (web.disabled-form). Pages fetched without a browser get the Session header under W4. Kit: discovery.web-disabled passes."
+    },
+    {
+      "change": "Session header on website pages fetched without a browser",
+      "disposition": "Done",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W4 is done, 0.4 only: under 0.3 website pages never carry the header. Per decision 44, the fetch browser counts as a browser where the Company lists browser_session_endpoint, and as the agent's own HTTP client elsewhere: a signed-out Session header with the Session's declared versions and the operator signature, to organization.domain only, never with an access token, re-signed on a redirect only on that host, and dropped for one retry of a page (not a form) after invalid_session. The mock verifies a page's header and records one off-host (page.session-off-host), beside a token (page.token), or in a 0.3 request (page.session-0.3)."
+    },
+    {
+      "change": "Conversation state in four fields",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Done. C1: a 0.4 conversation stores working, handoff and responder from reads, POST replies, state events and streamed working events, and derives a local status (closed, queued, working or idle) for scheduling; F5 migrated the rows, index and protocol-log trigger. U1 to U3: the model's tools, Activity and the protocol log show the four fields, never the derived status; 0.3 conversations keep status and responder. Kit: conversations.events-schema, conversations.closed-not-working and conversations.working-settles pass."
+    },
+    {
+      "change": "Requests are accepted, then acted on",
+      "disposition": "Planned",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "C2: a POST without wait returns only conversation_id; read until working is false; send the next request only after acceptance when order matters."
+    },
+    {
+      "change": "Request IDs on every conversation request",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C2: every 0.4 conversation POST carries an id stored before sending and reused on retry; a message takes its request's ID and has none of its own; handoff and close store theirs. The mock requires the ID and answers request_id_conflict for another path or body. Kit: conversations.missing-request-id, conversations.invalid-request-id, conversations.request-id-boundaries, conversations.request-id-conflict and conversations.request-id-other-conversation pass; conversations.request-id-other-url waits for the cancel endpoint (C3)."
+    },
+    {
+      "change": "Withdrawing a handoff",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C3: poppy_handoff_cancel sends a request ID to handoff/cancel and reads the result, since the Company may keep looking; a 0.3 conversation refuses it. Kit: conversations.cancel-without-handoff, conversations.closed-handoff-cancel and conversations.request-id-other-url pass."
+    },
+    {
+      "change": "What a message took into account",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C5 is done: the agent's own messages carry as_of_cursor, the cursor of the last read it handled, frozen with the request so a retry repeats it; never on the User's words. A Company Agent message's as_of_request is shown to the model as a hint, saying whether it covers our latest message. The mock sends as_of_request and records as_of_cursor on a human message or naming a cursor it never gave."
+    },
+    {
+      "change": "Closing doesn't wait its turn",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C4: under 0.4 a close reads first while the Company is working, then sends the close; the row stays open until a read says closed, and the tool reports closing. Kit: conversations.close, conversations.close-event and conversations.close-again pass."
+    },
+    {
+      "change": "Task coverage per Session",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "T1 is done: the agent gets the tasks response for each Session with the Session header and no token, even signed in, reuses it only in that Session as its caching headers allow, and takes excluded tasks and feedback.endpoint from it. The mock serves it and records a token. Kit: tasks.response, tasks.alternative-references and the feedback checks pass. T2 is done: the mock publishes a skill index (tasks.skill-index passes), and the agent ignores it, which 9.4 allows (decision 46)."
+    },
+    {
+      "change": "Browser Control extension",
+      "disposition": "Done",
+      "implementation": "src/poppy/handover.ts",
+      "evidence": "test/browser-control.test.ts",
+      "notes": "B1 to B5 as decision 47 narrowed decision 44: the agent keeps the fetch browser, which shows the model each mark and never takes a marked step (a marked link, a marked field or any field of an interaction form, a marked form or one whose default or named button is marked). A marked step offers the User control on a card, and nothing waits on it. Taking control starts a Browser Run browser for the same Session with the fetch browser's cookies, held by guardrails to the Company's hosts, with navigator.poppy.controller read-only as user on HTTPS pages of organization.domain and its subdomains; its live view link goes only to the page that asked and is never stored. While the User holds control the model's browser actions are refused; only the User ends it, the browser closes keeping nothing, and the model must open a page again first. Declared only where the Company lists it beside browser join and the deployment turns BROWSER_CONTROL on with Browser Run; it ships off (decision 48). Mock: browserControl (a marked return form, field and link); TAMPERS row browser-control.marked-step. Not modelled: controls outside a form that name it in form (readings.md#v04-marked-steps)."
+    },
+    {
+      "change": "Operations on websites",
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "W3 is done, per decisions 43 and 44. A form submit the User approved that a joined browser's website answers with 403 and Poppy-Operation becomes an exact-terms card: the reference comes only from the final response's own header, read by our code and never shown to the model, and only when sid names the Session that browser joined at a Company listing the operations endpoint with browser join. The agent fetches the operation at endpoint in that Session, and the card (or a standing instruction) approves it there with Poppy-Approval, never through the browser; the browser then repeats exactly the approved submission. A repeated request that fails, or comes back with a new reference, is followed by a lookup: performed is done, performing is unknown, an approval still waiting did nothing. A decline at endpoint is shown and never resent. The local form-consent card stays in front. Mock: webOperations (exchange form, endpoint, recorded approvals used once, status lookups) and webErrorAfterPerforming; TAMPERS rows web-operation.unknown-ref, web-operation.approval-in-browser and web-operation.approved-elsewhere."
+    },
+    {
+      "change": "Operations version 3: agent approvals",
+      "disposition": "Done",
+      "implementation": "src/poppy/instructions.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3: 0.4 Sessions declare operations version 3, 0.3 Sessions keep version 2, and every approval carries approver and reference, the approval's own ID, unique per approval and never sent to two Companies. AG1 and AG2 (decision 44): the User writes standing instructions on the Companies page, never the model; when an operation arrives, a deterministic check approves it as the agent (approver agent, no input_type) only if every condition of one instruction holds on its terms, in exact decimal arithmetic and the same currency, its budget has room, and the Session holds no scope that can make changes that can't be undone. Otherwise the User's card stays. A withdrawn instruction stops approvals not yet sent; Activity shows each one and the instruction it rested on. A revision answering an agent approval, or after a decline, goes to the User (11 November text). Kit: approval.schema.json through the schema oracle (V0)."
+    },
+    {
+      "change": "Operations require terms",
+      "disposition": "Done",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3: under version 3 an operation needs terms and may omit summary. The card shows the Company's summary when there is one, and otherwise every value in terms, labelled by its path; the approval stays bound to the exact terms. Version 2 keeps its required summary. Kit: operation.schema.json."
+    },
+    {
+      "change": "Operations: declining an approval",
+      "disposition": "Done",
+      "implementation": "src/poppy/declines.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "Under Operations 3 a decline of the approval we sent (its operation_id and revision) at an API (403 approval_declined), an MCP tool (an error result's structuredContent) or in a later Company message (extensions.operations.declined) settles the approval as refused, never resent; the card shows the reason and alternative as the Company's words and the model is told not to retry. A decline in a message clears the unknown-outcome hold. After a decline, and after the Company answers an agent approval with a new revision, only the User approves that operation again. A website's operation is declined at endpoint, as at an API (W3). Mock: declineApprovals and reviseOnFirstApproval; TAMPERS rows approval.declined-resent, approval.agent-after-decline and approval.agent-after-revision. Kit: approval-declined.schema.json."
+    },
+    {
+      "change": "`auth.disabled` without other clients",
+      "disposition": "Company obligation",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "K1: the mock answers refresh with invalid_grant and revocation with success. No agent change: it already refuses sign-in with auth.disabled."
+    },
+    {
+      "change": "Client assertions when no tokens exist",
+      "disposition": "Company obligation",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "K1: the mock may skip assertion checks while it has issued no refresh token."
+    },
+    {
+      "change": "Scopes in the protected resource metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "0.4 only: discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's; a 0.3 Company's issuer list stays the only one. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. Mock: resourceScopes."
+    },
+    {
+      "change": "`extension_required` in a JSON body at APIs",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "X1 is done: one reading of the JSON body names the extension for the model and the User at OpenAPI operations, MCP servers and protocol endpoints, beside 0.3's WWW-Authenticate challenge. The mock answers in a body under 0.4, at its OpenAPI and MCP servers alike."
+    },
+    {
+      "change": "Device sign-in links on the issuer or Company domain",
+      "disposition": "Planned",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "K3 applies to the 0.4 profile only: under 0.3 a multi-domain issuer may legally put its device page on another protected resource's host, and refusing it ends the sign-in."
+    },
+    {
+      "change": "Refresh token lifetimes left to the Company",
+      "disposition": "Company obligation",
+      "implementation": "test/mock-company/core.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "No agent change. The mock's refreshTokenTtl only sets an expiry at issue, so nothing depends on a fixed lifetime."
+    },
+    {
+      "change": "A DPoP key per User ID",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "interop/test/dpop-keys.test.ts",
+      "notes": "H1: DPoP keys are held by issuer and User ID, so a changed User ID gets a new key. Each issuer still has one stored User ID; the key stays in memory and is regenerated after a restart. Shipped on 0.3, which allows it."
+    },
+    {
+      "change": "Checking protected resource metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "interop/test/resource-metadata-refresh.test.ts",
+      "notes": "H2: derived metadata counts only when its resource is exactly the service URL, or the origin and path the well-known segment was inserted into (interop/test/service-resource.test.ts). Per decision 43, metadata from a resource_metadata challenge must name the same service exactly. MCP reads only the URL derived from the server (src/poppy/mcp-transport.ts). The mock records resource.unverified-target for a token request naming any other resource. Shipped on 0.3, which allows it."
+    },
+    {
+      "change": "Scopes described twice",
+      "disposition": "Planned",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "K2: describeScopes prefers an OpenAPI description today, the 0.3 order; 0.4 prefers auth.scopes."
+    },
+    {
+      "change": "One User ID per delegated key at the Company",
+      "disposition": "Company obligation",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "The agent already makes one delegated key per User ID (5.2). K1 lets the mock reject a key reused for another User ID."
+    },
+    {
+      "change": "Sessions found by User ID too",
+      "disposition": "Company obligation",
+      "implementation": "test/mock-company/core.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "K1 keys mock Sessions by client_id, sid and User ID, keeping the violation for an agent that changes sub or agent_id within a Session. No change on the wire."
+    },
+    {
+      "change": "Where the browser-session endpoint can be",
+      "disposition": "Done",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "test/fetch-browser.test.ts",
+      "notes": "The endpoint's host was already allowed for the token (tokenHostAllowed). The fetch browser's cookies were all host-only, so a cookie set at accounts.example.com never reached www.example.com. Now a cookie whose Domain is the Company's organization.domain, or under it, covers that domain's hosts; any other Domain still leaves it host-only, which stands in for a public suffix list (readings.md#v04-cookie-domain)."
+    },
+    {
+      "change": "Operations: what a revision covers",
+      "disposition": "Planned",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "O1: a revision may keep its number when only summary changes."
+    },
+    {
+      "change": "Operations: new terms for the same action",
+      "disposition": "Planned",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "O1: review how the terms card presents a new revision for the same operation_id."
+    },
+    {
+      "change": "Operations: approval in another Session",
+      "disposition": "Done",
+      "implementation": "src/poppy/authority.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "A1 is done, per decision 43: under Operations 3 an API, MCP or conversation approval holds in any Session of the same agent and User with the same account, so one the Company ends before the approval is sent is followed by the new Session. Signed-out stays separate from signed-in, and a sign-out still voids an approval (local policy: the withdrawal generation must match). 0.3 approvals and website form consent stay in their Session."
+    },
+    {
+      "change": "When and how the User approved",
+      "disposition": "Done",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "O3 sends approved_at (Unix seconds, when the User's decision claimed the card; an Integer in the header) and input_type \"tap\", which carries no personal or device data, with approver user under version 3. The mock parses Integer members and records a String approved_at."
+    },
+    {
+      "change": "Operations: what counts as the same request",
+      "disposition": "Planned",
+      "implementation": "test/mock-company/operations.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "O1: the agent already repeats the same request; the mock compares requests by meaning, and the agent may approve an earlier revision."
+    },
+    {
+      "change": "Protecting refresh tokens",
+      "disposition": "Guidance",
+      "implementation": "src/poppy/keys.ts",
+      "evidence": "docs/key-rotation.md",
+      "notes": "The client signing keys are Worker secrets, apart from sealed refresh tokens. Rotating DPoP keys at refresh is optional; H1 keeps one per User ID."
+    },
+    {
+      "change": "Operations without storage",
+      "disposition": "Guidance",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "Company guidance. The agent side, approving earlier terms the User prefers, is part of O1."
+    },
+    {
+      "change": "Feedback operations for other clients",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Feedback goes only to feedback.endpoint through poppy_feedback; under 0.4 that endpoint comes from the tasks response (T1)."
+    },
+    {
+      "change": "Advertising CIMD support",
+      "disposition": "Not used",
+      "implementation": "src/poppy/routes.ts",
+      "evidence": "docs/poppy-0.4-upgrade.md",
+      "notes": "Company guidance for clients other than Personal Agents."
+    },
+    {
+      "change": "Scopes the Company doesn't grant",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "When a sign-in grants fewer scopes than requested, the model is told the Company may not grant them to this User at all, not to send the User to sign in again just for them, and to say someone else on the account may need to do the task. The User's own card is unchanged."
+    },
+    {
+      "change": "Passkeys on the consent page",
+      "disposition": "Guidance",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "spec/draft-0.4-retrieved-2026-11-11/pages/0.4-guides.md",
+      "notes": "Company guidance for its own sign-in pages. PDA never collects a password or passkey for Direct or Device Sign-In; the User signs in on the Company's page in their own browser, where a passkey works. Mediated Sign-In, where it can't, is unchanged."
+    }
+  ]
+}

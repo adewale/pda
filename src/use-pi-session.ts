@@ -20,6 +20,7 @@ import type {
   ActivityTask,
   Card,
   ConnectedAccount,
+  StandingInstruction,
   DirectUpdate,
   PendingSignOut,
   PoppyClientFrame,
@@ -57,9 +58,13 @@ export type PoppyView = {
   readonly accounts: readonly ConnectedAccount[];
   /** Sign-outs the Company hasn't accepted yet: its access is still live there. */
   readonly signOuts: readonly PendingSignOut[];
+  /** The User's standing instructions (0.4 Ops 5), with each one's ledger. */
+  readonly instructions: readonly StandingInstruction[];
   readonly direct: Readonly<Record<string, DirectUpdate>>;
   readonly activity: ActivityView | null;
   readonly protocol: ProtocolView;
+  /** Live views of browsers the User controls, by handover (Browser Control 5): this page's only, never stored. */
+  readonly browserViews?: Readonly<Record<string, { readonly url: string; readonly expiresAt: number }>>;
 };
 
 export const EMPTY_PROTOCOL: ProtocolView = { companies: null, logs: {} };
@@ -135,7 +140,7 @@ const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
+  poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], instructions: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
   summaries: [],
   outbox: []
@@ -156,7 +161,7 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, cards: replaced ? frame.cards : [...view.cards.filter((card) => !ids.has(card.id)), ...frame.cards] };
     }
     case "poppy.settings":
-      return { ...view, accounts: frame.accounts, signOuts: frame.signOuts };
+      return { ...view, accounts: frame.accounts, signOuts: frame.signOuts, instructions: frame.instructions };
     case "poppy.direct":
       return { ...view, direct: { ...view.direct, [frame.update.conversationId]: frame.update } };
     case "poppy.activity":
@@ -167,6 +172,8 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, protocol: { ...view.protocol, logs: { ...view.protocol.logs, [frame.key]: frame } } };
     case "poppy.diagnostics":
       return { ...view, protocol: { ...view.protocol, diagnostics: { text: frame.text, at: frame.at, ...(frame.flowId ? { flowId: frame.flowId } : {}) } } };
+    case "poppy.browser.view":
+      return { ...view, browserViews: { ...view.browserViews, [frame.handoverId]: { url: frame.url, expiresAt: frame.expiresAt } } };
     default:
       return view;
   }

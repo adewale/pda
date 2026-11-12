@@ -9,7 +9,10 @@ import { memorySql } from "../impls/pda-agent/sqlite.ts";
 
 const ISSUER = "https://auth.books.example";
 const SERVICE = "https://api.books.example/v1";
-const RESOURCE = "https://api.books.example/v2";
+/** Another resource on the same host; metadata naming it at the service's URL is never used (RFC 9728 3.3). */
+const OTHER = "https://api.books.example/v2";
+/** The identifier for a request that names no service: its own URL (RFC 9728 3.3). */
+const REQUEST = `${SERVICE}/messages`;
 const HINT = "https://api.books.example/resource-metadata";
 const INITIAL = "https://api.books.example/.well-known/oauth-protected-resource/v1";
 
@@ -43,14 +46,14 @@ async function fixture(fetcher: PoppyHost["fetcher"]) {
 }
 
 const challenge = (hint = HINT) => new Response(null, { status: 401, headers: { "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${hint}"` } });
-const metadata = (resource = RESOURCE, issuer = ISSUER) => Response.json({ resource, authorization_servers: [issuer] }, { headers: { "Cache-Control": "max-age=86400" } });
+const metadata = (resource = REQUEST, issuer = ISSUER) => Response.json({ resource, authorization_servers: [issuer] }, { headers: { "Cache-Control": "max-age=86400" } });
 
 describe("resource metadata refreshed after invalid_token", () => {
   it("replaces a cached default audience and retries with the resource from the challenge", async () => {
     const resources: string[] = [], auth: string[] = [], publicReads: Request[] = [];
     const f = await fixture(async (request) => {
       if (request.url === INITIAL) { publicReads.push(request); return metadata("https://books.example"); }
-      if (request.url === HINT) { publicReads.push(request); return metadata(); }
+      if (request.url === HINT) { publicReads.push(request); return metadata(SERVICE); }
       if (request.url === `${ISSUER}/token`) {
         resources.push(new URLSearchParams(await request.text()).get("resource")!);
         return Response.json({ access_token: "resource-access", token_type: "Bearer", expires_in: 3600 });
@@ -60,7 +63,7 @@ describe("resource metadata refreshed after invalid_token", () => {
     });
     await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
     await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
-    expect(resources).toEqual([RESOURCE]);
+    expect(resources).toEqual([SERVICE]);
     expect(auth).toEqual(["Bearer initial-access", "Bearer resource-access", "Bearer resource-access"]);
     expect(publicReads.map((request) => request.url)).toEqual([INITIAL, HINT]);
     for (const request of publicReads) {
@@ -83,22 +86,31 @@ describe("resource metadata refreshed after invalid_token", () => {
     expect({ reads, calls, grants }).toEqual({ reads: 1, calls: 2, grants: 2 });
   });
 
-  it("drops a stale service-specific audience when refreshed metadata selects the default token", async () => {
-    const resources: Array<string | null> = [];
-    let calls = 0;
+  it.each([
+    ["the Company's domain", "https://books.example"],
+    ["a parent of the service", "https://api.books.example"],
+    ["another resource on its host", OTHER],
+    ["a trailing slash", `${SERVICE}/`],
+    ["a different case in the path", "https://api.books.example/V1"],
+    ["a different case in the host", "https://API.books.example/v1"],
+    ["a query", `${SERVICE}?tenant=books`]
+  ])("refuses challenged metadata whose resource is %s, not exactly the service, and asks for no token (RFC 9728 3.3)", async (_name, resource) => {
+    const seen: string[] = [], resources: Array<string | null> = [];
     const f = await fixture(async (request) => {
-      if (request.url === INITIAL) return metadata(RESOURCE);
-      if (request.url === HINT) return metadata("https://books.example");
+      seen.push(request.url);
+      if (request.url === INITIAL) return metadata(SERVICE);
+      if (request.url === HINT) return metadata(resource);
       if (request.url === `${ISSUER}/token`) {
         resources.push(new URLSearchParams(await request.text()).get("resource"));
-        return Response.json({ access_token: `refreshed-${resources.length}`, token_type: "Bearer", expires_in: 3600 });
+        return Response.json({ access_token: "service-access", token_type: "Bearer", expires_in: 3600 });
       }
-      return ++calls === 1 ? challenge() : Response.json({ ok: true });
+      return challenge();
     });
-    await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
-    await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).resolves.toHaveProperty("status", 200);
-    expect(resources).toEqual([RESOURCE, null]);
-    expect(calls).toBe(3);
+    await expect(f.client.resource(f.company, f.outgoing, { service: SERVICE })).rejects.toMatchObject({ code: "invalid_response" });
+    // One token for the service before the challenge; none for what the challenge named.
+    expect(resources).toEqual([SERVICE]);
+    expect(seen.filter((url) => url === REQUEST)).toHaveLength(1);
+    expect(seen.at(-1)).toBe(HINT);
   });
 
   it("refreshes challenged metadata only once when a service keeps rejecting tokens", async () => {
@@ -139,7 +151,7 @@ describe("resource metadata refreshed after invalid_token", () => {
   });
 
   it.each([
-    [RESOURCE, "https://auth.other.example"], ["https://unlisted.example/service", ISSUER], ["http://api.books.example/service", ISSUER], ["https://127.0.0.1/service", ISSUER]
+    [REQUEST, "https://auth.other.example"], ["https://unlisted.example/service", ISSUER], ["http://api.books.example/service", ISSUER], ["https://127.0.0.1/service", ISSUER]
   ])("rejects refreshed metadata for an untrusted issuer or resource: %s / %s", async (resource, issuer) => {
     const seen: string[] = [];
     const f = await fixture(async (request) => { seen.push(request.url); return request.url === HINT ? metadata(resource, issuer) : challenge(); });
@@ -172,7 +184,7 @@ describe("resource metadata refreshed after invalid_token", () => {
     let calls = 0;
     const f = await fixture(async (request) => {
       if (request.url === `${ISSUER}/token`) return Response.json({ access_token: "explicit-access", token_type: "Bearer", expires_in: 3600 });
-      if (request.url === HINT) return metadata(RESOURCE);
+      if (request.url === HINT) return metadata(OTHER);
       ++calls;
       return challenge();
     });

@@ -31,6 +31,7 @@
     "SIGNUP": "allowlist",
     "SIGNIN_PROVIDERS": ["github"],
     "BROWSER_RUN": "off",
+    "BROWSER_CONTROL": "off",
     "POPPY_CLIENT_NAME": "Isolated PDA test",
     "OWNERS": { "emails": [], "github": {} },
     "SIGNIN_ALLOWLIST": { "emails": [], "domains": [], "github": {} },

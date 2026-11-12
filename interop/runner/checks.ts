@@ -59,7 +59,7 @@ export const TRACE_CHECKS = {
     side: "company",
     basis: "MUST",
     mock: false,
-    what: "Events read without a string conversation_id, an events array, a string cursor, a boolean has_more, or a string status and responder (8.5: every successful read MUST include them)"
+    what: "Events read without a string conversation_id, an events array, a string cursor, a boolean has_more, or the state: a string status and responder at 0.3, a boolean working and closed and a string handoff and responder at 0.4 (8.5: every successful read MUST include them)"
   },
   "company.events-cursor": {
     side: "company",
@@ -71,9 +71,9 @@ export const TRACE_CHECKS = {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "Send with wait whose reply isn't a read's: events, cursor, has_more, status and responder (8.3: it responds as a read would, 8.5)"
+    what: "Send with wait whose reply isn't a read's: events, cursor, has_more and the state, status and responder at 0.3, working, handoff, responder and closed at 0.4 (8.3: it responds as a read would, 8.5)"
   },
-  "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (8.6)" },
+  "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id, other than text-delta and, at 0.4, working (8.6)" },
   // Browser Sessions (spec 5): the agent's join request, by the mock's ids, and the Company's answer.
   "company.browser-session-response": {
     side: "company",
@@ -91,7 +91,7 @@ export const TRACE_CHECKS = {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "A handoff the Company accepted without HTTP 202, or without status and responder (8.9: \"returns HTTP 202 with status and responder\"; 8.7's MUST)"
+    what: "A handoff the Company accepted without HTTP 202, or without status and responder at 0.3 (8.9: \"returns HTTP 202 with status and responder\"; 8.7's MUST) or conversation_id at 0.4 (8.9, 8.3: \"The response has only conversation_id\")"
   },
   "company.direct-parent-open": {
     side: "company",
@@ -445,6 +445,15 @@ const SEND_PATH = /\/conversations(?:\/[^/]+\/messages)?$/;
  * `null`. So `null` there departs from nothing, and any other value is
  * `company.events-cursor`, a Reading.
  */
+/** A request without `Poppy-Version` is a 0.3 request, since 0.3 defines no such header (0.4 3.4). */
+const isV03 = (x: Exchange): boolean => !x.requestHeaders.has("poppy-version");
+
+/** The state every read carries: 0.3's status and responder, or 0.4's four fields (8.7). */
+const STATE_FIELDS = {
+  "0.3": [["status", "string"], ["responder", "string"]],
+  "0.4": [["working", "boolean"], ["handoff", "string"], ["responder", "string"], ["closed", "boolean"]]
+} as const;
+
 function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape"): Check[] {
   const body = jsonBody(x.responseBody);
   if (!body || typeof body !== "object" || Array.isArray(body)) return [check(id, x, `not a JSON object: ${x.responseBody.slice(0, 120)}`)];
@@ -456,9 +465,9 @@ function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait
   if (!Array.isArray(events)) problems.push("events isn't an array");
   if (!("has_more" in read)) problems.push("no has_more");
   else if (typeof read.has_more !== "boolean") problems.push("has_more isn't a boolean");
-  for (const field of ["status", "responder"] as const) {
+  for (const [field, type] of STATE_FIELDS[isV03(x) ? "0.3" : "0.4"]) {
     if (!(field in read)) problems.push(`no ${field}`);
-    else if (typeof read[field] !== "string") problems.push(`${field} isn't a string`);
+    else if (typeof read[field] !== type) problems.push(`${field} isn't a ${type}`);
   }
   const requestCursor = x.url.searchParams.get("cursor") ?? x.requestHeaders.get("last-event-id") ?? null;
   const found: Check[] = [];
@@ -508,7 +517,9 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
           const lines = block.split("\n");
           const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ?? "message";
           const hasData = lines.some((line) => line.startsWith("data:"));
-          if (hasData && event !== "text-delta" && !lines.some((line) => line.startsWith("id:"))) {
+          // 0.4 sends `working` as a stream event with no id (8.6), as both versions send text-delta.
+          const unnumbered = event === "text-delta" || (event === "working" && !isV03(x));
+          if (hasData && !unnumbered && !lines.some((line) => line.startsWith("id:"))) {
             found.push(check("company.sse-event-id", x, `a ${event} event without an id`));
             break;
           }
@@ -599,7 +610,7 @@ export function browserSessionResponseChecks(all: readonly Exchange[]): Check[] 
 
 const CONVERSATION_ACTION = /\/conversations\/([^/]+)\/(messages|handoff|close|events)$/;
 
-/** A handoff the Company accepted answers 202 with `status` and `responder` (8.9, 8.7). */
+/** A handoff the Company accepted answers 202: with `status` and `responder` at 0.3 (8.9, 8.7), `conversation_id` at 0.4 (8.9, 8.3). */
 export function handoffChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const x of agentRequests(all)) {
@@ -607,7 +618,7 @@ export function handoffChecks(all: readonly Exchange[]): Check[] {
     const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
     const problems: string[] = [];
     if (x.status !== 202) problems.push(`HTTP ${x.status}, not 202`);
-    for (const field of ["status", "responder"]) if (typeof body?.[field] !== "string") problems.push(`no ${field}`);
+    for (const field of isV03(x) ? ["status", "responder"] : ["conversation_id"]) if (typeof body?.[field] !== "string") problems.push(`no ${field}`);
     if (problems.length) found.push(check("company.handoff-response", x, `${problems.join("; ")}: ${x.responseBody.slice(0, 120)}`));
   }
   return found;

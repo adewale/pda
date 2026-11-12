@@ -1,11 +1,12 @@
 import { writtenBy } from "./message-author";
 import type { PoppyClient } from "./client";
 import { object } from "../decode";
-import { integer, newestRows, nullable, one, rows, text } from "../rows";
+import { integer, newestRows, nullable, one, rows, text, type RowOf } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, messagesTable, signInsTable, type Sql } from "./store";
 import type { ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
 import { taskRequested } from "./approval-projection";
+import { stateForModel } from "./conversation-state";
 import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
 import { pendingSignOuts, signOutForModel, signOutRecords, type SignOutRecord } from "./signout";
 
@@ -40,12 +41,30 @@ const approvalRow = object({
   outcome_resolution: approvalColumns.outcome_resolution,
   outcome_resolved_at: approvalColumns.outcome_resolved_at,
   terms_approval_id: approvalColumns.terms_approval_id,
+  approver: approvalColumns.approver,
+  instruction: nullable(text),
   kind: nullable(text)
 });
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at");
+const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at", "protocol_version", "working", "handoff");
+
+/**
+ * What a conversation's state says, for the User (8.7). Under 0.4 its four
+ * fields, read separately: who is answering, whether the Company is working,
+ * and whether a person has been asked to join, which can all hold at once.
+ */
+function conversationNote(row: RowOf<typeof conversationRow>, company: string): string {
+  if (row.protocol_version === "0.3") {
+    return row.responder === "human" ? `A person at ${company} is answering.`
+      : row.status === "working" || row.status === "queued" ? `${company}'s agent is working on it.`
+      : `${company}'s agent is answering.`;
+  }
+  const who = row.responder === "human" ? `A person at ${company}` : `${company}'s agent`;
+  const note = row.working ? `${who} is working on it.` : `${who} is waiting for the next message.`;
+  return row.handoff === "pending" ? `${note} A person at ${company} has been asked to join.` : note;
+}
 
 /** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
 const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
@@ -137,13 +156,12 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
 
   const conversations = rows(
     sql,
-    conversationsTable.pick("id", "issuer", "direct", "status", "responder"),
-    "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
+    conversationsTable.pick("id", "issuer", "direct", "status", "responder", "protocol_version", "working", "handoff"),
+    "SELECT id, issuer, direct, status, responder, protocol_version, working, handoff FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     conversation: row.id,
-    status: row.status,
-    responder: row.responder,
+    ...stateForModel(row),
     direct: !!row.direct
   }));
 
@@ -191,7 +209,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   for (const row of rows(
     sql,
     approvalRow,
-    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at, terms_approval_id", "created_at")
+    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at, terms_approval_id, approver, (SELECT text FROM poppy_instructions WHERE id = instruction_id) AS instruction", "created_at")
   )) {
     // The Company's terms own this action's visible lifecycle; its internal dispatch is not another approval.
     if (taskRequested(sql, row.id) && row.terms_approval_id) continue;
@@ -203,7 +221,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     // words on its approval card and out of the Activity/diagnostics surface.
     const outcome = resolution ? checkedOutcomeText(company, resolution.outcome) : row.status === "failed"
       ? "The approved request could not be completed. See its approval card for details."
-      : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
+      : row.result && (result !== "done" || row.kind === "browse-submit" || row.kind === "web-operation") ? clip(row.result) : undefined;
     log.push({
       id: `approval-${row.id}`,
       at: row.created_at,
@@ -215,9 +233,11 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       what: row.terms ? `${company} asked for your approval` : taskRequested(sql, row.id) ? "Requested for your task" : "Asked you to approve",
       quote: row.terms ? row.terms.summary : row.summary,
       quoteBy: row.terms ? "company" : "agent",
-      how: row.kind === "browse-submit" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
+      how: row.kind === "browse-submit" || row.kind === "web-operation" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
       access: "view_and_change",
-      decidedBy: row.status === "pending" || taskRequested(sql, row.id) ? null : "you",
+      // 0.4 Ops 5: approved on a standing instruction, the ledger names it in the User's own words.
+      decidedBy: row.status === "pending" || taskRequested(sql, row.id) ? null : row.approver === "agent" ? "instruction" : "you",
+      ...(row.approver === "agent" && row.instruction ? { instruction: row.instruction } : {}),
       result,
       ...(outcome ? { outcome, outcomeBy: resolution ? "you" as const : "agent" as const } : {})
     });
@@ -333,7 +353,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Conversations with the Company's agent, and Direct Conversations.
-  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at";
+  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at, protocol_version, working, handoff";
   for (const row of rows(sql, conversationRow, ...newest("poppy_conversations", conversationColumns, "created_at"))) {
     if (row.quarantined) continue;
     const company = name(row.issuer);
@@ -360,12 +380,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       issuer: row.issuer,
       company,
       what: row.direct ? `Your conversation with ${company}` : `Listening for replies from ${company}'s agent`,
-      note:
-        row.responder === "human"
-          ? `A person at ${company} is answering.`
-          : row.status === "working" || row.status === "queued"
-            ? `${company}'s agent is working on it.`
-            : `${company}'s agent is answering.`,
+      note: conversationNote(row, company),
       since: row.last_event_at,
       stop: { type: "poppy.direct.close", conversationId: row.id }
     });

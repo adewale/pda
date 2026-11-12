@@ -13,6 +13,9 @@ import {
   type Inbound
 } from "./core";
 
+/** The one scope 0.4 defines: a joined browser signed in (6). */
+const BROWSER_SIGN_IN = "poppy:browser-sign-in";
+
 type AuthorizationRequest = {
   readonly id: string;
   readonly clientId: string;
@@ -103,6 +106,9 @@ export class AuthServer {
       throw oauthError(400, "invalid_scope", "scope is required");
     }
     const requested = parseScope(raw);
+    if (requested.includes(BROWSER_SIGN_IN) && !(this.company.config.web && this.company.config.browserSession)) {
+      this.company.violation("browser-sign-in.no-endpoint", `${type} sign-in asked for ${BROWSER_SIGN_IN} from a Company that lists no browser_session_endpoint`);
+    }
     const supported = Object.keys(this.company.scopeDescriptions());
     const unknown = requested.filter((entry) => !supported.includes(entry));
     if (unknown.length > 0) throw oauthError(400, "invalid_scope", `unknown scope ${unknown.join(" ")}`);
@@ -134,8 +140,12 @@ export class AuthServer {
     const co = this.company;
     const grant = form.get("grant_type");
     const resource = form.get("resource");
-    const isMcp = resource === co.hosts.mcpUrl;
-    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) throw oauthError(400, "invalid_target", "unknown resource");
+    // A resource is a target only where its own metadata, at the URL derived from it, names it (RFC 9728 3.3).
+    const isMcp = resource === co.hosts.mcpUrl && !co.config.mcpPrmAtRootOnly;
+    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) {
+      co.violation("resource.unverified-target", `token request for ${resource}, which no metadata at its own derived URL names`);
+      throw oauthError(400, "invalid_target", "unknown resource");
+    }
     const proof = inbound.request.headers.get("DPoP");
     if (co.config.dpopTokens && !proof) {
       co.violation("token.dpop-not-sent", `token request (${grant}) without a DPoP proof, though the metadata lists dpop_signing_alg_values_supported`);
@@ -460,7 +470,9 @@ export class AuthServer {
     const scopes = result.scope.map((scope) => `<li>${scope}</li>`).join("");
     return new Response(
       `<!doctype html><title>Sign in to ${co.hosts.domain}</title>` +
-        `<main data-request-id="${result.id}"><h1>${client.name}</h1>` +
+        // 0.4 Guides, "Consent pages": name the agent, worded as connecting, and warn about sign-ins someone else started (10.8).
+        `<main data-request-id="${result.id}"><h1>${client.name} wants to connect to your ${co.config.organizationName ?? `Mock Shop ${co.id}`} account</h1>` +
+        `<p>Only continue if you asked ${client.name} to do this just now.</p>` +
         `<p>${domain} wants access to your account:</p><ul>${scopes}</ul>` +
         `<form method="post"><button name="decision" value="approve">Approve</button>` +
         `<button name="decision" value="deny">Decline</button></form></main>`,

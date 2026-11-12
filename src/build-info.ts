@@ -1,4 +1,4 @@
-import { PROTOCOL_REVISION, PROTOCOL_VERSIONS } from "./poppy/protocol-version";
+import { PROTOCOL_REVISION, PROTOCOL_REVISIONS, PROTOCOL_VERSIONS } from "./poppy/protocol-version";
 
 declare const __PDA_COMMIT__: string | undefined;
 declare const __PDA_DIRTY__: boolean | undefined;
@@ -10,6 +10,7 @@ export function buildInfo(env: Pick<Env, "CF_VERSION_METADATA">): Response {
     dirty: typeof __PDA_DIRTY__ === "boolean" ? __PDA_DIRTY__ : true,
     workerVersion: env.CF_VERSION_METADATA?.id ?? null,
     protocolVersions: PROTOCOL_VERSIONS,
-    protocolRevision: PROTOCOL_REVISION
+    protocolRevision: PROTOCOL_REVISION,
+    protocolRevisions: PROTOCOL_REVISIONS
   }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -1,7 +1,7 @@
 /** MCP negotiation, account-partitioned session caches, JSON-RPC transport and tool catalogues. */
 import { type McpEra, modernMeta, modernHeaders, legacyHeaders, eraSignal, MCP_MODERN, MCP_LEGACY, HEADER_MISMATCH, usableTools, headerParameters, parameterHeaders } from "./mcp-wire";
 import { type Json, isObject, parseStrictJson } from "./json";
-import { PoppyClient, PoppyError, withAnswer, answerOf, withUnreadableAnswer } from "./client";
+import { extensionRequiredBody, PoppyClient, PoppyError, withAnswer, answerOf, withUnreadableAnswer } from "./client";
 import { type Company, boundedCacheSeconds } from "./discovery";
 import { type Api, type DispatchGuard, findApi } from "./api-authority";
 import { fetchJson } from "./fetch";
@@ -73,21 +73,17 @@ class McpEraChanged extends PoppyError {}
  */
 async function checkResourceMetadata(client: PoppyClient, company: Company, api: Api): Promise<{ expiresAt: number }> {
   const url = new URL(api.url);
-  const candidates = [
-    `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`,
-    `${url.origin}/.well-known/oauth-protected-resource`
-  ];
-  for (const candidate of candidates) {
-    try {
-      const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, candidate, { maxRedirects: 0 });
-      if (isObject(json) && Array.isArray(json.authorization_servers)) {
-        if (!json.authorization_servers.includes(company.issuer)) throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
-        if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
-        return { expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 };
-      }
-    } catch (error) {
-      if (error instanceof PoppyError) throw error;
+  // Only the URL derived from the server's own (RFC 9728 3.1). The root document describes the origin, so
+  // its `resource` can't be a server with a path without breaking RFC 9728 3.3's exact match (decision 43).
+  try {
+    const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`, { maxRedirects: 0 });
+    if (isObject(json) && Array.isArray(json.authorization_servers)) {
+      if (!json.authorization_servers.includes(company.issuer)) throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
+      if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
+      return { expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 };
     }
+  } catch (error) {
+    if (error instanceof PoppyError) throw error;
   }
   throw new PoppyError("bad_api", `${api.url} publishes no protected resource metadata`, 0);
 }
@@ -161,7 +157,8 @@ export async function mcpRequest(
       accept: "application/json, text/event-stream",
       headers: modern ? modernHeaders(method, params, parameters) : legacyHeaders(target.sessionId)
     }),
-    { label, resource: api.url, ...guard }
+    // Without an approval in _meta, the call means the same in any version (3.4).
+    { label, resource: api.url, ...guard, ...(isObject(params._meta) && params._meta["personalagentprotocol.org/approval"] !== undefined ? {} : { versionNeutral: true }) }
   );
   if (response.status === 404 && !modern && target.sessionId) {
     entries.delete(target.key);
@@ -195,6 +192,8 @@ export async function mcpRequest(
     if (signal.kind === "unsupported") {
       throw withAnswer(new PoppyError("mcp_error", `${api.url} speaks MCP ${signal.supported.join(", ").slice(0, 200) || "versions it didn't name"}; this agent speaks ${MCP_MODERN} and ${MCP_LEGACY}`, response.status, kept), response.status);
     }
+    const required = extensionRequiredBody(company, body, response.status);
+    if (required) throw required;
     const rpcError = isObject(body) && isObject(body.error) ? body.error : null;
     const code = rpcError ? "mcp_error" : companyErrorCode(isObject(body) ? body.error : undefined, response.status);
     const said = rpcError ? `MCP error: ${String(rpcError.message ?? rpcError.code).slice(0, 500)}` : `returned ${code}`;

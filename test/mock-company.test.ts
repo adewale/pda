@@ -522,6 +522,43 @@ async function refused(c: C, s?: Session) {
   return { s: signed, operation: body.operation };
 }
 
+/** A 0.4 Company, and the headers of a 0.4 Session that declares Operations 3 (3.4). */
+const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
+const V3 = { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` };
+
+/** A 0.4 Company whose website returns operations to a joined browser (0.4 Ops 4). */
+const WEB_OPERATIONS: Partial<MockConfig> = { ...V4, webOperations: true };
+
+/** A browser joined to a 0.4 Session that declares Operations 3, signed in on the website (0.4 6): the Session and its cookie. */
+async function webSession(c: C, headers: Record<string, string> = V3) {
+  const s = await signedIn(c, { scope: "orders:read orders:write poppy:browser-sign-in" });
+  const { code, cookie } = await joinPage(c);
+  expect((await call(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers })).status).toBe(204);
+  const submitted = await submitJoin(c, code, cookie);
+  expect(submitted.status).toBe(303);
+  return { s, cookie: /mock_sid=[^;]+/.exec(submitted.headers.get("Set-Cookie")!)![0] };
+}
+
+/** The browser submits the website's exchange form. */
+function exchangeForm(c: C, cookie: string, headers: Record<string, string> = {}) {
+  return c.call(`${c.hosts.web}/orders/ord_7Hk2/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookie, ...headers },
+    body: "item_id=itm_4Qa&replacement_sku=stormline-insulated-m"
+  });
+}
+
+/** The agent's own request to the operations endpoint with a reference (0.4 Ops 4, 6). */
+function operationsAt(c: C, s: Session, ref: string, headers: Record<string, string> = {}) {
+  return call(c, s, "POST", `${c.hosts.web}/poppy/operations`, { body: { ref }, headers: { ...V3, ...headers } });
+}
+
+/** `Poppy-Operation`'s two Strings. */
+function poppyOperation(response: Response): { sid: string; ref: string } {
+  const header = response.headers.get("Poppy-Operation") ?? "";
+  return { sid: /sid="([^"]*)"/.exec(header)?.[1] ?? "", ref: /ref="([^"]*)"/.exec(header)?.[1] ?? "" };
+}
+
 function approval(operation: Pick<Operation, "operation_id" | "revision">) {
   return { "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}"` };
 }
@@ -1028,6 +1065,13 @@ const TAMPERS: readonly Tamper[] = [
       expect(s.tokenType).toBe("Bearer");
       return getOrders(c, { auth: `DPoP ${s.token}` }, s);
     }
+  },
+  {
+    id: "resource.unverified-target",
+    what: "a token for a resource named only by metadata for another URL",
+    config: { mismatchedApiResourceMetadata: true },
+    detail: (c) => `[resource.unverified-target] token request for ${c.hosts.api}/elsewhere, which no metadata at its own derived URL names`,
+    run: async (c) => refresh(c, await signedIn(c), { resource: `${c.hosts.api}/elsewhere` })
   },
   {
     id: "mcp.wrong-token",
@@ -1660,6 +1704,40 @@ const TAMPERS: readonly Tamper[] = [
   { id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", detail: /^\[session-jwt\.ath\]/, run: async (c) => getOrders(c, { jwt: { claims: { ath: await hash("another token") } } }) },
   { id: "session-jwt.oauth-endpoint", what: "a Session header at the revocation endpoint", detail: /^\[session-jwt\.oauth-endpoint\] \/oauth\/revoke got a Poppy-Session header$/, run: async (c) => revoke(c, { headers: { "Poppy-Session": "eyJ.a.session-header" } }) },
   { id: "session-jwt.ath-without-token", what: "ath with no access token", detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => getProducts(c, { claims: { ath: await hash("a token") } }) },
+  // ---- Versions (0.4, 3.4) ----
+  {
+    id: "version.missing",
+    what: "a Session request without Poppy-Version to a Company that serves only 0.4",
+    config: { protocolVersion: "0.4" },
+    detail: /^\[version\.missing\] a request without Poppy-Version to a Company that never served 0\.3 \(GET \/products\)$/,
+    run: async (c) => {
+      const response = await getProducts(c, undefined);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "version_unsupported" });
+    }
+  },
+  {
+    id: "version.unlisted",
+    what: "Poppy-Version 0.4 to a Company that serves only 0.3",
+    detail: "[version.unlisted] Poppy-Version 0.4, which this Company never listed (GET /products)",
+    run: async (c) => {
+      const s = await session();
+      const response = await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4" } });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "version_unsupported" });
+    }
+  },
+  {
+    id: "version.changed-in-session",
+    what: "a Session that declared Operations 3, then nothing",
+    config: { protocolVersion: "0.4" },
+    detail: /^\[version\.changed-in-session\] Session \S+ declared 0\.4 "\\"operations\\";v=\\"3\\"", then 0\.4 "" \(GET \/products\)$/,
+    run: async (c) => {
+      const s = await session();
+      expect((await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` } })).status).toBe(200);
+      return call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4" } });
+    }
+  },
   {
     id: "session-jwt.sub-changed",
     what: "a Session's sid with another User ID",
@@ -1790,6 +1868,97 @@ const TAMPERS: readonly Tamper[] = [
       return submitJoin(c, code, cookie);
     }
   },
+  // ---- Website pages fetched without a browser (0.4 5.2) ----
+  ...([
+    ["page.session-off-host", "a Session header on a page on the CDN host", (c: C) => `https://cdn.${c.hosts.domain}/orders`, { headers: { "Poppy-Version": "0.4" } }],
+    ["page.token", "an access token with a page", (c: C) => `${c.hosts.web}/orders`, { headers: { "Poppy-Version": "0.4" }, auth: "Bearer not-a-token" }],
+    ["page.session-0.3", "a Session header on a page without Poppy-Version", (c: C) => `${c.hosts.web}/orders`, {}]
+  ] as const).map(([id, what, url, options]) => ({
+    id,
+    what,
+    config: id === "page.session-0.3" ? {} : V4,
+    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    run: async (c: C) => call(c, await session(), "GET", url(c), options)
+  })),
+  {
+    id: "browser-sign-in.no-endpoint",
+    what: "a sign-in asking for poppy:browser-sign-in from a Company without browser join",
+    config: { ...V4, browserSession: false },
+    detail: /^\[browser-sign-in\.no-endpoint\] direct sign-in asked for poppy:browser-sign-in/,
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ scope: "orders:read poppy:browser-sign-in" })))
+  },
+  {
+    id: "web.disabled-form",
+    what: "a form sent to a website that sets web.disabled",
+    config: { ...V4, webDisabled: true },
+    detail: /^\[web\.disabled-form\]/,
+    run: async (c) => {
+      expect(((await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { web: unknown }).web).toEqual({ disabled: true });
+      return c.call(`${c.hosts.web}/account/address`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "line1=1+Main+St" });
+    }
+  },
+  // ---- Operations on websites (0.4 Ops 4, 6) ----
+  {
+    id: "web-operation.unknown-ref",
+    what: "a reference at endpoint that the website never returned",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.unknown-ref\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const waiting = await exchangeForm(c, cookie);
+      // The page's own words name a reference too; only the header's counts.
+      const shown = /Reference: ([^<]+)/.exec(await waiting.text())![1]!;
+      return operationsAt(c, s, shown);
+    }
+  },
+  {
+    id: "web-operation.approval-in-browser",
+    what: "the browser's request carrying Poppy-Approval",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.approval-in-browser\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const { ref } = poppyOperation(await exchangeForm(c, cookie));
+      const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+      return exchangeForm(c, cookie, approval(operation));
+    }
+  },
+  {
+    id: "web-operation.approved-elsewhere",
+    what: "a website's operation approved at the API",
+    config: WEB_OPERATIONS,
+    detail: /^\[web-operation\.approved-elsewhere\]/,
+    run: async (c) => {
+      const { s, cookie } = await webSession(c);
+      const { ref } = poppyOperation(await exchangeForm(c, cookie));
+      const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+      const answered = await exchange(c, s, { ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user"` });
+      // Handled as if no approval came: an operation of the API's own, and nothing performed.
+      expect(answered.status).toBe(403);
+      expect(((await answered.clone().json()) as { operation: Operation }).operation.operation_id).not.toBe(operation.operation_id);
+      return answered;
+    }
+  },
+  // ---- Browser Control (0.4) ----
+  {
+    id: "browser-control.marked-step",
+    what: "the marked return form submitted with the agent in control",
+    config: { ...V4, browserControl: true },
+    detail: /^\[browser-control\.marked-step\] the return form, marked submission, came with controller "agent"/,
+    run: async (c) => {
+      const { cookie } = await webSession(c, { "Poppy-Version": "0.4", "Poppy-Extensions": `"browser-control";v="1"` });
+      const post = (controller: string) =>
+        c.call(`${c.hosts.web}/orders/ord_7Hk2/return`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookie },
+          body: `item_id=itm_4Qa&controller=${controller}&reason=size&card_last4=4242`
+        });
+      // The User's own submission is the one the mark asks for.
+      expect((await post("user")).status).toBe(303);
+      expect((await c.stub.state()).recorded).toEqual([]);
+      return post("agent");
+    }
+  },
   {
     id: "browser-join.authorize-body",
     what: "authorize with a form body",
@@ -1818,6 +1987,78 @@ const TAMPERS: readonly Tamper[] = [
       return exchange(c, s, { "Idempotency-Key": key, ...approval(first.operation) });
     }
   },
+  // ---- Operations 3 (0.4 Ops 6) ----
+  ...([
+    ["approval.approver", "an approval without approver", ""],
+    ["approval.approved-at", "approved_at as a String", `, approver="user", approved_at="1791487260"`],
+    ["approval.input-type-with-agent", "an agent approval with input_type", `, approver="agent", input_type="tap"`],
+    ["approval.input-type", "input_type as an Integer", `, approver="user", input_type=1`],
+    ["approval.reference", "a reference with a dot", `, approver="user", reference="apr.1"`]
+  ] as const).map(([id, what, members]): Tamper => ({
+    id,
+    what,
+    config: V4,
+    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const { operation_id, revision } = first.operation;
+      const performed = await exchange(c, s, { ...V3, "Poppy-Approval": `operation_id="${operation_id}", revision="${revision}"${members}` });
+      // The Company records it and checks the approval as usual (Ops 6).
+      expect(performed.status).toBe(201);
+    }
+  })),
+  {
+    id: "approval.reference-reused",
+    what: "one reference for two revisions' approvals",
+    config: V4,
+    detail: /^\[approval\.reference-reused\] reference apr_1 approved \S+ \S+, then \S+ \S+$/,
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const approve = (operation: Operation) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user", reference="apr_1"` });
+      // Approved for another request: a new revision, which needs its own approval (Ops 6, check 3).
+      const second = (await (await exchange(c, s, approve(first.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" })).json()) as { operation: Operation };
+      expect(second.operation.revision).not.toBe(first.operation.revision);
+      return exchange(c, s, approve(second.operation));
+    }
+  },
+  ...([
+    ["approval.declined-resent", "a declined approval sent again", "all", "user"],
+    ["approval.agent-after-decline", "an agent approval of a new revision after a decline", "all", "agent"]
+  ] as const).map(([id, what, declineApprovals, approver]): Tamper => ({
+    id,
+    what,
+    config: { ...V4, declineApprovals },
+    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const approve = (operation: Operation, who: string) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="${who}"` });
+      const declined = await exchange(c, s, approve(first.operation, "user"));
+      expect(declined.status).toBe(403);
+      expect(await declined.json()).toMatchObject({ error: "approval_declined", operation_id: first.operation.operation_id, revision: first.operation.revision });
+      if (id === "approval.declined-resent") return exchange(c, s, approve(first.operation, approver));
+      // A revision it never returned fails check 3, so the Company returns a new revision of the same operation.
+      const second = (await (await exchange(c, s, approve({ ...first.operation, revision: "rev_unknown" }, "user"))).json()) as { operation: Operation };
+      expect(second.operation.operation_id).toBe(first.operation.operation_id);
+      return exchange(c, s, approve(second.operation, approver));
+    }
+  })),
+  {
+    id: "approval.agent-after-revision",
+    what: "an agent approval of the revision that answered the agent's own approval",
+    config: V4,
+    detail: /^\[approval\.agent-after-revision\]/,
+    run: async (c) => {
+      const s = await signedIn(c);
+      const first = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+      const agent = (operation: Operation) => ({ ...V3, "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="agent"` });
+      // Approved for another request: the Company answers with a new revision (Ops 6, check 3).
+      const second = (await (await exchange(c, s, agent(first.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" })).json()) as { operation: Operation };
+      return exchange(c, s, agent(second.operation), { ...EXCHANGE, replacement_sku: "stormline-insulated-l" });
+    }
+  },
   {
     id: "approval.mcp-meta",
     what: "an MCP approval that isn't an object",
@@ -1837,7 +2078,65 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => converse(c, await signedIn(c), message({ text: undefined, extensions: { operations: { approval: "yes" } } }))
   },
 
+  // ---- What a message took into account (0.4 8.4) ----
+  ...([
+    ["message.as-of-human", "as_of_cursor on a message the User wrote", "human", (id: string) => id],
+    ["message.as-of-cursor", "as_of_cursor that the conversation never gave", "agent", () => "evt_unknown"]
+  ] as const).map(([id, what, author, cursor]) => ({
+    id,
+    what,
+    config: V4,
+    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    run: async (c: C) => {
+      const s = await session();
+      const headers = { "Poppy-Version": "0.4" };
+      const started = await call(c, s, "POST", c.hosts.conversationsEndpoint, { headers, body: { id: "req_1", message: { author: { type: "agent" }, text: "Hello" } } });
+      const { conversation_id: conversation } = (await started.json()) as { conversation_id: string };
+      const read = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${conversation}/events`, { headers })).json()) as { cursor: string };
+      return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${conversation}/messages`, { headers, body: { id: "req_2", message: { author: { type: author }, as_of_cursor: cursor(read.cursor), text: "And another thing" } } });
+    }
+  })),
+  // ---- Request IDs (0.4 8.3) ----
+  {
+    id: "request.id",
+    what: "a 0.4 conversation request without an id",
+    config: V4,
+    detail: "[request.id] conversation request: id undefined isn't 1-256 base64url characters",
+    run: async (c) => call(c, await session(), "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { message: { author: { type: "agent" }, text: "Hello" } } })
+  },
+  {
+    id: "request.id-reused",
+    what: "a 0.4 request id sent again with another path",
+    config: V4,
+    detail: /^\[request\.id-reused\] request id req_1 reused with a different path or body$/,
+    run: async (c) => {
+      const s = await session();
+      const started = await call(c, s, "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { id: "req_1", message: { author: { type: "agent" }, text: "Hello" } } });
+      const { conversation_id: id } = (await started.json()) as { conversation_id: string };
+      const refused = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/close`, { headers: { "Poppy-Version": "0.4" }, body: { id: "req_1" } });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({ error: "request_id_conflict" });
+    }
+  },
+
   // ---- Feedback (9.3) ----
+  {
+    id: "skills.credentials",
+    what: "a skill artifact fetched with a Session header",
+    config: V4,
+    detail: /^\[skills\.credentials\]/,
+    run: async (c) => call(c, await session(), "GET", `${c.hosts.api}/poppy/skills/exchange-an-item/SKILL.md`, { headers: { "Poppy-Version": "0.4" } })
+  },
+  {
+    id: "tasks.token",
+    what: "GET {tasks.endpoint} with an access token",
+    config: { ...V4, feedback: true },
+    detail: "[tasks.token] GET {tasks.endpoint} carried an access token",
+    run: async (c) => {
+      const answer = await call(c, await signedIn(c), "GET", `${c.hosts.api}/poppy/tasks`, { headers: { "Poppy-Version": "0.4" } });
+      expect(await answer.json()).toMatchObject({ excluded_tasks: expect.any(Array), feedback: { endpoint: `${c.hosts.api}/poppy/feedback` } });
+    }
+  },
   {
     id: "feedback.fields",
     what: "a feedback report whose task is over 200 characters",
@@ -2430,6 +2729,135 @@ describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's request IDs (0.4 8.3)", () => {
+  it("answers a retry with the same id, path and body as it did, and gives the message its request's id", async () => {
+    const c = company();
+    await c.stub.configure(V4);
+    const s = await session();
+    const start = () => call(c, s, "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Version": "0.4" }, body: { id: "msg_first", message: { author: { type: "agent" }, text: "Hello" } } });
+    const first = (await (await start()).json()) as { conversation_id: string };
+    const again = await start();
+    expect(again.status).toBe(201);
+    expect(((await again.json()) as { conversation_id: string }).conversation_id).toBe(first.conversation_id);
+    const events = await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${first.conversation_id}/events`, { headers: { "Poppy-Version": "0.4" } });
+    const { events: read } = (await events.json()) as { events: { type: string; message?: { id: string; role: string } }[] };
+    expect(read.find((event) => event.message?.role === "user")?.message?.id).toBe("msg_first");
+    const state = await c.stub.state();
+    expect(state.conversations).toHaveLength(1);
+    expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's skill index (0.4 9.4)", () => {
+  it("lists a SKILL.md by a reference relative to tasks.endpoint, whose bytes match its digest", async () => {
+    const c = company();
+    await c.stub.configure(V4);
+    const tasks = (await (await call(c, await session(), "GET", `${c.hosts.api}/poppy/tasks`, { headers: { "Poppy-Version": "0.4" } })).json()) as { skill_index: { $schema: string; skills: { url: string; digest: string; type: string }[] } };
+    expect(tasks.skill_index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
+    const [entry] = tasks.skill_index.skills;
+    expect(entry!.type).toBe("skill-md");
+    const artifact = await c.call(new URL(entry!.url, `${c.hosts.api}/poppy/tasks`).href);
+    expect(artifact.status).toBe(200);
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(await artifact.arrayBuffer())));
+    expect(`sha256:${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`).toBe(entry!.digest);
+  });
+});
+
+describe("the mock Company's Operations 3 (0.4 Ops 2, 3, 6)", () => {
+  it("returns operations only to a request that declares Operations 3, and otherwise refuses with extension_required in a JSON body (Ops 2, 3.3)", async () => {
+    const c = company();
+    await c.stub.configure({ ...V4, requireOperationsExtension: true });
+    const s = await signedIn(c);
+    const undeclared = await exchange(c, s, { "Poppy-Version": "0.4" });
+    expect(undeclared.status).toBe(403);
+    expect(undeclared.headers.get("WWW-Authenticate")).toBeNull();
+    expect(await undeclared.json()).toEqual({ error: "extension_required", extension: "operations" });
+    const declared = await exchange(c, await signedIn(c), V3);
+    expect(declared.status).toBe(403);
+    expect(await declared.json()).toMatchObject({ error: "approval_required", operation: { operation_id: expect.any(String) } });
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("records who approved, takes approved_at as an Integer, and may leave out summary but never terms (Ops 3, 6)", async () => {
+    const c = company();
+    await c.stub.configure({ ...V4, omitOperationSummary: true });
+    const s = await signedIn(c);
+    const { operation } = (await (await exchange(c, s, V3)).json()) as { operation: Operation };
+    expect(operation).not.toHaveProperty("summary");
+    expect(operation.terms).toMatchObject({ order_id: "ord_7Hk2", price_difference: { amount: "70.00", currency: "USD" } });
+    const header = `${approval(operation)["Poppy-Approval"]}, approver="agent", approved_at=1791487255, reference="apr_01JD8ZK3R4"`;
+    expect((await exchange(c, s, { ...V3, "Poppy-Approval": header })).status).toBe(201);
+    const state = await c.stub.state();
+    expect(state.operations).toEqual([expect.objectContaining({ state: "succeeded", approvedBy: "agent" })]);
+    expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's operations on its website (0.4 Ops 2, 4, 6, 7)", () => {
+  it("returns a reference to a joined browser, the operation at endpoint, and performs once the approval is recorded, at most once", async () => {
+    const c = company();
+    await c.stub.configure(WEB_OPERATIONS);
+    const document = (await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { extensions: { operations: { endpoint: string }[] } };
+    expect(document.extensions.operations[0]!.endpoint).toBe(`${c.hosts.web}/poppy/operations`);
+    const { s, cookie } = await webSession(c);
+    const waiting = await exchangeForm(c, cookie);
+    expect(waiting.status).toBe(403);
+    expect(await waiting.text()).toContain("waiting for your approval in your personal agent");
+    const { sid, ref } = poppyOperation(waiting);
+    expect(sid).toBe(s.sid);
+    const asked = await operationsAt(c, s, ref);
+    expect(asked.status).toBe(403);
+    const { operation } = (await asked.json()) as { error: string; operation: Operation };
+    expect(operation.terms).toMatchObject({ order_id: "ord_7Hk2", replacement_sku: "stormline-insulated-m" });
+    const approve = { "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user", approved_at=${Math.floor(Date.now() / 1000)}` };
+    expect((await operationsAt(c, s, ref, approve)).status).toBe(204);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await (await operationsAt(c, s, ref)).json()).toEqual({ operation_id: operation.operation_id, status: "approved" });
+    // The browser makes the request again, and the recorded approval performs it.
+    const performed = await exchangeForm(c, cookie);
+    expect(performed.status).toBe(303);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await (await operationsAt(c, s, ref)).json()).toEqual({ operation_id: operation.operation_id, status: "performed" });
+    // The same approval again changes nothing, and the next request for it is a new operation.
+    expect((await operationsAt(c, s, ref, approve)).status).toBe(204);
+    const again = poppyOperation(await exchangeForm(c, cookie));
+    expect(again.ref.split(".")[0]).not.toBe(operation.operation_id);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("declines at endpoint without recording, so the website never finds the approval (Ops 6)", async () => {
+    const c = company();
+    await c.stub.configure({ ...WEB_OPERATIONS, declineApprovals: "all" });
+    const { s, cookie } = await webSession(c);
+    const { ref } = poppyOperation(await exchangeForm(c, cookie));
+    const { operation } = (await (await operationsAt(c, s, ref)).json()) as { operation: Operation };
+    const declined = await operationsAt(c, s, ref, { "Poppy-Approval": `${approval(operation)["Poppy-Approval"]}, approver="user"` });
+    expect(declined.status).toBe(403);
+    expect(await declined.json()).toMatchObject({ error: "approval_declined", operation_id: operation.operation_id, revision: operation.revision, reason: expect.any(String) });
+    expect((await operationsAt(c, s, ref)).status).toBe(403);
+    expect((await exchangeForm(c, cookie)).status).toBe(403);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("leaves approval to the website for a browser whose Session didn't declare Operations 3, and takes no reference from another Session", async () => {
+    const c = company();
+    await c.stub.configure(WEB_OPERATIONS);
+    const { cookie } = await webSession(c);
+    const { ref } = poppyOperation(await exchangeForm(c, cookie));
+    const other = await signedIn(c, { account: "acct_grace" });
+    expect((await operationsAt(c, other, ref)).status).toBe(400);
+    const undeclared = await signedIn(c, { scope: "orders:read orders:write poppy:browser-sign-in" });
+    const { code, cookie: joining } = await joinPage(c);
+    expect((await call(c, undeclared, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: { code }, headers: { "Poppy-Version": "0.4" } })).status).toBe(204);
+    const joined = /mock_sid=[^;]+/.exec((await submitJoin(c, code, joining)).headers.get("Set-Cookie")!)![0];
+    const own = await exchangeForm(c, joined);
+    expect(own.status).toBe(403);
+    expect(own.headers.get("Poppy-Operation")).toBeNull();
+    expect((await c.stub.state()).violations).toEqual([]);
   });
 });
 

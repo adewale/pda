@@ -13,6 +13,7 @@ import { openAtCompanies } from "./activity";
 import { browse, type BrowseAction, type PoppyBrowser } from "./browser";
 import { PoppyClient, PoppyError } from "./client";
 import {
+  cancelHandoff,
   closeConversation,
   conversation,
   handoff,
@@ -20,13 +21,16 @@ import {
   openConversations,
   recentMessages
 } from "./conversations";
-import { DiscoveryError, isCompany } from "./discovery";
+import { BROWSER_SIGN_IN, DiscoveryError, isCompany } from "./discovery";
 import { toJson, type Json } from "./json";
 import { json } from "../decode";
 import { startSignIn, describeScopes } from "./signin";
-import { excludedTasks, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
+import { excludedTasks, feedbackEndpoint, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
 import { pendingSignOuts, signOutForModel } from "./signout";
 import { sendAgentMessage } from "./agent-message";
+import { stateForModel } from "./conversation-state";
+import { instructionForModel, instructions } from "./instructions";
+import { operationsVersion } from "./operations-v2";
 import { NO_TASK_ACCESS } from "../task-access";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
@@ -199,10 +203,16 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
             agent: found.conversations ? "available (poppy_message)" : "none",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),
-            website: found.web ? (found.web.browserSessionEndpoint ? "browsable in the session" : "browsable signed out") : "not offered",
+            website: !found.web ? "not offered"
+              : found.web.disabled ? "pages readable only: the company asks agents not to use its website in a browser, so no form is filled or sent; use its agent and APIs"
+              : found.web.browserSessionEndpoint
+                ? found.protocolVersion === "0.3" ? "browsable in the session"
+                  // 0.4 (6): the browser is signed in only with poppy:browser-sign-in, which web.unscoped widens to the whole account.
+                  : `browsable in the session; signed in there only when the sign-in includes ${BROWSER_SIGN_IN}${found.web.unscoped ? ", which on this website gives everything the account can do there, so ask the User first" : ""}`
+                : "browsable signed out",
             extensions: Object.keys(found.extensions),
             ...excludedForModel(tasks),
-            feedback: found.feedback ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
+            feedback: (await feedbackEndpoint(client(), found, "main")) ? "accepted (poppy_feedback), for a task that can't be done here" : "not offered"
           };
         }
       ),
@@ -256,9 +266,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             ...(c.accounts(found.issuer).length ? { signOut: `The User signs out on the Companies page: Companies, then ${found.name}, then "Sign out of ${found.name}".` } : {}),
             conversations: openConversations(c)
               .filter((row) => row.issuer === found.issuer)
-              .map((row) => ({ conversation: row.id, status: row.status, responder: row.responder, direct: !!row.direct })),
+              .map((row) => ({ conversation: row.id, ...stateForModel(row), direct: !!row.direct })),
             // Signed out here; the company hasn't accepted revoking the access, so it is still live there.
-            signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel)
+            signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel),
+            // Read only (0.4 Ops 5): the User writes and withdraws them on the Companies page.
+            ...(operationsVersion(found) === "3" ? { standingInstructions: instructions(c, found.issuer).filter((item) => item.withdrawnAt === null).map(instructionForModel) } : {})
           };
         }
       ),
@@ -301,7 +313,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-          return { conversation: id, status: row.status, responder: row.responder, messages: recentMessages(client(), id) };
+          return { conversation: id, ...stateForModel(row), messages: recentMessages(client(), id) };
         }
       ),
       scopedTool(
@@ -315,6 +327,19 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
           return handoff(client(), client().companyByIssuer(row.issuer), id, summary, callKey);
+        }
+      ),
+      scopedTool(
+        {
+          name: "poppy_handoff_cancel",
+          description: "Withdraw a request for a person at the company, once it's no longer needed, such as when its agent solved the problem. The company may still find someone; the conversation's state says which.",
+          parameters: Type.Object({ conversation: Type.String() }),
+          replay: "safe"
+        },
+        async ({ conversation: id }, callKey) => {
+          const row = conversation(client(), id);
+          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          return cancelHandoff(client(), client().companyByIssuer(row.issuer), id, callKey);
         }
       ),
       scopedTool(
@@ -340,8 +365,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-          await closeConversation(client(), client().companyByIssuer(row.issuer), id);
-          return { conversation: id, status: "closed" };
+          const status = await closeConversation(client(), client().companyByIssuer(row.issuer), id);
+          // 0.4: the Company acts on the close later; a read reports it (8.12).
+          return status === "closed" ? { conversation: id, status } : { conversation: id, status: "closing", note: "The company accepted the close; the conversation's state will say when it is closed." };
         }
       ),
       scopedTool(
@@ -479,7 +505,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         {
           name: "poppy_browse",
           description:
-            "Use a company's website in the session: open a URL on its domain, click a link by its selector, fill a form field (never credentials), or submit a form by its selector (waits for the User's approval). No JavaScript runs, and click never sends a form.",
+            "Use a company's website in the session: open a URL on its domain, click a link by its selector, fill a form field (never credentials), or submit a form by its selector (waits for the User's approval). No JavaScript runs, and click never sends a form. Where poppy_discover says pages are readable only, only open and click work.",
           parameters: Type.Object({
             domain: Domain,
             action: Type.Union([Type.Literal("open"), Type.Literal("click"), Type.Literal("fill"), Type.Literal("submit")]),

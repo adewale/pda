@@ -188,7 +188,7 @@ describe("describeToolCall", () => {
   });
 
   it("never throws, and always says something, whatever the arguments", () => {
-    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x", "read_url", "remember", "recall", "forget", "now", "date_math", "calculate", "remind_me", "schedule_task", "list_scheduled", "cancel_scheduled"];
+    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_handoff_cancel", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x", "read_url", "remember", "recall", "forget", "now", "date_math", "calculate", "remind_me", "schedule_task", "list_scheduled", "cancel_scheduled"];
     // Anything: any JSON, undefined, and objects whose names shadow Object.prototype's.
     const anything = gs.oneOf<unknown>(
       jsonValues(3),

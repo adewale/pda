@@ -50,6 +50,9 @@
     // fake browser (test/fake-browser.ts), and a render that missed the fake
     // would find no binding and fail closed, never reaching Browser Run.
     "BROWSER_RUN": "on",
+    // Off as shipped; the test agent hands over a fake browser instead
+    // (test/fake-handover.ts), whatever this says.
+    "BROWSER_CONTROL": "off",
     "POPPY_LOGO_URI": "https://agent.test/logo.svg",
     "OWNERS": { "emails": ["owner@example.com"], "github": { "owner": 4141 } },
     // nokey.example signs in but isn't on the demo, so it needs its own key.

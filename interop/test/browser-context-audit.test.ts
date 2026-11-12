@@ -35,6 +35,7 @@ function fixture(stage?: "authorize" | "post", restart = false) {
     rememberCompany: () => {}, resumeCompany: async () => COMPANY,
     session: () => state,
     accountGeneration: () => 0,
+    signsPages: () => false,
     token: async () => null,
     beforeRequest: async () => {},
     pageLimited: async () => false,
@@ -66,6 +67,8 @@ function fixture(stage?: "authorize" | "post", restart = false) {
         async fill() { return snapshot("https://shop.example/orders"); },
         async prepareSubmit() { return { from: "https://shop.example/orders", action: "https://shop.example/save", method: "POST", enctype: "application/x-www-form-urlencoded", fields: [{ name: "confirm", value: "yes", hidden: false }] }; },
         async submit(submission, beforeDispatch) { guard(new URL(submission.action)); beforeDispatch?.(); counts.submits++; return snapshot(submission.action); },
+        cookies() { return []; },
+        pageUrl() { return null; },
         async close() { counts.closes++; cookie = undefined; }
       };
     }
