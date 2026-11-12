@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { agentRecorded, attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
-import { runCell, toReply, withWebPage, type Driver, type Reply, type RunnerReply } from "./cell.ts";
+import { runCell, toReply, withScopes, withWebPage, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
 import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
@@ -53,7 +53,7 @@ import {
 import { readingChecks, refusedReadingChecks } from "./readings.ts";
 import { cellId, renderReport } from "./report.ts";
 import { runWithRetry } from "./retry.ts";
-import { inlineFiles, lintScenario } from "./scenario.ts";
+import { inlineFiles, lintScenario, missingFixture } from "./scenario.ts";
 import { assertTrace } from "./traces.ts";
 import type { Cell, Check, KnownFailure, Manifest, Registry, RegistryEntry, Role, Scenario } from "./types.ts";
 
@@ -170,6 +170,11 @@ export function loadRegistry(file = path.join(INTEROP, "registry.json")): Regist
     if (!entry.build && !entry.url) throw new Error(`${file}: ${entry.name} has neither build nor url`);
   }
   return registry;
+}
+
+/** A live Company has no fixture hook: the lane's one greeting, under its registry entry's `fixture` (spec §10). */
+export function liveFixture(entry: RegistryEntry, domain: string): Record<string, unknown> {
+  return withWebPage({ prompts: { hello: LIVE_GREETING }, ...(entry.fixture ?? {}) }, domain);
 }
 
 /** Live peers have no adapter manifest. Their declared version must be explicit. */
@@ -353,7 +358,7 @@ export function runExitCode(cells: readonly Cell[], bad: readonly Cell[], stale:
   return bad.length > 0 || stale.length > 0 || (cells.length > 0 && !ran) || (requireSupported && cells.some((cell) => cell.outcome === "unsupported")) ? 1 : 0;
 }
 
-async function runCells(options: {
+export async function runCells(options: {
   scenarios: readonly Scenario[];
   agents: readonly Implementation[];
   companies: readonly Implementation[];
@@ -398,8 +403,14 @@ async function runCells(options: {
         cell.specificationRevision = protocolRevision(cell.protocolVersion!);
         const missing = [agent, company].filter((impl) => !impl.manifest!.scenarios.includes(scenario.id)).map((impl) => impl.entry.name);
         const hooks = (scenario.needs?.company ?? []).filter((hook) => !company.hooks.includes(hook));
-        if (missing.length || hooks.length) {
-          cell.reason = missing.length ? `${missing.join(" and ")} don't list ${scenario.id}` : `${company.entry.name} has no hook ${hooks.join(", ")}`;
+        // A live Company's fixture is its registry entry's, known now: a scenario that needs a value it lacks can't run there (spec §10).
+        const lacking = company.entry.build ? null : missingFixture(scenario, withScopes(liveFixture(company.entry, company.domain)));
+        if (missing.length || hooks.length || lacking) {
+          cell.reason = missing.length
+            ? `${missing.join(" and ")} don't list ${scenario.id}`
+            : hooks.length
+              ? `${company.entry.name} has no hook ${hooks.join(", ")}`
+              : `${company.entry.name}'s registry entry has no ${lacking}`;
           options.log(`${scenario.id.padEnd(4)} ${cell.agent} × ${cell.company}: unsupported (${cell.reason})`);
           continue;
         }
@@ -436,8 +447,7 @@ export async function runOne(
     const answer = await control(company.target, "POST", "/hooks/fixture", {});
     if (answer.status === 200) fixture = answer.body;
   }
-  // A live Company has no fixture hook; the live scenarios need only a greeting, which says it is a test (spec §10).
-  if (!company.entry.build) fixture = { prompts: { hello: LIVE_GREETING }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
+  if (!company.entry.build) fixture = { ...liveFixture(company.entry, company.domain), ...(fixture as Record<string, unknown>) };
   fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];
@@ -484,7 +494,7 @@ export async function runOne(
     }
   };
 
-  const run = await runCell(scenario, fixture, driver);
+  const run = await runCell(scenario, fixture, driver, { live: !company.entry.build });
   cell.steps = run.steps;
   cell.outcome = run.outcome;
   if (run.reason) cell.reason = run.reason;
