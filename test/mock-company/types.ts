@@ -159,6 +159,8 @@ export type MockConfig = {
   readonly issuerPath: string | null;
   /** Answer the approval of an operation's first revision with a new revision, as a Company whose terms moved would (Ops 6). */
   readonly reviseOnFirstApproval: boolean;
+  /** Return an operation's latest revision again with its `summary` reworded and its terms and `revision` kept, as 0.4 allows (Ops 3). */
+  readonly rewordSummary: boolean;
   /** 0.4 Ops 6: decline approvals that pass the checks, every one or only agent approvals, instead of performing them. */
   readonly declineApprovals: "all" | "agent" | null;
   /**
@@ -401,6 +403,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   issuerTrailingSlash: false,
   issuerPath: null,
   reviseOnFirstApproval: false,
+  rewordSummary: false,
   declineApprovals: null,
   webOperations: false,
   webErrorAfterPerforming: false,

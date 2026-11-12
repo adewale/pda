@@ -249,7 +249,13 @@ export class Operations {
     for (const record of this.#records.values()) {
       if (record.web || record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, context)) continue;
       const latest = record.revisions.get(record.latest)!;
-      if (latest.expiresAt > Date.now()) return { operation: latest.operation };
+      if (latest.expiresAt > Date.now()) {
+        // 0.4 Ops 3: "A `summary` reworded without changing the terms can keep its revision."
+        if (!co.config.rewordSummary || latest.operation.summary === undefined) return { operation: latest.operation };
+        const reworded = { ...latest.operation, summary: `Reworded: ${latest.operation.summary}` };
+        record.revisions.set(record.latest, { ...latest, operation: reworded });
+        return { operation: reworded };
+      }
       return { operation: this.#revise(record, action, asked) };
     }
     const record = this.#create(action, context, request, asked, false);

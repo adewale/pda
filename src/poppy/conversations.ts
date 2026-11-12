@@ -501,6 +501,11 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   );
   // 0.4 Ops 5: a standing instruction of the User's may approve it instead of the card.
   await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
+    // Other terms under a revision already shown (Ops 3): told, and reading goes on past it.
+    if (hasCode(error, "unusable_proposal")) {
+      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${error.message} Nothing was done.` });
+      return;
+    }
     if (!(error instanceof ActionOutcomePending)) throw error;
     // Process this event once, then keep reading: later Company messages may
     // establish the earlier outcome. A new terms card cannot bypass that hold.

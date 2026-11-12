@@ -76,10 +76,10 @@
     },
     {
       "change": "Requests are accepted, then acted on",
-      "disposition": "Planned",
+      "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "C2: a POST without wait returns only conversation_id; read until working is false; send the next request only after acceptance when order matters."
+      "evidence": "test/poppy-0.4.test.ts",
+      "notes": "C2 and C4: every POST carries a request id; a response without wait, which has only conversation_id, is read as accepted, and what follows comes from reads, so an approval sent in a conversation is reported as accepted with its outcome unknown. poppy_close reads until working is false and keeps the close until a read finds the Company done."
     },
     {
       "change": "Request IDs on every conversation request",
@@ -237,17 +237,17 @@
     },
     {
       "change": "Operations: what a revision covers",
-      "disposition": "Planned",
-      "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O1: a revision may keep its number when only summary changes."
+      "disposition": "Done",
+      "implementation": "src/poppy/operations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "O1: the same revision returned with a reworded summary keeps the User's card and its decision; other terms under a revision already shown are refused with a notice, and a conversation reads on (readings v04-revision-summary). The mock can reword a kept revision (rewordSummary)."
     },
     {
       "change": "Operations: new terms for the same action",
-      "disposition": "Planned",
-      "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O1: review how the terms card presents a new revision for the same operation_id."
+      "disposition": "Done",
+      "implementation": "src/poppy/api-approvals.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "O1: a new revision for the same operation_id gets a card of its own; the card for the revision it replaces closes as terms, and only the User's approval of the new one performs it."
     },
     {
       "change": "Operations: approval in another Session",
@@ -265,10 +265,10 @@
     },
     {
       "change": "Operations: what counts as the same request",
-      "disposition": "Planned",
-      "implementation": "test/mock-company/operations.ts",
-      "evidence": "docs/poppy-0.4-upgrade.md",
-      "notes": "O1: the agent already repeats the same request; the mock compares requests by meaning, and the agent may approve an earlier revision."
+      "disposition": "Done",
+      "implementation": "src/poppy/operations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "O1: the approved request is the stored request, sent again unchanged with Poppy-Approval; the mock compares requests by meaning. Approving an earlier revision the User prefers, which the text permits, isn't offered (readings v04-earlier-revision)."
     },
     {
       "change": "Protecting refresh tokens",
