@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { agent, cards, company, requests, signInDirect, tool, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import { FAKE_LIVE_VIEW_MS } from "./fake-handover";
+import { handoverAvailable } from "../src/tools/render";
 
 const MARKED: Partial<MockConfig> = { protocolVersion: "0.4", browserControl: true };
 const SCOPES = ["orders:read", "orders:write", "poppy:browser-sign-in"];
@@ -38,6 +39,15 @@ async function userHasControl(config: Partial<MockConfig> = MARKED) {
 }
 
 describe("Browser Control: declaring the extension (3)", () => {
+  it("hands over only with BROWSER_CONTROL on, which ships off, and Browser Run available", () => {
+    expect(handoverAvailable({ BROWSER_CONTROL: "on", BROWSER_RUN: "on", BROWSER: {} })).toBe(true);
+    expect(handoverAvailable({ BROWSER_CONTROL: "off", BROWSER_RUN: "on", BROWSER: {} })).toBe(false);
+    expect(handoverAvailable({ BROWSER_CONTROL: "on", BROWSER_RUN: "off", BROWSER: {} })).toBe(false);
+    expect(handoverAvailable({ BROWSER_CONTROL: "on", BROWSER_RUN: "on" })).toBe(false);
+    expect(() => handoverAvailable({ BROWSER_CONTROL: "yes", BROWSER_RUN: "on", BROWSER: {} })).toThrow("BROWSER_CONTROL must be on or off");
+    expect(() => handoverAvailable({ BROWSER_RUN: "on", BROWSER: {} })).toThrow("Missing required setting BROWSER_CONTROL");
+  });
+
   it("declares browser-control on the Session's join where the Company lists it and this agent can hand over a browser", async () => {
     const { c } = await onReturnPage();
     const join = (await requests(c)).find((request) => request.url.endsWith("/poppy/browser-session/authorize"))!;

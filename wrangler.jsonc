@@ -66,6 +66,11 @@
     // at most 10 an hour per agent. `off`: it reads pages without
     // JavaScript only and says when one needed it (docs/setup.md).
     "BROWSER_RUN": "on",
+    // `on`: at a step a Company's website marks for the User (Poppy 0.4
+    // Browser Control), the agent can hand them a Browser Run browser for
+    // that step, and declares the extension; needs BROWSER_RUN on. `off`
+    // (shipped): marked steps are left to the User on the website (docs/setup.md).
+    "BROWSER_CONTROL": "off",
     // Who this deployment is for and where it lives. Empty here, so a copy
     // nobody has configured fails closed; each deployer sets their own in
     // the untracked deployment.local.json (see deployment.example.json),

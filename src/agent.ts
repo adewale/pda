@@ -52,7 +52,7 @@ import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetch
 import { PiSessionSockets } from "./sockets";
 import { memoryExtension, timeExtension, webExtension, type WebToolsOptions } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
-import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
+import { handoverAvailable, puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools/schedule-store";
 import { scheduleExtension } from "./tools/schedules";
 import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
@@ -537,11 +537,12 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /**
    * The browser handed to the User at a step a Company marks for them (0.4
-   * Browser Control; src/poppy/handover.ts): Browser Run, on the same switch
-   * and binding as read_url's renders, or null without them. Tests hand in a fake.
+   * Browser Control; src/poppy/handover.ts): Browser Run, with `BROWSER_CONTROL`
+   * on (off as shipped, decision 48) and read_url's switch and binding, or null
+   * without them. Tests hand in a fake.
    */
   protected poppyHandover(): HandoverLauncher | null {
-    return renderAvailability(this.env) === "on" ? browserRunHandover(this.env.BROWSER) : null;
+    return handoverAvailable(this.env) ? browserRunHandover(this.env.BROWSER) : null;
   }
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */

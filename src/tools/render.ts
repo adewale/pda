@@ -16,7 +16,7 @@
  * the `BROWSER` binding; tests hand in a fake (test/fake-browser.ts), so no
  * test reaches Browser Run.
  */
-import { readBrowserRun } from "../config";
+import { readBrowserControl, readBrowserRun } from "../config";
 import { isPublicAddress } from "../validator/address";
 import { raceAbort, withDeadline } from "../validator/fetch";
 import { cutText, READ_LIMITS, ReadError, readableText, urlProblem, type PageKind, type PageRead } from "./web";
@@ -121,6 +121,11 @@ export type BrowserLauncher = () => Promise<RenderBrowser>;
 export function renderAvailability(env: { readonly BROWSER_RUN?: unknown; readonly BROWSER?: unknown }): "on" | "off" | "no binding" {
   if (readBrowserRun(env) === "off") return "off";
   return env.BROWSER ? "on" : "no binding";
+}
+
+/** Whether this deployment hands the User a browser at a marked step: `BROWSER_CONTROL` on, and rendering available (decisions 47, 48). */
+export function handoverAvailable(env: { readonly BROWSER_CONTROL?: unknown; readonly BROWSER_RUN?: unknown; readonly BROWSER?: unknown }): boolean {
+  return readBrowserControl(env) === "on" && renderAvailability(env) === "on";
 }
 
 /** Production's launcher: `@cloudflare/puppeteer` on the binding, loaded only when a page is rendered. */

@@ -555,7 +555,7 @@ Browsing uses our own fetch-based browser, `FetchBrowser` (`src/poppy/fetch-brow
   - **While the User holds control,** every `poppy_browse` action, and any approved form waiting to be sent, is refused at that Company. Nothing else waits.
   - **Only the User ends it,** by handing back or cancelling. The browser closes and nothing comes back from it, not even its cookies. The model is told where the browser was last, and its next action there must be opening a page.
   - **Bounds.** Six browsers an hour; a browser closes after 30 minutes, with the User still in control and able to open it again at the last page; a sign-out or new Session ends the handover. A heartbeat every 30 seconds reconnects after an eviction.
-  - **Declared** as `"browser-control";v="1"` only where the Company lists it beside browser join and `BROWSER_RUN` is on with its `BROWSER` binding. Otherwise marked steps are still left undone, and the model tells the User to take them on the website.
+  - **Declared** as `"browser-control";v="1"` only where the Company lists it beside browser join and the deployment sets `BROWSER_CONTROL` on, with `BROWSER_RUN` on and its `BROWSER` binding. It ships off ([decision 48](docs/decisions.md#48-browser-control-ships-off)). Otherwise marked steps are still left undone, and the model tells the User to take them on the website.
 - **Interface preference.** Browsing is the last resort: APIs, then the Company Agent, then the website.
 
 ### APIs (§7)

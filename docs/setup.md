@@ -113,6 +113,7 @@ Every way to turn something off, in one place. A var goes in `deployment.local.j
 
 | To stop | Set | What happens |
 | --- | --- | --- |
+| Handing the User a browser at a marked step (off as committed) | `"BROWSER_CONTROL": "off"` | The agent doesn't declare Poppy 0.4's Browser Control, leaves each step a Company marks for the User undone, and tells them to take it on the website. `on` needs `BROWSER_RUN` on too; run the live check in [deployment tasks](deployment-tasks.md) first ([decision 48](decisions.md#48-browser-control-ships-off)). |
 | Rendering pages in Browser Run | `"BROWSER_RUN": "off"` | `read_url` reads every page without JavaScript and tells the model when a page needed it ([section 6](#6-browser-run-on-by-default)). |
 | The demo: model calls you pay for | `"DEMO_DAILY_USD_PER_USER": 0` and `"DEMO_DAILY_USD_PER_DOMAIN": 0` | Either cap at 0 refuses every demo call before it is made, because nobody's spend is below 0. Everyone then needs their own key, and a scheduled task with no key fails its run; three failures in a row pause it. |
 | One sign-in provider | `"SIGNIN_PROVIDERS": ["github"]` or `["google"]` | The sign-in page has no button for the other, and its `/auth/` routes answer 404. At least one must be listed. |
