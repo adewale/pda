@@ -1,0 +1,13 @@
+Control: disable only fixture preflight in cli.ts; run the four tests matching "before any adapter call".
+All four must fail. Source restored before normal verification.
+
+   × rejects a live nested reference before any adapter call 23ms
+   × rejects a live embedded reference before any adapter call 7ms
+   × rejects a live optional step before any adapter call 5ms
+   × rejects a live active condition before any adapter call 5ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live nested reference before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live embedded reference before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live optional step before any adapter call
+ FAIL  |interop| interop/test/runner.test.ts > rejects a live active condition before any adapter call
+      Tests  4 failed | 37 skipped (41)

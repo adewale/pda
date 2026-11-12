@@ -1,0 +1,39 @@
+{
+  "base": "b2fc42893ce719023681ff0df14a2b485e6d75d3",
+  "source": "3f240b5f43c97a6012b612f1d0f4e2e0cb7e15e9",
+  "previousPrHead": "d02855ec490ee0076ecc9a1549dba30004b012a3",
+  "protocol": "0.4",
+  "checks": {
+    "passed": 2705,
+    "skipped": 1,
+    "files": 134,
+    "harnessPassed": 474,
+    "toolingPassed": 17,
+    "preflightDisabledFailures": 4,
+    "typecheck": true,
+    "specIntegrity": true
+  },
+  "sourceSha256": {
+    "interop/runner/cell.ts": "44195d76bf70b83be4ea6b27d40f0fc8d8968598c487b744cfa600cefd74c522",
+    "interop/runner/cli.ts": "6db94d1aff4a54edad474720f1cba5ee775c07ffa6f4f67002f64f314f63db02",
+    "interop/runner/scenario.ts": "529a241cdcef3fbb2ffb7c3e16b96bea87be8a66aea360aafe7f1a5d2322013b",
+    "interop/runner/types.ts": "35dff4d40d9c7c037d1e88adc28561b8d3ee9cb84e6b92c03b0ed18b8897a26a",
+    "interop/scenarios/C.json": "8405b2596287c7e7a6999e2f936283a356580895a43016be95b8aee7112c5f95",
+    "interop/scenarios/CL.json": "9200e51584683807cbdfa7cb2610568adc54b2afc7243cbeb77d712a45f7b8d1",
+    "interop/scenarios/ML.json": "88c1a6afb1d54061e269d1112cdf7f352d9bee5b04ead3981bc6f3c0fe8956d2",
+    "interop/test/runner.test.ts": "94748757c30a8c6e4824d549ea684bb8623c6482fdaeb27b6b98390bd78b7d52",
+    "interop/test/scenario.test.ts": "015bdae8fbbfd3a3bfdf629ab272ea7efb78e115086942d0698f8acbf55719df"
+  },
+  "artifactSha256": {
+    "after.html": "973270946333dfda3d5a4d542fd9a8fd34aec95b99423e57078f8a6c81d30c2b",
+    "after.png": "abb96b75830ff29c88877d704f70f2ae222189d6e08644062f9c401cbb135ce2",
+    "before.html": "fb033ca5c7347b02dc988ced1b56d48ca1604b076a7797e781e98664b93d5f19",
+    "before.png": "689e9306fa89c2765ef8d3e42f63e0f80de166741bf3eaa6dda242e79078da80",
+    "capture.mjs": "c4bc793e644d7c3f5d5e27cfddaa515aa22364dd01865d190a78352452371ecd",
+    "interop.txt": "fc33aff86213de6e824d57954a4356c747ce787ee861067dafad3d75f3d6ceda",
+    "preflight-disabled.txt": "1a54907cd9db3f83e13b7e87e67b0e5fea05c68ba34bd3b0798cf577e610b21d",
+    "tests-summary.txt": "aea30815a0f81c6c689feab2f254e07940528daf0b356846437188cdd30cefc0",
+    "tooling.txt": "a644dcdad3a97b7e6d60d96a7c3517c8d3010f5814c359f039c7a55c5e672cd3",
+    "visual-receipt.json": "fe5d1b1c2370c9b384e1c580cac613652a7869af77d3fae249b2c4e5b9f67acf"
+  }
+}
