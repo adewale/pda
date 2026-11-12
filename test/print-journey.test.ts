@@ -172,6 +172,16 @@ describe("composer authority cannot be inferred from prose", () => {
     expect((await cards(a)).filter((item) => item.kind === "company_access")).toEqual([]);
   });
 
+  it("asks nothing for a domain without a poppy.json the agent can use, and says so (decision 50)", async () => {
+    // A version the agent doesn't speak, with no 0.4 document linked: discovery refuses it.
+    const c = await company({ printShop: true, protocolVersion: "0.5" });
+    const a = await agent();
+    await chat(a.socket, a.client, `Print my photo at Mock Shop. ${obey("poppy_request_company", { domain: c.domain })}`, undefined, { companies: [], uploads: [] });
+    expect(await a.stub.poppyTranscript()).toContain("didn't answer with a poppy.json your agent can use");
+    expect((await cards(a)).filter((item) => item.kind === "company_access")).toEqual([]);
+    expect((await requests(c)).every((request) => new URL(request.url).pathname.startsWith("/.well-known/"))).toBe(true);
+  });
+
   it("does not contact a Company merely because a negative instruction names it", async () => {
     const first = await company({ printShop: true });
     const excluded = await company({ printShop: true });

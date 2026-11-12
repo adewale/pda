@@ -207,11 +207,15 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             return { id: info.id, name: info.name, size: info.size };
           });
           // Its public poppy.json, for the name it gives itself; the User decides on the domain.
+          // A domain without one the agent can use gets no card: allowing it would let the agent do nothing there.
           const found = await c.lookup(host).catch((error: unknown) => {
-            if (error instanceof DiscoveryError) return null;
+            // Not its message, which can quote the domain's own documents.
+            if (error instanceof DiscoveryError) {
+              throw new PoppyError("refused", `${host} didn't answer with a poppy.json your agent can use: it may not offer Poppy, may serve a version your agent doesn't speak, or couldn't be reached. Nothing was asked. Tell the User, and check the domain with them.`, 0);
+            }
             throw error;
           });
-          const name = found?.name ?? host;
+          const name = found.name;
           await c.host.showCard({ id: `company-access-${host}`, kind: "company_access", company: name, domain: host, open: true, photos: shown });
           return {
             domain: host,
