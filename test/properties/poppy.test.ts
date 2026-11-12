@@ -827,6 +827,28 @@ describe("what these properties found, as examples", () => {
     expect(termsDifferences({ summary: "Print 4 photos.", terms }, asked)).toEqual(["The terms say items[1].sku is print-5x7, but the request asked for print-8x10."]);
   });
 
+  it("compares a name only with the request's name in the same place: a recipient, a preview and a product each have their own", () => {
+    const terms = {
+      address: { name: "Todd K", line1: "150 Sutter Street" },
+      previews: [{ name: "Photo 1", url: "https://print.example/previews/1.png" }],
+      products: [{ name: "4 × 6 photo prints", quantity: 1 }]
+    };
+    const asked = { params: {}, body: { address: { name: "Todd K", line1: "150 Sutter Street" }, photos: [{ name: "lake.jpg" }], product_id: "print-4x6" } };
+    expect(termsDifferences({ summary: "Print 1 photo.", terms }, asked)).toEqual([]);
+    const renamed = { ...asked, body: { ...asked.body, address: { ...asked.body.address, name: "Someone else" } } };
+    expect(termsDifferences({ summary: "Print 1 photo.", terms }, renamed)).toEqual(["The terms say address.name is Todd K, but the request asked for Someone else."]);
+  });
+
+  it("finds a terms key the request sent as a parameter or in its body, unless it sent that key in two places", () => {
+    const terms = { order_id: "ord_1", sku: "print-5x7" };
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_2" }, body: { items: [{ sku: "print-5x7" }] } })).toEqual([
+      "The terms say order_id is ord_1, but the request asked for ord_2."
+    ]);
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_1" }, body: { items: [{ sku: "print-4x6" }, { sku: "print-5x7" }] } })).toEqual([]);
+    // `sku` in the order and in its replacement: which one the terms mean is unclear, so neither is compared.
+    expect(termsDifferences({ summary: "Change the print.", terms }, { params: { order_id: "ord_1" }, body: { items: [{ sku: "print-4x6" }], replacement: { sku: "print-8x10" } } })).toEqual([]);
+  });
+
   it("describes a scope named like a member every object inherits by its name, never by that member", () => {
     const company = { ...companyAt("shop.example"), scopeHints: {} };
     expect(describeScopes(company, ["constructor", "toString", "__proto__"])).toEqual(["constructor", "toString", "__proto__"].map((scope) => ({
