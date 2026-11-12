@@ -121,22 +121,25 @@ describe("scope descriptions and conservative sign-in hints", () => {
     expect(company.scopeHints).toEqual({ "orders:write": { changes: "none", personalData: false } });
   });
 
-  it("prefers listed OpenAPI scope descriptions to auth.scopes in discovery information and the sign-in card", async () => {
+  it("prefers auth.scopes to listed OpenAPI scope descriptions in discovery information and the sign-in card (4.7)", async () => {
     const f = await fixture({
       doc: domain => ({ ...document(domain), extensions: { "mediated-sign-in": [{ version: "1", scopes: ["orders:read", "orders:write"], fields: [{ name: "password", label: "Password", secret: true }] }] } }),
       response: request => request.url === "https://shop.example/openapi.json" ? Response.json({
         openapi: "3.1.0", info: { title: "Orders", version: "1" }, paths: {},
         components: { securitySchemes: { oauth: { type: "oauth2", flows: { authorizationCode: {
-          authorizationUrl: `${ISSUER}/authorize`, tokenUrl: `${ISSUER}/token`, scopes: { "orders:read": "Look up your orders using the Orders API" }
+          authorizationUrl: `${ISSUER}/authorize`, tokenUrl: `${ISSUER}/token`, scopes: { "orders:read": "Look up your orders using the Orders API", addresses: "Your saved addresses" }
         } } } } }
       }) : undefined
     });
     const company = await f.client.company("shop.example");
     const expected = [
-      { scope: "orders:read", description: "Look up your orders using the Orders API", hint: "Can make changes that can't be undone · Uses your personal data" },
+      { scope: "orders:read", description: "Read orders", hint: "Can make changes that can't be undone · Uses your personal data" },
       { scope: "orders:write", description: "Change orders", hint: "Can make changes that can't be undone · Uses your personal data" }
     ];
-    expect(describeScopes(company, ["orders:read", "orders:write"], await openApiScopeDescriptions(f.client, company))).toEqual(expected);
+    const fromApis = await openApiScopeDescriptions(f.client, company);
+    expect(describeScopes(company, ["orders:read", "orders:write"], fromApis)).toEqual(expected);
+    // A scope auth.scopes doesn't describe takes the OpenAPI description.
+    expect(describeScopes(company, ["addresses"], fromApis)[0]?.description).toBe("Your saved addresses");
     await startSignIn(f.client, company, { label: "main", scopes: ["orders:read", "orders:write"], reason: "Read an order", type: "mediated" });
     expect(f.cards.at(-1)).toMatchObject({ kind: "signin_credentials", open: true, scopes: expected });
     expect(f.requests.filter(request => request.url.endsWith("/openapi.json"))).toHaveLength(1);
