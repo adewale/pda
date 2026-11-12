@@ -57,6 +57,7 @@ export const PROTOCOL_STEPS = {
   "conversation.handoff": { section: "§8.9", title: "Handoff" },
   "conversation.direct": { section: "§8.10", title: "Direct Conversation" },
   "conversation.close": { section: "§8.12", title: "Closing" },
+  "tasks.read": { section: "§9", title: "Task coverage" },
   "feedback.send": { section: "§9.3", title: "Feedback" },
   "operation.approval_required": { section: "Ops §4", title: "Asking for approval" },
   "operation.decided": { section: "Ops §5", title: "The User's approval" },
@@ -518,8 +519,9 @@ function waitOf(url: URL): string | null {
 function messageFields(body: unknown): string | null {
   if (!isObj(body) || !isObj(body.message)) return null;
   const message = body.message;
-  const fields = ["text", "data", "context", "approval"].filter((field) => message[field] !== undefined);
-  const id = label(message.id);
+  const fields = ["text", "data", "context", "extensions"].filter((field) => message[field] !== undefined);
+  // A message's ID is its request's (8.3).
+  const id = label(body.id);
   const author = writtenBy(message);
   return [id ? `message ${id}` : "message", author ? `author ${author}` : null, fields.length ? `with ${fields.join(", ")}` : null].filter(Boolean).join(" ");
 }
@@ -543,6 +545,8 @@ function classify(company: Company, request: ResourceRequest, url: URL): { step:
   const at = bareUrl(url);
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
   const approval = approvalOf(request);
+  // 9: the tasks response, read with the Session header and no token.
+  if (below(company.tasks?.endpoint, url)?.length === 0) return { step: "tasks.read", summary: "Read the excluded tasks and the feedback endpoint", url: at };
   const conversation = below(company.conversations?.endpoint, url);
   if (conversation) {
     const id = label(conversation[0] ?? "");
@@ -560,8 +564,8 @@ function classify(company: Company, request: ResourceRequest, url: URL): { step:
       const stream = (request.accept ?? "").includes("text/event-stream");
       return { step: "conversation.read", summary: join(`Read events of ${id ?? "a conversation"}`, url.searchParams.has("cursor") ? "from the saved cursor" : "from the start", waitOf(url), stream ? "stream or JSON" : null), url: at };
     }
-    if (conversation.length === 2 && action === "handoff") return { step: "conversation.handoff", summary: `Hand ${id ?? "the conversation"} off to a person, with {}`, url: at };
-    if (conversation.length === 2 && action === "close") return { step: "conversation.close", summary: `Close ${id ?? "the conversation"}, with {}`, url: at };
+    if (conversation.length === 2 && action === "handoff") return { step: "conversation.handoff", summary: `Hand ${id ?? "the conversation"} off to a person, with its request id`, url: at };
+    if (conversation.length === 2 && action === "close") return { step: "conversation.close", summary: `Close ${id ?? "the conversation"}, with its request id`, url: at };
     return { step: "conversation.request", summary: `${request.method} a conversation endpoint`, url: at };
   }
   const join_ = below(company.web?.browserSessionEndpoint, url);

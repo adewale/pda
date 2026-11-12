@@ -472,7 +472,7 @@ async function conversation(c: C, s: Session) {
 
 const EXCHANGE = { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" };
 
-function exchange(c: C, s: Session, headers: Record<string, string> = {}, body: unknown = EXCHANGE) {
+function exchange(c: C, s: Session, headers: Record<string, string | undefined> = {}, body: unknown = EXCHANGE) {
   return call(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body, headers });
 }
 

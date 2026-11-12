@@ -862,20 +862,20 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(order.proposed).toMatch(/^apr2_/);
   });
 
-  it("stops at the Company's terms when the signed-out Session they belong to ended: nothing is done, the User and model are told, and the order can be asked for again (N19)", async () => {
+  it("stops at the Company's terms when the signed-out Session they belong to ended: the approval goes in a new Session, which has no copy of the photo, so nothing is done, and the order can be asked for again (N19; decision 43)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
     const { photoId, terms } = await termsForPrint(a, c);
-    // The Company ends every Session; the approval names an operation of the old one (Ops 3).
+    // The Company ends every Session; Operations 3 lets the approval go in the new one (decision 43).
     await c.stub.endAllSessions();
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
-    const failed = await until(async () => (await cards(a)).find((item) => item.id === terms.id && item.status === "failed"));
+    const failed = await until(async () => (await cards(a)).find((item) => item.id === terms.id && item.status === "refused"));
     expect(failed.open).toBe(false);
-    // The approval went once on the ended Session and is never sent on a new one (approval_changed).
-    expect(failed.result).toBe("The account or Session changed. Review a fresh request before sending it. [approval_changed]");
-    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("[approval_changed]");
-    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "session_ended"]]);
+    expect(failed.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 422 (unknown_photo). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
+    // Once on the ended Session, then once in the new one, which the Company refuses: nothing is printed.
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "session_ended"], [422, "unknown_photo"]]);
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
+    // Activity files a refusal with the failures.
     await expectFinalElsewhere(a, failed, "failed");
     // The new Session has no copy of the old Session's photo. A premature local
     // card used to hide this failure until another click (spec 5.5).

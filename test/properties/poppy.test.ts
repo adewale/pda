@@ -51,7 +51,7 @@ describe("scopes (4.4, 4.8)", () => {
   it(
     "a read-only lookup narrows to the scopes it declares only when the Session holds them and more, and one declaring none keeps the Session's (Guides, 4.7)",
     property((tc) => {
-      // 0.3 defines no scopes (4.7), so 0.2's names are any Company's, drawn among the rest.
+      // 0.4 defines no API scopes (4.7), so 0.2's names are any Company's, drawn among the rest.
       const held = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(["orders:read", "orders:write", "poppy:read"]), scopeTokens), { maxSize: 5 }));
       const declared = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(held.length ? held : ["orders:read"]), scopeTokens), { maxSize: 4 }));
       const op = { operationId: "x", method: "GET", path: "/x", summary: "", parameters: [], acceptsIdempotencyKey: false, scopes: declared, outsidePoppy: false, schemaDraft: "2020-12" } satisfies OpenApiOperation;
@@ -412,7 +412,7 @@ function companyAt(domain: string, issuerHost = `auth.${domain}`): Company {
     name: "Shop",
     domain,
     poppyDomains: [domain],
-    protocolVersion: "0.3",
+    protocolVersion: "0.4",
     endpoints: {
       token: `${issuer}/oauth/token`,
       revocation: `${issuer}/oauth/revoke`,
@@ -423,7 +423,7 @@ function companyAt(domain: string, issuerHost = `auth.${domain}`): Company {
     // Mediated Sign-In's credentials go to the token endpoint (Mediated Sign-In 3).
     signIn: { mediated: { endpoint: `${issuer}/oauth/token`, fields: [], scopes: [] } },
     customScopes: {},
-    feedback: { endpoint: `https://api.${domain}/poppy/feedback` },
+    tasks: { endpoint: `https://api.${domain}/poppy/tasks` },
     conversations: { endpoint: `https://api.${domain}/poppy/conversations` },
     apis: [],
     web: { browserSessionEndpoint: `https://${domain}/poppy/browser-session` },
@@ -480,7 +480,7 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
           company.endpoints!.revocation,
           company.endpoints!.authorization!,
           company.endpoints!.deviceAuthorization!,
-          company.feedback!.endpoint,
+          company.tasks!.endpoint,
           company.conversations!.endpoint,
           company.web!.browserSessionEndpoint!
         ])
