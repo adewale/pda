@@ -109,6 +109,13 @@ export type Card =
       readonly state: "offered" | "user" | "returned" | "cancelled" | "declined" | "ended";
       readonly note?: string;
     })
+  /**
+   * The agent asks to contact a Company the User hasn't selected ([decision 50](../../docs/decisions.md#50-the-agent-can-ask-to-contact-a-company)).
+   * `domain` is the one asked for, and `company` the name its own `poppy.json` gives. Allow sends a
+   * message of the User's from the composer that selects it, and these photos for upload to it; the
+   * card itself grants nothing, and closes once a message of theirs selects that domain.
+   */
+  | (CardBase & { readonly kind: "company_access"; readonly domain: string; readonly photos: readonly { readonly id: string; readonly name: string; readonly size: number }[] })
   | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
 /**

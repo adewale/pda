@@ -13,6 +13,7 @@ import { resultFacts, redactQueries } from "./result-facts";
 import { money, ApprovalCard } from "./poppy-approval";
 import { SignInLinkCard, DeviceCard, CredentialsCard, CodeCard, DirectInvite } from "./poppy-signin";
 import { BrowserControlCard, browserOutcome } from "./poppy-browser";
+import { CompanyAccessCard } from "./poppy-company";
 import { type PoppyView } from "../use-pi-session";
 
 /** A one-line record of something resolved: its state's mark and word, what happened, and where. */
@@ -170,6 +171,8 @@ export function PoppyCard({ card, send, onAsk }: { card: Card; send: Send; onAsk
       return <DirectInvite card={card} send={send} />;
     case "browser_control":
       return <BrowserControlCard card={card} send={send} />;
+    case "company_access":
+      return <CompanyAccessCard card={card} send={send} />;
     case "notice":
       return <ClosedCard card={card} send={send} />;
   }

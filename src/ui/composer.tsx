@@ -46,7 +46,11 @@ function imageFiles(list: FileList | null | undefined): File[] {
   return [...(list ?? [])].filter((file) => file.type.startsWith("image/"));
 }
 
-export type ComposerHandle = { edit(text: string): void };
+export type ComposerHandle = {
+  edit(text: string): void;
+  /** Send a message of the User's that selects `domain`, with these photos for upload to it (decision 50); false if it can't be selected. */
+  allowCompany(domain: string, photos: readonly string[]): boolean;
+};
 
 /** The Companies last sent from any tab or device. The field shows them; only sending grants them. */
 function useRememberedCompanies(show: (companies: string) => void): boolean {
@@ -88,7 +92,22 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
     setAccessError(null);
     setReviewing(true);
     editor.current?.focus();
-  } }), []);
+  }, allowCompany(domain, photos) {
+    let access;
+    try {
+      const shown = (() => { try { return companyDomains(companies); } catch { return []; } })();
+      access = readTaskAccess({ companies: [...shown, domain], uploads: photos.length ? [{ company: domain, files: [...photos] }] : [] });
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : "Check the selected Companies and photos.");
+      return false;
+    }
+    companiesEdited.current = true;
+    setCompanies(access.companies.join(", "));
+    setAccessError(null);
+    // The User's own message, in the chat for them to see: what it selects is what they allowed.
+    session.submit(`Yes, you can contact ${domain}${photos.length ? ` and send it ${photos.length === 1 ? "that photo" : "those photos"}` : ""}.`, "followUp", access);
+    return true;
+  } }), [companies, session]);
   const connected = session.status === "open";
   const [stopNotSent, setStopNotSent] = useState(false);
   const hintId = "composer-hint";

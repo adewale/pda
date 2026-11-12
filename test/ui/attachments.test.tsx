@@ -236,3 +236,33 @@ describe("cards about photos", () => {
     expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr_1", decision: "approve" }]);
   });
 });
+
+describe("asking to contact a Company the User hasn't selected (decision 50)", () => {
+  const asking: Card = { id: "company-access-shop.example", kind: "company_access", company: "Shop", domain: "shop.example", open: true, photos: [{ id: LAKE.id, name: LAKE.name, size: LAKE.size }] };
+  const withCard = (patch: Partial<PiSession>) => session({ poppy: { ...session().value.poppy, cards: [asking] }, ...patch });
+
+  it("allows it with a message of the User's that selects the Company and the photo shown, keeping the Companies already selected", async () => {
+    stubFetch();
+    const submit = vi.fn();
+    chat(withCard({ submit }));
+    const field = screen.getByRole("textbox", { name: "Companies your agent can contact" });
+    fireEvent.change(field, { target: { value: "other.example" } });
+    expect(screen.getByText("shop.example", { selector: "bdi" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Allow, with this photo" }));
+    expect(submit).toHaveBeenCalledWith("Yes, you can contact shop.example and send it that photo.", "followUp", {
+      companies: ["other.example", "shop.example"], uploads: [{ company: "shop.example", files: [LAKE.id] }]
+    });
+    // What the User sees in the composer is what the message granted.
+    expect((field as HTMLInputElement).value).toBe("other.example, shop.example");
+  });
+
+  it("asks nothing more of the composer on Not now, and dismisses the card", async () => {
+    stubFetch();
+    const submit = vi.fn();
+    const sent: PoppyClientFrame[] = [];
+    chat(withCard({ submit, sendPoppy: (frame: PoppyClientFrame) => (sent.push(frame), true) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+    expect(sent).toEqual([{ type: "poppy.card.dismiss", id: asking.id }]);
+    expect(submit).not.toHaveBeenCalled();
+  });
+});

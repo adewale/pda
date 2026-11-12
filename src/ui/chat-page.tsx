@@ -1,5 +1,5 @@
 /** Chat timeline, pending messages, working state and Direct Conversation layout. */
-import { type ReactNode, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { type ReactNode, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { MagnifyingGlassIcon, SignInIcon, HandIcon, ClockIcon } from "@phosphor-icons/react";
 import { type PiSession } from "../use-pi-session";
 import { useNow, Action } from "./controls";
@@ -10,6 +10,7 @@ import { approvalsOnSteps, stepDecisions } from "./steps";
 import { APPROVAL_READ_LIMIT } from "../poppy/approval-outcome";
 import { receipts, PoppyCard, openDirect, NeedsYouPanel, HiddenDirectRow, DirectConversations } from "../poppy-ui";
 import { BrowserViews } from "./poppy-browser";
+import { AllowCompanyContext } from "./poppy-company";
 import { Composer, type ComposerHandle } from "./composer";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -152,6 +153,7 @@ export function ChatPage({
   const { poppy, sendPoppy, messages, live, running, tools, error } = session;
   const composer = useRef<ComposerHandle>(null);
   const reviewMessage = (text: string) => composer.current?.edit(text);
+  const allowCompany = useCallback((domain: string, photos: readonly string[]) => composer.current?.allowCompany(domain, photos) ?? false, []);
   const onSteps = useMemo(() => approvalsOnSteps(live ? [...messages, live] : messages), [messages, live]);
   const approvalKey = [...onSteps].sort().join(",");
   useEffect(() => {
@@ -205,6 +207,7 @@ export function ChatPage({
             ) : null}
           </div>
         </div>
+        <AllowCompanyContext.Provider value={allowCompany}>
         <NeedsYouPanel
           view={poppy}
           send={sendPoppy}
@@ -217,6 +220,7 @@ export function ChatPage({
             />
           ))}
         />
+        </AllowCompanyContext.Provider>
         <Composer ref={composer} session={session} />
       </section>
       {shown.length ? (
