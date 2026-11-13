@@ -42,7 +42,7 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, precondition, rule
 
 from mock_server import DOMAIN, SUFFIX, MockServer
-from poppy_client import BROWSER_SIGN_IN, MCP_LEGACY, MCP_MODERN, PROTOCOL_VERSION, Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, Reply, Session, User, set_cookie_attributes
+from poppy_client import BROWSER_SIGN_IN, MCP_LEGACY, MCP_MODERN, Browser, Clock, Company, Es256Key, LocalTransport, PersonalAgent, Poppy, PushRefused, Reply, Session, User, set_cookie_attributes
 from strategies import CONFIGS, MESSAGE_IDS, canonical, messages, serialisations
 
 READ, WRITE = "orders:read", "orders:write"
@@ -69,6 +69,7 @@ class MGrant:
     account: str
     scope: frozenset[str]
     current: str
+    key: Es256Key  # the DPoP key it was issued with (4.4)
     superseded: list[str] = field(default_factory=list)
     revoked: bool = False
 
@@ -261,6 +262,25 @@ class Base(RuleBasedStateMachine):
     def co(self) -> Company:
         assert self.company is not None
         return self.company
+
+    def refresh_key(self, grant: MGrant) -> Es256Key:
+        """
+        4.4: the key a refresh proves. From 1.0, the one the refresh token was
+        issued with. 0.4 lets a refresh move to the User's newer key (Guides),
+        unless the Company binds the token to its key.
+        """
+        if self.co.version.startswith("0.") and not self.config.get("bindRefreshTokens"):
+            return grant.user.user.dpop_key
+        return grant.key
+
+    def direct_error(self, requested: list[str]) -> str | None:
+        """A Direct Sign-In for `requested`: the error in the Company's redirect (4.2), or in its answer to the push (RFC 9126 2.3)."""
+        try:
+            url, state, _ = self.poppy.authorization_url(self.co, requested, self.users[0].user.dpop_key)
+        except PushRefused as refused:
+            return refused.reply.error
+        redirect = self.server.hook("approve_authorization", url=url, account=self.fixture["accounts"][0])["redirect"]
+        return self.poppy.callback(self.co, redirect, state).get("error")
 
     def violation(self, violation_id: str) -> None:
         self.expected.append(violation_id)
@@ -647,10 +667,11 @@ class Base(RuleBasedStateMachine):
         if ms.mcp is not None and ms.mcp.grant is ms.token.grant and ms.mcp.scope == ms.token.scope:
             return ms.mcp
         grant = ms.token.grant
-        reply = self.poppy.refresh(self.co, ms.user.user.dpop_key, grant.current, scope=sorted(ms.token.scope) if ms.token.scope != grant.scope else None, resource=self.co.mcp)
+        key = self.refresh_key(grant)
+        reply = self.poppy.refresh(self.co, key, grant.current, scope=sorted(ms.token.scope) if ms.token.scope != grant.scope else None, resource=self.co.mcp)
         body = self.token_body(reply, scope=ms.token.scope, resource=self.co.mcp)
         self.rotate(grant, body)
-        ms.mcp = self.token_from(body, grant, ms.token.scope, ms.user.user.dpop_key, self.co.mcp)
+        ms.mcp = self.token_from(body, grant, ms.token.scope, key, self.co.mcp)
         return ms.mcp
 
     def mcp_session(self, ms: MSession) -> Session:
@@ -851,7 +872,10 @@ class Base(RuleBasedStateMachine):
         self.server.reset(config)
         self.server.serve_client_documents(self.agent.documents() | self.other_agent.documents())
         self.company = self.poppy.discover(DOMAIN)
-        assert self.co.version == PROTOCOL_VERSION and self.co.document["protocol_version"] == PROTOCOL_VERSION, self.co.document
+        # 3.4: the newest version served that we implement; we declare ours, 1.0 for 1.1.
+        served = [config.get("protocolVersion", "0.4")] + ([config["linkedVersion"]] if config.get("linkedVersion") else [])
+        chosen = max(served, key=lambda v: tuple(int(n) for n in v.split(".")))
+        assert self.co.document["protocol_version"] == chosen and self.co.version == ("1.0" if chosen.startswith("1.") else chosen), self.co.document
         self.fixture = self.server.hook("fixture")
         openapi = self.http.get(self.co.openapi).json()
         server = openapi["servers"][0]["url"]
@@ -954,7 +978,7 @@ class Base(RuleBasedStateMachine):
             if not x.session_header:
                 assert x.version is None and x.extensions is None, f"Poppy-Version or Poppy-Extensions without the Session header (3.4): {x.url}"
                 continue
-            if x.version != PROTOCOL_VERSION:
+            if x.version != self.co.version:
                 misdeclared += 1
                 continue
             if x.sid is not None:
@@ -998,11 +1022,12 @@ class SessionRules:
         grant = ms.token.grant
         assert not grant.revoked
         narrower = data.draw(st.none() | st.lists(st.sampled_from(sorted(grant.scope)), unique=True) if grant.scope else st.none())
-        reply = self.poppy.refresh(self.co, ms.user.user.dpop_key, grant.current, scope=narrower)
+        key = self.refresh_key(grant)
+        reply = self.poppy.refresh(self.co, key, grant.current, scope=narrower)
         scope = frozenset(narrower) if narrower is not None else grant.scope
         body = self.token_body(reply, scope=scope)
         self.rotate(grant, body)
-        self.set_token(ms, self.token_from(body, grant, scope, ms.user.user.dpop_key))
+        self.set_token(ms, self.token_from(body, grant, scope, key))
 
     @precondition(lambda self: self.company is not None)
     @rule(data=st.data())
@@ -1019,7 +1044,7 @@ class SessionRules:
         key = mu.user.dpop_key
         if kind == "direct":
             granted = data.draw(st.just(requested) | st.lists(st.sampled_from(requested), unique=True))
-            url, state, verifier = self.poppy.authorization_url(self.co, requested)
+            url, state, verifier = self.poppy.authorization_url(self.co, requested, key)
             redirect = self.server.hook("approve_authorization", url=url, account=account, scopes=granted)["redirect"]
             params = self.poppy.callback(self.co, redirect, state)
             assert "code" in params and "error" not in params, params
@@ -1044,7 +1069,7 @@ class SessionRules:
                 code = self.server.hook("last_one_time_code")["code"]
                 reply = self.poppy.mediated_code(self.co, key, reply.body["sign_in_id"], code)
         body = self.token_body(reply, scope=frozenset(granted), sign_in=True, requested=requested)
-        grant = MGrant(mu, account, frozenset(granted), body["refresh_token"])
+        grant = MGrant(mu, account, frozenset(granted), body["refresh_token"], key)
         mu.grants.append(grant)
         ms = self.target_session(data, mu, account)
         self.set_token(ms, self.token_from(body, grant, frozenset(granted), key))
@@ -1055,11 +1080,12 @@ class SessionRules:
         """4.4, 5.4: a stored refresh token signs a Session in, or a new one, without asking the User."""
         grant = data.draw(st.sampled_from(self.live_grants()))
         mu = grant.user
-        reply = self.poppy.refresh(self.co, mu.user.dpop_key, grant.current)
+        key = self.refresh_key(grant)
+        reply = self.poppy.refresh(self.co, key, grant.current)
         body = self.token_body(reply, scope=grant.scope)
         self.rotate(grant, body)
         ms = self.target_session(data, mu, grant.account)
-        self.set_token(ms, self.token_from(body, grant, grant.scope, mu.user.dpop_key))
+        self.set_token(ms, self.token_from(body, grant, grant.scope, key))
 
     @precondition(lambda self: self.live_grants())
     @rule(data=st.data())

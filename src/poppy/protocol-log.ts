@@ -36,6 +36,7 @@ export const PROTOCOL_STEPS = {
   "token.refresh": { section: "§4.4", title: "Refresh tokens" },
   "ratelimit.wait": { section: "§5.6", title: "Rate limits" },
   "signin.direct.state": { section: "§4.2", title: "Direct Sign-In" },
+  "signin.direct.push": { section: "§4.2", title: "Direct Sign-In" },
   "signin.direct.exchange": { section: "§4.2", title: "Direct Sign-In" },
   "signin.device.state": { section: "§4.3", title: "Device Sign-In" },
   "signin.device.start": { section: "§4.3", title: "Device Sign-In" },
@@ -402,6 +403,10 @@ function oauthStep(company: Company, attempt: OauthAttempt): { step: ProtocolSte
   if (attempt.endpoint === company.endpoints?.deviceAuthorization) {
     return { step: "signin.device.start", summary: join("Device authorization request", ...extras, session) };
   }
+  if (attempt.endpoint === company.endpoints?.pushedAuthorization) {
+    // RFC 9126: the authorization request, pushed; its state and PKCE challenge are never recorded.
+    return { step: "signin.direct.push", summary: join("Push the authorization request with its PKCE challenge and state", ...extras, form.prompt === "consent" ? "prompt=consent" : null, session, proof) };
+  }
   if (attempt.endpoint === company.endpoints?.revocation) {
     return { step: "account.revoke", summary: join("Revoke the refresh token", token(form.token_type_hint) ? `token_type_hint ${form.token_type_hint}` : null, session) };
   }
@@ -433,6 +438,10 @@ function oauthAnswer(step: ProtocolStep, status: number, body: unknown, error: s
     return [String(status), "device_code and user_code issued (never recorded)", interval !== null ? `interval ${interval} s` : null, expires !== null ? `expires in ${expires} s` : null].filter(Boolean).join(", ");
   }
   if (step === "account.revoke") return `${status}: revoked`;
+  if (step === "signin.direct.push") {
+    const expires = seconds(body.expires_in);
+    return [String(status), "request_uri issued", expires !== null ? `expires in ${expires} s` : null].filter(Boolean).join(", ");
+  }
   const parts = [String(status)];
   const type = token(body.token_type);
   if (type) parts.push(`${type} token`);

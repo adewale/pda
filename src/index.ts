@@ -119,6 +119,7 @@ const EXACT_ROUTES = [
   "/privacy",
   "/logout",
   "/poppy/callback",
+  "/poppy/sign-in",
   "/poppy/client.json",
   "/poppy/jwks.json",
   "/.well-known/http-message-signatures-directory",
@@ -400,11 +401,13 @@ async function handleLogout(request: Request, env: Env): Promise<Response> {
 /**
  * Poppy routes that belong to one person's agent: the Direct Sign-In
  * callback arrives in that person's browser, so their app session picks the
- * agent. Without a session there is no agent to give the code to.
+ * agent, as does the sign-in link that pushes an authorization request
+ * (RFC 9126) when they open it. Without a session there is no agent to give
+ * the code to, or to push for.
  */
 async function handlePoppy(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname !== "/poppy/callback") return text(404, "Not found");
+  if (url.pathname !== "/poppy/callback" && url.pathname !== "/poppy/sign-in") return text(404, "Not found");
   if (request.method !== "GET") return text(405, "Method not allowed");
   let identity;
   try {
@@ -412,13 +415,16 @@ async function handlePoppy(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;
     return new Response(
-      "Sign in to your personal agent in this browser, then start the company sign-in again.",
+      url.pathname === "/poppy/sign-in"
+        ? "Sign in to your personal agent in this browser, then open the company sign-in link again."
+        : "Sign in to your personal agent in this browser, then start the company sign-in again.",
       { status: 401, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
     );
   }
   const agent = await agentFor(identity, env);
   await agent.recordIdentity(identity);
-  return agent.fetch(new Request(url.toString(), { method: "GET", headers: identity.requestId ? { "x-request-id": identity.requestId } : {} }));
+  // `manual`: the sign-in link's 303 to the Company goes to the browser; the stub would otherwise follow it itself.
+  return agent.fetch(new Request(url.toString(), { method: "GET", redirect: "manual", headers: identity.requestId ? { "x-request-id": identity.requestId } : {} }));
 }
 
 /** `/auth/<provider>` and `/auth/<provider>/callback`. */

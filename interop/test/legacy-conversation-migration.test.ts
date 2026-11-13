@@ -5,7 +5,7 @@ import { PoppyClient, type PoppyHost } from "../../src/poppy/client";
 import { migrate } from "../../src/poppy/store";
 import { readConversation, updateAvailability } from "../../src/poppy/conversations";
 import { buildActivity, openAtCompanies } from "../../src/poppy/activity";
-import { PROTOCOL_REVISION } from "../../src/poppy/protocol-version";
+import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
 import type { Company } from "../../src/poppy/discovery";
 
 const ISSUER = "https://auth.shop.example";
@@ -108,7 +108,7 @@ describe("retiring conversations that cannot survive the protocol upgrade", () =
     expect(evidence(f)).toEqual(kept);
   });
 
-  it.each([undefined, PROTOCOL_REVISION])("preserves a current conversation with revision=%s on repeated migrations", async specificationRevision => {
+  it.each([undefined, PROTOCOL_REVISIONS["0.4"]])("preserves a current conversation with revision=%s on repeated migrations", async specificationRevision => {
     const f = await fixture();
     const current = { ...f.company, specificationRevision };
     addConversation(f, "cnv_current", current);

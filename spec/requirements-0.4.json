@@ -198,7 +198,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/client.ts",
       "evidence": "interop/test/dpop-keys.test.ts",
-      "notes": "H1: DPoP keys are held by issuer and User ID, so a changed User ID gets a new key. Each issuer still has one stored User ID; the key stays in memory and is regenerated after a restart. Shipped on 0.3, which allows it."
+      "notes": "H1: DPoP keys are held by issuer and User ID, so a changed User ID gets a new key. Each issuer still has one stored User ID; the key was memory-only until decision 51 stored it sealed, so it now survives a restart. Shipped on 0.3, which allows it."
     },
     {
       "change": "Checking protected resource metadata",

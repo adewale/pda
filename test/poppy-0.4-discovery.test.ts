@@ -5,7 +5,8 @@ import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed
  * Discovery under the 0.4 draft (F1 in docs/poppy-0.4-upgrade.md): the
  * version the agent chooses from poppy.json and `supported_versions` (3.4),
  * and what it reads from a 0.4 document (3.3, 6, 9). The agent speaks 0.4
- * alone; the 0.3 document is one it no longer reads (decision 49).
+ * and 1.0 (decision 51); the 0.3 document is one it no longer reads
+ * (decision 49).
  */
 
 const ISSUER = "https://auth.shop.test";

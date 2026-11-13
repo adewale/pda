@@ -36,18 +36,19 @@ globalThis.fetch=async input=>{
     expect(moved.stdout).toContain("CHANGED 0.4-spec");
     expect(moved.stdout).toContain("CHANGED 0.3-guides");
 
-    // The shared changelog: each published version compares only its own entry titles (a draft would compare the whole text).
+    // The shared changelog: each published version compares only its own entry titles, and the draft the whole text.
     const changelog = run("changed:changelog");
     expect(changelog.status).toBe(1);
-    expect(changelog.stdout).not.toContain("CHANGED changelog ");
     expect(changelog.stdout).toContain("CHANGED 0.3 changelog entries");
     expect(changelog.stdout).toContain("CHANGED 0.4 changelog entries");
+    expect(changelog.stdout.match(/CHANGED changelog /g)).toHaveLength(1);
+    expect(changelog.stdout).toContain("before updating the 1.0 pin");
 
-    // A shared page is checked once, for the newest pin (a draft if there is one); the older version ignores it.
+    // A shared page is checked once, for the newest pin (the 1.0 draft); the published versions ignore it.
     const shared = run("changed:introduction");
     expect(shared.status).toBe(1);
     expect(shared.stdout.match(/CHANGED introduction/g)).toHaveLength(1);
-    expect(shared.stdout).toContain("the 0.4 pin");
+    expect(shared.stdout).toContain("the 1.0 pin");
 
     const unavailable = run("removed:0.3-spec", "500");
     expect(unavailable.status).toBe(1);

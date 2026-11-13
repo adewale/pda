@@ -16,6 +16,9 @@ import {
 /** The one scope 0.4 defines: a joined browser signed in (6). */
 const BROWSER_SIGN_IN = "poppy:browser-sign-in";
 
+/** What a token request's DPoP proof binds: its key for the access token (none for an MCP server's Bearer token), and the proof's key itself. */
+type Binding = { readonly jkt: string | null; readonly resource: string | null; readonly proofKey: string | null };
+
 type AuthorizationRequest = {
   readonly id: string;
   readonly clientId: string;
@@ -25,7 +28,12 @@ type AuthorizationRequest = {
   readonly scope: readonly string[];
   readonly state: string;
   readonly challenge: string;
+  /** Pushed with a DPoP proof, whose key the code is bound to (RFC 9449 §10.1). */
+  readonly jkt?: string | null;
 };
+
+/** A pushed authorization request (RFC 9126), by its `request_uri`. */
+type Pushed = { readonly request: AuthorizationRequest; readonly expiresAt: number };
 
 type AuthorizationCode = {
   readonly clientId: string;
@@ -35,6 +43,7 @@ type AuthorizationCode = {
   readonly requested: readonly string[];
   readonly scope: readonly string[];
   readonly expiresAt: number;
+  readonly jkt?: string | null;
   used: boolean;
 };
 
@@ -69,6 +78,7 @@ type MediatedSignIn = {
 /** The Company's OAuth server and Mediated Sign-In's grant (spec 4.2–4.7, Mediated Sign-In 3–5). */
 export class AuthServer {
   readonly #requests = new Map<string, AuthorizationRequest>();
+  readonly #pushed = new Map<string, Pushed>();
   readonly #codes = new Map<string, AuthorizationCode>();
   readonly #devices = new Map<string, DeviceRequest>();
   readonly #mediated = new Map<string, MediatedSignIn>();
@@ -152,7 +162,7 @@ export class AuthServer {
       throw oauthError(400, "invalid_dpop_proof", "a DPoP proof is required");
     }
     const jkt = proof ? await co.verifyDpop(inbound, undefined) : null;
-    const binding = { jkt: isMcp && !co.config.mcpDpop ? null : jkt, resource };
+    const binding: Binding = { jkt: isMcp && !co.config.mcpDpop ? null : jkt, resource, proofKey: jkt };
     switch (grant) {
       case "refresh_token":
         return this.#refresh(client, form, binding);
@@ -167,9 +177,16 @@ export class AuthServer {
     }
   }
 
-  async #refresh(client: ClientInfo, form: URLSearchParams, binding: { jkt: string | null; resource: string | null }): Promise<Response> {
+  async #refresh(client: ClientInfo, form: URLSearchParams, binding: Binding): Promise<Response> {
     const co = this.company;
     const token = this.#accountToken(client, form.get("refresh_token"));
+    // 1.0 (4.4): every refresh carries a proof from the key the refresh token was issued with.
+    if (token.jkt !== null && binding.proofKey !== token.jkt) {
+      if (!co.config.protocolVersion.startsWith("0.")) {
+        co.violation("dpop.refresh-key-changed", `refreshed a refresh token issued with DPoP key ${token.jkt} with ${binding.proofKey === null ? "no proof" : `key ${binding.proofKey}`}`);
+      }
+      if (co.config.bindRefreshTokens) throw oauthError(400, "invalid_grant", "the refresh token is bound to another DPoP key");
+    }
     let scope = [...token.scope];
     const asked = form.get("scope");
     if (asked !== null) {
@@ -186,9 +203,9 @@ export class AuthServer {
   }
 
   /** A completed sign-in: a refresh token for a new grant, and an access token from it. */
-  #signedIn(client: ClientInfo, account: string, granted: { readonly requested: readonly string[]; readonly scope: readonly string[] }, binding: { jkt: string | null; resource: string | null }): Response {
+  #signedIn(client: ClientInfo, account: string, granted: { readonly requested: readonly string[]; readonly scope: readonly string[] }, binding: Binding): Response {
     const co = this.company;
-    const refresh = co.issueAccountToken({ clientId: client.clientId, account, grant: randomId("grt_", 8) }, granted.scope);
+    const refresh = co.issueAccountToken({ clientId: client.clientId, account, grant: randomId("grt_", 8), jkt: binding.proofKey }, granted.scope);
     return co.tokenResponse(co.issueAccess(refresh, binding, granted.scope), granted.requested, refresh);
   }
 
@@ -197,7 +214,7 @@ export class AuthServer {
    * `scope`, or, after `code_required`, `sign_in_id` and `one_time_code`
    * alone. Only the client that started a sign-in can finish it.
    */
-  async #mediatedGrant(client: ClientInfo, form: URLSearchParams, binding: { jkt: string | null; resource: string | null }): Promise<Response> {
+  async #mediatedGrant(client: ClientInfo, form: URLSearchParams, binding: Binding): Promise<Response> {
     const co = this.company;
     if (!co.config.signIn.mediated) throw oauthError(400, "unsupported_grant_type");
     const signInId = form.get("sign_in_id");
@@ -278,7 +295,7 @@ export class AuthServer {
   async #authorizationCode(
     client: ClientInfo,
     form: URLSearchParams,
-    binding: { jkt: string | null; resource: string | null }
+    binding: Binding
   ): Promise<Response> {
     const co = this.company;
     const value = form.get("code") ?? "";
@@ -301,13 +318,18 @@ export class AuthServer {
       co.violation("code.pkce", "PKCE code_verifier doesn't match the challenge");
       throw oauthError(400, "invalid_grant");
     }
+    // RFC 9449 §10.1: a code from a request pushed with a DPoP proof is exchanged with that key.
+    if (code.jkt && binding.proofKey !== code.jkt) {
+      co.violation("par.code-key", `exchanged a code bound to DPoP key ${code.jkt} with ${binding.proofKey === null ? "no proof" : `key ${binding.proofKey}`}`);
+      throw oauthError(400, "invalid_dpop_proof", "the code is bound to another DPoP key");
+    }
     return this.#signedIn(client, code.account, code, binding);
   }
 
   async #deviceCode(
     client: ClientInfo,
     form: URLSearchParams,
-    binding: { jkt: string | null; resource: string | null }
+    binding: Binding
   ): Promise<Response> {
     const co = this.company;
     const device = this.#devices.get(form.get("device_code") ?? "");
@@ -397,7 +419,7 @@ export class AuthServer {
   // ---- Direct Sign-In (4.2) ----
 
   /** Validates an authorization request; returns it or the error redirect/page. */
-  async #authorizationRequest(url: URL): Promise<AuthorizationRequest | Response> {
+  async #authorizationRequest(url: URL, pushedParameters?: { readonly jkt: string | null }): Promise<AuthorizationRequest | Response> {
     const co = this.company;
     const page = (status: number, message: string) =>
       new Response(`<!doctype html><title>Sign-in error</title><p>${message}</p>`, {
@@ -405,6 +427,22 @@ export class AuthServer {
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     if (!co.config.signIn.direct) return page(404, "Direct Sign-In is not offered");
+    // A pushed request (RFC 9126 §4): the URL carries only client_id and its request_uri (1.0: 4.2).
+    const requestUri = url.searchParams.get("request_uri");
+    if (requestUri !== null && !pushedParameters) {
+      const pushed = this.#pushed.get(requestUri);
+      if (!pushed || pushed.expiresAt <= Date.now()) return page(400, "request_uri expired or unknown");
+      if (url.searchParams.get("client_id") !== pushed.request.clientId) return page(400, "client_id doesn't match the pushed request");
+      const extra = [...url.searchParams.keys()].filter((name) => name !== "client_id" && name !== "request_uri");
+      if (extra.length > 0 && !co.config.protocolVersion.startsWith("0.")) {
+        co.violation("par.extra-parameters", `the authorization URL for a pushed request also carries ${extra.join(", ")}`);
+      }
+      return pushed.request;
+    }
+    if (co.config.pushedAuthorization === "required" && !pushedParameters) {
+      co.violation("par.not-pushed", "an authorization request in the URL, though the metadata sets require_pushed_authorization_requests");
+      return page(400, "This Company accepts only pushed authorization requests");
+    }
     const params = url.searchParams;
     const clientId = params.get("client_id");
     if (!clientId) return page(400, "client_id is required");
@@ -419,6 +457,11 @@ export class AuthServer {
     if (!client.redirectUris.some((registered) => redirectUriMatches(registered, redirectUri))) {
       co.violation("authorize.redirect-uri", `redirect_uri ${redirectUri} isn't an exact registered redirect_uri`);
       return page(400, "redirect_uri doesn't match");
+    }
+    // 1.0 (4.2): prompt=consent, unless the redirect comes back only to the device that opened the URL,
+    // as at a loopback redirect URI. The mock shows its consent page for every request either way.
+    if (!co.config.protocolVersion.startsWith("0.") && !(params.get("prompt") ?? "").split(" ").includes("consent") && !isLoopback(redirectUri)) {
+      co.violation("authorize.prompt-consent", `a 1.x authorization request without prompt=consent, to redirect_uri ${redirectUri}`);
     }
     const state = params.get("state");
     const redirectError = (error: string) => {
@@ -454,10 +497,39 @@ export class AuthServer {
       requested,
       scope,
       state,
-      challenge: params.get("code_challenge")!
+      challenge: params.get("code_challenge")!,
+      ...(pushedParameters ? { jkt: pushedParameters.jkt } : {})
     };
     this.#requests.set(request.id, request);
     return request;
+  }
+
+  /**
+   * `POST /oauth/par` (RFC 9126 §2): the authorization request's parameters,
+   * with the client authenticated as at the token endpoint and, from a
+   * Personal Agent that uses DPoP, a proof whose key the code is bound to
+   * (RFC 9449 §10.1). Answers 201 with a `request_uri` that expires in a minute.
+   */
+  async pushAuthorization(inbound: Inbound): Promise<Response> {
+    const co = this.company;
+    co.rateLimit("token", inbound);
+    const form = this.#form(inbound);
+    const client = await co.authenticateClient(form, co.hosts.pushedAuthorizationEndpoint);
+    if (form.has("request_uri")) throw oauthError(400, "invalid_request", "request_uri isn't allowed in a pushed request");
+    const proof = inbound.request.headers.get("DPoP");
+    const jkt = proof ? await co.verifyDpop(inbound, undefined) : null;
+    const url = new URL(co.hosts.authorizationEndpoint);
+    for (const [name, value] of form) if (name !== "client_assertion" && name !== "client_assertion_type") url.searchParams.append(name, value);
+    url.searchParams.set("client_id", client.clientId);
+    const result = await this.#authorizationRequest(url, { jkt });
+    if (result instanceof Response) {
+      const location = result.headers.get("Location");
+      const error = location ? new URL(location).searchParams.get("error") : null;
+      throw oauthError(400, error ?? "invalid_request", "the pushed authorization request is invalid");
+    }
+    const requestUri = `urn:ietf:params:oauth:request_uri:${randomId("", 16)}`;
+    this.#pushed.set(requestUri, { request: result, expiresAt: Date.now() + 60_000 });
+    return json({ request_uri: requestUri, expires_in: 60 }, 201, { "Cache-Control": "no-store" });
   }
 
   /** `GET /oauth/authorize`: the consent page the User sees in their own browser. */
@@ -512,6 +584,7 @@ export class AuthServer {
       requested: result.requested,
       scope: granted,
       expiresAt: Date.now() + 60_000,
+      ...(result.jkt ? { jkt: result.jkt } : {}),
       used: false
     });
     target.searchParams.set("code", code);
@@ -591,5 +664,15 @@ export class AuthServer {
 
   denyDevice(userCode: string): void {
     this.#deviceByUserCode(userCode).status = "denied";
+  }
+}
+
+/** A loopback redirect URI (RFC 8252 §7.3), which only the device that opened the authorization URL receives. */
+function isLoopback(uri: string): boolean {
+  try {
+    const url = new URL(uri);
+    return url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname);
+  } catch {
+    return false;
   }
 }

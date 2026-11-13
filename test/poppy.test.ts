@@ -128,10 +128,10 @@ describe("3 discovery", () => {
   });
 
   it("refuses an unsupported major version", async () => {
-    const c = await company({ protocolVersion: "1.0" });
+    const c = await company({ protocolVersion: "2.0" });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/version 1.0/);
+    expect(result.text).toMatch(/version 2.0/);
   });
 
   it("refuses a document whose organization.domain doesn't match", async () => {
@@ -460,6 +460,20 @@ describe.each(PROFILES)("4.5, 5 Sessions, access tokens and DPoP ($name)", ({ co
     for (const request of refreshes) expect(request.headers.dpop).toBe("<present>");
     // One Session throughout: the eviction lost the client's memory, not the Session.
     expect((await c.stub.state()).sessions.filter((s) => !s.ended)).toHaveLength(1);
+  });
+
+  it("keeps sending a server's nonce after an eviction, since the key that used it is kept too", async () => {
+    const c = await companyHere({ requireNonce: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).isError).toBe(false);
+    await a.stub.poppyForgetMemory();
+    const before = (await requests(c)).length;
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).isError).toBe(false);
+    const after = (await requests(c)).slice(before);
+    expect(after.some((request) => request.grant === "refresh_token" && request.status === 200)).toBe(true);
+    // Neither the token endpoint nor the API had to give the nonce again.
+    expect(after.filter((request) => request.error === "use_dpop_nonce")).toEqual([]);
   });
 });
 

@@ -82,6 +82,13 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-04-wrangler
 
+      - name: Pinned upstream 1.0 draft Company kit and reviewed findings
+        if: steps.scope.outputs.specialist == 'true'
+        run: node scripts/check-company-kit.mjs --protocol 1.0 --reviewed-findings --output "$RUNNER_TEMP/company-kit-1.0.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-10-wrangler
+
       - name: Separate DPoP-capable kit copy and independent proof controls
         if: steps.scope.outputs.specialist == 'true'
         run: node scripts/check-company-kit.mjs --protocol 0.4 --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
@@ -97,6 +104,7 @@ jobs:
           name: company-kit-results
           path: |
             ${{ runner.temp }}/company-kit-0.4.json
+            ${{ runner.temp }}/company-kit-1.0.json
             ${{ runner.temp }}/company-kit-dpop.json
             ${{ runner.temp }}/approval-crashes.json
           if-no-files-found: ignore

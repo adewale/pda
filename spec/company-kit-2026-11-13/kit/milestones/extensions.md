@@ -1,0 +1,119 @@
+# Milestone: extensions
+
+Optional. Build this only for extensions the design lists, after the milestones they depend on.
+Operations version 3 is defined with the protocol. Other extensions can be the Company's own, or
+ones others define.
+
+## Read first
+
+- [3.3 Extensions](https://personalagentprotocol.org/docs/1.0/spec#extensions)
+- [About extensions](https://personalagentprotocol.org/docs/1.0/extensions#how)
+- The extension's own definition
+
+Local copies: `reference/extensions.md` and `reference/operations.md`.
+
+## Every extension
+
+- List it in `extensions` in `poppy.json`, keyed by name, as a list with an entry for each version
+  you support, each with its `version` and the fields that version defines
+  ([3.3](https://personalagentprotocol.org/docs/1.0/spec#extensions)).
+- Read the extensions a request uses from its `Poppy-Extensions` header, a list of names, each with
+  its version in `v`, such as `"operations";v="3"`
+  ([3.4](https://personalagentprotocol.org/docs/1.0/spec#versions)). Without the header, or when it
+  doesn't parse, the request uses none. Behave as the spec alone describes for a request that
+  doesn't declare the extension, unless the request itself uses it, such as Mediated Sign-In's
+  grant type.
+- If you refuse a request that needs the extension, return `extension_required` (HTTP 403) with the
+  name in `extension`, in a JSON body, at APIs as at the endpoints the protocol or an extension
+  defines (3.3, section 7). An MCP server returns it only
+  to refuse the Personal Agent entirely, not for one tool.
+- The Company's own extensions are named with a domain it controls, such as `example.com/gift-wrap`.
+  Plain names are reserved for the protocol.
+
+## Operations version 3
+
+Optional. Build it for the actions that need approval, on the interfaces that offer them
+([Operations 1](https://personalagentprotocol.org/docs/1.0/extensions/operations#intro)). It adds an
+endpoint only for approval on your website. List `operations` with `version: "3"` in `poppy.json` and use it only when
+the request declares that version in `Poppy-Extensions`. Otherwise handle approval yourself, or refuse with
+`extension_required`. An MCP tool returns an ordinary tool error instead. See
+[Operations 2](https://personalagentprotocol.org/docs/1.0/extensions/operations#support).
+
+- **The operation**
+  ([Operations 3](https://personalagentprotocol.org/docs/1.0/extensions/operations#operation-object)):
+  an `operation_id` for the action, a `revision` for its terms, `terms` that hold everything that
+  affects the action, a `summary` if you want, and `expires_at`. When the terms change, keep the
+  `operation_id` and return a new `revision`. Compute both from the request, so only performed
+  operations need storing: a random `operation_id` for each new request, and a `revision` that
+  changes with the terms, not with rewording of the `summary`. The `summary` can use bold, italics,
+  and lists, but no links. Any Session of the same Personal Agent and User can approve an operation;
+  one from a signed-in Session belongs to the account.
+  Set `expires_at` late enough for the User to read the terms and decide, unless you can't hold the
+  terms that long.
+- **Asking**
+  ([Operations 4](https://personalagentprotocol.org/docs/1.0/extensions/operations#approval-required)):
+  perform nothing. An API returns 403 with a JSON body: `error` `approval_required` and the operation in
+  `operation`, not a `WWW-Authenticate` challenge. An MCP tool returns an error result with the operation in
+  `structuredContent`. The Company Agent puts it in `extensions.operations.operation` on its message.
+- **Approvals**
+  ([Operations 6](https://personalagentprotocol.org/docs/1.0/extensions/operations#sending-approval)):
+  read the `Poppy-Approval` header at APIs, `personalagentprotocol.org/approval` in an MCP tool call's
+  `_meta`, and `extensions.operations.approval` on a Personal Agent's message. Make all three checks before acting; their
+  order is recommended. Preserve authorization, response semantics, and at-most-once behavior. Compare
+  what the request means, not its bytes. When the revision isn't one you returned, has expired, or the
+  request doesn't match it, return a new revision instead. Never answer an approval with the revision it names.
+  To refuse an approval that passes the checks, decline it: perform nothing, return no new revision,
+  and answer with `approval_declined` (in a conversation, `extensions.operations.declined`), an
+  optional `reason` for the User that reveals nothing new, and an optional `alternative`. On a
+  website, decline at `endpoint` and don't record the declined approval.
+  Record `approver` (`user` or `agent`) and `reference` with the operation, and don't reject an
+  approval for an optional member it lacks.
+- **At most once**
+  ([Operations 7](https://personalagentprotocol.org/docs/1.0/extensions/operations#at-most-once)):
+  perform each operation once, however often its approval comes. Remember a performed operation until its
+  approved revision expires. Until then, a repeated approval gets the first response.
+  While the outcome is unknown, answer with 503 and `Retry-After`, never as a failure.
+- **Websites,** if you ask for approval there
+  ([Operations 4](https://personalagentprotocol.org/docs/1.0/extensions/operations#approval-required),
+  [6](https://personalagentprotocol.org/docs/1.0/extensions/operations#sending-approval)): list
+  `endpoint` in the `operations` entry, with `browser_session_endpoint`. Without operations on your
+  website, don't list or serve it. Only for a browser whose join declared the extension, perform
+  nothing and respond with 403 and `Poppy-Operation`, with the Session's `sid` and a reference.
+  Offer a Continue button that repeats the request. At `endpoint`, answer the
+  reference like an API with `approval_required`, and the same request with `Poppy-Approval` by
+  recording the approval and returning 204. When a browser in a Session that can approve the
+  operation repeats the request, check it against the recorded approval and perform it once.
+
+## Decisions for Operations
+
+- Which actions, if any, return operations, so the User or the Personal Agent on the User's
+  instruction can approve them, how long each can be approved, and which you handle on your website
+  instead
+  ([guides](https://personalagentprotocol.org/docs/1.0/guides#company-operations)).
+
+## Common Operations mistakes
+
+- Starting an action when asking for approval, or performing a request with an approval without
+  checking that it matches the approved operation (Operations 3, 6).
+- Downstream calls without an idempotency key derived from the operation ID, so a retry performs the
+  action twice ([guides](https://personalagentprotocol.org/docs/1.0/guides#company-operations)).
+
+## Check it
+
+This version of the validator doesn't check extensions. Run `check --file ./poppy.json` for the
+`extensions` entry's shape, then go through the extensions section of `checklist.md` and test by
+hand on staging: a request that doesn't declare the extension gets the behavior the spec alone
+describes, or `extension_required`.
+
+- **Operations,** if offered: a request for an action that needs approval returns the operation and
+  changes nothing. The same request with the approval performs it, and sending it again doesn't
+  perform it twice. A different body with the same approval, a revision you didn't return, and an
+  expired revision each get a new revision. Make a downstream system time out and see 503 until the
+  outcome is known. On a website, the reference gets the operation only in a Session that can
+  approve it, and the browser's repeated request performs the action only after the approval is
+  recorded.
+
+Also try a request with no `operations` in `Poppy-Extensions`, or with `v="1"`: return no operation
+and handle approval yourself, or refuse as above.
+
+Log anything unclear in `plan/feedback.md`.

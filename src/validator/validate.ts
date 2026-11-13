@@ -1,5 +1,5 @@
 import { domainFromInput } from "../domain.ts";
-import { protocolRevision } from "../poppy/protocol-version.ts";
+import { compatibleVersions, protocolRevision } from "../poppy/protocol-version.ts";
 /**
  * The validator's entry points. The same functions back the library, the
  * CLI, the HTTP endpoint and the form, and our own Poppy client uses
@@ -135,7 +135,13 @@ function profileFor(c: Checker, doc: unknown): Profile | undefined {
     c.report(Number(match[1]) === 0 ? "version-unsupported" : "version-unsupported-major", "/protocol_version", `poppy.json is protocol version ${version}; this validator supports ${known}.`);
     return undefined;
   }
+  newerMinor(c, version as string, profile);
   return profile;
+}
+
+/** From 1.0, a newer minor version is checked with its major version's newest rules we know (3.4). */
+function newerMinor(c: Checker, version: string, profile: Profile): void {
+  if (profile.version !== version) c.report("version-newer-minor", "/protocol_version", `poppy.json is protocol version ${version}; it is checked with ${profile.version}'s rules, as a ${profile.version} Personal Agent uses it.`);
 }
 
 function documentResult(kind: DocumentKind, fetched: Fetched | undefined, value: unknown): DocumentResult {
@@ -305,8 +311,10 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
     const own = isObject(root) ? root.protocol_version : undefined;
     const linked = isObject(root) ? linkedVersions(poppyChecker, root, own, servedHost) : new Map<string, string>();
     const speaks = options.versions ?? PROFILES.map((known) => known.version);
+    // 3.4: a version compatible with one the caller speaks, checked with that version's rules.
+    const spoken = (candidate: string) => speaks.some((version) => compatibleVersions(version, candidate));
     const candidates = [...(typeof own === "string" ? [own] : []), ...linked.keys()]
-      .filter((candidate) => VERSION.test(candidate) && speaks.includes(candidate) && profileForVersion(candidate))
+      .filter((candidate) => VERSION.test(candidate) && spoken(candidate) && profileForVersion(candidate))
       .sort(newestFirst);
     for (const candidate of candidates) {
       if (candidate === own) {
@@ -343,13 +351,14 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
         linkedChecker.report("linked-document-domain", "/organization/domain", `The ${candidate} document's organization.domain is ${linkedDomain}, but poppy.json's is ${rootDomain}.`);
       }
       profile = profileForVersion(candidate)!;
+      newerMinor(linkedChecker, candidate, profile);
       facts = profile.poppy(linkedChecker, doc, { requestedDomain: servedHost });
       break;
     }
     if (version === undefined && poppy === root) {
       // Nothing the caller speaks: poppy.json's own version decides what is reported.
       const chosen = profileFor(poppyChecker, root);
-      if (chosen && typeof own === "string" && !speaks.includes(own)) {
+      if (chosen && typeof own === "string" && !spoken(own)) {
         poppyChecker.report("version-unsupported", "/protocol_version", `poppy.json is protocol version ${own}, and lists no version this agent speaks (${speaks.join(", ")}).`);
       } else if (chosen) {
         profile = chosen;
@@ -357,6 +366,7 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
       }
     } else if (version !== undefined && version === own) {
       profile = profileForVersion(version)!;
+      newerMinor(poppyChecker, version, profile);
       facts = profile.poppy(poppyChecker, root, { requestedDomain: servedHost });
     }
   }

@@ -107,9 +107,21 @@ export type AccountToken = {
   readonly grant: string;
   readonly scope: readonly string[];
   readonly expiresAt: number | null;
+  /** The key of the DPoP proof sent when the sign-in issued it; rotation keeps it (1.0: 4.4). */
+  readonly jkt: string | null;
   revoked: boolean;
   rotated: boolean;
 };
+
+/**
+ * 3.4, read here apart from the agent's code: `major.minor` versions are
+ * compatible with the same major version and, before 1.0, the same minor.
+ */
+function compatible(a: string, b: string): boolean {
+  const match = (v: string) => /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(v);
+  const x = match(a), y = match(b);
+  return !!x && !!y && x[1] === y[1] && (x[1] !== "0" || x[2] === y[2]);
+}
 
 /** One parsed inbound request. */
 export type Inbound = {
@@ -939,12 +951,13 @@ export class Company {
   }
 
   /** A refresh token for a sign-in (4.4): its client, account and grant; it names no Session or User ID. */
-  issueAccountToken(holder: { readonly clientId: string; readonly account: string; readonly grant: string }, scope: readonly string[]): AccountToken {
+  issueAccountToken(holder: { readonly clientId: string; readonly account: string; readonly grant: string; readonly jkt: string | null }, scope: readonly string[]): AccountToken {
     const token: AccountToken = {
       value: randomId("pat_", 24),
       clientId: holder.clientId,
       account: holder.account,
       grant: holder.grant,
+      jkt: holder.jkt,
       scope,
       expiresAt: this.config.refreshTokenTtl
         ? Date.now() + this.config.refreshTokenTtl * 1000
@@ -1211,9 +1224,10 @@ export class Company {
     const version = header ?? "";
     const extensions = inbound.request.headers.get("Poppy-Extensions") ?? "";
     for (const served of this.servedVersions) this.#listed.add(served);
+    // 3.4: the agent declares the version it implements, compatible with the chosen one: 1.0 for a 1.1 document.
     if (header === null) this.violation("version.missing", `a request without Poppy-Version (${where})`);
-    else if (!this.#listed.has(version)) this.violation("version.unlisted", `Poppy-Version ${header}, which this Company never listed (${where})`);
-    if (!this.servedVersions.includes(version)) throw new HttpError(json({ error: "version_unsupported" }, 400, { "Cache-Control": "no-store" }));
+    else if (![...this.#listed].some((listed) => compatible(listed, version))) this.violation("version.unlisted", `Poppy-Version ${header}, which isn't compatible with a version this Company listed (${where})`);
+    if (!this.servedVersions.some((served) => compatible(served, version))) throw new HttpError(json({ error: "version_unsupported" }, 400, { "Cache-Control": "no-store" }));
     // The same RFC 9651 List however it is written: `"operations";v="3"` and `"operations"; v="3"` alike.
     if (session.declaration && (session.declaration.version !== version || extensionsKey(session.declaration.extensions) !== extensionsKey(extensions))) {
       this.violation("version.changed-in-session", `Session ${session.sid} declared ${session.declaration.version} ${JSON.stringify(session.declaration.extensions)}, then ${version} ${JSON.stringify(extensions)} (${where})`);

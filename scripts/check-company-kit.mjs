@@ -3,8 +3,8 @@
  * Run the verified upstream CLI (optionally a separately patched copy) against local HTTPS/workerd.
  * `--protocol <version>` picks the pinned kit for that version (spec/upstream.json); the default is the
  * newest version the agent speaks. A run needs a version the agent speaks (src/poppy/protocol-version.ts):
- * 0.4 alone since 0.3 was dropped (decision 49). `--verify-pin` checks any pinned kit's hashes, so the
- * frozen 0.3 kit is still verified.
+ * 0.4 and 1.0 (decision 51). `--verify-pin` checks any pinned kit's hashes, so the frozen 0.3 kit is
+ * still verified.
  */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";

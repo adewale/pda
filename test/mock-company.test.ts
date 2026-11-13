@@ -338,7 +338,7 @@ function authorizeUrl(c: C, params: Record<string, string | undefined>) {
 /** A correct authorization request's parameters (4.2), with `changes` merged over them. */
 async function authorizeParams(changes: Record<string, string | undefined> = {}) {
   const { challenge } = await pkce();
-  return { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, scope: "orders:read", state: jti(), code_challenge: challenge, code_challenge_method: "S256", ...changes };
+  return { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, scope: "orders:read", state: jti(), code_challenge: challenge, code_challenge_method: "S256", prompt: "consent", ...changes };
 }
 
 /** Direct Sign-In up to the code: the test plays the User approving. */
@@ -354,12 +354,32 @@ async function authorizationCode(c: C, options: { account?: string; scope?: stri
         scope: options.scope ?? "orders:read orders:write",
         state: jti(),
         code_challenge: challenge,
-        code_challenge_method: "S256"
+        code_challenge_method: "S256",
+        prompt: "consent"
       }),
       { approve: true, ...(options.account ? { account: options.account } : {}) }
     )
   );
   return { verifier, redirect, code: back.searchParams.get("code")! };
+}
+
+/**
+ * A pushed authorization request (RFC 9126; 1.0: 4.2), with a DPoP proof from
+ * `key` unless null: its `request_uri`, with what the code exchange needs.
+ */
+async function pushAuthorization(c: C, key: Key | null) {
+  const { verifier, challenge } = await pkce();
+  const response = await form(c, c.hosts.pushedAuthorizationEndpoint, { response_type: "code", redirect_uri: REDIRECT_URI, scope: "orders:read", state: jti(), code_challenge: challenge, code_challenge_method: "S256", prompt: "consent" }, key);
+  expect(response.status).toBe(201);
+  const { request_uri: requestUri } = (await response.json()) as { request_uri: string };
+  return { verifier, redirect: REDIRECT_URI, requestUri };
+}
+
+/** Direct Sign-In with a pushed request, up to the code: the URL carries only client_id and request_uri. */
+async function pushedCode(c: C, key: Key | null) {
+  const pushed = await pushAuthorization(c, key);
+  const back = new URL(await c.stub.approveAuthorization(authorizeUrl(c, { client_id: CLIENT_ID, request_uri: pushed.requestUri }), { approve: true }));
+  return { verifier: pushed.verifier, redirect: pushed.redirect, code: back.searchParams.get("code")! };
 }
 
 /** The code's token request (4.2), as our client or `other`. */
@@ -1392,6 +1412,45 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => exchangeCode(c, await authorizationCode(c), await dpopKey(), { code_verifier: jti() + jti() })
   },
   {
+    id: "authorize.prompt-consent",
+    what: "a 1.0 authorization request without prompt=consent",
+    config: { protocolVersion: "1.0" },
+    detail: `[authorize.prompt-consent] a 1.x authorization request without prompt=consent, to redirect_uri ${REDIRECT_URI}`,
+    run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams({ prompt: undefined })))).status).toBe(200)
+  },
+  {
+    id: "par.not-pushed",
+    what: "an authorization request in the URL to a Company that requires pushed ones",
+    config: { pushedAuthorization: "required" },
+    detail: "[par.not-pushed] an authorization request in the URL, though the metadata sets require_pushed_authorization_requests",
+    run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams()))).status).toBe(400)
+  },
+  {
+    id: "par.extra-parameters",
+    what: "a 1.0 authorization URL that carries scope beside a pushed request's request_uri",
+    config: { protocolVersion: "1.0", pushedAuthorization: "offered" },
+    detail: "[par.extra-parameters] the authorization URL for a pushed request also carries scope",
+    run: async (c) => {
+      const pushed = await pushAuthorization(c, await dpopKey());
+      expect((await c.call(authorizeUrl(c, { client_id: CLIENT_ID, request_uri: pushed.requestUri, scope: "orders:read" }))).status).toBe(200);
+    }
+  },
+  {
+    id: "par.code-key",
+    what: "a code pushed with one DPoP key, exchanged with another",
+    config: { pushedAuthorization: "offered" },
+    detail: /^\[par\.code-key\] exchanged a code bound to DPoP key [\w-]{43} with key [\w-]{43}$/,
+    run: async (c) => expect((await exchangeCode(c, await pushedCode(c, await dpopKey()), await dpopKey())).status).toBe(400)
+  },
+  {
+    id: "dpop.refresh-key-changed",
+    what: "a 1.0 refresh with another DPoP key than the sign-in's",
+    config: { protocolVersion: "1.0" },
+    detail: /^\[dpop\.refresh-key-changed\] refreshed a refresh token issued with DPoP key [\w-]{43} with key [\w-]{43}$/,
+    // The Company doesn't bind its refresh tokens (bindRefreshTokens), so the refresh still works.
+    run: async (c) => expect((await tokenRequest(c, { grant_type: "refresh_token", refresh_token: (await signIn(c)).refreshToken }, { key: await dpopKey() })).status).toBe(200)
+  },
+  {
     id: "device.polled-after-final",
     what: "polling twice after access_denied",
     detail: "[device.polled-after-final] kept polling after access_denied",
@@ -1718,7 +1777,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "version.unlisted",
     what: "Poppy-Version 0.5 to a Company that serves only 0.4",
-    detail: "[version.unlisted] Poppy-Version 0.5, which this Company never listed (GET /products)",
+    detail: "[version.unlisted] Poppy-Version 0.5, which isn't compatible with a version this Company listed (GET /products)",
     run: async (c) => {
       const s = await session();
       const response = await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.5" } });
@@ -2756,6 +2815,56 @@ describe("the mock Company's request IDs (0.4 8.3)", () => {
     const state = await c.stub.state();
     expect(state.conversations).toHaveLength(1);
     expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company under 1.0 (3.4, 4.2, 4.4)", () => {
+  it("takes a pushed authorization request and binds its code to the proof's key (RFC 9126, RFC 9449 10.1)", async () => {
+    const c = company();
+    await c.stub.configure({ protocolVersion: "1.0", pushedAuthorization: "required" });
+    const metadata = (await (await c.call(`${new URL(c.hosts.issuer).origin}${c.hosts.metadataPath}`)).json()) as Record<string, unknown>;
+    expect(metadata).toMatchObject({ pushed_authorization_request_endpoint: c.hosts.pushedAuthorizationEndpoint, require_pushed_authorization_requests: true });
+    const key = await dpopKey();
+    const page = await c.call(authorizeUrl(c, { client_id: CLIENT_ID, request_uri: (await pushAuthorization(c, key)).requestUri }));
+    expect(page.status).toBe(200);
+    await page.body?.cancel();
+    await tokensFrom(await exchangeCode(c, await pushedCode(c, key), key), key);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("refuses a refresh with another key when it binds refresh tokens, and takes the sign-in's key", async () => {
+    const c = company();
+    await c.stub.configure({ protocolVersion: "1.0", bindRefreshTokens: true });
+    const s = await signedIn(c);
+    const other = await tokenRequest(c, { grant_type: "refresh_token", refresh_token: s.refreshToken! }, { key: await dpopKey() });
+    expect(other.status).toBe(400);
+    expect(await other.json()).toMatchObject({ error: "invalid_grant" });
+    expect((await refresh(c, s)).status).toBe(200);
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["dpop.refresh-key-changed"]);
+  });
+
+  it("takes a context field set to null as cleared under 1.0, and as a violation under 0.4 (8.4)", async () => {
+    const cleared = message({ context: { locale: null, time_zone: null, user_available: null } });
+    const c = company();
+    await c.stub.configure({ protocolVersion: "1.0" });
+    const s = await session();
+    expect((await call(c, s, "POST", c.hosts.conversationsEndpoint, { body: request(cleared), headers: { "Poppy-Version": "1.0" } })).status).toBe(201);
+    expect((await c.stub.state()).recorded).toEqual([]);
+    const older = company();
+    await converse(older, await session(), cleared);
+    expect((await older.stub.state()).recorded.map(violationId)).toEqual(["context.locale", "context.time-zone", "context.user-available"]);
+  });
+
+  it("serves 1.1 to an agent that declares 1.0, the version it implements (3.4)", async () => {
+    const c = company();
+    await c.stub.configure({ protocolVersion: "1.1" });
+    const response = await call(c, await session(), "GET", products(c), { headers: { "Poppy-Version": "1.0" } });
+    expect(response.status).toBe(200);
+    await response.body?.cancel();
+    const refused = await call(c, await session(), "GET", products(c), { headers: { "Poppy-Version": "0.4" } });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "version_unsupported" });
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["version.unlisted"]);
   });
 });
 

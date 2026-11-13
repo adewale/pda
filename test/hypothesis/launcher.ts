@@ -22,7 +22,7 @@
  * - `GET /violations`: as the interop adapter serves it;
  * - this launcher's own: `POST /reset {config}`, a new mock with these
  *   settings (only the knobs in `KNOBS`) over the shared base, serving
- *   Poppy 0.4 alone;
+ *   Poppy 0.4 alone unless they name a version;
  *   `POST /client-documents {documents: {url: body}}`, the Python agent's
  *   client metadata and JWKS, served to the mock at those URLs (the mock's
  *   `serveClientDocument`, made for a second client), and still checked
@@ -73,11 +73,20 @@ const KNOBS = [
   "feedback",
   "feedbackAlternative",
   // 3.2: a Company with no OAuth issuer (signed-out only); a way real Companies differ, not a relaxed check.
-  "issuerless"
+  "issuerless",
+  // 3.4: the version poppy.json declares and one it links; the client speaks 0.4 and 1.0.
+  "protocolVersion",
+  "linkedVersion",
+  // 1.0 4.2, 4.4, 8.6: pushed authorization requests, refresh tokens bound to their key, a later version's stream event.
+  "pushedAuthorization",
+  "bindRefreshTokens",
+  "laterStreamEvent",
+  // HTML 9.2.6: an empty SSE event name, which is `message`.
+  "emptyEventNames"
 ] as const satisfies readonly (keyof MockConfig)[];
 
 const env = { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env;
-/** The Python client speaks Poppy 0.4 alone (the 11 November text), so every mock serves 0.4 alone, whatever the mock's default. */
+/** 0.4 alone unless a test draws another version (`protocolVersion`, `linkedVersion`): the Python client speaks 0.4 and 1.0. */
 const BASE: Partial<MockConfig> = { ...MOCK_BASE, protocolVersion: "0.4" };
 let mock = new MockCompany(memoryState(NAME) as never, env);
 await mock.configure(BASE);

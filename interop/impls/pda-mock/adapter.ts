@@ -76,16 +76,25 @@ if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PRO
   throw new Error(`INTEROP_MOCK_PROFILE must be lenient or strict, not ${process.env.INTEROP_MOCK_PROFILE}`);
 }
 /**
- * The version the mock serves (3.4): the newest our client speaks, alone in
- * poppy.json, so a pair of our own builds can never drift apart (decision 37).
- * 0.4 since 0.3 was dropped (decision 49); the adversarial agent's raw
- * requests are 0.4 too.
+ * The version the mock serves (3.4), alone in poppy.json: the newest our
+ * client speaks, 1.0, so a pair of our own builds can never drift apart
+ * (decision 37), or the one `INTEROP_MOCK_VERSION` names, so the grid keeps
+ * 0.4 too (`lenient-company-v04`; decision 51).
  */
-const WIRE_VERSION = PROTOCOL_VERSIONS.at(-1)!;
+const WIRE_VERSION = process.env.INTEROP_MOCK_VERSION ?? PROTOCOL_VERSIONS.at(-1)!;
+if (!(PROTOCOL_VERSIONS as readonly string[]).includes(WIRE_VERSION)) {
+  throw new Error(`INTEROP_MOCK_VERSION must be one of ${PROTOCOL_VERSIONS.join(", ")}, not ${WIRE_VERSION}`);
+}
+/** Pushed Authorization Requests (1.0: 4.2; RFC 9126), from `INTEROP_MOCK_PAR`: `strict-company` requires them. */
+const PAR = process.env.INTEROP_MOCK_PAR ?? "none";
+if (PAR !== "none" && PAR !== "offered" && PAR !== "required") {
+  throw new Error(`INTEROP_MOCK_PAR must be none, offered or required, not ${PAR}`);
+}
 const BASE: Partial<MockConfig> = {
   ...MOCK_BASE,
   protocolVersion: WIRE_VERSION,
-  strictAssertions: PROFILE === "strict"
+  strictAssertions: PROFILE === "strict",
+  pushedAuthorization: PAR
 };
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;

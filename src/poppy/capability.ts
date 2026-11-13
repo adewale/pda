@@ -21,6 +21,7 @@ import {
   expireSignIn,
   cancelSignIn,
   completeDirectSignIn,
+  pushDirectSignIn,
   pollDeviceSignIn,
   recoverSignIns,
   signOut,
@@ -573,11 +574,26 @@ export class PoppyCapability extends LifecycleCapability {
 
   // ---------------------------------------------------------------- HTTP
 
-  /** `GET /poppy/callback`, forwarded by the Worker for the signed-in person. */
+  /** `GET /poppy/callback` and `GET /poppy/sign-in`, forwarded by the Worker for the signed-in person. */
   async onRequest({ request }: { request: Request }): Promise<Response | undefined> {
     const url = new URL(request.url);
-    if (url.pathname !== "/poppy/callback") return undefined;
     const requestId = id(request.headers.get("x-request-id"));
+    if (url.pathname === "/poppy/sign-in") {
+      return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/sign-in"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
+        let pushed: Awaited<ReturnType<typeof pushDirectSignIn>>;
+        try {
+          pushed = await pushDirectSignIn(this.client, url.searchParams.get("id") ?? "");
+        } catch (error) {
+          event.fail(error).set({ status: 500 });
+          return html(500, "Signing in didn't start. Go back to the chat and start it again.");
+        }
+        event.set({ status: pushed.ok ? 303 : pushed.status, outcome: literal(pushed.ok ? "success" : "refused") });
+        return pushed.ok
+          ? new Response(null, { status: 303, headers: { Location: pushed.location, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+          : html(pushed.status, pushed.message);
+      });
+    }
+    if (url.pathname !== "/poppy/callback") return undefined;
     return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/callback"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
       let result: Awaited<ReturnType<typeof completeDirectSignIn>>;
       try {

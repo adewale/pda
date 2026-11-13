@@ -35,6 +35,11 @@ export const spec = (section: string, anchor: string): Ref => ({
   label: `Spec ${section}`,
   url: `${SITE}/spec#${anchor}`
 });
+/** A section of the 1.0 draft's specification, for a rule 0.4 doesn't have. */
+export const spec10 = (section: string, anchor: string): Ref => ({
+  label: `Spec ${section} (1.0)`,
+  url: `https://personalagentprotocol.org/docs/1.0/spec#${anchor}`
+});
 export const guides = (title: string, anchor: string): Ref => ({
   label: `Guides: ${title}`,
   url: `${SITE}/guides#${anchor}`
@@ -295,17 +300,17 @@ export const MESSAGES = define({
   "version-newer-minor": {
     basis: "Rule",
     note: true,
-    title: "Historical newer-minor diagnostic",
+    title: "Checked with an older minor version's rules",
     explain:
-      "Retained for older saved reports. Current validation uses explicit supported versions and refuses unknown 0.x drafts; this diagnostic is no longer emitted.",
+      "From 1.0, a newer minor version doesn't break older Personal Agents, which use the document and ignore what it adds (3.1, 3.4). This validator checks it with the rules of the newest version it knows with the same major version, so members only the newer version defines are reported as unknown. Before 1.0 every 0.x version is its own, and an unknown one is refused.",
     fix: "Nothing to do.",
-    ref: spec("3.1", "fields")
+    ref: spec10("3.4", "versions")
   },
   "domain-invalid": {
     basis: "Rule",
     title: "Not a domain name",
-    explain: "The value must be a DNS host name, such as example.com, with no scheme, port or path.",
-    fix: "Use the bare host name.",
+    explain: "The value must be a DNS host name, such as example.com, with no scheme or path. From 1.0, organization.domain may carry its port when that isn't 443, such as shop.test:8443 for testing (3.1); 0.4 allows no port.",
+    fix: "Use the bare host name, or under 1.0 the host name and a port other than 443.",
     ref: spec("3.1", "fields")
   },
   "organization-domain-mismatch": {
@@ -413,6 +418,14 @@ export const MESSAGES = define({
       "agent.protocols has no entry of type poppy, the only conversation protocol the draft defines, so most agents can't talk to the Company Agent.",
     fix: 'Add { "type": "poppy", "endpoint": "https://…" }.',
     ref: spec("8.1", "conversation-protocols")
+  },
+  "protocol-description-empty": {
+    basis: "MUST",
+    title: "Empty conversation protocol description",
+    explain:
+      "From 1.0, every agent.protocols entry has a description of what the agent at that endpoint can help with, which a Personal Agent uses to decide whether a conversation serves the task and to choose between the entries and the Company's APIs (8.1). An empty one says nothing.",
+    fix: 'Say what the agent there can help with, such as "Orders, returns and your account", or that it can help with anything.',
+    ref: spec10("8.1", "conversation-protocols")
   },
   "protocol-type-unknown": {
     basis: "Rule",
@@ -596,6 +609,22 @@ export const MESSAGES = define({
     explain: "The issuer confirms the domain from its side by listing https://{domain} in protected_resources. Agents refuse a domain it doesn't list, so a domain can't claim another Company's issuer.",
     fix: "Add https:// and organization.domain to protected_resources, with no path, port or trailing slash.",
     ref: spec("3.2", "oauth-server")
+  },
+  "metadata-assertion-algs": {
+    basis: "MUST",
+    title: "Client assertion algorithms leave out ES256 or PS384",
+    explain:
+      "From 1.0, Companies MUST accept client assertions signed with ES256 and with PS384 (4.1), so a Personal Agent can have them signed blindly (10.7). A token_endpoint_auth_signing_alg_values_supported that leaves either out says the token endpoint refuses them.",
+    fix: "Accept both, and list ES256 and PS384 in token_endpoint_auth_signing_alg_values_supported, or leave the member out.",
+    ref: spec10("4.1", "agent-identity")
+  },
+  "par-endpoint-missing": {
+    basis: "RFC",
+    title: "Pushed Authorization Requests required without an endpoint",
+    explain:
+      "require_pushed_authorization_requests says the issuer accepts authorization requests only through Pushed Authorization Requests (RFC 9126 §5), but there's no pushed_authorization_request_endpoint to push them to, so a Personal Agent can't start Direct Sign-In (1.0: 4.2).",
+    fix: "List pushed_authorization_request_endpoint, or set require_pushed_authorization_requests to false.",
+    ref: rfc(9126, "5")
   },
   "metadata-refresh-grant": {
     basis: "MUST",

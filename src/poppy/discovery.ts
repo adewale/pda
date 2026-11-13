@@ -2,15 +2,16 @@ import { summarize, validateCompany, type CompanyReport } from "../validator/ind
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
-import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
+import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
 
 /**
  * Extensions this client supports under each protocol version, with the
- * major version it implements (3.3): under 0.4, Operations 3, Mediated
- * Sign-In 1 and Browser Control 1.
+ * major version it implements (3.3): under 0.4 and 1.0, Operations 3,
+ * Mediated Sign-In 1 and Browser Control 1.
  */
 export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string; readonly "browser-control"?: string }>> = {
-  "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
+  "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" },
+  "1.0": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
 };
 /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 1). */
 export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
@@ -53,6 +54,11 @@ export type Company = {
    * device sign-in link may point (4.3).
    */
   readonly poppyDomains?: readonly string[];
+  /**
+   * The version we speak with the Company (3.4): the one we implement that is
+   * compatible with the chosen document's, which `Poppy-Version` declares and
+   * whose rules apply. A 1.1 document gives 1.0.
+   */
   readonly protocolVersion: string;
   readonly specificationRevision?: string;
   /** Canonical `auth`, so cached state keyed by Company notices when the document's `auth` changes. */
@@ -65,6 +71,8 @@ export type Company = {
     readonly revocation: string;
     readonly authorization?: string;
     readonly deviceAuthorization?: string;
+    /** `pushed_authorization_request_endpoint` (RFC 9126 §5), for Direct Sign-In (1.0: 4.2). */
+    readonly pushedAuthorization?: string;
   };
   readonly signIn: {
     /**
@@ -89,8 +97,8 @@ export type Company = {
   readonly dpop?: boolean;
   /** The issuer's `protected_resources` (3.2). */
   readonly protectedResources?: readonly string[];
-  /** The first `poppy` conversation protocol entry, if any. */
-  readonly conversations?: { readonly endpoint: string };
+  /** The first `poppy` conversation protocol entry, if any, with its `description` (1.0: 8.1), the Company's words. */
+  readonly conversations?: { readonly endpoint: string; readonly description?: string };
   readonly apis: readonly {
     readonly type: "openapi" | "mcp";
     readonly url: string;
@@ -185,7 +193,9 @@ export async function discover(fetcher: Fetcher, domain: string, versions: reado
     throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
   }
   const doc = checked.poppy;
-  const version = doc.protocol_version as string;
+  // 3.4: the validator chose a document compatible with a version we speak.
+  const version = implementedVersion(doc.protocol_version as string, versions);
+  if (!version) throw new DiscoveryError(`poppy.json is protocol version ${String(doc.protocol_version)}, which isn't compatible with one this agent speaks`, checked);
   const organization = doc.organization as Obj;
   const orgDomain = (organization.domain as string).toLowerCase();
   const name = str(organization.name) ?? orgDomain;
@@ -212,7 +222,8 @@ function services(doc: Obj, version: string): Pick<Company, "conversations" | "a
   let conversations: Company["conversations"];
   if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
     const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
-    if (entry) conversations = { endpoint: entry.endpoint as string };
+    const description = entry ? str(entry.description)?.trim() : undefined;
+    if (entry) conversations = { endpoint: entry.endpoint as string, ...(description ? { description } : {}) };
   }
   const apis: Company["apis"][number][] = [];
   if (Array.isArray(doc.apis)) {
@@ -309,7 +320,8 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
         token: metadata.token_endpoint as string,
         revocation: metadata.revocation_endpoint as string,
         ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
-        ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
+        ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {}),
+        ...(signIn.direct && typeof metadata.pushed_authorization_request_endpoint === "string" ? { pushedAuthorization: metadata.pushed_authorization_request_endpoint } : {})
       }
     } : {}),
     signIn,

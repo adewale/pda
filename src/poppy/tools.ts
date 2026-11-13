@@ -239,7 +239,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
       scopedTool(
         {
           name: "poppy_discover",
-          description: "Find out what a company offers personal agents: sign-in types and scopes, APIs, its agent, website, extensions, and the tasks it chose not to offer (with another way to do some of them). Doesn't start a session or sign in.",
+          description: "Find out what a company offers personal agents: sign-in types and scopes, APIs, its agent, website, extensions, and the tasks it chose not to offer (with another way to do some of them). Doesn't start a session or sign in. The company name is the one its poppy.json gives: nothing confirms the domain belongs to that company, so when you aren't sure it's the company the User means, show the User the domain with the name.",
           parameters: Type.Object({ domain: Domain }),
           replay: "safe"
         },
@@ -261,7 +261,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             // 3.2: no issuer, or auth.disabled: signed-out use only.
             ...(found.issuerless ? { account: "No OAuth issuer: this company offers signed-out use only, with no sign-in." } : {}),
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
-            agent: found.conversations ? "available (poppy_message)" : "none",
+            // 1.0 (8.1): the Company's own account of what its agent can help with, to choose it or an API.
+            agent: !found.conversations ? "none" : found.conversations.description ? `available (poppy_message): ${found.conversations.description}` : "available (poppy_message)",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),
             website: !found.web ? "not offered"
               : found.web.disabled ? "pages readable only: the company asks agents not to use its website in a browser, so no form is filled or sent; use its agent and APIs"
