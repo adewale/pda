@@ -18,9 +18,17 @@
  * without a description). Each says so in `explain`, so a report never
  * presents our policy as the draft's requirement.
  *
- * The draft is 0.4 (spec/draft-0.4-retrieved-2026-11-11), and the links go
- * to its pages. Where 0.3 or 0.4 changed a rule a Company may still follow,
- * the explanation says what replaced it.
+ * The messages check 0.4 (spec/draft-0.4-retrieved-2026-11-11) and the 1.0
+ * draft (spec/draft-1.0-retrieved-2026-11-13). The links go to 0.4's pages,
+ * or 1.0's (`spec10`) for a rule 0.4 doesn't have. Where 0.3, 0.4 or 1.0
+ * changed a rule a Company may still follow, the explanation says what
+ * replaced it.
+ *
+ * A MUST, SHOULD or Rule message quotes the sentence it enforces in
+ * `requires`, verbatim in every runtime pin and with its key word, so that
+ * `npm run check:spec` fails when the text changes upstream
+ * (scripts/check-requirements.mjs). A message whose ref is an RFC rests on
+ * that RFC instead.
  */
 import { levelOf, severityOf, type Basis, type Severity } from "./levels.ts";
 
@@ -58,6 +66,11 @@ export const rfc = (number: number, section?: string): Ref => ({
 type Definition = {
   /** What the message rests on; its severity follows. */
   readonly basis: Basis;
+  /**
+   * For a MUST, SHOULD or Rule: the sentence it enforces, verbatim from every
+   * runtime pin, with its key word (scripts/check-requirements.mjs).
+   */
+  readonly requires?: string;
   /** It reports a fact, not a departure from anything: info, whatever its basis. */
   readonly note?: true;
   /** Whether our client refuses a Company over it, when that differs from "it's an error". */
@@ -81,13 +94,16 @@ const define = <T extends Record<string, Definition>>(catalog: T): { readonly [K
 
 export const MESSAGES = define({
   "version-unsupported": {
-    basis: "MUST", title: "Unsupported protocol version",
+    basis: "MUST",
+    requires: "The Personal Agent chooses the newest version … compatible with one it implements … If none is, it MUST NOT use any of them",
+    title: "Unsupported protocol version",
     explain: "Before 1.0, every major.minor version can break compatibility. An agent must explicitly support the declared version.",
     fix: "Use a supported protocol version or upgrade the agent.", ref: spec("3.1", "fields")
   },
   // Fetching
   "http-not-https": {
     basis: "MUST",
+    requires: "Every URL this protocol defines or exchanges MUST be an HTTPS URL",
     title: "Not an HTTPS URL",
     explain: "Discovery documents, metadata and key sets are fetched only over HTTPS.",
     fix: "Serve the document over HTTPS and link to it with an https:// URL.",
@@ -95,6 +111,7 @@ export const MESSAGES = define({
   },
   "http-non-public-host": {
     basis: "MUST",
+    requires: "Personal Agents and Companies MUST NOT connect to a loopback, private, or link-local address for a URL the other party gave them, unless they were configured to on purpose",
     title: "Not a public host",
     explain:
       "Personal Agents and Companies MUST NOT connect to a loopback, private or link-local address for a URL the other party gave them, unless they were configured to on purpose (3). By name alone, this validator, like our client, never fetches IP literals, single-label hosts, or special-use and private-use names such as localhost, .local, .internal and .home.arpa, so it can't check a document there. A name can still resolve to a private address: on Cloudflare Workers the platform refuses those connections, and the command-line validator checks each address a name resolves to (http-non-public-address). Used as a library elsewhere, it checks names only, so the caller must supply a fetcher that checks addresses.",
@@ -103,6 +120,7 @@ export const MESSAGES = define({
   },
   "http-non-public-address": {
     basis: "MUST",
+    requires: "Personal Agents and Companies MUST NOT connect to a loopback, private, or link-local address for a URL the other party gave them, unless they were configured to on purpose",
     title: "Resolves to a private address",
     explain:
       "Personal Agents and Companies MUST NOT connect to a loopback, private or link-local address for a URL the other party gave them (3), and the Guides say to judge by the address actually connected to. The host name is public, but it resolves to such an address (loopback, RFC 1918, link-local, carrier-grade NAT, unique local, unspecified, multicast or another range that isn't globally reachable), so nothing was checked there. The command-line validator resolves each name itself, refuses these, and connects only to the address it checked.",
@@ -111,6 +129,7 @@ export const MESSAGES = define({
   },
   "http-redirect-not-https": {
     basis: "MUST",
+    requires: "Personal Agents MUST follow redirects, and every redirect MUST be to an HTTPS URL",
     title: "Redirect to a non-HTTPS URL",
     explain: "Every redirect from the well-known URL must be to an HTTPS URL. Agents stop at the first one that isn't.",
     fix: "Make each Location header an https:// URL.",
@@ -118,6 +137,7 @@ export const MESSAGES = define({
   },
   "http-too-many-redirects": {
     basis: "Guides",
+    requires: "Set limits: a few redirects at most",
     refuses: true,
     title: "Too many redirects",
     explain:
@@ -127,6 +147,7 @@ export const MESSAGES = define({
   },
   "http-redirect-not-allowed": {
     basis: "Rule",
+    requires: "Fetches the client metadata from iss without following redirects, as the CIMD draft (§5) requires",
     title: "Client metadata is served by a redirect",
     explain:
       "A Company fetches the client metadata at client_id without following redirects, as the CIMD draft (§5) requires (5.3), and client_id MUST equal the URL the document was fetched from (4.1). A redirect there fails verification at every Company, so this validator doesn't follow it either.",
@@ -135,6 +156,7 @@ export const MESSAGES = define({
   },
   "http-status": {
     basis: "MUST",
+    requires: "A Company MUST publish its poppy.json document at https://{domain}/.well-known/poppy.json over HTTPS",
     title: "Not served with HTTP 200",
     explain: "The document must be served successfully for anyone to use it.",
     fix: "Serve the document with status 200.",
@@ -142,6 +164,7 @@ export const MESSAGES = define({
   },
   "http-failed": {
     basis: "Guides",
+    requires: "Set limits: … a timeout of a few seconds",
     refuses: true,
     title: "Couldn't fetch the document",
     explain: "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Nothing was checked, and our client can't use a document it couldn't fetch.",
@@ -150,6 +173,7 @@ export const MESSAGES = define({
   },
   "http-too-large": {
     basis: "Guides",
+    requires: "Set limits: … a response size such as 100 KB",
     refuses: true,
     title: "Document too large",
     explain:
@@ -209,6 +233,7 @@ export const MESSAGES = define({
   },
   "json-resource-limit": {
     basis: "Guides",
+    requires: "Set limits: a few redirects at most, a response size such as 100 KB, and a timeout of a few seconds",
     refuses: true,
     title: "JSON location metadata exceeds the validator's resource allowance",
     explain: "Our client limits cumulative escaped JSON-pointer strings to one million UTF-16 code units, before constructing them. A long member name repeated in every child's location can otherwise use far more memory than the document's byte size. This is an implementation policy for safely processing untrusted documents, not a JSON syntax error or a protocol requirement. Nothing was checked beyond this limit.",
@@ -216,7 +241,8 @@ export const MESSAGES = define({
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "json-duplicate-member": {
-    basis: "SHOULD",
+    basis: "Guides",
+    requires: "Encode JSON as UTF-8 and reject objects with duplicate member names",
     refuses: true,
     title: "Duplicate member name",
     explain:
@@ -228,6 +254,7 @@ export const MESSAGES = define({
   // Generic structure
   "missing-member": {
     basis: "MUST",
+    requires: "| protocol_version | Yes | The protocol version the document follows, as major.minor",
     title: "Required member missing",
     explain: "A member the specification requires isn't there.",
     fix: "Add the member described in the message.",
@@ -235,13 +262,15 @@ export const MESSAGES = define({
   },
   "wrong-type": {
     basis: "Rule",
+    requires: "A list of APIs. Each has a type",
     title: "Wrong type",
     explain: "A member has the wrong JSON type, such as a string where an object is required.",
     fix: "Use the type given in the message.",
     ref: spec("3.1", "fields")
   },
   "not-a-url": {
-    basis: "Rule",
+    basis: "MUST",
+    requires: "Every URL this protocol defines or exchanges MUST be an HTTPS URL",
     title: "Not an absolute URL",
     explain: "The value must be an absolute URL with a host name (or an IP address), such as https://api.example.com/.",
     fix: "Use a full URL, starting with https://.",
@@ -249,6 +278,7 @@ export const MESSAGES = define({
   },
   "not-https-url": {
     basis: "MUST",
+    requires: "Every URL this protocol defines or exchanges MUST be an HTTPS URL",
     title: "URL isn't HTTPS",
     explain:
       "Every URL the protocol defines or exchanges MUST be an HTTPS URL (3): in poppy.json, in authorization server and protected resource metadata, in client metadata and in extensions. The one exception is a loopback redirect URI in a Personal Agent's redirect_uris (4.1), such as http://127.0.0.1/callback.",
@@ -285,6 +315,7 @@ export const MESSAGES = define({
   // poppy.json
   "version-format": {
     basis: "Rule",
+    requires: "The protocol version the document follows, as major.minor",
     title: "protocol_version isn't major.minor",
     explain: 'protocol_version is a string of two numbers, such as "0.4".',
     fix: 'Set protocol_version to "0.4".',
@@ -292,6 +323,7 @@ export const MESSAGES = define({
   },
   "version-unsupported-major": {
     basis: "MUST",
+    requires: "The Personal Agent chooses the newest version … compatible with one it implements … If none is, it MUST NOT use any of them",
     title: "Unsupported major version",
     explain: "A Personal Agent must not use a document whose major version it doesn't support. This validator knows the versions listed on the validator page.",
     fix: "Publish a document for a supported major version, or check a newer validator.",
@@ -307,7 +339,8 @@ export const MESSAGES = define({
     ref: spec10("3.4", "versions")
   },
   "domain-invalid": {
-    basis: "Rule",
+    basis: "MUST",
+    requires: "domain MUST be the host that serves the document, after any redirects",
     title: "Not a domain name",
     explain: "The value must be a DNS host name, such as example.com, with no scheme or path. From 1.0, organization.domain may carry its port when that isn't 443, such as shop.test:8443 for testing (3.1); 0.4 allows no port.",
     fix: "Use the bare host name, or under 1.0 the host name and a port other than 443.",
@@ -315,6 +348,7 @@ export const MESSAGES = define({
   },
   "organization-domain-mismatch": {
     basis: "MUST",
+    requires: "domain MUST be the host that serves the document, after any redirects",
     title: "organization.domain doesn't match the requested domain",
     explain:
       "organization.domain MUST be the host that serves the document, after any redirects, compared ignoring case and nothing else, so www.example.com and example.com differ. Otherwise a document copied to another domain could speak for the Company.",
@@ -323,6 +357,7 @@ export const MESSAGES = define({
   },
   "organization-name-missing": {
     basis: "Rule",
+    requires: "The Company's display name, its domain, and an optional logo_uri",
     title: "No display name",
     explain:
       "organization is required and is the Company's \"Display name and domain\" (3.1): a normative statement without a key word, so a missing or blank name is an error. Personal Agents show organization.name to the User, such as next to a Device Sign-In link (4.3), so our client refuses a Company without one.",
@@ -330,7 +365,8 @@ export const MESSAGES = define({
     ref: spec("3.1", "fields")
   },
   "nothing-offered": {
-    basis: "MUST",
+    basis: "Rule",
+    requires: "| agent | At least one of agent, apis, or web |",
     title: "No agent, apis or web",
     explain: "A poppy.json must offer at least one of agent, apis, or web.",
     fix: "Add the Company Agent, an API, or the website.",
@@ -359,11 +395,12 @@ export const MESSAGES = define({
     ref: rfc(6749, "3.3")
   },
   "scope-undescribed": {
-    basis: "MUST",
+    basis: "SHOULD",
+    requires: "The Company SHOULD describe each scope it offers Personal Agents, so the Personal Agent can choose the ones a task needs",
     title: "Supported scope has no description",
     explain:
-      "The Company MUST describe each scope in scopes_supported, so agents can choose the ones a task needs and explain them to the User: in an OAuth security scheme of an OpenAPI description poppy.json lists, or otherwise in auth.scopes (4.7). poppy.json lists no OpenAPI description, so auth.scopes has to describe every one. (0.3 replaced 0.2's auth.custom_scopes with auth.scopes.)",
-    fix: "Add the scope to auth.scopes with a short description, or leave it out of scopes_supported.",
+      "The Company SHOULD describe each scope it offers Personal Agents, so the Personal Agent can choose the ones a task needs: in an OAuth security scheme of an OpenAPI description poppy.json lists, or otherwise in auth.scopes (4.7). poppy.json lists no OpenAPI description, so only auth.scopes can describe them. When the domain's protected resource metadata lists scopes_supported, those are the scopes checked: the issuer's own list may hold scopes for its other resources and clients (3.2). 0.3's text of 29 October made it a MUST for every scope in scopes_supported; by 3 November it was this SHOULD.",
+    fix: "Add the scope to auth.scopes with a short description. A scope offered only to other clients can be left out of scopes_supported, or the domain's protected resource metadata can list the scopes it offers.",
     ref: spec("4.7", "scopes")
   },
   "scopes-empty": {
@@ -391,6 +428,7 @@ export const MESSAGES = define({
   },
   "mediated-field-duplicate": {
     basis: "Rule",
+    requires: "name is the parameter the Personal Agent sends",
     title: "Credential field named twice",
     explain: "Each field's name is the parameter the agent sends it in, so names must be unique.",
     fix: "Give each field a different name.",
@@ -421,6 +459,7 @@ export const MESSAGES = define({
   },
   "protocol-description-empty": {
     basis: "MUST",
+    requires: "The Company MUST include a description in every entry",
     title: "Empty conversation protocol description",
     explain:
       "From 1.0, every agent.protocols entry has a description of what the agent at that endpoint can help with, which a Personal Agent uses to decide whether a conversation serves the task and to choose between the entries and the Company's APIs (8.1). An empty one says nothing.",
@@ -455,6 +494,7 @@ export const MESSAGES = define({
   },
   "api-description-missing": {
     basis: "Rule",
+    requires: "Each has a type, such as those in section 7, a url, and a short description that helps the Personal Agent pick the right one",
     refuses: false,
     title: "API has no description",
     explain:
@@ -464,6 +504,7 @@ export const MESSAGES = define({
   },
   "extension-name": {
     basis: "MUST",
+    requires: "Anyone else MUST start an extension's name with a domain they control",
     title: "Invalid extension name",
     explain:
       "Extensions defined with the protocol have plain names. Anyone else must start the name with a domain they control, such as example.com/gift-wrap.",
@@ -498,6 +539,7 @@ export const MESSAGES = define({
   // OAuth authorization server metadata
   "metadata-issuer-mismatch": {
     basis: "MUST",
+    requires: "the Personal Agent fetches the metadata and MUST check that its issuer exactly matches the issuer it found, character for character",
     title: "Metadata issuer doesn't match the Company's issuer",
     explain:
       "The metadata's issuer must exactly equal the issuer the domain's protected resource metadata names (and auth.issuer, when poppy.json chooses one), character for character. Otherwise any domain could claim another Company's issuer and receive its tokens.",
@@ -515,6 +557,7 @@ export const MESSAGES = define({
   },
   "metadata-pkce": {
     basis: "Guides",
+    requires: "Accept PKCE with S256 only, and reject plain",
     title: "S256 not advertised for PKCE",
     explain: "Direct Sign-In uses PKCE with S256, and code_challenge_methods_supported doesn't list it.",
     fix: "Add S256.",
@@ -522,6 +565,7 @@ export const MESSAGES = define({
   },
   "poppy-redirect-path": {
     basis: "MUST",
+    requires: "Personal Agents MUST use the document only when the last URL's path is exactly /.well-known/poppy.json and it has no query",
     title: "Redirected away from the well-known path",
     explain: "A redirect may move poppy.json to another host, but agents use it only when the last URL's path is exactly /.well-known/poppy.json, with no query. Otherwise anyone who can serve a file from some path on a domain could have it speak for that domain.",
     fix: "Redirect to /.well-known/poppy.json on the other host, without a query.",
@@ -529,6 +573,7 @@ export const MESSAGES = define({
   },
   "prm-resource-mismatch": {
     basis: "MUST",
+    requires: "its resource MUST be exactly https://{organization.domain}",
     title: "Protected resource metadata names another resource",
     explain: "The domain's protected resource metadata is how agents find the issuer. Its resource must be exactly https:// and the domain.",
     fix: "Set resource to https://{organization.domain}.",
@@ -544,6 +589,7 @@ export const MESSAGES = define({
   },
   "issuer-required": {
     basis: "MUST",
+    requires: "A Company that offers sign-in MUST have an OAuth issuer",
     title: "Sign-in offered without an issuer",
     explain: "A Company that offers sign-in MUST have an OAuth issuer (3.2). auth.issuer, the Mediated Sign-In extension and signed_in access each offer sign-in, but the domain's protected resource metadata says there is no issuer.",
     fix: "Publish protected resource metadata whose authorization_servers names the issuer, or remove what offers sign-in.",
@@ -551,6 +597,7 @@ export const MESSAGES = define({
   },
   "auth-disabled-sign-in": {
     basis: "MUST",
+    requires: "A Company that sets auth.disabled MUST NOT list the Mediated Sign-In extension or signed_in access",
     title: "auth.disabled, but sign-in is still offered",
     explain: "A Company that sets auth.disabled offers Personal Agents no sign-in, so it MUST NOT list the Mediated Sign-In extension or signed_in access (3.2).",
     fix: "Remove the Mediated Sign-In extension and signed_in access, or stop setting auth.disabled.",
@@ -566,6 +613,7 @@ export const MESSAGES = define({
   },
   "scopes-supported-missing": {
     basis: "SHOULD",
+    requires: "A Company that offers sign-in SHOULD list every scope a Personal Agent can request here",
     title: "No scopes_supported",
     explain: "A Company that offers sign-in SHOULD publish scopes_supported in its OAuth metadata, or in its protected resource metadata, and include every scope a Personal Agent can request (3.2, 4.7). Without either, agents learn scopes only from the Company's OpenAPI descriptions and auth.scopes. (Earlier text of draft 0.3 required it in the OAuth metadata.)",
     fix: "Add scopes_supported, listing the scopes Personal Agents may request.",
@@ -591,13 +639,15 @@ export const MESSAGES = define({
   },
   "issuer-not-listed": {
     basis: "MUST",
+    requires: "naming the one Personal Agents use (3.2). It MUST be in that list.",
     title: "auth.issuer isn't an authorization server of the domain",
     explain: "auth.issuer only chooses among the domain's authorization_servers, so it must be one of them.",
     fix: "Make auth.issuer one of the domain's authorization_servers, or leave it out when there is one.",
     ref: spec("3.1", "fields")
   },
   "issuer-ambiguous": {
-    basis: "MUST",
+    basis: "Rule",
+    requires: "If it lists more than one, such as one for the Company's employees, auth.issuer in poppy.json names the one Personal Agents use",
     title: "Several authorization servers and no auth.issuer",
     explain: "User IDs and refresh tokens belong to one issuer, so every agent has to choose the same one. With more than one authorization server, auth.issuer says which.",
     fix: "Add auth.issuer, naming the server agents use.",
@@ -605,6 +655,7 @@ export const MESSAGES = define({
   },
   "metadata-protected-resources": {
     basis: "MUST",
+    requires: "Its protected_resources (RFC 9728 §4) MUST list https://{domain} for every domain whose issuer it is",
     title: "protected_resources doesn't include the domain",
     explain: "The issuer confirms the domain from its side by listing https://{domain} in protected_resources. Agents refuse a domain it doesn't list, so a domain can't claim another Company's issuer.",
     fix: "Add https:// and organization.domain to protected_resources, with no path, port or trailing slash.",
@@ -612,6 +663,7 @@ export const MESSAGES = define({
   },
   "metadata-assertion-algs": {
     basis: "MUST",
+    requires: "Companies MUST accept client assertions signed with ES256 and with PS384.",
     title: "Client assertion algorithms leave out ES256 or PS384",
     explain:
       "From 1.0, Companies MUST accept client assertions signed with ES256 and with PS384 (4.1), so a Personal Agent can have them signed blindly (10.7). A token_endpoint_auth_signing_alg_values_supported that leaves either out says the token endpoint refuses them.",
@@ -628,6 +680,7 @@ export const MESSAGES = define({
   },
   "metadata-refresh-grant": {
     basis: "MUST",
+    requires: "grant_types_supported lists the grant types the token endpoint accepts. Required, and it MUST include refresh_token",
     title: "No refresh_token grant",
     explain: "grant_types_supported must include refresh_token: every sign-in returns a refresh token, which agents use to get access tokens later.",
     fix: "Add refresh_token to grant_types_supported.",
@@ -635,6 +688,7 @@ export const MESSAGES = define({
   },
   "scope-hint-invalid": {
     basis: "MUST",
+    requires: "A Company MUST include both fields in each entry.",
     title: "Scope hint without changes and personal_data",
     explain: "Each entry in auth.scope_hints must have both fields: changes, a string, and personal_data, a boolean.",
     fix: "Give the scope's hint both fields, or leave the scope out of scope_hints.",
@@ -650,22 +704,26 @@ export const MESSAGES = define({
   },
   "mediated-field-reserved": {
     basis: "MUST",
+    requires: "It MUST NOT be grant_type, scope, resource, a client authentication parameter such as client_id or client_assertion, or a parameter this extension defines",
     title: "Mediated Sign-In field with a reserved name",
     explain: "A field's name is a parameter of the token request, so it can't be grant_type, scope, resource, a client authentication parameter, or one the extension defines.",
     fix: "Rename the field.",
     ref: mediatedExt("2", "support")
   },
   "mediated-grant-missing": {
-    basis: "MUST",
+    basis: "Rule",
+    requires: "A Company that offers Mediated Sign-In lists it in extensions in its poppy.json (spec 3.3), and lists the grant type https://personalagentprotocol.org/grant/mediated-sign-in in its issuer's grant_types_supported",
     title: "Mediated Sign-In's grant isn't advertised",
     explain: "A Company that offers Mediated Sign-In lists its grant type in the issuer's grant_types_supported.",
     fix: "Add https://personalagentprotocol.org/grant/mediated-sign-in to grant_types_supported.",
     ref: mediatedExt("2", "support")
   },
   "mediated-scope-unsupported": {
-    basis: "MUST",
-    title: "Mediated Sign-In offers a scope the issuer doesn't support",
-    explain: "Every scope the extension lists must be in the issuer's scopes_supported.",
+    basis: "SHOULD",
+    requires: "The Company SHOULD also include them in scopes_supported",
+    title: "Mediated Sign-In offers a scope scopes_supported doesn't list",
+    explain:
+      "The Company SHOULD also include the scopes the extension lists in scopes_supported, in its OAuth server metadata or protected resource metadata (Mediated Sign-In 2). A Personal Agent may still request a scope a sign-in extension documents (4.7), so this is a warning. 0.3's text of 28 October listed all of them in scopes_supported; by 3 November this was a SHOULD.",
     fix: "Add the scope to scopes_supported, or remove it from the extension's scopes.",
     ref: mediatedExt("2", "support")
   },
@@ -682,6 +740,7 @@ export const MESSAGES = define({
   // Client metadata and keys
   "client-id-mismatch": {
     basis: "MUST",
+    requires: "client_id MUST equal the URL the document was fetched from.",
     title: "client_id isn't the URL it was fetched from",
     explain: "A Personal Agent's client_id must equal the URL its metadata document was fetched from.",
     fix: "Set client_id to the exact URL of this document.",
@@ -689,6 +748,7 @@ export const MESSAGES = define({
   },
   "client-other-domain": {
     basis: "MUST",
+    requires: "jwks_uri MUST be an HTTPS URL on the same domain as client_id. … Each entry MUST be an HTTPS URL on the same domain as client_id, or a loopback redirect URI",
     title: "URL on a different domain from client_id",
     explain: "jwks_uri, and every redirect URI that isn't a loopback redirect URI (RFC 8252 §7.3), must be an HTTPS URL on the same domain as client_id.",
     fix: "Host them on client_id's domain.",
@@ -696,6 +756,7 @@ export const MESSAGES = define({
   },
   "client-auth-method": {
     basis: "Rule",
+    requires: "The Personal Agent authenticates at the token endpoint with a client assertion signed by a key from jwks_uri (private_key_jwt, RFC 7523).",
     title: "Token endpoint auth method isn't private_key_jwt",
     explain:
       "Personal Agents authenticate with private_key_jwt (4.1, 4.8), and the draft's example declares it. The draft has no MUST for the member, but without it OAuth's default (client_secret_basic, RFC 7591 §2) applies, which doesn't fit.",
@@ -712,6 +773,7 @@ export const MESSAGES = define({
   },
   "jwks-empty": {
     basis: "Rule",
+    requires: "The Personal Agent authenticates at the token endpoint with a client assertion signed by a key from jwks_uri",
     title: "No keys",
     explain: "The key set has no keys, so nothing the agent signs can be verified.",
     fix: "Publish at least one public signing key.",
@@ -719,6 +781,7 @@ export const MESSAGES = define({
   },
   "jwks-private-key": {
     basis: "Rule",
+    requires: "The key set contains only public keys.",
     title: "Private key material published",
     explain: "The key set contains only public keys. This key has private members (d, p, q, dp, dq, qi or k), so the key is compromised.",
     fix: "Remove the key, generate a new one, and publish only its public part.",
@@ -726,10 +789,11 @@ export const MESSAGES = define({
   },
   "jwks-key-type": {
     basis: "Guides",
+    requires: "Sign client assertions and delegations with ES256, or with PS384 if you sign them blindly",
     title: "Unsupported key",
     explain:
-      "Companies MUST accept client assertions and delegations signed with ES256, and SHOULD accept PS384 (4.1, 5.2), and the Guides say to sign with one of them, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
-    fix: "Use an EC P-256 key, or an RSA key of at least 2048 bits for PS384.",
+      "Companies MUST accept client assertions and delegations signed with ES256, and SHOULD accept PS384 (4.1, 5.2; from 1.0 they MUST accept both), and the Guides say to sign with one of them, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
+    fix: "Use an EC P-256 key, or for PS384 an RSA key of at least 2048 bits (from 1.0, 2048 to 4096 bits).",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
   "jwks-rsa-small": {
@@ -748,14 +812,16 @@ export const MESSAGES = define({
   },
   "jwks-alg": {
     basis: "Guides",
+    requires: "Sign client assertions and delegations with ES256, or with PS384 if you sign them blindly",
     title: "Key algorithm isn't ES256 or PS384",
     explain:
-      "The keys in jwks_uri sign client assertions and delegations. Companies MUST accept both signed with ES256, and SHOULD accept PS384 (4.1, 5.2), a delegation's alg is one of the two (5.2), and the Guides say to sign with ES256, or PS384 when signing blindly; a Company without PS384 can't verify a blind signature. A key marked with another alg may be ignored, and one marked RS256 can't sign delegations, so it can't make Session JWTs.",
+      "The keys in jwks_uri sign client assertions and delegations. Companies MUST accept both signed with ES256, and SHOULD accept PS384 (4.1, 5.2; from 1.0 they MUST accept both), a delegation's alg is one of the two (5.2), and the Guides say to sign with ES256, or PS384 when signing blindly; a Company without PS384 can't verify a blind signature. A key marked with another alg may be ignored, and one marked RS256 can't sign delegations, so it can't make Session JWTs.",
     fix: "Use ES256, or PS384 for blind signing.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
   "jwks-no-kid": {
     basis: "Guides",
+    requires: "Give every key in jwks_uri a kid.",
     title: "Key has no kid",
     explain: "Every key needs a kid so keys can be rotated and Companies can pick the right one.",
     fix: "Add a unique kid to each key.",
@@ -767,11 +833,12 @@ export const MESSAGES = define({
     explain:
       "Different keys in a key set SHOULD have different kids (RFC 7517 §4.5), and the Guides give every key one for rotation. Verifiers may pick the wrong key. A SHOULD, so this is a warning.",
     fix: "Give each key a unique kid.",
-    ref: guides("Rotating keys", "both-key-rotation")
+    ref: rfc(7517, "4.5")
   },
   // Versions (3.4), and what 0.4 changed
   "supported-version-unusable": {
     basis: "MUST",
+    requires: "Each URL in supported_versions MUST be an HTTPS URL on the host that served poppy.json, after any redirects.",
     refuses: false,
     title: "A supported_versions entry agents can't use",
     explain:
@@ -781,6 +848,7 @@ export const MESSAGES = define({
   },
   "linked-document-version": {
     basis: "MUST",
+    requires: "The Personal Agent MUST NOT use it if its protocol_version is another one.",
     title: "A linked document has another protocol version",
     explain: "The document a supported_versions entry links to has the protocol_version it is listed under, and an agent MUST NOT use it otherwise (3.4).",
     fix: "Serve the document for the version it is listed under, or fix the entry.",
@@ -788,6 +856,7 @@ export const MESSAGES = define({
   },
   "linked-document-supported-versions": {
     basis: "Rule",
+    requires: "The document there has the protocol_version it is listed under, and no supported_versions.",
     refuses: false,
     title: "A linked document lists supported_versions",
     explain: "Only poppy.json lists the versions a Company serves; the document for another version has no supported_versions (3.4). Our client ignores the member there.",
@@ -796,6 +865,7 @@ export const MESSAGES = define({
   },
   "linked-document-domain": {
     basis: "MUST",
+    requires: "Every document a Company serves at the same time MUST have the same organization.domain",
     title: "Versions disagree on the Company's domain",
     explain: "Every document a Company serves at the same time MUST have the same organization.domain, so a new version doesn't change the Company's identifier, and with it User IDs and refresh tokens (3.4).",
     fix: "Give every version's document the same organization.domain.",
@@ -803,6 +873,7 @@ export const MESSAGES = define({
   },
   "extension-entries": {
     basis: "Rule",
+    requires: "A Company lists the ones it supports in extensions, with an entry for each major version it supports",
     refuses: false,
     title: "An extension isn't a list of versions",
     explain:
@@ -821,6 +892,7 @@ export const MESSAGES = define({
   },
   "web-disabled-browser-session": {
     basis: "MUST",
+    requires: "A Company that sets web.disabled MUST NOT list browser_session_endpoint",
     title: "web.disabled with a browser-session endpoint",
     explain: "A Company that sets web.disabled asks agents not to use a browser on its website, so it MUST NOT list browser_session_endpoint (6).",
     fix: "Remove web.browser_session_endpoint, or web.disabled.",
@@ -828,6 +900,7 @@ export const MESSAGES = define({
   },
   "web-disabled-no-alternative": {
     basis: "MUST",
+    requires: "A Company that sets web.disabled MUST NOT list browser_session_endpoint, and MUST list agent or apis.",
     title: "web.disabled with nothing else to use",
     explain: "A Company that asks agents not to browse its website MUST list agent or apis, so they have something to use instead (6).",
     fix: "List the Company Agent or an API, or remove web.disabled.",
@@ -835,6 +908,7 @@ export const MESSAGES = define({
   },
   "operations-endpoint-without-join": {
     basis: "MUST",
+    requires: "It MUST list web.browser_session_endpoint with it",
     title: "Website operations without browser join",
     explain: "An operations entry's endpoint is for operations a website returns to a browser joined to a Session, so the Company MUST list web.browser_session_endpoint with it (Operations 2).",
     fix: "List web.browser_session_endpoint, or remove the endpoint.",
@@ -842,6 +916,7 @@ export const MESSAGES = define({
   },
   "browser-control-without-join": {
     basis: "Rule",
+    requires: "A Company that supports this extension lists it in extensions in its poppy.json (spec 3.3), with web.browser_session_endpoint",
     title: "Browser Control without browser join",
     explain: "A Company that supports Browser Control lists it with web.browser_session_endpoint (Browser Control 3): marked steps are for a browser joined to a Session.",
     fix: "List web.browser_session_endpoint, or remove the extension.",
@@ -849,6 +924,7 @@ export const MESSAGES = define({
   },
   "web-unscoped-without-join": {
     basis: "MUST",
+    requires: "A Company that sets web.unscoped MUST list browser_session_endpoint.",
     title: "web.unscoped without browser join",
     explain: "web.unscoped says that poppy:browser-sign-in gives a joined browser the account's full access on the website, so a Company that sets it MUST list web.browser_session_endpoint (6).",
     fix: "List web.browser_session_endpoint, or remove web.unscoped.",
@@ -856,6 +932,7 @@ export const MESSAGES = define({
   },
   "browser-sign-in-unsupported": {
     basis: "MUST",
+    requires: "A Company that lists browser_session_endpoint and offers sign-in MUST support poppy:browser-sign-in",
     title: "Browser join without poppy:browser-sign-in",
     explain: "A Company that lists browser_session_endpoint and offers sign-in MUST support poppy:browser-sign-in, the scope that signs a joined browser in (6), so its scopes_supported includes it (4.7). It MAY grant the scope to fewer clients or Users.",
     fix: "Add poppy:browser-sign-in to scopes_supported and describe it in auth.scopes, or remove web.browser_session_endpoint.",
@@ -863,6 +940,7 @@ export const MESSAGES = define({
   },
   "direct-sign-in-preferred": {
     basis: "SHOULD",
+    requires: "A Company that offers sign-in SHOULD offer Direct Sign-In.",
     title: "Device Sign-In without Direct Sign-In",
     explain: "Direct Sign-In is the preferred sign-in type, and a Company that offers sign-in SHOULD offer it (4). This issuer offers Device Sign-In, which is easier to use for phishing, but not Direct.",
     fix: "Add authorization_code to grant_types_supported, with an authorization_endpoint.",

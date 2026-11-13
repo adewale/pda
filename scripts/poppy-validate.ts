@@ -19,7 +19,7 @@ Options:
   --kind <kind>         poppy (default), protected-resource, oauth-metadata, client-metadata or jwks
   --domain <domain>     For a poppy.json file: the domain that serves it
   --fetched-from <url>  For a client metadata file: the URL that serves it
-  --protocol <x.y>      Version for documents that don't declare one: 0.4, the only one (the default)
+  --protocol <x.y>      Version for documents that don't declare one: 0.4, or 1.0 (the default)
   --json                Print the JSON report
   --strict              Fail on warnings too (SHOULDs, the Guides, our readings)
   --quiet               Print errors only

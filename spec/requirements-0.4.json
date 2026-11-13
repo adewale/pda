@@ -170,7 +170,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/discovery.ts",
       "evidence": "test/poppy-0.4.test.ts",
-      "notes": "Discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. Mock: resourceScopes."
+      "notes": "Discovery uses the union of the issuer's scopes_supported and the domain's protected resource metadata's. The 0.4 validator profile counts either list for scopes-supported-missing, mediated-scope-unsupported and browser-sign-in-unsupported, as the kit's discovery check now does. scope-undescribed, a SHOULD (4.7), checks the domain's list when it has one, else the issuer's (readings: v04-scope-descriptions). Mock: resourceScopes."
     },
     {
       "change": "`extension_required` in a JSON body at APIs",

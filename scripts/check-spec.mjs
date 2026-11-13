@@ -11,12 +11,15 @@
  * and they must agree with src/poppy/protocol-version.ts. A `retired` pin is
  * a version the agent spoke and no longer does: its text, kit and ledger are
  * kept and checked as history, and its ledger links files at `codeAt`, the
- * commit they were last current in.
+ * commit they were last current in. Every normative validator message and
+ * mock check quotes the runtime pins' sentence it enforces
+ * (check-requirements.mjs).
  */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { LEDGER_START, LEDGER_END, ledgerSection } from "./spec-ledger.mjs";
+import { requirementProblems } from "./check-requirements.mjs";
 import { DRAFT_REVISIONS, PROTOCOL_COMMIT, PROTOCOL_REVISIONS, PROTOCOL_VERSIONS } from "../src/poppy/protocol-version.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -94,6 +97,11 @@ for (const pin of pins) {
   checked.push({ pin, manifest, section });
   console.log(`Verified ${ledger.changes.length} changelog dispositions and ${manifest.pages.length} pinned pages (${pin.protocolVersion} ${pin.status}${pin.retired ? ", retired" : ""}, retrieved ${pin.revision}).`);
 }
+
+// Each normative check quotes the runtime pins' sentence it enforces, with its key word (check-requirements.mjs).
+const problems = await requirementProblems();
+if (problems.length) throw new Error(`Checks whose quoted requirement isn't in the pinned text:\n${problems.join("\n")}`);
+console.log("Verified the quoted requirement of every normative validator message and mock check against the runtime pins.");
 
 let failed = false;
 if (process.argv.includes("--drift")) {

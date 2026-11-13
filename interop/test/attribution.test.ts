@@ -146,7 +146,7 @@ describe("attribution", () => {
   });
 
   it("rule warning: a SHOULD or Guides refusal on one side blames that side as a warning, not a violation", () => {
-    // lenient-company refuses an ES384 client assertion (Guides: support ES256 and RS256).
+    // lenient-company refuses an ES384 client assertion (Guides: ES256, or PS384 when signing blindly).
     const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "lenient-company", false);
     const target = cell("a", "lenient-company", "fail", [alg], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "agent", rule: "warning", detail: "session-assertion.alg: a SHOULD or the Guides, not a requirement" });

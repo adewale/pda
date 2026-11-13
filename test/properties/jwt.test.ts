@@ -205,8 +205,8 @@ for (const alg of ["ES256", "RS256"] as const) {
   });
 }
 
-/** Client assertions: Companies MUST accept ES256 and PS384 (4.1), and the Guides add RS256. */
-for (const alg of ["ES256", "PS384", "RS256"] as const) {
+/** Client assertions: Companies MUST accept ES256 and PS384 (4.1). */
+for (const alg of ["ES256", "PS384"] as const) {
   const pair = await generateKeyPair(alg, { extractable: true });
   const other = await generateKeyPair(alg);
   const kid = `accepted-${alg}`;
@@ -345,7 +345,7 @@ const assertionMutations = (company: Company) =>
     // A kid that names no published key: strict Companies say so; lenient ones find no key to verify with.
     gs.text({ minSize: 1, maxSize: 10 }).filter((kid) => !realKids.includes(kid)).map((kid) => ({ name: "kid", mutation: { header: { kid } }, violation: "client-assertion.kid", lenient: "client-assertion.signature" })),
     gs.just({ name: "no kid", mutation: { header: { kid: undefined } }, violation: "client-assertion.kid", strictOnly: true }),
-    ...algMutations(["ES256", "PS384", "RS256"], (name, mutation) => ({ name, mutation, violation: "client-assertion.alg" })),
+    ...algMutations(["ES256", "PS384"], (name, mutation) => ({ name, mutation, violation: "client-assertion.alg" })),
     gs.sampledFrom(["jwk", "jku", "x5u"]).map((member) => ({
       name: `embedded ${member}`,
       mutation: { header: { [member]: member === "jwk" ? strangerJwk : "https://keys.attacker.example/jwks.json" } },

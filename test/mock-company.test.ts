@@ -2263,8 +2263,9 @@ describe("each check the mock Company makes", () => {
 
   it("says what each check rests on, and where in 0.4, and files it as a violation or a warning by that basis", () => {
     // "MUST (5.2: …): …", "RFC (RFC 9449 4.3; 4.5): …", "Guides (Retries: …): …": the basis, where, then what.
+    // A quote may hold parentheses; scripts/check-requirements.mjs checks it against the pinned text.
     const malformed = VIOLATION_IDS.filter(
-      (id) => !/^(?:MUST(?: NOT)?|RFC|Rule|SHOULD(?: NOT)?|Guides|Reading) \([^)]+\)(?:, strict Company only)?: \S/.test(VIOLATIONS[id])
+      (id) => !/^(?:MUST(?: NOT)?|RFC|Rule|SHOULD(?: NOT)?|Guides|Reading) \((?:"[^"]*"|[^)"])+\)(?:, strict Company only)?: \S/.test(VIOLATIONS[id])
     );
     expect(malformed).toEqual([]);
     // Every section is 0.4's, so none says so, and none names a version's section.
