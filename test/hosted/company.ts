@@ -35,7 +35,7 @@ export function hostedHosts(base: string): Hosts {
     issuer: `${base}/issuer`, metadataPath: "/.well-known/oauth-authorization-server/issuer",
     api: base, mcpUrl: `${base}/mcp`, web: base,
     tokenEndpoint: `${base}/oauth/token`, revocationEndpoint: `${base}/oauth/revoke`,
-    authorizationEndpoint: `${base}/oauth/authorize`, deviceEndpoint: `${base}/oauth/device`,
+    authorizationEndpoint: `${base}/oauth/authorize`, pushedAuthorizationEndpoint: `${base}/oauth/par`, deviceEndpoint: `${base}/oauth/device`,
     conversationsEndpoint: `${base}/poppy/conversations`, browserSessionEndpoint: `${base}/poppy/browser-session`
   };
 }

@@ -1,3 +1,4 @@
+import type { JWK } from "jose";
 import {
   boundedCacheSeconds,
   discover,
@@ -17,15 +18,17 @@ import {
   delegationUsable,
   dpopProof,
   newDpopKey,
+  newStoredDpopKey,
   randomId,
   sessionJwt,
+  storedDpopKey,
   type Delegated,
   type DpopKey
 } from "./jwt";
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup, type ResourceAuth } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
-import { accountsTable, domainsTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
+import { accountsTable, domainsTable, dpopKeysTable, dpopNoncesTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { declaration, declarationHeaders, sameDeclaration, type Declaration } from "./declaration";
@@ -423,13 +426,13 @@ export class PoppyClient {
   readonly host: PoppyHost;
   readonly identity: AgentIdentity;
   readonly sealer: Sealer;
-  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use and never stored. */
+  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use, then kept sealed in `poppy_dpop_keys` (1.0: 4.4). */
   readonly #dpopKeys = new Map<string, Promise<DpopKey>>();
   /** Access tokens by issuer, Session label, resource and scope. */
   readonly #tokens = new Map<string, HeldToken>();
   /** New sign-ins and withdrawals invalidate held access; ordinary refresh rotation does not. */
   readonly #accountGenerations = new Map<string, number>();
-  /** The latest `DPoP-Nonce` from each server origin. */
+  /** The latest `DPoP-Nonce` from each server origin, read through from `poppy_dpop_nonces`. */
   readonly #nonces = new Map<string, string>();
   /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
   readonly #delegated = new Map<Issuer, Promise<Delegated>>();
@@ -765,14 +768,60 @@ export class PoppyClient {
 
   // ---------------------------------------------------------------- Keys
 
+  /**
+   * The DPoP key for this Company and User ID. It outlives restarts, so a
+   * refresh token is always refreshed with the key it was issued with, as 1.0
+   * requires (4.4) and 0.4 allows; it is the same key until the agent's data
+   * is deleted.
+   */
   dpopKey(issuer: Issuer): Promise<DpopKey> {
-    const id = `${issuer}|${this.userId(issuer)}`;
+    const userId = this.userId(issuer);
+    const id = `${issuer}|${userId}`;
     let key = this.#dpopKeys.get(id);
     if (!key) {
-      key = newDpopKey();
+      key = this.#storedDpopKey(issuer, userId);
       this.#dpopKeys.set(id, key);
+      // A failure to open or store it isn't remembered: the next request tries again.
+      key.catch(() => this.#dpopKeys.delete(id));
     }
     return key;
+  }
+
+  async #storedDpopKey(issuer: Issuer, userId: string): Promise<DpopKey> {
+    const context = `dpop|${issuer}|${userId}`;
+    const stored = () => one(this.sql, dpopKeysTable.pick("key"), "SELECT key FROM poppy_dpop_keys WHERE issuer = ? AND user_id = ?", issuer, userId);
+    const row = stored();
+    if (row) {
+      const { plaintext, current } = await this.sealer.openChecked(row.key, context);
+      // Sealed under TOKEN_ENC_KEY_PREVIOUS: seal it again under the current key.
+      if (!current) this.sql.exec("UPDATE poppy_dpop_keys SET key = ? WHERE issuer = ? AND user_id = ? AND key = ?", await this.sealer.seal(plaintext, context), issuer, userId, row.key);
+      return storedDpopKey(JSON.parse(plaintext) as JWK);
+    }
+    const { key, privateJwk } = await newStoredDpopKey();
+    const sealed = await this.sealer.seal(JSON.stringify(privateJwk), context);
+    // One lookup at a time per key (#dpopKeys), so no other key for this User ID is stored meanwhile.
+    this.sql.exec("INSERT INTO poppy_dpop_keys (issuer, user_id, key, created_at) VALUES (?, ?, ?, ?)", issuer, userId, sealed, Date.now());
+    return key;
+  }
+
+  /**
+   * The latest nonce from `origin`. It is stored, since the keys that used it
+   * outlive a restart, so their next proof carries it instead of being
+   * challenged again (RFC 9449 8).
+   */
+  #nonce(origin: string): string | undefined {
+    let nonce = this.#nonces.get(origin);
+    if (nonce === undefined) {
+      nonce = one(this.sql, dpopNoncesTable.pick("nonce"), "SELECT nonce FROM poppy_dpop_nonces WHERE origin = ?", origin)?.nonce;
+      if (nonce !== undefined) this.#nonces.set(origin, nonce);
+    }
+    return nonce;
+  }
+
+  #keepNonce(origin: string, nonce: string): void {
+    if (this.#nonce(origin) === nonce) return;
+    this.#nonces.set(origin, nonce);
+    this.sql.exec("INSERT OR REPLACE INTO poppy_dpop_nonces (origin, nonce) VALUES (?, ?)", origin, nonce);
   }
 
   // ---------------------------------------------------------------- Rate limits
@@ -864,9 +913,9 @@ export class PoppyClient {
       });
       const origin = new URL(endpoint).origin;
       // For the protocol log, which reads only the fields it names (never a token, code, verifier or assertion).
-      const logged = { endpoint, form: fields, dpop, nonce: dpop && this.#nonces.has(origin) };
+      const logged = { endpoint, form: fields, dpop, nonce: dpop && this.#nonce(origin) !== undefined };
       if (dpop) {
-        const nonce = this.#nonces.get(origin);
+        const nonce = this.#nonce(origin);
         headers.set(
           "DPoP",
           await dpopProof(await this.dpopKey(company.issuer), {
@@ -890,7 +939,7 @@ export class PoppyClient {
         throw timeoutError(error, endpoint);
       });
       const nonce = response.headers.get("DPoP-Nonce");
-      if (nonce) this.#nonces.set(origin, nonce);
+      if (nonce) this.#keepNonce(origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
       const answer = { status: response.status, body };
@@ -1595,7 +1644,7 @@ export class PoppyClient {
         recordResource(this.sql, company, request, { token: token.type, nonce: false }, { refused: "token_in_url" });
         throw new PoppyError("invalid_request", "Refusing a URL that contains a token", 0);
       }
-      const auth: ResourceAuth = { token: token?.type ?? "none", nonce: token?.type === "DPoP" && this.#nonces.has(url.origin) };
+      const auth: ResourceAuth = { token: token?.type ?? "none", nonce: token?.type === "DPoP" && this.#nonce(url.origin) !== undefined };
       const log = (answer: Parameters<typeof recordResource>[4], next?: Followup) => recordResource(this.sql, company, request, auth, answer, next);
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
@@ -1610,7 +1659,7 @@ export class PoppyClient {
       } else if (token.type === "Bearer") {
         headers.set("Authorization", `Bearer ${token.value}`);
       } else {
-        const nonce = this.#nonces.get(url.origin);
+        const nonce = this.#nonce(url.origin);
         headers.set("Authorization", `DPoP ${token.value}`);
         headers.set(
           "DPoP",
@@ -1652,7 +1701,7 @@ export class PoppyClient {
         throw withAnswer(timeoutError(error, `${url.origin}${url.pathname}`), "none");
       });
       const nonce = response.headers.get("DPoP-Nonce");
-      if (nonce) this.#nonces.set(url.origin, nonce);
+      if (nonce) this.#keepNonce(url.origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
       const challenge = parseWwwAuthenticate(response.headers.get("WWW-Authenticate"));
       if (wait !== null) {

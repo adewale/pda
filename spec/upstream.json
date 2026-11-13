@@ -28,6 +28,19 @@
       "mediatedSignInVersion": "1",
       "source": "https://personalagentprotocol.org/docs/0.4/spec",
       "note": "Manually reviewed 11 November site snapshot: 0.4 as published on 10 November (upstream 4803900, then ed47408 dropping \"draft\" from the text) as the 1.0 release candidate, replacing the 10 November draft pin (a2f16ec). Since then: Operations can decline an approval, Direct Sign-In opened on another device is a cross-device flow (10.8), the protected resource metadata may list scopes_supported, the browser-session endpoint may be on another host, and guides on scopes a Company doesn't grant and passkeys on consent pages; the 38 earlier changelog entries keep their titles. The pinned kit is upstream kit/company at ed47408 apart from links the site rewrites to /docs/0.4/, and its reference pages match this snapshot. The home page walkthroughs were not extracted: the snapshot script can not read the new bundle; they are examples, not requirements. 0.4 is now frozen; fixes before 1.0 go into a draft 1.0, which would get its own pin."
+    },
+    {
+      "protocolVersion": "1.0",
+      "status": "draft",
+      "runtime": true,
+      "snapshot": "spec/draft-1.0-retrieved-2026-11-13",
+      "kit": "spec/company-kit-2026-11-13",
+      "revision": "2026-11-13",
+      "commit": "bb9833219c59554518164ce53bf659abcdf99863",
+      "operationsVersion": "3",
+      "mediatedSignInVersion": "1",
+      "source": "https://personalagentprotocol.org/docs/1.0/spec",
+      "note": "Manually reviewed 13 November site snapshot of the 1.0 draft, retrieved at 15:48 UTC; it replaced a snapshot of 13:36 UTC (upstream 736ef95) before either was merged. Started from 0.4 on 11 November (upstream 272cab0). Its specification, extension, guide and changelog pages match the pinned kit's reference pages, and the kit's validator and schemas match upstream bb98332 apart from links the site rewrites to /docs/1.0/. Against 0.4: a required description on each agent.protocols entry (d6f9771), Pushed Authorization Requests and the same DPoP key at refresh (736ef95), lookalike domains in 10.3 (c71f515), room to extend conversations (22f2337), scope descriptions (2167166), Personal Agents choosing their Companies (67e3d33), PS384 required (0378126), consent for scopes granted before and UCP scope requests (48e5fe5), and ports in organization.domain (bb98332). The Operations and Mediated Sign-In pages are unchanged, so Operations stays at 3 and Mediated Sign-In at 1. The home page walkthroughs were not extracted, as for 0.4. A draft: a newer snapshot replaces this pin after review."
     }
   ]
 }

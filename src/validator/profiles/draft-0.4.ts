@@ -22,7 +22,7 @@
  */
 import { pointer } from "../json.ts";
 import { base64url, fromBase64url } from "../../base64url.ts";
-import { extension, mediatedExt, rfc, spec } from "../messages.ts";
+import { extension, mediatedExt, rfc, spec, type Ref } from "../messages.ts";
 import {
   httpsMember,
   httpsUrl,
@@ -64,8 +64,8 @@ const OURS: UrlRules = { fragment: "unstated" };
 
 // poppy.json
 
-/** `organization` (3.1): its name and domain. Returns the domain when it is a host name. */
-export function checkOrganization(c: Checker, doc: Obj): string | undefined {
+/** `organization` (3.1): its name and domain. Returns the domain when it is a host name, with a port where `rules` allow one. */
+export function checkOrganization(c: Checker, doc: Obj, rules: PoppyRules = {}): string | undefined {
   const organization = member<Obj>(c, doc, "", "organization", "object", true);
   if (!organization) return undefined;
   const name = member<string>(c, organization, "/organization", "name", "string", false);
@@ -78,8 +78,12 @@ export function checkOrganization(c: Checker, doc: Obj): string | undefined {
   httpsMember(c, organization, "/organization", "logo_uri", false, spec("3.1", "fields"));
   unknownMembers(c, organization, "/organization", ["name", "domain", "logo_uri"]);
   if (domain === undefined) return undefined;
-  if (!isHostname(domain)) {
-    c.report("domain-invalid", "/organization/domain", `organization.domain must be a bare host name, not ${JSON.stringify(domain)}.`);
+  // 1.0 (3.1): "with its port when that isn't 443".
+  const port = rules.domainPort ? /^(.+):([1-9][0-9]{0,4})$/.exec(domain) : null;
+  const host = port ? port[1]! : domain;
+  if (!isHostname(host) || (port && (Number(port[2]) > 65535 || port[2] === "443"))) {
+    const what = rules.domainPort ? "a host name, with a port only when it isn't 443" : "a bare host name";
+    c.report("domain-invalid", "/organization/domain", `organization.domain must be ${what}, not ${JSON.stringify(domain)}.`);
     return undefined;
   }
   return domain;
@@ -128,8 +132,22 @@ export function checkMediatedFields(c: Checker, mediated: Obj, at: string): void
   });
 }
 
+/** Where a later version's poppy.json rules differ from 0.4's, which it otherwise reuses. */
+export type PoppyRules = {
+  /** 1.0: every `agent.protocols` entry has a `description` (8.1). */
+  readonly protocolDescriptions?: { readonly ref: Ref };
+  /** 1.0: `organization.domain` carries its port when that isn't 443 (3.1). */
+  readonly domainPort?: true;
+};
+
+/** Where a later version's OAuth server metadata rules differ from 0.4's. */
+export type OAuthRules = {
+  /** 1.0: Companies MUST accept client assertions signed with ES256 and with PS384 (4.1). */
+  readonly assertionAlgs?: { readonly ref: Ref };
+};
+
 /** `agent` (3.1, 8.1): its conversation protocols, one of them poppy. Returns whether a poppy entry declares `signed_in` access (3.2). */
-export function checkAgent(c: Checker, agent: Obj): boolean {
+export function checkAgent(c: Checker, agent: Obj, rules: PoppyRules = {}): boolean {
   const ref = spec("8.1", "conversation-protocols");
   const protocols = member<unknown[]>(c, agent, "/agent", "protocols", "array", true, ref);
   unknownMembers(c, agent, "/agent", ["protocols"]);
@@ -144,6 +162,11 @@ export function checkAgent(c: Checker, agent: Obj): boolean {
     }
     const type = member<string>(c, entry, at, "type", "string", true, ref);
     httpsMember(c, entry, at, "endpoint", true, ref, OURS);
+    const described = rules.protocolDescriptions;
+    if (described) {
+      const description = member<string>(c, entry, at, "description", "string", true, described.ref);
+      if (description !== undefined && description.trim() === "") c.report("protocol-description-empty", `${at}/description`, `${label(at)} has an empty description.`);
+    }
     if (type === "poppy") {
       poppy = true;
       // 3.2: an advance hint, session (the default) or signed_in; agents ignore other values.
@@ -152,7 +175,7 @@ export function checkAgent(c: Checker, agent: Obj): boolean {
       else if (access !== undefined && !ACCESS.includes(access)) c.report("access-unknown", `${at}/access`, `access is ${JSON.stringify(access)}, which agents ignore, as if there were no hint.`);
     } else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, `Agents that don't know ${JSON.stringify(type)} skip this entry.`);
     // No `resource` since 0.3 (4.5): a service that takes only its own tokens says so in its protected resource metadata.
-    unknownMembers(c, entry, at, type === "poppy" ? ["type", "endpoint", "access"] : ["type", "endpoint"]);
+    unknownMembers(c, entry, at, [...(type === "poppy" ? ["type", "endpoint", "access"] : ["type", "endpoint"]), ...(described ? ["description"] : [])]);
   });
   if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
   return signedIn;
@@ -277,13 +300,13 @@ export function checkExtensions(c: Checker, extensions: Obj): Extensions {
   return found;
 }
 
-export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?: string }): PoppyFacts {
+export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?: string }, rules: PoppyRules = {}): PoppyFacts {
   const facts: PoppyFacts = { signIn: { direct: false, device: false, mediated: false } };
   if (!isObject(doc)) {
     c.report("wrong-type", "", "poppy.json must be a JSON object.", spec("3.1", "fields"));
     return facts;
   }
-  facts.domain = checkOrganization(c, doc);
+  facts.domain = checkOrganization(c, doc, rules);
   // The host that served the document, after redirects, ignoring case only (3.1).
   if (facts.domain && context.requestedDomain && facts.domain.toLowerCase() !== context.requestedDomain.toLowerCase()) {
     c.report("organization-domain-mismatch", "/organization/domain", `organization.domain is ${facts.domain}, but the document was served by ${context.requestedDomain}.`);
@@ -291,7 +314,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const agent = member<Obj>(c, doc, "", "agent", "object", false);
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
   const web = member<Obj>(c, doc, "", "web", "object", false);
-  const signedInAccess = agent ? checkAgent(c, agent) : false;
+  const signedInAccess = agent ? checkAgent(c, agent, rules) : false;
   if (apis) checkApis(c, apis);
   const checkedWeb = web ? checkWeb(c, web) : { browserSession: false, disabled: false, unscoped: false };
   if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");
@@ -410,7 +433,7 @@ export function noIssuer(c: Checker, poppy: PoppyFacts, how: "not-found" | "empt
  * counted as listed (3.2, 4.7), `poppy:browser-sign-in` with browser join
  * (6), and Direct Sign-In preferred (4).
  */
-export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts | undefined): void {
+export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts | undefined, rules: OAuthRules = {}): void {
   const ref = spec("3.2", "oauth-server");
   const resourceScopes = poppy?.resourceScopes;
   if (!isObject(doc)) {
@@ -432,7 +455,8 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
     const matches = (entry: string) => {
       try {
         const url = new URL(entry);
-        return `${url.protocol}//${url.hostname}` === wanted && entry.length === wanted.length;
+        // `host` keeps a port other than 443, which only 1.0's organization.domain can have (3.1).
+        return `${url.protocol}//${url.host}` === wanted && entry.length === wanted.length;
       } catch {
         return false;
       }
@@ -448,6 +472,13 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
   const device = list.includes(DEVICE_CODE);
   httpsMember(c, doc, "", "authorization_endpoint", direct ? "because grant_types_supported includes authorization_code" : false, ref);
   httpsMember(c, doc, "", "device_authorization_endpoint", device ? `because grant_types_supported includes ${DEVICE_CODE}` : false, ref);
+  // RFC 9126 §5: Pushed Authorization Requests, which a Personal Agent then uses for Direct Sign-In (1.0: 4.2).
+  const par = rfc(9126, "5");
+  httpsMember(c, doc, "", "pushed_authorization_request_endpoint", false, par);
+  const requirePushed = member<boolean>(c, doc, "", "require_pushed_authorization_requests", "boolean", false, par);
+  if (requirePushed === true && !("pushed_authorization_request_endpoint" in doc)) {
+    c.report("par-endpoint-missing", "/require_pushed_authorization_requests", "require_pushed_authorization_requests is true, but the metadata lists no pushed_authorization_request_endpoint, so no Personal Agent can sign in directly.");
+  }
   if (poppy?.signIn.mediated && grants && !list.includes(MEDIATED_GRANT)) {
     c.report("mediated-grant-missing", "/grant_types_supported", `poppy.json lists Mediated Sign-In, but grant_types_supported doesn't include ${MEDIATED_GRANT}.`);
   }
@@ -468,6 +499,14 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
     supported.forEach((scope, index) => {
       if (!described.includes(scope)) c.report("scope-undescribed", `/scopes_supported/${index}`, `${scope} is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could.`);
     });
+  }
+  if (rules.assertionAlgs) {
+    const algs = member<unknown[]>(c, doc, "", "token_endpoint_auth_signing_alg_values_supported", "array", false, rules.assertionAlgs.ref);
+    const listed = algs ? stringList(c, algs, "/token_endpoint_auth_signing_alg_values_supported", rules.assertionAlgs.ref) : null;
+    const missing = listed ? ["ES256", "PS384"].filter((alg) => !listed.includes(alg)) : [];
+    if (missing.length > 0) {
+      c.report("metadata-assertion-algs", "/token_endpoint_auth_signing_alg_values_supported", `token_endpoint_auth_signing_alg_values_supported doesn't include ${missing.join(" or ")}, which 1.0 Companies must accept for client assertions.`);
+    }
   }
   const dpop = member<unknown[]>(c, doc, "", "dpop_signing_alg_values_supported", "array", false, rfc(9449, "5.1"));
   if (dpop && !stringList(c, dpop, "/dpop_signing_alg_values_supported", rfc(9449, "5.1")).includes("ES256")) {

@@ -1,0 +1,113 @@
+{
+  "protocolVersion": "1.0",
+  "revision": "2026-11-13",
+  "commit": "bb9833219c59554518164ce53bf659abcdf99863",
+  "scope": "Disposition of every entry in the draft 1.0 changelog as retrieved on 13 November 2026 at 15:48 UTC (upstream commit bb98332). The agent speaks 1.0 beside 0.4 (decision 51); an entry that changes only how 1.0 reads names the version in its notes. A newer 1.0 snapshot gets its own dated directory and an updated ledger.",
+  "changes": [
+    {
+      "change": "Conversation protocol descriptions",
+      "disposition": "Done",
+      "implementation": "src/validator/profiles/draft-1.0.ts",
+      "evidence": "test/poppy-1.0.test.ts",
+      "notes": "The 1.0 validator profile requires a description on each agent.protocols entry (missing-member) and reports a blank one (protocol-description-empty), so discovery refuses a 1.0 Company without them, as the kit's schema does. poppy_discover gives the model the description beside poppy_message, so it can choose between the Company's agent and its APIs. The mock describes its protocols under 1.x. The 0.4 profile is unchanged."
+    },
+    {
+      "change": "Pushed Authorization Requests",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-1.0.test.ts",
+      "notes": "When the issuer lists pushed_authorization_request_endpoint, the Direct Sign-In card links to the agent's own /poppy/sign-in page, which pushes the request with the client assertion and a DPoP proof each time it is opened, then redirects to the authorization endpoint with only client_id and request_uri. It does so under 0.4 too, since RFC 9126 defines the metadata (readings.md#pushed-authorization). The page answers only the person signed in to PDA in that browser, and refuses an expired or finished sign-in. Without the endpoint, the card links to the authorization URL as before. The validator checks the endpoint is HTTPS and reports require_pushed_authorization_requests without it (par-endpoint-missing). The mock offers or requires PAR, binds a pushed code to the proof's key, and records par.not-pushed, par.extra-parameters and par.code-key."
+    },
+    {
+      "change": "PS384 required",
+      "disposition": "Company obligation",
+      "implementation": "src/validator/profiles/draft-1.0.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "Companies MUST accept client assertions and delegations signed with PS384 as well as ES256 (4.1, 5.2). The agent signs with ES256, which every Company accepts, so it doesn't change. The mock already accepted both. The 1.0 validator profile reports an issuer whose token_endpoint_auth_signing_alg_values_supported leaves out ES256 or PS384 (metadata-assertion-algs); delegations have no metadata to check. The kit makes assertion.ps384 and session.delegation-ps384 MUSTs."
+    },
+    {
+      "change": "Consent for scopes granted before",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-1.0.test.ts",
+      "notes": "Under 1.x every Direct Sign-In request carries prompt=consent, in the URL or pushed. Our redirect goes to a web callback that any browser can reach, so we don't claim the exception for a redirect received only on the opening device, though the callback refuses a sign-in started by another person's agent (readings.md#v10-prompt-consent). 0.4 Companies get the request they always did. The mock records a 1.x request without it to a redirect URI that isn't loopback (authorize.prompt-consent); its consent page always lists every scope it grants. Device Sign-In needs nothing from the agent."
+    },
+    {
+      "change": "Same DPoP key at refresh",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-1.0.test.ts",
+      "notes": "DPoP keys by issuer and User ID are now stored, their private JWK sealed in poppy_dpop_keys, so a restart or eviction refreshes with the key the refresh token was issued with. The latest nonce from each server is stored too (poppy_dpop_nonces), so a kept key keeps sending it. Both tables are withheld from the data export. Version-independent: 0.4 allows keeping the key. A new sign-in keeps the stored key. The mock records dpop.refresh-key-changed under 1.x and, with bindRefreshTokens, refuses the refresh with invalid_grant."
+    },
+    {
+      "change": "UCP scope requests name every scope",
+      "disposition": "Not used",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "PDA doesn't speak UCP. Its general sign-in already requests every scope still needed when it asks for more access (4.7), the rule UCP now follows."
+    },
+    {
+      "change": "Ports in organization.domain",
+      "disposition": "Done",
+      "implementation": "src/validator/profiles/draft-0.4.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "The 1.0 validator profile accepts organization.domain with a port other than 443, and matches protected_resources with its port. The agent uses no Company on another port: a domain the model names has no port, and no deployment setting allows one, which 3.1 permits (\"only when configured to on purpose\"). The 0.4 profile still refuses a port."
+    },
+    {
+      "change": "Personal Agents choose their Companies",
+      "disposition": "Done",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "test/general-tools.test.ts",
+      "notes": "No key word. The agent contacts only Companies the User selected or allowed on a card (decisions 40 and 50)."
+    },
+    {
+      "change": "Clearing context",
+      "disposition": "Done",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/mock-company.test.ts",
+      "notes": "The agent shares only changes to context and never takes a fact back, so it sends no null. Under 1.x the mock takes a null field as cleared rather than as a violation."
+    },
+    {
+      "change": "Room to extend conversations",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-1.0.test.ts",
+      "notes": "A message with any role but user is the Company's content, under both versions, since dropping Company content isn't safer under 0.4. An author.type other than human was already read as the agent's. In a 1.x conversation a stream event with an SSE name other than working or text-delta, or none, is skipped; a 0.4 conversation still reads one, as before. An error code the agent doesn't know was already handled by its HTTP status. The mock can stream such an event (laterStreamEvent). The Company ignoring author fields on our messages needs nothing from us: we send only author.type."
+    },
+    {
+      "change": "Lookalike domains",
+      "disposition": "Done",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "spec/draft-1.0-retrieved-2026-11-13/pages/1.0-spec.md",
+      "notes": "No key word. PDA already identifies a Company by the domain the model names; poppy_discover returns the domain with organization.name, and every card shows the domain under the Company's own name (N14). poppy_discover's description now says the name is unconfirmed (see the next entry)."
+    },
+    {
+      "change": "What a scope description says",
+      "disposition": "Guidance",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "spec/draft-1.0-retrieved-2026-11-13/pages/1.0-spec.md",
+      "notes": "Company guidance, with no field added. The agent already shows the model and the sign-in card each scope's description as the Company wrote it, so a fuller description reaches both."
+    },
+    {
+      "change": "Unconfirmed company names",
+      "disposition": "Guidance",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "spec/draft-1.0-retrieved-2026-11-13/pages/1.0-guides.md",
+      "notes": "poppy_discover's description tells the model the name comes from poppy.json and is unconfirmed, and to show the User the domain with it when it isn't sure the domain is the one the User means."
+    },
+    {
+      "change": "What a good scope description says",
+      "disposition": "Guidance",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "spec/draft-1.0-retrieved-2026-11-13/pages/1.0-guides.md",
+      "notes": "Company guidance; see the entry above."
+    },
+    {
+      "change": "Earlier scopes on the consent page",
+      "disposition": "Guidance",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "spec/draft-1.0-retrieved-2026-11-13/pages/1.0-guides.md",
+      "notes": "Company guidance for consent pages. The mock's page lists every scope a request asks for and shows on every request."
+    }
+  ]
+}

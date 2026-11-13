@@ -301,7 +301,14 @@ export async function signInDirect(
   if (started.text.includes("signed in with access")) return null;
   const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open);
   expect(card).toBeDefined();
-  const location = await c.stub.approveAuthorization(card!.url, { approve: decision.approve ?? true, account: decision.account ?? "acct_ada", ...(decision.scopes ? { scopes: decision.scopes } : {}) });
+  // With Pushed Authorization Requests the link is the agent's own page, which pushes the request and redirects (1.0: 4.2).
+  let authorization = card!.url as string;
+  if (new URL(authorization).pathname === "/poppy/sign-in") {
+    const pushed = await worker.fetch(new Request(authorization, { headers: { Cookie: a.cookie }, redirect: "manual" }), env);
+    expect(pushed.status, await pushed.clone().text()).toBe(303);
+    authorization = pushed.headers.get("Location")!;
+  }
+  const location = await c.stub.approveAuthorization(authorization, { approve: decision.approve ?? true, account: decision.account ?? "acct_ada", ...(decision.scopes ? { scopes: decision.scopes } : {}) });
   const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
   return { callback, location, text: await callback.text() };
 }

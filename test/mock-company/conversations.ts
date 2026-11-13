@@ -296,13 +296,15 @@ export class Conversations {
     if (message.context !== undefined) {
       const context = message.context as Record<string, unknown>;
       if (typeof context !== "object" || context === null) throw bad("message.context-type", "context must be an object");
-      if ("locale" in context && (typeof context.locale !== "string" || !LOCALE.test(context.locale))) {
+      // 1.0 (8.4): a field set to null clears it.
+      const cleared = (name: string) => context[name] === null && !co.config.protocolVersion.startsWith("0.");
+      if ("locale" in context && !cleared("locale") && (typeof context.locale !== "string" || !LOCALE.test(context.locale))) {
         co.violation("context.locale", `context.locale ${JSON.stringify(context.locale)} is not an RFC 5646 tag`);
       }
-      if ("time_zone" in context && (typeof context.time_zone !== "string" || !TIME_ZONE.test(context.time_zone))) {
+      if ("time_zone" in context && !cleared("time_zone") && (typeof context.time_zone !== "string" || !TIME_ZONE.test(context.time_zone))) {
         co.violation("context.time-zone", `context.time_zone ${JSON.stringify(context.time_zone)} is not an IANA name`);
       }
-      if ("user_available" in context && typeof context.user_available !== "boolean") {
+      if ("user_available" in context && !cleared("user_available") && typeof context.user_available !== "boolean") {
         co.violation("context.user-available", "context.user_available must be a boolean");
       }
     }
@@ -696,6 +698,10 @@ export class Conversations {
     const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
     // `working` as a `working` event with no id, when the stream opens (8.6).
     let body = `${keepAlive}event: working\ndata: ${JSON.stringify({ working: this.#state(conversation).working })}\n\n`;
+    if (this.company.config.laterStreamEvent) {
+      const later = { id: "evt_later", type: "message", created_at: now(), message: { id: "msg_later", role: "company", author: { type: "agent" }, text: "From an event this agent doesn't know." } };
+      body += `event: later-version\ndata: ${JSON.stringify(later)}\n\n`;
+    }
     for (const event of page.events) {
       const message = event.message as { id?: string; role?: string; text?: string } | undefined;
       if (event.type === "message" && message?.role === "company" && message.text && this.company.config.textDeltas) {

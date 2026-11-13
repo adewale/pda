@@ -188,15 +188,28 @@ async function errors(company: Documents): Promise<string[]> {
 
 describe("discovery refuses a Company whose documents break a MUST (3, 3.1, 3.2)", () => {
   it(
-    "refuses any protocol_version but 0.4 (3.1: before 1.0, every major.minor can break compatibility)",
+    "refuses any protocol_version but 0.4 and 1.x (3.1, 3.4: before 1.0, every major.minor can break compatibility; from 1.0, a minor version can't)",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const major = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
       const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
-      tc.assume(`${major}.${minor}` !== "0.4");
+      tc.assume(`${major}.${minor}` !== "0.4" && major !== 1);
       const changed = { ...company, poppy: { ...company.poppy, protocol_version: `${major}.${minor}` } };
       expect((await outcome(changed)).ok).toBe(false);
       expect(await errors(changed)).toEqual([major === 0 ? "version-unsupported" : "version-unsupported-major"]);
+    })
+  );
+
+  it(
+    "uses any 1.x document as 1.0, once its conversation protocols are described (3.4, 8.1)",
+    propertyAsync(async (tc) => {
+      const company = tc.draw(companies);
+      const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
+      const poppy = structuredClone(company.poppy) as Record<string, any>;
+      poppy.protocol_version = `1.${minor}`;
+      for (const entry of poppy.agent?.protocols ?? []) entry.description = "Orders and returns";
+      const found = await outcome({ ...company, poppy });
+      expect(found.ok && isCompany(found.result) && found.result.protocolVersion).toBe("1.0");
     })
   );
 

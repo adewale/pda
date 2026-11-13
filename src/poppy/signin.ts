@@ -226,14 +226,14 @@ export async function startSignIn(
       client.host.now() + SIGN_IN_TTL_MS
     );
     await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
-    const url = new URL(issuerEndpoints(company).authorization!);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", client.identity.clientId);
-    url.searchParams.set("redirect_uri", client.identity.redirectUri);
-    url.searchParams.set("scope", scopeText);
-    url.searchParams.set("state", state);
-    url.searchParams.set("code_challenge", await sha256(verifier));
-    url.searchParams.set("code_challenge_method", "S256");
+    // With Pushed Authorization Requests (RFC 9126), the link is a page of ours that pushes the request when
+    // the User opens it, since a request_uri expires quickly (1.0: 4.2); pushDirectSignIn. Otherwise, the Company's own page.
+    const url = issuerEndpoints(company).pushedAuthorization
+      ? new URL(`/poppy/sign-in?id=${encodeURIComponent(id)}`, client.identity.redirectUri)
+      : new URL(issuerEndpoints(company).authorization!);
+    if (!issuerEndpoints(company).pushedAuthorization) {
+      for (const [name, value] of Object.entries(await authorizationRequest(client, company, scopeText, state, verifier))) url.searchParams.set(name, value);
+    }
     await client.host.showCard({
       id: `signin-${id}`,
       kind: "signin_link",
@@ -312,6 +312,72 @@ export async function startSignIn(
 }
 
 type TokenResponse = Parameters<PoppyClient["completeSignIn"]>[3];
+
+/** Direct Sign-In's authorization request (4.2), in the URL or pushed (RFC 9126). */
+async function authorizationRequest(client: PoppyClient, company: Company, scope: string, state: string, verifier: string): Promise<Record<string, string>> {
+  return {
+    response_type: "code",
+    client_id: client.identity.clientId,
+    redirect_uri: client.identity.redirectUri,
+    scope,
+    state,
+    code_challenge: await sha256(verifier),
+    code_challenge_method: "S256",
+    // 1.0 (4.2, 10.8): the redirect comes back to our web callback, not only to the device that opened the
+    // link, so ask the Company to show its consent page even for scopes the account granted before.
+    ...(company.protocolVersion.startsWith("0.") ? {} : { prompt: "consent" })
+  };
+}
+
+/**
+ * `GET /poppy/sign-in?id=…`, the link on a Direct Sign-In card for a Company
+ * that lists `pushed_authorization_request_endpoint`: push the authorization
+ * request with our client assertion, and a DPoP proof when the Company uses
+ * DPoP, so the code is bound to the key (1.0: 4.2; RFC 9126, RFC 9449 §10.1),
+ * then send the User to the `authorization_endpoint` with only `client_id`
+ * and the `request_uri`. Each opening pushes again, because a `request_uri`
+ * expires quickly; `state` stays single use at the callback.
+ */
+export async function pushDirectSignIn(client: PoppyClient, id: string): Promise<{ ok: true; location: string } | { ok: false; status: number; message: string }> {
+  const row = signIn(client, id);
+  if (!row || row.type !== "direct" || row.status !== "pending") {
+    return { ok: false, status: 404, message: "This sign-in has expired or was already used. Start it again from the chat." };
+  }
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
+  if (row.expires_at <= client.host.now()) {
+    await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
+    return { ok: false, status: 410, message: "This sign-in has expired. Start it again from the chat." };
+  }
+  const endpoints = issuerEndpoints(company);
+  if (!endpoints.pushedAuthorization || !endpoints.authorization) {
+    return { ok: false, status: 409, message: `${company.name} no longer takes this sign-in. Start it again from the chat.` };
+  }
+  const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { state: string; verifier: string };
+  const { client_id: _clientId, ...request } = await authorizationRequest(client, company, row.scopes, secret.state, secret.verifier);
+  let answer: { status: number; body: Json };
+  try {
+    // oauthRequest adds client_id and the client assertion (RFC 9126 §2.1).
+    answer = await client.oauthRequest(company, endpoints.pushedAuthorization, async () => request, { dpop: true });
+  } catch (error) {
+    reportError(error, { source: literal("poppy.signin_push") });
+    return { ok: false, status: 502, message: `${company.name} didn't answer. Try the link again in a moment.` };
+  }
+  const { status, body } = answer;
+  if ((status === 201 || status === 200) && isObject(body) && typeof body.request_uri === "string" && body.request_uri !== "") {
+    const url = new URL(endpoints.authorization);
+    url.search = "";
+    url.searchParams.set("client_id", client.identity.clientId);
+    url.searchParams.set("request_uri", body.request_uri);
+    return { ok: true, location: url.href };
+  }
+  if (status >= 400 && status < 500 && isObject(body) && typeof body.error === "string") {
+    // The Company refused the request itself: no link to it will work.
+    const code = companyErrorCode(body.error, status);
+    await refused(client, row, code, `the company refused the sign-in request (${code})`);
+    return { ok: false, status: 400, message: `${company.name} refused the sign-in (${code}).` };
+  }
+  return { ok: false, status: 502, message: `${company.name} couldn't start the sign-in. Try the link again in a moment.` };
+}
 
 /** Close a Direct or Mediated sign-in nobody finished at its deadline, so its card doesn't wait for ever. */
 async function scheduleExpiry(client: PoppyClient, id: string, at: number): Promise<void> {

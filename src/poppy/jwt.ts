@@ -41,9 +41,11 @@ export function clientAssertion(key: SigningKey, clientId: string, audience: str
 }
 
 /**
- * A DPoP key pair: generated per User per Company, non-extractable, held only
- * in memory (Guides, "DPoP keys and proofs"). The public half is exported
- * once for proof headers.
+ * A DPoP key pair: generated per User per Company, used through a
+ * non-extractable private key. The public half is exported once for proof
+ * headers. A DPoP key the agent signs with at a Company is also kept at rest,
+ * sealed (`storedDpopKey`), so every refresh uses the key its refresh token
+ * was issued with (1.0: 4.4).
  */
 export type DpopKey = {
   readonly privateKey: CryptoKey;
@@ -64,6 +66,25 @@ export async function newDpopKey(): Promise<DpopKey> {
     publicJwk,
     thumbprint: await calculateJwkThumbprint(publicJwk)
   };
+}
+
+/**
+ * A new DPoP key for a Company, with its private half as a JWK for the
+ * caller to seal at rest; the key it returns signs through a non-extractable
+ * copy, so the JWK exists only until it is sealed.
+ */
+export async function newStoredDpopKey(): Promise<{ key: DpopKey; privateJwk: JWK }> {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const privateJwk = await exportJWK(pair.privateKey);
+  return { key: await storedDpopKey(privateJwk), privateJwk };
+}
+
+/** A DPoP key from its sealed private JWK, imported non-extractable. */
+export async function storedDpopKey(privateJwk: JWK): Promise<DpopKey> {
+  if (privateJwk.kty !== "EC" || privateJwk.crv !== "P-256" || typeof privateJwk.d !== "string") throw new Error("A stored DPoP key isn't a P-256 private key");
+  const privateKey = await crypto.subtle.importKey("jwk", { kty: "EC", crv: "P-256", x: privateJwk.x, y: privateJwk.y, d: privateJwk.d }, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const publicJwk: JWK = { kty: "EC", crv: "P-256", x: privateJwk.x, y: privateJwk.y };
+  return { privateKey, publicJwk, thumbprint: await calculateJwkThumbprint(publicJwk) };
 }
 
 /** `htu`: the request URL without query or fragment (spec 4.3). */

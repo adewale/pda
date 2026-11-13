@@ -280,6 +280,139 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
   );
 };
 
+/** SPEC_POPPY as the 1.0 draft writes it: a description on each conversation protocol entry (8.1). */
+const POPPY_10 = {
+  ...structuredClone(SPEC_POPPY),
+  protocol_version: "1.0",
+  agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations", description: "Anything about your orders, returns, account, and our products" }] }
+};
+const with10 = (change: (doc: Record<string, any>) => void) => {
+  const doc = structuredClone(POPPY_10) as Record<string, any>;
+  change(doc);
+  return doc;
+};
+/** A Company whose poppy.json is `root`, linking `linked` (each version's document) on the same host. */
+const servedVersions = (root: Record<string, any>, linked: Record<string, Record<string, any>> = {}, versions?: readonly string[]) =>
+  validateCompany(
+    network({
+      "https://example.com/.well-known/poppy.json": jsonResponse(root),
+      ...Object.fromEntries(Object.entries(linked).map(([version, doc]) => [`https://example.com/poppy/${version}.json`, jsonResponse(doc)])),
+      "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
+      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA)
+    }),
+    "example.com",
+    versions ? { versions } : {}
+  );
+
+const POPPY_10_FIXTURES: readonly Fixture[] = [
+  {
+    name: "1.0: the spec's poppy.json with a description on its conversation protocol is valid",
+    run: () => served(POPPY_10),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect(report.checkedAgainst).toBe("Draft 1.0")
+  },
+  {
+    name: "1.0: every conversation protocol entry needs a description",
+    run: () => served(with10((d) => delete d.agent.protocols[0].description)),
+    ids: ["missing-member"],
+    outcome: "invalid",
+    also: (report) => {
+      expect(report.messages[0]!.pointer).toBe("/agent/protocols/0/description");
+      expect(report.messages[0]!.ref.url).toBe("https://personalagentprotocol.org/docs/1.0/spec#conversation-protocols");
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "1.0: an empty description says nothing",
+    run: () => served(with10((d) => (d.agent.protocols[0].description = "  "))),
+    ids: ["protocol-description-empty"],
+    outcome: "invalid"
+  },
+  {
+    name: "1.0: 0.4 defines no description, so a 0.4 document's is an unknown member",
+    run: () => served(withPoppy((d) => (d.agent.protocols[0].description = "Orders"))),
+    ids: ["unknown-member"],
+    outcome: "valid"
+  },
+  {
+    name: "1.0: a 1.1 document is checked with 1.0's rules, ignoring what 1.1 adds",
+    run: () => served(with10((d) => {
+      d.protocol_version = "1.1";
+      d.loyalty = { tier: "gold" };
+    })),
+    ids: ["version-newer-minor", "unknown-member"],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 1.0", protocolVersion: "1.0", refused: false })
+  },
+  {
+    name: "1.0: a 0.4 poppy.json that links a 1.0 document is used in 1.0, the newest version both speak",
+    run: () => servedVersions({ ...structuredClone(SPEC_POPPY), supported_versions: { "1.0": "https://example.com/poppy/1.0.json" } }, { "1.0": POPPY_10 }),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect((report as CompanyReport).poppy).toMatchObject({ protocol_version: "1.0" })
+  },
+  {
+    name: "1.0: an agent that speaks only 0.4 keeps to 0.4 when the Company links 1.0",
+    run: () => servedVersions({ ...structuredClone(SPEC_POPPY), supported_versions: { "1.0": "https://example.com/poppy/1.0.json" } }, { "1.0": POPPY_10 }, ["0.4"]),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 0.4", poppy: { protocol_version: "0.4" } })
+  },
+  {
+    name: "1.0: a 1.0 agent uses a Company that serves only 1.1",
+    run: () => servedVersions(with10((d) => (d.protocol_version = "1.1")), {}, ["0.4", "1.0"]),
+    ids: ["version-newer-minor"],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 1.0", poppy: { protocol_version: "1.1" } })
+  },
+  {
+    name: "1.0: a 0.4 agent doesn't use a Company that serves only 1.0, a version it can't speak",
+    run: () => servedVersions(POPPY_10, {}, ["0.4"]),
+    ids: ["version-unsupported"],
+    outcome: "invalid",
+    also: (report) => expect(report.refused).toBe(true)
+  },
+  {
+    name: "1.0: an issuer that lists client-assertion algorithms lists ES256 and PS384 (4.1)",
+    run: () => company({ poppy: (d) => Object.assign(d, structuredClone(POPPY_10)), metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["ES256"]; } }),
+    ids: ["metadata-assertion-algs"],
+    outcome: "invalid",
+    also: async (report) => {
+      expect(report.messages[0]!.ref.url).toBe("https://personalagentprotocol.org/docs/1.0/spec#agent-identity");
+      const both = await company({ poppy: (d) => Object.assign(d, structuredClone(POPPY_10)), metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["PS384", "ES256"]; } });
+      expect(both.messages).toEqual([]);
+      // 0.4 only recommended PS384.
+      const draft04 = await company({ metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["ES256"]; } });
+      expect(draft04.messages).toEqual([]);
+    }
+  },
+  {
+    name: "1.0: organization.domain carries its port when that isn't 443 (3.1)",
+    run: () => text("poppy", with10((d) => (d.organization.domain = "example.com:8443")), { domain: "example.com:8443" }),
+    ids: [],
+    outcome: "valid",
+    also: async () => {
+      const ids = async (doc: unknown) => (await text("poppy", doc, {})).messages.map((m) => m.id);
+      expect(await ids(with10((d) => (d.organization.domain = "example.com:443")))).toEqual(["domain-invalid"]);
+      expect(await ids(with10((d) => (d.organization.domain = "example.com:70000")))).toEqual(["domain-invalid"]);
+      expect(await ids(withPoppy((d) => (d.organization.domain = "example.com:8443")))).toEqual(["domain-invalid"]);
+    }
+  },
+  {
+    name: "requires a pushed_authorization_request_endpoint when Pushed Authorization Requests are required (RFC 9126 §5)",
+    run: () => company({ metadata: (doc) => { doc.require_pushed_authorization_requests = true; } }),
+    ids: ["par-endpoint-missing"],
+    outcome: "invalid",
+    also: async () => {
+      const listed = await company({ metadata: (doc) => { doc.require_pushed_authorization_requests = true; doc.pushed_authorization_request_endpoint = "https://auth.example.com/oauth/par"; } });
+      expect(listed.messages).toEqual([]);
+      const insecure = await company({ metadata: (doc) => { doc.pushed_authorization_request_endpoint = "http://auth.example.com/oauth/par"; } });
+      expect(insecure.messages.map((m) => m.pointer)).toEqual(["/pushed_authorization_request_endpoint"]);
+    }
+  }
+];
+
 const POPPY_04: readonly Fixture[] = [
   {
     name: "0.4: links each message to the 0.4 pages",
@@ -392,7 +525,7 @@ const POPPY_04: readonly Fixture[] = [
     ids: ["supported-version-unusable", "version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[1]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.messages[1]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4, 1.0.");
       expect(report.refused).toBe(true);
     }
   },
@@ -445,9 +578,9 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "chooses rules by protocol_version: an unsupported major version",
-    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "1.0"))),
+    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "2.0"))),
     ids: ["version-unsupported-major"],
-    also: (report) => expect(report.messages[0]!.text).toMatch(/version 1\.0/)
+    also: (report) => expect(report.messages[0]!.text).toMatch(/version 2\.0/)
   },
   {
     name: "refuses a newer pre-1.0 version before checking its fields",
@@ -460,13 +593,13 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // Before 1.0 every version can break the one before (3.1), and only 0.4 is checked.
+    // Before 1.0 every version can break the one before (3.1), and only 0.4 and 1.0 are checked.
     name: "refuses a 0.3 document, which this validator no longer checks, before checking its fields",
     run: () => text("poppy", POPPY_03, { domain: "example.com" }),
     ids: ["version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4, 1.0.");
       expect(report.refused).toBe(true);
     }
   },
@@ -475,14 +608,14 @@ const POPPY_JSON: readonly Fixture[] = [
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "0.2"))),
     ids: ["version-unsupported"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.4.")
+    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.4, 1.0.")
   },
   {
     name: "chooses rules by protocol_version: none given",
     run: () => text("poppy", withPoppy((d) => delete d.protocol_version)),
     // The newest version the validator knows.
     ids: { contains: ["missing-member"] },
-    also: (report) => expect(report.checkedAgainst).toBe("Draft 0.4")
+    also: (report) => expect(report.checkedAgainst).toBe("Draft 1.0")
   },
   {
     name: "checks organization: not an object",
@@ -1181,6 +1314,7 @@ const FETCHING: readonly Fixture[] = [
 describe("valid documents", () => testEach(VALID));
 describe("poppy.json", () => testEach(POPPY_JSON));
 describe("poppy.json in the 0.4 draft, and choosing a version", () => testEach(POPPY_04));
+describe("poppy.json in the 1.0 draft, and choosing between 0.4 and 1.0", () => testEach(POPPY_10_FIXTURES));
 describe("discovery: the issuer from the domain's protected resource metadata", () => testEach(DISCOVERY));
 describe("OAuth server metadata, checked against poppy.json", () => testEach(METADATA));
 describe("client metadata and keys", () => testEach(CLIENT));
@@ -1480,12 +1614,12 @@ describe("over HTTP", () => {
 });
 
 describe("the message catalog", () => {
-  const fixtures = [...VALID, ...POPPY_JSON, ...POPPY_04, ...DISCOVERY, ...METADATA, ...CLIENT, ...FETCHING];
+  const fixtures = [...VALID, ...POPPY_JSON, ...POPPY_04, ...POPPY_10_FIXTURES, ...DISCOVERY, ...METADATA, ...CLIENT, ...FETCHING];
 
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));
     // Retired diagnostics, kept for saved reports and never emitted.
-    const retired = new Set<MessageId>(["version-newer-minor", "api-type-newer", "skill-index-schema", "skill-digest"]);
+    const retired = new Set<MessageId>(["api-type-newer", "skill-index-schema", "skill-digest"]);
     const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && !retired.has(id));
     expect(missing).toEqual([]);
   });

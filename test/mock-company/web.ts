@@ -81,8 +81,10 @@ export class Web {
     };
     if (config.agent) {
       const protocols: Record<string, unknown>[] = [];
-      if (config.unknownProtocol) protocols.push({ type: "example.com/chat-v9", endpoint: `${hosts.api}/chat-v9` });
-      protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint });
+      // 1.0 (8.1): each entry says what the agent there can help with.
+      const described = (description: string) => (version.startsWith("0.") ? {} : { description });
+      if (config.unknownProtocol) protocols.push({ type: "example.com/chat-v9", endpoint: `${hosts.api}/chat-v9`, ...described("Chat, in a protocol most agents don't speak") });
+      protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint, ...described("Orders, returns, exchanges and your account") });
       document.agent = { protocols };
     }
     // 6: a Company that sets web.disabled lists no browser_session_endpoint.
@@ -285,6 +287,10 @@ export class Web {
       authorization_response_iss_parameter_supported: true
     };
     if (co.config.signIn.direct) metadata.authorization_endpoint = hosts.authorizationEndpoint;
+    if (co.config.signIn.direct && co.config.pushedAuthorization !== "none") {
+      metadata.pushed_authorization_request_endpoint = hosts.pushedAuthorizationEndpoint;
+      if (co.config.pushedAuthorization === "required") metadata.require_pushed_authorization_requests = true;
+    }
     if (co.config.signIn.device) metadata.device_authorization_endpoint = hosts.deviceEndpoint;
     return json(metadata, 200, { ...(co.config.metadataCacheHeaders ?? DEFAULT_CACHING) });
   }

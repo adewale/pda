@@ -4,7 +4,7 @@ This review targets the [11 November 2026 snapshot](../spec/draft-0.4-retrieved-
 
 ## Current verification
 
-PDA implements the pinned 11 November 2026 text of Poppy 0.4 alone. It dropped 0.3 on 12 November ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)); the [0.3 review](poppy-0.3-conformance.md) keeps that version's evidence. This is the current verification summary; dated evidence packages keep the results of their own runs.
+PDA implements the pinned 11 November 2026 text of Poppy 0.4, and beside it the 13 November 1.0 draft, whose changes and their evidence are in the [1.0 upgrade](poppy-1.0-upgrade.md) ([decision 51](decisions.md#51-10-beside-04)). It dropped 0.3 on 12 November ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)); the [0.3 review](poppy-0.3-conformance.md) keeps that version's evidence. This is the current verification summary; dated evidence packages keep the results of their own runs.
 
 | Area | Evidence and limit |
 | --- | --- |

@@ -692,16 +692,18 @@ async function handleEvent(
           Date.now()
         );
       }
+      // Only our own messages are `user`; any other role, one a later version adds included, is the Company's content (1.0: 8.4).
+      const fromCompany = message.role !== "user";
       if (row.direct) {
         pushDirect(client, company, row.id);
         // The Company may ask for approval here too (Ops 4, 6): the User approves on a card, as anywhere else.
         // The Direct Conversation is the User's, so the model isn't told.
-        const offered = message.role === "company" ? extensionContent(message, "operations")?.operation : undefined;
+        const offered = fromCompany ? extensionContent(message, "operations")?.operation : undefined;
         if (isObject(offered) && company.extensions.operations) await proposeMessageApproval(client, company, row, offered);
-        if (message.role === "company") await settleDeclinedMessage(client, company, row, extensionContent(message, "operations")?.declined);
+        if (fromCompany) await settleDeclinedMessage(client, company, row, extensionContent(message, "operations")?.declined);
         return;
       }
-      if (message.role !== "company") return;
+      if (!fromCompany) return;
       const asOf = asOfRequest(client, row, message);
       replies.push({
         sender: writtenBy(message) ?? "agent",
@@ -954,6 +956,9 @@ export function nextRead(row: Pick<ConversationRow, "status" | "responder" | "di
 }
 
 
+/** The SSE event names a stream carries (8.6): unnamed (`message`), `working` and `text-delta`. */
+const STREAM_EVENTS: ReadonlySet<string> = new Set(["message", "working", "text-delta"]);
+
 /**
  * Server-sent events (8.6): each event's id is a cursor, saved after it
  * is handled; `text-delta` pieces go to the page only and are never acted on.
@@ -990,6 +995,9 @@ async function readStream(
     } catch {
       return;
     }
+    // 1.0 (8.6): an SSE event name we don't know is skipped, so later versions and extensions can add them.
+    // 0.4 didn't say, so a 0.4 conversation still reads such an event's data.
+    if (!STREAM_EVENTS.has(eventType) && !conversation(client, id)?.protocol_version.startsWith("0.")) return;
     // 0.4: `working` comes as its own event, with no id, and changes only the state (8.6).
     if (eventType === "working") {
       if (isObject(payload) && typeof payload.working === "boolean") updateState(client, id, { working: payload.working });

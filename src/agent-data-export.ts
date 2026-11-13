@@ -60,7 +60,7 @@ const CREDENTIALS: Readonly<Record<string, readonly string[]>> = {
 
 /** Left out whole: credentials, and the machinery of queues, caches and schema versions, which hold nothing about the person. */
 const WITHHELD_TABLES: ReadonlySet<string> = new Set([
-  "agent_data_state", "browser_sessions", "cf_agents_jobs", "model_keys", "pi_durable_metadata", "pi_durable_schema",
+  "agent_data_state", "browser_sessions", "cf_agents_jobs", "model_keys", "pi_durable_metadata", "pi_durable_schema", "poppy_dpop_keys", "poppy_dpop_nonces",
   "pi_record_ids", "poppy_conversation_migration", "poppy_domains", "poppy_events", "poppy_task_calls",
   "poppy_task_contexts", "read_url_renders"
 ]);

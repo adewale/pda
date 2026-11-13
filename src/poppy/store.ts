@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS poppy_user_ids (
   issuer TEXT PRIMARY KEY,
   user_id TEXT NOT NULL
 );
+-- The DPoP key for each Company and User ID, its private JWK sealed: refresh tokens are refreshed with the key they were issued with (1.0: 4.4).
+CREATE TABLE IF NOT EXISTS poppy_dpop_keys (
+  issuer TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (issuer, user_id)
+);
+-- The latest DPoP-Nonce from each server origin, kept as long as the keys that use it (RFC 9449 8).
+CREATE TABLE IF NOT EXISTS poppy_dpop_nonces (
+  origin TEXT PRIMARY KEY,
+  nonce TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS poppy_sessions (
   issuer TEXT NOT NULL,
   label TEXT NOT NULL,
@@ -447,6 +460,8 @@ const issuerColumn = textOf(issuerDecoder);
 export const taskContextsTable = table("poppy_task_contexts", { kind: text, task_id: text, issuer: issuerColumn, company: text });
 export const domainsTable = table("poppy_domains", { domain: text, issuer: nullable(issuerColumn), company: text, expires_at: integer });
 export const userIdsTable = table("poppy_user_ids", { issuer: issuerColumn, user_id: text });
+export const dpopKeysTable = table("poppy_dpop_keys", { issuer: issuerColumn, user_id: text, key: text, created_at: integer });
+export const dpopNoncesTable = table("poppy_dpop_nonces", { origin: text, nonce: text });
 export const sessionsTable = table("poppy_sessions", {
   issuer: issuerColumn,
   label: text,
