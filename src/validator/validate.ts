@@ -165,7 +165,7 @@ export type TextOptions = {
   readonly domain?: string;
   /** client-metadata: the URL it was fetched from. */
   readonly fetchedFrom?: string;
-  /** Documents without their own version: which protocol version to check against. 0.4, the only one, is the default. */
+  /** Documents without their own version: which protocol version to check against; the default is the newest, 1.0 (LATEST). */
   readonly protocolVersion?: string;
 };
 

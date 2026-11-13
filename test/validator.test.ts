@@ -1026,19 +1026,34 @@ const METADATA: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // 4.7: described in an OpenAPI description poppy.json lists, or otherwise in auth.scopes.
-    name: "requires auth.scopes to describe each supported scope when no OpenAPI description could",
+    // 4.7: SHOULD be described in an OpenAPI description poppy.json lists, or otherwise in auth.scopes.
+    name: "recommends auth.scopes describe each supported scope when no OpenAPI description could",
     run: () =>
       company({
         poppy: (doc) => { doc.apis = doc.apis.filter((api: { type: string }) => api.type !== "openapi"); },
         metadata: (doc) => { doc.scopes_supported.push("loyalty"); }
       }),
     ids: ["scope-undescribed"],
-    outcome: "invalid",
+    outcome: "valid",
     also: async (report) => {
-      expect(report.messages[0]!.pointer).toBe("/scopes_supported/4");
+      expect(report.messages[0]).toMatchObject({ severity: "warning", document: "oauth-metadata", pointer: "/scopes_supported/4" });
       // With an OpenAPI description listed, it may describe the scope: nothing to say.
       expect((await company({ metadata: (doc) => { doc.scopes_supported.push("loyalty"); } })).messages).toEqual([]);
+    }
+  },
+  {
+    // Readings: the domain's own scopes_supported names the scopes it offers; the issuer's may serve other clients (3.2).
+    name: "checks the domain's scopes, not the issuer's others, when the protected resource metadata lists them",
+    run: () =>
+      company({
+        poppy: (doc) => { doc.apis = doc.apis.filter((api: { type: string }) => api.type !== "openapi"); },
+        prm: { ...SPEC_PRM, scopes_supported: ["orders:read", "orders:write", "loyalty"] },
+        metadata: (doc) => { doc.scopes_supported.push("openid", "profile", "offline_access"); }
+      }),
+    ids: ["scope-undescribed"],
+    outcome: "valid",
+    also: (report) => {
+      expect(report.messages[0]).toMatchObject({ severity: "warning", document: "protected-resource", pointer: "/scopes_supported/2" });
     }
   },
   {

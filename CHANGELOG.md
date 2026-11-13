@@ -2,6 +2,21 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — each check quotes the sentence it enforces
+
+The validator called northbound.camp invalid because `scopes_supported` lists scopes, such as `openid`, that `auth.scopes` doesn't describe. 4.7 has said the Company SHOULD describe them since 0.3's text of 3 November; our message was written from the 28 October text, when it was a MUST, and nothing compared it with later pins.
+
+- `scope-undescribed` is a SHOULD, so a warning, and our client no longer refuses a Company over it. When the domain's protected resource metadata lists `scopes_supported`, those are the scopes checked, not the issuer's others ([reading](docs/readings.md#v04-scope-descriptions)).
+- `mediated-scope-unsupported` had the same history ("all of them in `scopes_supported`" on 28 October, a SHOULD by 3 November) and is a warning too.
+- Each MUST, SHOULD or Rule validator message now quotes its sentence in `requires`, and each such mock check quotes it in its basis. `npm run check:spec` fails when a runtime pin no longer has a quoted sentence, or the sentence lacks the basis's key word (`scripts/check-requirements.mjs`). Writing the quotes moved some bases without changing a severity: `mediated-grant-missing`, `nothing-offered` and `issuer-ambiguous` from MUST to Rule, `not-a-url` and `domain-invalid` from Rule to MUST, `json-duplicate-member` from SHOULD to the Guides, and `jwks-kid-duplicate` now cites RFC 7517 §4.5.
+- Mock bases that quoted 0.3 wording now quote 0.4 and 1.0, among them `handoff.body` and `close.body`, which quoted an empty object that 0.4 replaced with a request ID. `version.missing` is a Rule: 3.4's sentence has no key word. `account-token.rotated-reused` rests on RFC 6749 §6, since 4.4 no longer says MUST.
+- The mock no longer accepts RS256 client assertions. The 0.4 Guides dropped them ("Companies are no longer told to accept RS256 client assertions"); the mock's own description already said ES256 or PS384.
+- `npm run spec:keywords -- <old> <new>` lists the sentences whose key words changed between two snapshots, and the [upgrade procedure](docs/upgrading.md) runs it before a new pin.
+
+**Validation:** `npm run check:spec`, `npm run typecheck`, `npm test`, the interop unit tests and `npm run test:properties`.
+
+**Rollback:** revert the commit. No stored state changes.
+
 ## Unreleased — the 1.0 draft beside 0.4
 
 The agent, the mock Company and the validator speak the 1.0 draft retrieved on 13 November at 15:48 UTC (upstream `bb98332`) beside 0.4 ([decision 51](docs/decisions.md#51-10-beside-04)). The [1.0 upgrade](docs/poppy-1.0-upgrade.md) gives each of its 15 changelog entries a disposition.

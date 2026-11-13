@@ -32,8 +32,8 @@ export const CLIENT_ASSERTION_TYPE =
 
 /** DPoP proofs (RFC 9449; the metadata lists ES256). */
 const SIGNING_ALGS = ["ES256", "RS256"];
-/** Client assertions: Companies MUST accept ES256 and PS384 (4.1), and the Guides add RS256 ("Signing and verifying JWTs"). */
-const CLIENT_ASSERTION_ALGS = ["ES256", "PS384", "RS256"];
+/** Client assertions: Companies MUST accept ES256 and PS384 (4.1); since 0.4 the Guides no longer add RS256. */
+const CLIENT_ASSERTION_ALGS = ["ES256", "PS384"];
 const PRIVATE_JWK_FIELDS = ["d", "p", "q", "dp", "dq", "qi", "k"];
 /** DPoP acceptance window plus clock skew, seconds. */
 const DPOP_WINDOW = 60;

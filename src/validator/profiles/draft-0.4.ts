@@ -382,6 +382,7 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
   if (resource !== undefined && poppy.domain !== undefined && resource !== `https://${poppy.domain}` && resource.toLowerCase() !== `https://${poppy.domain.toLowerCase()}`) {
     c.report("prm-resource-mismatch", "/resource", `resource is ${JSON.stringify(resource)}, not https://${poppy.domain}.`);
   }
+  if (Array.isArray(doc.scopes_supported)) undescribedScopes(c, doc.scopes_supported, poppy.describedScopes);
   // 3.2: absent or empty, the Company has no issuer; a value of the wrong type settles nothing.
   if (!("authorization_servers" in doc)) {
     noIssuer(c, poppy, "empty");
@@ -408,6 +409,20 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
     return undefined;
   }
   return usable.has(list[0]!) ? list[0] : undefined;
+}
+
+/**
+ * 4.7: the Company SHOULD describe each scope it offers Personal Agents, in
+ * an OpenAPI description or otherwise in auth.scopes. `described` is unset
+ * when poppy.json lists an OpenAPI description, which may describe the rest.
+ */
+function undescribedScopes(c: Checker, scopes: unknown[] | undefined, described: readonly string[] | undefined): void {
+  if (!scopes || !described) return;
+  scopes.forEach((scope, index) => {
+    if (typeof scope === "string" && !described.includes(scope)) {
+      c.report("scope-undescribed", `/scopes_supported/${index}`, `${scope} is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could.`);
+    }
+  });
 }
 
 /**
@@ -493,13 +508,8 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
   for (const scope of poppy?.mediatedScopes ?? []) {
     if ((scopes || resourceScopes) && !listed.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", `Mediated Sign-In offers ${scope}, which isn't in scopes_supported.`);
   }
-  // 4.7: auth.scopes describes each supported scope, unless an OpenAPI description might.
-  const described = poppy?.describedScopes;
-  if (described) {
-    supported.forEach((scope, index) => {
-      if (!described.includes(scope)) c.report("scope-undescribed", `/scopes_supported/${index}`, `${scope} is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could.`);
-    });
-  }
+  // The domain's own list, when it has one, names the scopes it offers Personal Agents (docs/readings.md#v04-scope-descriptions).
+  if (!resourceScopes?.length) undescribedScopes(c, scopes, poppy?.describedScopes);
   if (rules.assertionAlgs) {
     const algs = member<unknown[]>(c, doc, "", "token_endpoint_auth_signing_alg_values_supported", "array", false, rules.assertionAlgs.ref);
     const listed = algs ? stringList(c, algs, "/token_endpoint_auth_signing_alg_values_supported", rules.assertionAlgs.ref) : null;

@@ -32,6 +32,7 @@
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
     "spec:import": "node scripts/spec-import.mjs",
     "spec:docs": "node scripts/spec-ledger.mjs --write",
+    "spec:keywords": "node scripts/keyword-changes.mjs",
     "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": {

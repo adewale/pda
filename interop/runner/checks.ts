@@ -27,7 +27,7 @@ export type CheckSpec = {
 export const TRACE_CHECKS = {
   "client-assertion.typ": { side: "agent", basis: "Reading", mock: true, what: "Client assertion header typ isn't \"JWT\" (S2)" },
   "client-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Client assertion has no kid (S2)" },
-  "client-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Client assertion alg isn't ES256 or RS256" },
+  "client-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Client assertion alg isn't ES256 or PS384" },
   "client-assertion.iat-exp-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without iat or exp" },
   "client-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Client assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
   "client-assertion.jti-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without a jti" },
