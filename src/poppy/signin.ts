@@ -343,13 +343,20 @@ export async function pushDirectSignIn(client: PoppyClient, id: string): Promise
   if (!row || row.type !== "direct" || row.status !== "pending") {
     return { ok: false, status: 404, message: "This sign-in has expired or was already used. Start it again from the chat." };
   }
+  const gone = { ok: false, status: 404, message: "This sign-in has expired or was already used. Start it again from the chat." } as const;
   const company = await client.resumeCompany(row.issuer, "signin", row.id);
   if (row.expires_at <= client.host.now()) {
-    await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
+    const claimed = claim(client, id, "expired");
+    if (!claimed) return gone;
+    await finish(client, claimed, { ok: false, message: "the sign-in link expired", expired: true });
     return { ok: false, status: 410, message: "This sign-in has expired. Start it again from the chat." };
   }
   const endpoints = issuerEndpoints(company);
   if (!endpoints.pushedAuthorization || !endpoints.authorization) {
+    // No link to this sign-in can work any more, so it ends rather than waiting for its expiry.
+    const claimed = claim(client, id, "failed");
+    if (!claimed) return gone;
+    await finish(client, claimed, { ok: false, message: "the company no longer takes pushed sign-in requests" });
     return { ok: false, status: 409, message: `${company.name} no longer takes this sign-in. Start it again from the chat.` };
   }
   const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { state: string; verifier: string };
@@ -373,10 +380,24 @@ export async function pushDirectSignIn(client: PoppyClient, id: string): Promise
   if (status >= 400 && status < 500 && isObject(body) && typeof body.error === "string") {
     // The Company refused the request itself: no link to it will work.
     const code = companyErrorCode(body.error, status);
-    await refused(client, row, code, `the company refused the sign-in request (${code})`);
+    const claimed = claim(client, id, "failed");
+    if (!claimed) return gone;
+    await refused(client, claimed, code, `the company refused the sign-in request (${code})`);
     return { ok: false, status: 400, message: `${company.name} refused the sign-in (${code}).` };
   }
   return { ok: false, status: 502, message: `${company.name} couldn't start the sign-in. Try the link again in a moment.` };
+}
+
+/**
+ * Take a sign-in that is still pending to end it, before anything is
+ * awaited: a push awaits the Company, and meanwhile the callback, a cancel or
+ * the expiry job may have moved it on. Null when one has.
+ */
+function claim(client: PoppyClient, id: string, status: "expired" | "failed"): SignInRow | null {
+  const current = signIn(client, id);
+  if (current?.status !== "pending") return null;
+  setStatus(client, id, status);
+  return current;
 }
 
 /** Close a Direct or Mediated sign-in nobody finished at its deadline, so its card doesn't wait for ever. */

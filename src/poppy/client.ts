@@ -433,7 +433,7 @@ export class PoppyClient {
   /** New sign-ins and withdrawals invalidate held access; ordinary refresh rotation does not. */
   readonly #accountGenerations = new Map<string, number>();
   /** The latest `DPoP-Nonce` from each server origin, read through from `poppy_dpop_nonces`. */
-  readonly #nonces = new Map<string, string>();
+  readonly #nonces = new Map<string, string | null>();
   /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
   readonly #delegated = new Map<Issuer, Promise<Delegated>>();
   /** Cache public service metadata by URL; its issuer and host checks are specific to each Company (4.5). */
@@ -700,7 +700,8 @@ export class PoppyClient {
       if (!kept) throw new PoppyError("version_mismatch", `${current.name} no longer serves Poppy ${original.protocolVersion}, the version this began in`, 0);
       current = kept;
     }
-    const interfaces = (company: Company) => [company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url])];
+    // The conversation endpoint, not its description: rewording what the agent can help with (1.0 8.1) changes no interface.
+    const interfaces = (company: Company) => [company.endpoints, company.signIn, company.web, company.conversations?.endpoint, company.extensions, company.apis.map((api) => [api.type, api.url])];
     // A Company that moved to another version may add to what it shares across versions, such as the
     // poppy:browser-sign-in scope (6); work kept in the old version needs only that nothing it had changed.
     const same = (before: unknown, after: unknown) => moved ? keeps(before, after) : JSON.stringify(before) === JSON.stringify(after);
@@ -812,10 +813,11 @@ export class PoppyClient {
   #nonce(origin: string): string | undefined {
     let nonce = this.#nonces.get(origin);
     if (nonce === undefined) {
-      nonce = one(this.sql, dpopNoncesTable.pick("nonce"), "SELECT nonce FROM poppy_dpop_nonces WHERE origin = ?", origin)?.nonce;
-      if (nonce !== undefined) this.#nonces.set(origin, nonce);
+      // null: the server has sent none, kept so most requests read no row (#keepNonce is the only writer).
+      nonce = one(this.sql, dpopNoncesTable.pick("nonce"), "SELECT nonce FROM poppy_dpop_nonces WHERE origin = ?", origin)?.nonce ?? null;
+      this.#nonces.set(origin, nonce);
     }
-    return nonce;
+    return nonce ?? undefined;
   }
 
   #keepNonce(origin: string, nonce: string): void {

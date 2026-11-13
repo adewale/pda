@@ -710,7 +710,7 @@ export class Conversations {
           body += `event: text-delta\ndata: ${JSON.stringify({ message_id: message.id, text: piece })}\n\n`;
         }
       }
-      body += `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n${keepAlive}`;
+      body += `${this.company.config.emptyEventNames ? "event:\n" : ""}id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n${keepAlive}`;
     }
     // The Company may close a stream at any time (8.6); this one closes after one page.
     return new Response(body, {

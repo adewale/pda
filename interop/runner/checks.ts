@@ -153,7 +153,7 @@ export function assertionChecks(all: readonly Exchange[]): Check[] {
     else if (seen.has(payload.jti)) found.push(check("client-assertion.jti-reused", x, `jti ${payload.jti} again`));
     else seen.add(payload.jti);
     // 4.1: aud is the issuer, as a single string, whichever of its endpoints the assertion goes to.
-    const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint].includes(x.url.href));
+    const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint, doc.pushed_authorization_request_endpoint].includes(x.url.href));
     if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, "aud is an array"));
     else if (issuer && payload.aud !== issuer.issuer) found.push({ ...check("client-assertion.aud-array", x, `aud ${JSON.stringify(payload.aud)}, not the issuer ${JSON.stringify(issuer.issuer)}`), id: "client-assertion.aud", basis: "MUST", severity: "error" });
     if (clientId && (payload.iss !== clientId || payload.sub !== clientId)) {

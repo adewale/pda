@@ -85,10 +85,16 @@ const WIRE_VERSION = process.env.INTEROP_MOCK_VERSION ?? PROTOCOL_VERSIONS.at(-1
 if (!(PROTOCOL_VERSIONS as readonly string[]).includes(WIRE_VERSION)) {
   throw new Error(`INTEROP_MOCK_VERSION must be one of ${PROTOCOL_VERSIONS.join(", ")}, not ${WIRE_VERSION}`);
 }
+/** Pushed Authorization Requests (1.0: 4.2; RFC 9126), from `INTEROP_MOCK_PAR`: `strict-company` requires them. */
+const PAR = process.env.INTEROP_MOCK_PAR ?? "none";
+if (PAR !== "none" && PAR !== "offered" && PAR !== "required") {
+  throw new Error(`INTEROP_MOCK_PAR must be none, offered or required, not ${PAR}`);
+}
 const BASE: Partial<MockConfig> = {
   ...MOCK_BASE,
   protocolVersion: WIRE_VERSION,
-  strictAssertions: PROFILE === "strict"
+  strictAssertions: PROFILE === "strict",
+  pushedAuthorization: PAR
 };
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;

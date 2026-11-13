@@ -985,7 +985,8 @@ async function readStream(
       const field = colon === -1 ? line : line.slice(0, colon);
       const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
       if (field === "id") eventId = value;
-      else if (field === "event") eventType = value;
+      // An empty name is the default, `message` (HTML Living Standard 9.2.6).
+      else if (field === "event") eventType = value || "message";
       else if (field === "data") data.push(value);
     }
     if (data.length === 0) return;

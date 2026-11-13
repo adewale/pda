@@ -10,8 +10,10 @@ import { isObject } from "./json";
 import { APPROVAL_STATUSES } from "./approval-outcome";
 
 /**
- * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
- * Tokens and DPoP keys are deliberately absent: they live only in memory.
+ * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Access
+ * tokens are deliberately absent: they live only in memory. DPoP private
+ * keys are sealed in `poppy_dpop_keys`, so a refresh after a restart proves
+ * with the key its refresh token was issued with (1.0: 4.4).
  */
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS poppy_task_contexts (

@@ -1506,7 +1506,7 @@ def parse_sse(text: str) -> tuple[list[dict[str, Any]], list[tuple[Any, bool]]]:
             name, _, value = line.partition(":")
             value = value[1:] if value.startswith(" ") else value
             if name == "event":
-                kind = value
+                kind = value or "message"  # an empty name is the default (9.2.6)
             elif name == "data":
                 data.append(value)
             elif name == "id":

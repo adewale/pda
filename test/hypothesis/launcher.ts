@@ -80,7 +80,9 @@ const KNOBS = [
   // 1.0 4.2, 4.4, 8.6: pushed authorization requests, refresh tokens bound to their key, a later version's stream event.
   "pushedAuthorization",
   "bindRefreshTokens",
-  "laterStreamEvent"
+  "laterStreamEvent",
+  // HTML 9.2.6: an empty SSE event name, which is `message`.
+  "emptyEventNames"
 ] as const satisfies readonly (keyof MockConfig)[];
 
 const env = { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env;

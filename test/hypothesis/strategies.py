@@ -40,6 +40,7 @@ CONFIGS = st.fixed_dictionaries(
         "pushedAuthorization": st.sampled_from(["none", "offered", "required"]),
         "bindRefreshTokens": st.booleans(),
         "laterStreamEvent": st.booleans(),
+        "emptyEventNames": st.booleans(),
     }
 ).flatmap(
     # 3.4: the version poppy.json declares, and one it links in supported_versions: 0.4, 1.0, 1.1 (used as 1.0), or one beside the other.

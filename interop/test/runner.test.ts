@@ -158,7 +158,9 @@ describe("the registry and known failures", () => {
     const entry = (name: string) => registry.implementations.find((item) => item.role === "company" && item.name === name)!;
     expect(imageOf(entry("lenient-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
     expect(imageOf(entry("strict-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
-    expect(entry("strict-company").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
+    expect(entry("strict-company").env).toEqual({ INTEROP_MOCK_PROFILE: "strict", INTEROP_MOCK_PAR: "required" });
+    expect(imageOf(entry("lenient-company-v04"), registry)).toBe("poppy-interop/company-lenient-company:latest");
+    expect(entry("lenient-company-v04").env).toEqual({ INTEROP_MOCK_VERSION: "0.4" });
   });
 });
 

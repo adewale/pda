@@ -84,7 +84,7 @@ export class Web {
       // 1.0 (8.1): each entry says what the agent there can help with.
       const described = (description: string) => (version.startsWith("0.") ? {} : { description });
       if (config.unknownProtocol) protocols.push({ type: "example.com/chat-v9", endpoint: `${hosts.api}/chat-v9`, ...described("Chat, in a protocol most agents don't speak") });
-      protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint, ...described("Orders, returns, exchanges and your account") });
+      protocols.push({ type: "poppy", endpoint: hosts.conversationsEndpoint, ...described(config.agentDescription) });
       document.agent = { protocols };
     }
     // 6: a Company that sets web.disabled lists no browser_session_endpoint.

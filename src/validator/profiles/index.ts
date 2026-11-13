@@ -9,6 +9,7 @@
 import { draft04 } from "./draft-0.4.ts";
 import { draft10 } from "./draft-1.0.ts";
 import type { Profile } from "./profile.ts";
+import { compatibleVersions } from "../../poppy/protocol-version.ts";
 
 export const PROFILES: readonly Profile[] = [draft04, draft10];
 
@@ -28,12 +29,10 @@ export const LATEST: Profile = draft10;
 export function profileForVersion(version: string): Profile | undefined {
   const exact = PROFILES.find((profile) => profile.version === version);
   if (exact) return exact;
-  const [major, minor] = version.split(".").map(Number) as [number, number];
-  if (!(major >= 1) || !Number.isInteger(minor)) return undefined;
-  return PROFILES.filter((profile) => {
-    const [pMajor, pMinor] = profile.version.split(".").map(Number) as [number, number];
-    return pMajor === major && pMinor <= minor;
-  }).at(-1);
+  // Before 1.0, compatible means the same version, which has no profile here.
+  if (!/^[1-9]\d*\.\d+$/.test(version)) return undefined;
+  const minor = (of: string) => Number(of.split(".")[1]);
+  return PROFILES.filter((profile) => compatibleVersions(profile.version, version) && minor(profile.version) <= minor(version)).at(-1);
 }
 
 export const SUPPORTED_VERSIONS = PROFILES.map((profile) => `${profile.version} (${profile.name})`).join(", ");

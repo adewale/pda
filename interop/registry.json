@@ -73,9 +73,10 @@
       "build": "interop/impls/pda-mock",
       "context": ".",
       "env": {
-        "INTEROP_MOCK_PROFILE": "strict"
+        "INTEROP_MOCK_PROFILE": "strict",
+        "INTEROP_MOCK_PAR": "required"
       },
-      "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
+      "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require. It also requires Pushed Authorization Requests (1.0 4.2, INTEROP_MOCK_PAR), so every Direct Sign-In in the grid runs both ways."
     },
     {
       "name": "lenient-company-v04",

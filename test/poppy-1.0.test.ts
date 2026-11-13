@@ -6,7 +6,7 @@
  * agent sent passes the kit's schemas for the version it declared.
  */
 import { describe, expect, it } from "vitest";
-import { agent, cards, company, fetchWorker, ORIGIN, requests, signInDirect, tool, type Company } from "./agent-helpers";
+import { agent, cards, company, fetchWorker, ORIGIN, requests, signInDirect, tool, until, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
 
 const V10: Partial<MockConfig> = { protocolVersion: "1.0" };
@@ -84,6 +84,36 @@ describe("1.0: Pushed Authorization Requests (4.2; RFC 9126)", () => {
     // Nothing went in an authorization URL but client_id and request_uri.
     const authorizations = (await requests(c)).filter((request) => path(request) === "/oauth/authorize");
     expect(authorizations.every((request) => [...new URL(request.url).searchParams.keys()].sort().join() === "client_id,request_uri")).toBe(true);
+    // The protocol log names the push as its own step, before the code exchange, never as a token request.
+    const log = await a.stub.poppyProtocol(c.hosts.issuer);
+    const push = log.findIndex((entry) => entry.step === "signin.direct.push");
+    expect(push, JSON.stringify(log.map((entry) => entry.step))).toBeGreaterThanOrEqual(0);
+    expect(log[push]).toMatchObject({ section: "§4.2", status: 201 });
+    expect(log[push]!.summary).toBe("Push the authorization request with its PKCE challenge and state, scope orders:read, prompt=consent, client assertion, DPoP proof");
+    expect(log[push]!.result).toBe("201, request_uri issued, expires in 60 s");
+    expect(push).toBeLessThan(log.findIndex((entry) => entry.step === "signin.direct.exchange"));
+    expect(log.some((entry) => entry.step === "token.other")).toBe(false);
+  });
+
+  it("leaves a sign-in that finished while a push was in flight as it finished, though the Company refused that push", async () => {
+    const c = await company({ ...V10, pushedAuthorization: "required" });
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
+    const open = () => fetchWorker(new Request(card.url, { headers: { Cookie: a.cookie }, redirect: "manual" }));
+    const first = await open();
+    expect(first.status).toBe(303);
+    // A second tab pushes too. The Company refuses that push, and its answer waits while the first tab finishes the sign-in.
+    await c.stub.configure({ signIn: { direct: ["orders:write"], device: null, mediated: null } });
+    await a.stub.poppyFault({ method: "POST", url: c.hosts.pushedAuthorizationEndpoint, mode: "pause" });
+    const second = open();
+    await until(async () => (await a.stub.poppyHeldCount()) === 1);
+    const location = await c.stub.approveAuthorization(first.headers.get("Location")!, { approve: true, account: "acct_ada" });
+    expect(await (await fetchWorker(new Request(location, { headers: { Cookie: a.cookie } }))).text()).toMatch(/Connected to/);
+    await a.stub.poppyReleaseHeld();
+    expect((await second).status).toBe(404);
+    expect(JSON.parse(await a.stub.poppySql("SELECT status FROM poppy_signins"))).toEqual([{ status: "done" }]);
+    expect((await a.stub.poppyModelInputs()).some((text) => text.includes("didn't complete"))).toBe(false);
   });
 
   it("asks a person without an agent session in this browser to sign in to their agent first", async () => {
@@ -157,6 +187,30 @@ describe("1.0: room to extend conversations (8.4, 8.6)", () => {
     await a.stub.poppyWaitForNotice("A message every version reads.");
     const told = (await a.stub.poppyModelInputs()).some((text) => text.includes("From an event this agent doesn't know."));
     expect(told).toBe(read);
+  });
+
+  it("reads a stream event whose SSE name is empty as a message, in a 1.0 conversation", async () => {
+    const c = await company({ ...V10, streaming: true, emptyEventNames: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.say(first.conversationId, "A message with an empty event name.");
+    await a.stub.poppyWaitForNotice("A message with an empty event name.");
+  });
+});
+
+describe("1.0: a protocol description reworded while work is pending (8.1)", () => {
+  it("finishes a sign-in started before the Company reworded what its agent helps with", async () => {
+    const c = await company(V10);
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To look at your orders" });
+    const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
+    // The description is the Company's prose, not an interface: past the cache lifetime the callback rediscovers it.
+    await c.stub.configure({ agentDescription: "Orders, returns and anything about your account" });
+    await a.stub.poppyAdvance(301_000);
+    const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
+    const callback = await fetchWorker(new Request(location, { headers: { Cookie: a.cookie } }));
+    expect(await callback.text()).toMatch(/Connected to/);
+    expect((await cards(a)).some((item) => String(item.id).startsWith("company-changed-"))).toBe(false);
   });
 });
 

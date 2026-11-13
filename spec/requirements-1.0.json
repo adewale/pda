@@ -51,7 +51,7 @@
       "disposition": "Done",
       "implementation": "src/validator/profiles/draft-0.4.ts",
       "evidence": "test/validator.test.ts",
-      "notes": "The 1.0 validator profile accepts organization.domain with a port other than 443, and matches protected_resources with its port. The agent uses no Company on another port: a domain the model names has no port, and no deployment setting allows one, which 3.1 permits (\"only when configured to on purpose\"). The 0.4 profile still refuses a port."
+      "notes": "The 1.0 validator profile accepts organization.domain with a port other than 443, and matches protected_resources with its port. The agent uses no Company on another port: a domain the model names has no port, and no deployment setting allows one, which 3.1 permits (\"only when configured to on purpose\"). Live validation, the agent's discovery, takes a bare host name for the same reason, so only a document given as text is checked with a port. The 0.4 profile still refuses a port."
     },
     {
       "change": "Personal Agents choose their Companies",

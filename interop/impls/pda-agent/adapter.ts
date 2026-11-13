@@ -6,7 +6,7 @@
  * jobs run when a step waits on them instead of by alarms.
  *
  * Port 8080: our client metadata and keys at `$INTEROP_ORIGIN/poppy/*.json`
- * (behind the recording proxy), and `/poppy/callback` for Direct Sign-In.
+ * (behind the recording proxy), and `/poppy/callback` and `/poppy/sign-in` for Direct Sign-In.
  * Port 8081: the manifest and control API, with `Authorization: Bearer $INTEROP_SECRET`.
  *
  * No relaxation of src/poppy is needed: `*.interop.test` names already pass
@@ -43,6 +43,7 @@ import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
   completeDirectSignIn,
   pollDeviceSignIn,
+  pushDirectSignIn,
   signOut,
   startSignIn,
   submitCredentials,
@@ -426,7 +427,17 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     }
     pending.set(`${c.issuer}|${sessionLabel}`, { id: started.signInId, type: started.type, issuer: c.issuer, label: sessionLabel });
     const card = agent.cards.get(`signin-${started.signInId}`);
-    if (card?.kind === "signin_link") return { pending: { type: "direct", url: card.url } };
+    if (card?.kind === "signin_link") {
+      // With Pushed Authorization Requests the card links to the agent's own page (1.0: 4.2). Opening it pushes
+      // the request, as the User's browser would, and the harness gets the Company's URL it redirects to.
+      const page = new URL(card.url);
+      if (page.origin === ORIGIN && page.pathname === "/poppy/sign-in") {
+        const pushed = await pushDirectSignIn(agent.client, page.searchParams.get("id") ?? "");
+        if (!pushed.ok) throw new StepError(pushed.status, "push_refused", pushed.message);
+        return { pending: { type: "direct", url: pushed.location } };
+      }
+      return { pending: { type: "direct", url: card.url } };
+    }
     if (card?.kind === "signin_device") {
       return {
         pending: {
@@ -909,6 +920,13 @@ async function site(request: Request): Promise<Response> {
   if (url.pathname === "/poppy/callback" && request.method === "GET") {
     const outcome = await completeDirectSignIn(agent.client, url);
     return new Response(outcome.message, { status: outcome.ok ? 200 : 400, headers: { "content-type": "text/plain" } });
+  }
+  // A Company that lists pushed_authorization_request_endpoint: the card links here, and opening it pushes the request (1.0: 4.2).
+  if (url.pathname === "/poppy/sign-in" && request.method === "GET") {
+    const pushed = await pushDirectSignIn(agent.client, url.searchParams.get("id") ?? "");
+    return pushed.ok
+      ? new Response(null, { status: 303, headers: { Location: pushed.location, "Cache-Control": "no-store" } })
+      : new Response(pushed.message, { status: pushed.status, headers: { "content-type": "text/plain" } });
   }
   return new Response("Not found", { status: 404 });
 }
