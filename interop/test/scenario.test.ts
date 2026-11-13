@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runCell, toReply, withScopes, type Driver, type Reply } from "../runner/cell.ts";
 import { loadScenarios } from "../runner/cli.ts";
-import { compare, evaluate, expectedRefusals, firstOf, inlineFiles, interpolate, lintScenario, lookup, resolveParams } from "../runner/scenario.ts";
+import { compare, evaluate, expectedRefusals, firstOf, inlineFiles, interpolate, lintScenario, lookup, missingFixture, resolveParams } from "../runner/scenario.ts";
 import type { Scenario } from "../runner/types.ts";
 
 describe("interpolation", () => {
@@ -154,6 +154,86 @@ describe("a cell", () => {
     expect(inapplicable.outcome).toBe("unsupported");
   });
 
+  it.each(["C", "CL"])("is unsupported when a live Company lacks conversations for %s, and fails when an adapter claimed it", async id => {
+    const C = loadScenarios().find(scenario => scenario.id === id)!;
+    const noConversations = () => driver({ discover: { kind: "ok", result: { conversations: false } } });
+    const live = await runCell(C, {}, noConversations(), { live: true });
+    expect(live.outcome).toBe("unsupported");
+    expect(live.reason).toContain(`doesn't offer what ${id} tests`);
+    expect((await runCell(C, {}, noConversations())).outcome).toBe("fail");
+    // An expectation not marked `offers` still fails against a live Company.
+    const S: Scenario = { id: "S0", title: "s", steps: [{ agent: "session", save: "s" }, { expect: { "${s.session_id}": { $exists: true } } }] };
+    expect((await runCell(S, {}, driver({ session: { kind: "ok", result: {} } }), { live: true })).outcome).toBe("fail");
+  });
+
+  it("keeps real MCP failures distinct from a live Company without MCP", async () => {
+    const ML = loadScenarios().find(scenario => scenario.id === "ML")!;
+    const absent = () => driver({ discover: { kind: "ok", result: { apis: [] } } });
+    expect((await runCell(ML, {}, absent(), { live: true })).outcome).toBe("unsupported");
+    expect((await runCell(ML, {}, absent())).outcome).toBe("fail");
+    const brokenListing = driver({ discover: { kind: "ok", result: { apis: ["mcp"] } }, mcp_list: { kind: "ok", result: { tools: [] } } });
+    expect((await runCell(ML, {}, brokenListing, { live: true })).outcome).toBe("fail");
+  });
+
+  it("checks interpolated fixture values while leaving literal parameter keys alone", () => {
+    const literalKey: Scenario = { id: "KEY", title: "literal key", steps: [{ agent: "api", params: { "${fixture.not_a_reference}": "literal" } }] };
+    expect(resolveParams(literalKey.steps[0]!.params, { fixture: {} })).toEqual({ "${fixture.not_a_reference}": "literal" });
+    expect(missingFixture(literalKey, {})).toBeNull();
+    const nestedValue: Scenario = { id: "VALUE", title: "nested value", steps: [{ agent: "api", params: { nested: [{ value: "${fixture.required}" }] } }] };
+    expect(missingFixture(nestedValue, {})).toBe("fixture.required");
+  });
+
+  it("finds the fixture value a scenario's steps can't run without, skipping steps that may go without", () => {
+    const publicRead: Scenario = { id: "PUBLIC", title: "public read", steps: [
+      { agent: "api", params: { api: "${fixture.openapi_public.api}", operation: "${fixture.openapi_public.operation}", args: "${fixture.openapi_public.args}" } }
+    ] };
+    expect(missingFixture(publicRead, { prompts: { hello: "Hello" } })).toBe("fixture.openapi_public.api");
+    expect(missingFixture(publicRead, { openapi_public: { api: "openapi", operation: "get", args: {} } })).toBeNull();
+    const lenient: Scenario = {
+      id: "W",
+      title: "w",
+      steps: [
+        { agent: "api", params: { x: "${fixture.optional}" }, when: "${fixture.optional}" },
+        { company: "require_nonce", optional: true },
+        { runner: "first", params: { of: ["${fixture.a}", "${fixture.b}"] } },
+        { agent: "send", params: { text: "say ${fixture.prompts.hello}" } }
+      ]
+    };
+    expect(missingFixture(lenient, { prompts: { hello: "Hello" } })).toBeNull();
+    expect(missingFixture(lenient, {})).toBe("fixture.prompts.hello");
+  });
+
+  it.each([true, 0, "", false, null, undefined])("checks parameters only when a fixture condition is active (%s)", enabled => {
+    const scenario: Scenario = { id: "WHEN", title: "fixture condition", steps: [
+      { agent: "api", when: "${fixture.enabled}", params: { account: "${fixture.account}" } }
+    ] };
+    const active = enabled !== undefined && enabled !== null && enabled !== false;
+    expect(missingFixture(scenario, { enabled })).toBe(active ? "fixture.account" : null);
+  });
+
+  it("defers runtime conditions and fixture references to earlier results without following a third interpolation pass", () => {
+    const scenario: Scenario = { id: "LATER", title: "runtime result", steps: [
+      { agent: "api", save: "upload_id" },
+      { agent: "api", params: { args: "${fixture.args}" } },
+      { agent: "send", when: "${upload_id.held}", params: { account: "${fixture.runtime_only}" } }
+    ] };
+    expect(lintScenario(scenario, "LATER.json")).toEqual([]);
+    const fixture = { args: { photo: "${upload_id}", chain: "${fixture.second}" }, second: "${fixture.third}" };
+    expect(missingFixture(scenario, fixture)).toBeNull();
+    expect(resolveParams(scenario.steps[1]!.params, { fixture, upload_id: "photo-1" })).toEqual({ args: { photo: "photo-1", chain: "${fixture.third}" } });
+  });
+
+  it("defers a second-pass path assembled from an unknown runtime result", () => {
+    const scenario: Scenario = { id: "DYNAMIC", title: "runtime-built path", steps: [
+      { agent: "api", save: "s" },
+      { agent: "api", params: { value: "${fixture.prefix}${s.suffix}" } }
+    ] };
+    const fixture = { prefix: "${fixture.", present: "available" };
+    expect(lintScenario(scenario, "DYNAMIC.json")).toEqual([]);
+    expect(missingFixture(scenario, fixture)).toBeNull();
+    expect(resolveParams(scenario.steps[1]!.params, { fixture, s: { suffix: "present}" } })).toEqual({ value: "available" });
+  });
+
   it("signs in with the Company's own scopes from its fixture, and none when it names none", async () => {
     expect(withScopes({ accounts: ["a"] }).scopes).toEqual({ read: [], write: [] });
     expect(withScopes({ scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }).scopes).toEqual({ read: ["orders:read"], write: ["orders:read", "orders:write"] });
@@ -274,4 +354,11 @@ describe("a cell", () => {
     expect(toReply(0, null, true).kind).toBe("broken");
     expect(toReply(200, { result: 1 }, true).kind).toBe("broken");
   });
+});
+
+it("allows offers only as true, on an expect step", () => {
+  const base = { id: "ZZ", title: "z" };
+  expect(lintScenario({ ...base, steps: [{ expect: { "${fixture.x}": true }, offers: true }] }, "ZZ.json")).toEqual([]);
+  expect(lintScenario({ ...base, steps: [{ agent: "discover", offers: true }] }, "ZZ.json").some((p) => /offers must be true, on an expect step/.test(p))).toBe(true);
+  expect(lintScenario({ ...base, steps: [{ expect: { "${fixture.x}": true }, offers: "yes" }] }, "ZZ.json").some((p) => /offers must be true/.test(p))).toBe(true);
 });

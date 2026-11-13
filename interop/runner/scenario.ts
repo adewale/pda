@@ -25,31 +25,42 @@ export function lookup(path: string, saved: Saved): unknown {
   return value;
 }
 
-/**
- * Replace references in a value. A string that is exactly one reference
- * becomes the referenced value, whatever its type; references inside a
- * longer string are spliced in as text. With `strict`, a reference to
- * nothing is an error (the step can't run without it).
- */
-export function interpolate(value: unknown, saved: Saved, strict = true): unknown {
+type ResolveReference = (path: string) => unknown;
+
+/** Interpolation visits values, including nested arrays, but never object keys. */
+function replaceReferences(value: unknown, resolve: ResolveReference): unknown {
   if (typeof value === "string") {
     const whole = WHOLE.exec(value);
-    if (whole) {
-      const found = lookup(whole[1]!, saved);
-      if (found === undefined && strict) throw new ScenarioError(`\${${whole[1]}} refers to nothing`);
-      return found;
-    }
+    if (whole) return resolve(whole[1]!);
     return value.replace(PART, (_match, path: string) => {
-      const found = lookup(path, saved);
-      if (found === undefined && strict) throw new ScenarioError(`\${${path}} refers to nothing`);
+      const found = resolve(path);
       return typeof found === "string" ? found : JSON.stringify(found);
     });
   }
-  if (Array.isArray(value)) return value.map((item) => interpolate(item, saved, strict));
+  if (Array.isArray(value)) return value.map((item) => replaceReferences(item, resolve));
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, interpolate(item, saved, strict)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceReferences(item, resolve)]));
   }
   return value;
+}
+
+function referenceLookup(saved: Saved, strict: boolean): ResolveReference {
+  return path => {
+    const found = lookup(path, saved);
+    if (found === undefined && strict) throw new ScenarioError(`\${${path}} refers to nothing`);
+    return found;
+  };
+}
+
+/** Whole references keep their type; embedded references become text. Strict missing values are errors. */
+export function interpolate(value: unknown, saved: Saved, strict = true): unknown {
+  return replaceReferences(value, referenceLookup(saved, strict));
+}
+
+/** Both execution and fixture preflight follow at most two interpolation passes. */
+function resolveReferences(value: unknown, resolve: ResolveReference): unknown {
+  const once = replaceReferences(value, resolve);
+  return JSON.stringify(once ?? null).includes("${") ? replaceReferences(once, resolve) : once;
 }
 
 /**
@@ -60,8 +71,7 @@ export function interpolate(value: unknown, saved: Saved, strict = true): unknow
  * keep pulling in references.
  */
 export function resolveParams(value: unknown, saved: Saved): unknown {
-  const once = interpolate(value, saved);
-  return JSON.stringify(once ?? null).includes("${") ? interpolate(once, saved) : once;
+  return resolveReferences(value, referenceLookup(saved, true));
 }
 
 /**
@@ -241,6 +251,39 @@ export function actorOf(step: Step): { actor: "agent" | "company" | "runner" | "
   throw new ScenarioError("A step names no actor");
 }
 
+/**
+ * The first statically required fixture value that is absent, or null.
+ * Fixture-known conditions follow execution; runtime conditions are deferred.
+ * Optional steps still require their params, since only a 501 is optional.
+ * The runner's `first` resolves leniently and is checked during execution.
+ */
+export function missingFixture(scenario: Scenario, fixture: unknown): string | null {
+  const saved = { fixture };
+  const fixturePath = (path: string) => path === "fixture" || path.startsWith("fixture.");
+  let missing: string | null = null;
+  const resolve: ResolveReference = reference => {
+    const path = reference.trim();
+    // Earlier step results are unknown during planning; preserve their placeholders.
+    // A pass-two expression containing a preserved placeholder also depends on runtime data.
+    if (!fixturePath(path) || path.includes("${")) return `\${${reference}}`;
+    const found = lookup(path, saved);
+    if (found === undefined) missing ??= path;
+    return found;
+  };
+  for (const step of scenario.steps) {
+    if (step.runner === "first" || step.expect) continue;
+    if (step.when !== undefined) {
+      const path = WHOLE.exec(step.when)?.[1]?.trim();
+      if (!path || !fixturePath(path)) continue;
+      const condition = interpolate(step.when, saved, false);
+      if (condition === undefined || condition === null || condition === false) continue;
+    }
+    resolveReferences(step.params ?? {}, resolve);
+    if (missing) return missing;
+  }
+  return null;
+}
+
 /** Problems with a scenario file, empty when it is well formed. */
 export function lintScenario(value: unknown, file: string): string[] {
   const problems: string[] = [];
@@ -269,6 +312,7 @@ export function lintScenario(value: unknown, file: string): string[] {
   scenario.steps.forEach((step, index) => {
     const actors = ["agent", "company", "runner", "expect"].filter((key) => key in (step as object));
     if (actors.length !== 1) problems.push(`${file}: step ${index} must name exactly one of agent, company, runner or expect`);
+    if (step.offers !== undefined && (step.offers !== true || !step.expect)) problems.push(`${file}: step ${index} offers must be true, on an expect step`);
     if (step.when !== undefined && (typeof step.when !== "string" || !/^\$\{[^}]+\}$/.test(step.when))) {
       problems.push(`${file}: step ${index} when must be one \${...} reference`);
     }

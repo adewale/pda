@@ -1,0 +1,7 @@
+RUN  v4.1.12 /workspace/pda
+
+
+ Test Files  34 passed (34)
+      Tests  474 passed (474)
+   Start at  23:30:34
+   Duration  6.44s (transform 2.36s, setup 0ms, import 5.71s, tests 6.58s, environment 4ms)
