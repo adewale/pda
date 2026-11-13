@@ -1,9 +1,14 @@
 """
-A minimal Personal Agent Protocol (Poppy) 0.4 client, written from the
-11 November text (spec/draft-0.4-retrieved-2026-11-11/pages/: the spec, and
-the Operations and Mediated Sign-In extensions) and the `v04-*` rows of
-docs/readings.md, not ported from src/poppy. Ported from the 0.3 client on
-12 November 2026; nothing of 0.3 is left.
+A minimal Personal Agent Protocol (Poppy) client for 0.4 and the 1.0
+draft, written from the 11 November 0.4 text
+(spec/draft-0.4-retrieved-2026-11-11/pages/: the spec, and the Operations
+and Mediated Sign-In extensions), the 13 November 1.0 text
+(spec/draft-1.0-retrieved-2026-11-13/pages/) and the `v04-*` and `v10-*`
+rows of docs/readings.md, not ported from src/poppy. Ported from the 0.3
+client on 12 November 2026; nothing of 0.3 is left. 1.0 added on 13
+November: protocol descriptions (8.1), `prompt=consent` (4.2), pushed
+authorization requests whenever the issuer lists the endpoint (4.2, RFC
+9126), and stream events with SSE names it doesn't know skipped (8.6).
 
 It is deliberately small: discovery (3), including redirects of the
 well-known URL, the choice among `protocol_version` and
@@ -53,7 +58,8 @@ DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code"
 MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in"
 CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 APPROVAL_META = "personalagentprotocol.org/approval"
-PROTOCOL_VERSION = "0.4"  # the one version this client implements (3.4)
+PROTOCOL_VERSIONS = ("0.4", "1.0")  # the versions this client implements (3.4)
+VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 BROWSER_SIGN_IN = "poppy:browser-sign-in"  # the scope that signs the browser in (4.7, 6)
 ASSERTION_LIFETIME = 60  # seconds; strict Companies allow 60 (readings S2)
 DELEGATION_HOURS = 4  # the guides' "a few hours", from an iat rounded down to the hour
@@ -483,7 +489,8 @@ class Company:
     # https://{organization.domain}, the Session JWT's `aud`; `metadata` is empty and nothing signs in.
     issuerless: bool = False
     resource_scopes: list[str] = field(default_factory=list)  # `scopes_supported` of the domain's protected resource metadata (3.2, 4.7)
-    version: str = PROTOCOL_VERSION  # the version chosen (3.4)
+    version: str = PROTOCOL_VERSIONS[0]  # the version we implement, compatible with the chosen one, sent in Poppy-Version (3.4)
+    listed: list[str] = field(default_factory=list)  # protocol_version and the versions in supported_versions (3.4)
 
     @property
     def web_disabled(self) -> bool:
@@ -562,6 +569,14 @@ class Company:
         return parts.scheme == "https" and (host == domain or host.endswith("." + domain))
 
 
+class PushRefused(Exception):
+    """A pushed authorization request (RFC 9126) the Company refused; `reply` is its answer."""
+
+    def __init__(self, reply: "Reply") -> None:
+        super().__init__(f"pushed authorization request: HTTP {reply.status} {reply.error}")
+        self.reply = reply
+
+
 class DiscoveryError(Exception):
     pass
 
@@ -609,7 +624,7 @@ class Session:
     token: str | None = None
     token_type: str | None = None  # "DPoP" or "Bearer", as the token response named it (4.5)
     key: Es256Key | None = None  # the DPoP key the token is bound to
-    version: str = PROTOCOL_VERSION
+    version: str | None = None  # None: the one its Company's discovery chose
     extensions: dict[str, str] = field(default_factory=dict)  # name: version, each listed by the Company (3.3)
 
     def extensions_header(self) -> str | None:
@@ -713,27 +728,39 @@ class Poppy:
         if org.lower() != host:
             raise DiscoveryError(f"organization.domain {org!r} isn't the host that served it, {host!r}")
         # 3.4: the newest version, among protocol_version and supported_versions, compatible with one we implement;
-        # before 1.0, compatible is the same major.minor. We implement 0.4 alone.
+        # compatible is the same major version and, before 1.0, the same minor version.
         linked = document.get("supported_versions") if isinstance(document.get("supported_versions"), dict) else {}
-        if document.get("protocol_version") != PROTOCOL_VERSION:
-            url = linked.get(PROTOCOL_VERSION)
+        listed = [str(document.get("protocol_version"))] + [str(v) for v in linked]
+        usable = [v for v in listed if implemented(v)]
+        if not usable:
+            raise DiscoveryError(f"no version we implement: {document.get('protocol_version')!r} and {sorted(linked)} (3.4: MUST NOT use any)")
+        chosen = max(usable, key=version_order)
+        if chosen != document.get("protocol_version"):
+            url = linked.get(chosen)
             if not isinstance(url, str):
-                raise DiscoveryError(f"no version we implement: {document.get('protocol_version')!r} and {sorted(linked)} (3.4: MUST NOT use any)")
+                raise DiscoveryError(f"supported_versions links {chosen} with no URL")
             parts = urllib.parse.urlsplit(url)
             # 3.4: HTTPS on the host that served poppy.json, never by redirect; readings v04-linked-document: else as if unlisted.
             if parts.scheme != "https" or (parts.hostname or "").lower() != host:
-                raise DiscoveryError(f"the {PROTOCOL_VERSION} document {url} isn't HTTPS on {host}")
+                raise DiscoveryError(f"the {chosen} document {url} isn't HTTPS on {host}")
             linked_response = self.http.get(url, follow_redirects=False)
             if linked_response.status_code != 200:
-                raise DiscoveryError(f"the {PROTOCOL_VERSION} document: HTTP {linked_response.status_code}")
+                raise DiscoveryError(f"the {chosen} document: HTTP {linked_response.status_code}")
             document = strict_json(linked_response.text)
-            if not isinstance(document, dict) or document.get("protocol_version") != PROTOCOL_VERSION or "supported_versions" in document:
-                raise DiscoveryError(f"the document linked for {PROTOCOL_VERSION} names another version, or links others (3.4)")
+            if not isinstance(document, dict) or document.get("protocol_version") != chosen or "supported_versions" in document:
+                raise DiscoveryError(f"the document linked for {chosen} names another version, or links others (3.4)")
             if str(document.get("organization", {}).get("domain", "")).lower() != org.lower():
                 raise DiscoveryError("the linked document names another organization.domain (3.4)")
+        version = implemented(chosen)
+        assert version is not None
         auth = document.get("auth") if isinstance(document.get("auth"), dict) else {}
         extensions = document.get("extensions", {}) if isinstance(document.get("extensions"), dict) else {}
         protocols = document.get("agent", {}).get("protocols", [])
+        if not version.startswith("0."):
+            # 1.0 8.1: each conversation protocol has a description of what the agent there can help with.
+            for protocol in protocols:
+                if not isinstance(protocol, dict) or not isinstance(protocol.get("description"), str) or not protocol["description"].strip():
+                    raise DiscoveryError("a conversation protocol without a description (1.0: 8.1)")
         web = document.get("web") if isinstance(document.get("web"), dict) else {}
         if web.get("disabled") is True and "browser_session_endpoint" in web:
             raise DiscoveryError("web.disabled with a browser_session_endpoint (6: MUST NOT list it)")
@@ -758,7 +785,7 @@ class Poppy:
             # 3.2: valid only when nothing offers sign-in: no auth.issuer, no Mediated Sign-In, no signed_in access.
             if "issuer" in auth or signs_in:
                 raise DiscoveryError("poppy.json offers sign-in, but the Company has no issuer")
-            return self._company(domain, document, f"https://{org.lower()}", {}, protocols, extensions, issuerless=True)
+            return self._company(domain, document, f"https://{org.lower()}", {}, protocols, extensions, issuerless=True, version=version, listed=listed)
         if isinstance(auth.get("issuer"), str):
             if auth["issuer"] not in servers:
                 raise DiscoveryError("auth.issuer isn't in authorization_servers")
@@ -787,11 +814,11 @@ class Poppy:
             raise DiscoveryError("Direct Sign-In without authorization_endpoint")
         if DEVICE_CODE in grants and "device_authorization_endpoint" not in metadata:
             raise DiscoveryError("Device Sign-In without device_authorization_endpoint")
-        return self._company(domain, document, issuer, metadata, protocols, extensions, resource_scopes=resource_scopes)
+        return self._company(domain, document, issuer, metadata, protocols, extensions, resource_scopes=resource_scopes, version=version, listed=listed)
 
     def _company(
         self, domain: str, document: dict[str, Any], identifier: str, metadata: dict[str, Any], protocols: list[Any], extensions: dict[str, Any],
-        *, issuerless: bool = False, resource_scopes: list[str] | None = None,
+        *, issuerless: bool = False, resource_scopes: list[str] | None = None, version: str, listed: list[str],
     ) -> Company:
         grants = metadata.get("grant_types_supported", [])
         conversations = next((p["endpoint"] for p in protocols if p.get("type") == "poppy"), None)
@@ -810,7 +837,7 @@ class Poppy:
         return Company(
             domain, document, identifier, metadata, conversations, openapi, mcp,
             None if web.get("disabled") is True else web.get("browser_session_endpoint"), tasks,
-            entry("operations", "3"), mediated if MEDIATED_GRANT in grants else None, issuerless, resource_scopes or [],
+            entry("operations", "3"), mediated if MEDIATED_GRANT in grants else None, issuerless, resource_scopes or [], version, listed,
         )
 
     # ---- JWTs (4.1, 4.5, 5.2) ----
@@ -943,23 +970,37 @@ class Poppy:
 
     # ---- sign-in (4.2, 4.3, Mediated Sign-In) ----
 
-    def authorization_url(self, company: Company, scopes: list[str]) -> tuple[str, str, str]:
-        """Direct Sign-In (4.2): the URL for the User's browser, its `state` and the PKCE verifier."""
+    def authorization_url(self, company: Company, scopes: list[str], key: Es256Key | None = None) -> tuple[str, str, str]:
+        """
+        Direct Sign-In (4.2): the URL for the User's browser, its `state` and
+        the PKCE verifier. From 1.0 the request carries `prompt=consent`: our
+        redirect isn't received only on the device that opened the URL. When
+        the issuer lists `pushed_authorization_request_endpoint`, the request
+        is pushed (RFC 9126), with the client assertion and, when the issuer
+        uses DPoP, a proof by `key`, the key the code is then exchanged with
+        (RFC 9449 10.1); the URL carries only `client_id` and `request_uri`.
+        A push the Company refuses raises `PushRefused`.
+        """
         state = random_id()
         verifier = random_id(nbytes=32)
         challenge = b64url(hashlib.sha256(verifier.encode("ascii")).digest())
-        query = urllib.parse.urlencode(
-            {
-                "response_type": "code",
-                "client_id": self.agent.client_id,
-                "redirect_uri": self.agent.redirect_uri,
-                "scope": " ".join(scopes),
-                "state": state,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            }
-        )
-        return f"{company.metadata['authorization_endpoint']}?{query}", state, verifier
+        request = {
+            "response_type": "code",
+            "client_id": self.agent.client_id,
+            "redirect_uri": self.agent.redirect_uri,
+            "scope": " ".join(scopes),
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            **({} if company.version.startswith("0.") else {"prompt": "consent"}),
+        }
+        endpoint = company.metadata.get("pushed_authorization_request_endpoint")
+        if isinstance(endpoint, str):
+            pushed = self.token_request(company, key, {name: value for name, value in request.items() if name != "client_id"}, endpoint=endpoint)
+            if pushed.status != 201 or not isinstance(pushed.body, dict) or not isinstance(pushed.body.get("request_uri"), str):
+                raise PushRefused(pushed)
+            request = {"client_id": self.agent.client_id, "request_uri": pushed.body["request_uri"]}
+        return f"{company.metadata['authorization_endpoint']}?{urllib.parse.urlencode(request)}", state, verifier
 
     def callback(self, company: Company, redirect: str, state: str) -> dict[str, str]:
         """Check the redirect (4.2): our redirect URI, our `state`, the Company's `iss` (RFC 9207)."""
@@ -1054,7 +1095,7 @@ class Poppy:
             else:
                 header_value = self.session_jwt(company, session, method, url, sent_token)
             request_headers = {"Poppy-Session": header_value, "Accept": accept}
-            sent_version = session.version if version is DEFAULT else version
+            sent_version = (session.version or company.version) if version is DEFAULT else version
             sent_extensions = session.extensions_header() if extensions is DEFAULT else extensions
             if sent_version is not None:
                 request_headers["Poppy-Version"] = sent_version
@@ -1428,14 +1469,32 @@ def strict_json(text: str) -> Any:
     return json.loads(text, object_pairs_hook=pairs)
 
 
+def compatible(a: object, b: object) -> bool:
+    """3.4: two versions with the same major version and, before 1.0, the same minor version."""
+    x, y = VERSION.fullmatch(str(a)), VERSION.fullmatch(str(b))
+    return bool(x and y) and x[1] == y[1] and (x[1] != "0" or x[2] == y[2])
+
+
+def implemented(version: object) -> str | None:
+    """The version we implement that is compatible with `version` (3.4), or None: 1.0 for 1.1."""
+    return next((ours for ours in PROTOCOL_VERSIONS if compatible(ours, version)), None)
+
+
+def version_order(version: str) -> tuple[int, int]:
+    match = VERSION.fullmatch(version)
+    return (int(match[1]), int(match[2])) if match else (-1, -1)
+
+
 def parse_sse(text: str) -> tuple[list[dict[str, Any]], list[tuple[Any, bool]]]:
     """
-    Server-sent events (HTML Living Standard 9.2.6), as Poppy 0.4 uses them
+    Server-sent events (HTML Living Standard 9.2.6), as Poppy uses them
     (8.6): each `message` event's data is one conversation event, whose `id`
     the SSE `id` field repeats. `working` arrives as a `working` event with
-    no SSE `id`; `text-delta` events are only for display. Returns the
-    conversation events, and each `working` value with whether it came
-    before every conversation event.
+    no SSE `id`; `text-delta` events are only for display. An event with
+    another SSE name is skipped, as 1.0 requires of names a Personal Agent
+    doesn't know; 0.4 named no others. Returns the conversation events, and
+    each `working` value with whether it came before every conversation
+    event.
     """
     events: list[dict[str, Any]] = []
     working: list[tuple[Any, bool]] = []

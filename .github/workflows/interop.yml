@@ -1,4 +1,4 @@
-# The interop grid: our agent against our mock Company, lenient and strict,
+# The interop grid: our agent against our mock Company, lenient and strict at 1.0 and lenient at 0.4,
 # and against Print with Poppy, an independent Company at a pinned commit,
 # in containers behind the recording proxy (interop/).
 # Docker makes it slow, so it runs on pushes to main and on pull requests
@@ -53,7 +53,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
 
       - name: Honest agents and Companies, including injected network faults
-        run: npm run interop -- --agents pda --companies lenient-company,strict-company --require-supported --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CL,CC,CI,CS,CA,SO,O,OX,OU,SE,R,AO,AM,AS,RL,DP,H,DC,W,CM,ML,CDUP,CIDUP,ODUP,NREP
+        run: npm run interop -- --agents pda --companies lenient-company,strict-company,lenient-company-v04 --require-supported --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CL,CC,CI,CS,CA,SO,O,OX,OU,SE,R,AO,AM,AS,RL,DP,H,DC,W,CM,ML,CDUP,CIDUP,ODUP,NREP
 
       # The lenient and strict agents too: each reads the store's documents and tokens differently.
       - name: An independent Company, Print with Poppy at its pinned commit
@@ -63,7 +63,7 @@ jobs:
         run: npm run interop -- --agents pda --companies evil-company --require-supported --scenarios XH,XI,BX,XB,XN,XP,XE,XR
 
       - name: Our Companies refuse malicious agent requests
-        run: npm run interop -- --agents evil-personal-agent --companies lenient-company,strict-company --require-supported --scenarios YR,YD,YA,YT,YS,YK,YU,YM
+        run: npm run interop -- --agents evil-personal-agent --companies lenient-company,strict-company,lenient-company-v04 --require-supported --scenarios YR,YD,YA,YT,YS,YK,YU,YM
 
       - name: Upload the grid, HAR files and container logs
         if: always()

@@ -78,6 +78,19 @@
       "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
     },
     {
+      "name": "lenient-company-v04",
+      "role": "company",
+      "owner": "self",
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-mock",
+      "context": ".",
+      "env": {
+        "INTEROP_MOCK_VERSION": "0.4"
+      },
+      "notes": "The same image as lenient-company serving 0.4 alone, while the other mocks serve 1.0 (decision 51), so the grid runs our agent at both versions."
+    },
+    {
       "name": "print-with-poppy",
       "role": "company",
       "source": "https://github.com/spenciefy/print-with-poppy",

@@ -82,7 +82,7 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  // Every version src/poppy speaks, 0.4 alone (decision 49); the adversarial agent's raw requests are 0.4 too (attacks.ts).
+  // Every version src/poppy speaks, 0.4 and 1.0 (decision 51); the adversarial agent's raw requests declare the Company's version too (attacks.ts).
   poppy: [...PROTOCOL_VERSIONS],
   extensions: ["operations"],
   scenarios: ADVERSARY ? [...ATTACKS] : [

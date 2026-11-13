@@ -19,7 +19,7 @@ The agent, the mock Company and the validator speak the 1.0 draft retrieved on 1
 - The validator has a 1.0 profile: 0.4's rules with the required descriptions (`protocol-description-empty`), a port other than 443 allowed in `organization.domain`, and ES256 and PS384 required in an issuer's listed client-assertion algorithms (`metadata-assertion-algs`). Under both versions it checks the PAR endpoint is HTTPS and reports `require_pushed_authorization_requests` without it (`par-endpoint-missing`). A newer 1.x document is checked with the 1.0 profile and noted (`version-newer-minor`).
 - The mock serves 1.0 and 1.1, describes its protocols under 1.x, can offer or require PAR (`pushedAuthorization`), bind refresh tokens to their key (`bindRefreshTokens`) and stream an event a later version might add (`laterStreamEvent`). Under 1.x it takes a `context` field set to `null` as cleared. New checks: `authorize.prompt-consent`, `par.not-pushed`, `par.extra-parameters`, `par.code-key` and `dpop.refresh-key-changed`.
 - The 1.0 snapshot, kit and requirement ledger are pinned in `spec/`. CI runs the 1.0 kit against the mock with [reviewed findings](test/company-kit/reviewed-findings-1.0.json), the same as the 0.4 kit's. Each request the agent sends is checked against the schemas of the kit for the version it declares.
-- Not at 1.0 yet: the Python Hypothesis client and the interop grid still speak 0.4.
+- The Python Hypothesis client speaks 1.0 beside 0.4, and each run draws the version the mock serves, PAR and bound refresh tokens. The interop grid's `lenient-company` and `strict-company` serve 1.0, and a new `lenient-company-v04` keeps 0.4 in CI.
 
 ## Unreleased — asking to contact a Company, amounts in cents, and checkout links that aren't ready
 

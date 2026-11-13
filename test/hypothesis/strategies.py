@@ -35,7 +35,17 @@ CONFIGS = st.fixed_dictionaries(
         "agentReplies": st.booleans(),
         # 7: the MCP versions the MCP server speaks: 2025-06-18's session, 2026-07-28's per-request metadata, or both.
         "mcpVersions": st.sampled_from([["2025-06-18"], ["2026-07-28"], ["2026-07-28", "2025-06-18"]]),
+        # 1.0 (13 November): pushed authorization requests offered or required, refresh tokens bound to their DPoP key,
+        # and a stream event with an SSE name a later version might add.
+        "pushedAuthorization": st.sampled_from(["none", "offered", "required"]),
+        "bindRefreshTokens": st.booleans(),
+        "laterStreamEvent": st.booleans(),
     }
+).flatmap(
+    # 3.4: the version poppy.json declares, and one it links in supported_versions: 0.4, 1.0, 1.1 (used as 1.0), or one beside the other.
+    lambda config: st.sampled_from([("0.4", None), ("1.0", None), ("1.1", None), ("1.0", "0.4"), ("0.4", "1.0")]).map(
+        lambda versions: config | {"protocolVersion": versions[0], "linkedVersion": versions[1]}
+    )
 )
 
 # ---- ids (8.2: 1 to 256 characters of the URL-safe base64 alphabet) ----
