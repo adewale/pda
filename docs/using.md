@@ -28,7 +28,7 @@ List the Company domains your agent may contact in **Companies your agent can co
 
 **Send again** and failed-photo retries put the text back in the composer. Review it and its selected Companies before sending; the retry does not reuse an old upload permission. Any current draft and attached photos stay in the composer.
 
-One conversation, kept until you delete your agent: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so.
+One conversation, kept until you delete your agent: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so. To start again without deleting your agent, press **Clear chat** under the message box while the agent is idle. It asks you to confirm, then starts a fresh conversation: the chat empties to a "Context reset" notice and earlier task permissions are withdrawn. Saved memory notes, Company sign-ins and scheduled tasks stay.
 
 You can send while the page is still connecting or reconnecting. The message shows in the chat, faded, with "Waiting to connect" under it, and goes once the page is connected; the agent takes it once even if the connection drops and the page sends it again. If the agent refuses it, the reason shows under it with **Try again** and **Remove**. Approvals, sign-ins and other buttons on cards don't wait like this: while the page is connecting they are greyed out, and one that didn't reach your agent says "Not sent", so press it again once the page is connected.
 
