@@ -1,6 +1,6 @@
 # The Poppy ecosystem
 
-A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), refreshed manually on **19 November 2026**. This review rechecked 80 public Company hosts and 57 repository heads, and ran the current Print with Poppy source through the isolated interop grid. Directory totals, source claims, discovery results and executed journeys are identified separately. Earlier evidence keeps its original date.
+A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), updated **19 November 2026** by a manual refresh. This review rechecked 80 public Company hosts and 57 repository heads, and ran the current Print with Poppy source through the isolated interop grid. Directory totals, source claims, discovery results and executed journeys are identified separately. Earlier evidence keeps its original date.
 
 This page owns ecosystem observations. [Current protocol verification](poppy-0.4-conformance.md#current-verification) owns PDA's verification status; [the 1.0 upgrade](poppy-1.0-upgrade.md) records the published-version alignment. The [harness contract](interop-spec.md) describes the tests. The [frozen implementation catalogue](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/implementations.md) preserves the earlier licence and maturity survey.
 
@@ -12,7 +12,7 @@ This page owns ecosystem observations. [Current protocol verification](poppy-0.4
 
 ## Current ecosystem — 19 November 2026
 
-Poppy **1.0 was published and frozen on 14 November**. Upstream now has a separate 1.1 draft and tells implementers to build against 1.0. PDA's repository supports published 1.0 beside frozen 0.4. Its live [build-info](https://poppydemoagent.dev/api/build-info), observed on 19 November, reports clean commit `d9323da`, versions 0.4 and 1.0, and the **13 November draft pin for 1.0**. The final-1.0 alignment is merged in the repository but has not reached that served build ([receipt](evidence/ecosystem-2026-11-19/deployment.json), [deployment tasks](deployment-tasks.md)). No deployment was made for this survey.
+Poppy **1.0 was published and frozen on 14 November** ([final 1.0 pin](../spec/version-1.0-retrieved-2026-11-19/README.md)); the [frozen 0.4 pin](../spec/draft-0.4-retrieved-2026-11-11/README.md) remains available. Upstream now has a separate 1.1 draft and tells implementers to build against 1.0. PDA's repository supports published 1.0 beside frozen 0.4. Its live [build-info](https://poppydemoagent.dev/api/build-info), observed on 19 November, reports clean commit `d9323da`, versions 0.4 and 1.0, and the **13 November draft pin for 1.0**. The final-1.0 alignment is merged in the repository but has not reached that served build ([receipt](evidence/ecosystem-2026-11-19/deployment.json), [deployment tasks](deployment-tasks.md)). No deployment was made for this survey.
 
 ### The independent Company: Print with Poppy
 
@@ -22,7 +22,7 @@ The current source passed **30 of 30 isolated interop cases**, ten each with PDA
 
 Only `src/main.tsx` and `src/style.css` changed between our maintained `20a3d56` pin and current HEAD. The executable backend and dependencies are unchanged. The current HEAD was selected in a temporary worktree for this run; the maintained peer pin stays at `20a3d56` because a homepage change adds no protocol coverage. [The interop report](interop-spec.md#print-with-poppy-at-20a3d56) retains both runs.
 
-### Implementations and tooling
+### Who implements Poppy — 19 November 2026
 
 The [repository receipt](evidence/ecosystem-2026-11-19/repositories.json) records all 57 default-branch heads: the previous survey's 42 and 15 additional projects. Eighteen heads were unchanged. Its review labels distinguish source inspection, README claims and unchanged source; a new head alone is not a protocol upgrade. Except for Print with Poppy, these implementations were not executed against PDA.
 
