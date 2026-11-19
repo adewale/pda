@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "checked": "2026-11-19",
+  "scope": "External directory and vendor reports; these figures are not our live-interoperability measurements.",
+  "sources": [
+    {
+      "name": "PAP Checker sites directory",
+      "url": "https://papchecker.com/sites",
+      "reported": {
+        "publishingSites": 10097,
+        "versions": {
+          "1.0": 7397,
+          "0.4": 2637,
+          "0.1–0.3": 63
+        },
+        "platforms": {
+          "Wix": 7386,
+          "Shopify": 2631,
+          "companyAuthoredSites": 68,
+          "companyAuthoredOrganizations": 64,
+          "unrecognizedTemplate": 10,
+          "Tilopay": 1,
+          "Sill": 1
+        },
+        "demoSitesExcluded": true
+      },
+      "note": "Directory coverage, not the complete internet or a count of working authenticated integrations. Described Wix as 1.0 and Shopify as 0.4."
+    },
+    {
+      "name": "Sierra release announcement",
+      "url": "https://sierra.ai/blog/releasing-poppy",
+      "published": "2026-11-13",
+      "claims": [
+        "Poppy enabled for Muse users.",
+        "Shopify automatically publishes Poppy discovery files.",
+        "More than 100 design partners; Mercury, Synchrony and Turkish Airlines named as going live."
+      ],
+      "note": "First-party launch claims; not authenticated journeys verified by PDA. The protocol source records the 1.0 freeze on 14 November."
+    },
+    {
+      "name": "Shopify developer response",
+      "url": "https://community.shopify.dev/t/how-will-personal-agent-protocol-sessions-surface-to-apps/38467/3",
+      "published": "2026-11-13",
+      "note": "Shopify employee describes automatic discovery linked to UCP. A UCP order alone is not evidence that Poppy was used."
+    },
+    {
+      "name": "Implementation directory",
+      "url": "https://poppy.md/implementations",
+      "note": "Used to discover candidates; it warns that many entries retain earlier-version observations. Current source and our own document checks take precedence."
+    },
+    {
+      "name": "Datalayer npm",
+      "url": "https://registry.npmjs.org/@datalayer/personal-agent-protocol",
+      "latest": "0.37.5",
+      "latestPublished": "2026-11-18T14:34:27.066Z"
+    },
+    {
+      "name": "Datalayer PyPI",
+      "url": "https://pypi.org/pypi/personal-agent-protocol/json",
+      "latest": "0.37.5"
+    },
+    {
+      "name": "Descope renamed SDK npm lookup",
+      "url": "https://registry.npmjs.org/@descope/poppy-agent",
+      "status": 404,
+      "note": "Current package source declares 1.0.0; its README says the package has not been published to npm."
+    }
+  ]
+}

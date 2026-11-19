@@ -1,0 +1,4666 @@
+{
+  "version": 1,
+  "checked": "2026-11-19",
+  "validator": {
+    "sourceCommit": "848df6b2ce82d497794964f251885644aa45f4ef",
+    "versions": [
+      "0.4",
+      "1.0"
+    ],
+    "newestSpecificationRevision": "2026-11-19"
+  },
+  "method": "Manual one-host-at-a-time metadata-only survey. The ordinary CLI direct HTTPS route failed in this managed environment. The completed run used the same validator library with a temporary curl transport: all DNS answers must be public; --connect-to pins the proxy CONNECT target to a verified public IP while preserving the URL hostname and TLS certificate verification. The validator controls redirects, 100 KB body limits and 10-second timeouts. Only GETs, no credentials, no Sessions, sign-in or actions. At least one second between hosts. Document hashes are of parsed JSON serialized compactly in Python; no automatic refresh is installed.",
+  "sources": [
+    "The 58 hosts from the 12 November survey",
+    "New public hosts listed by PAP Checker and poppy.md, plus exact www hostnames and a Wix example identified during the review"
+  ],
+  "summary": {
+    "hosts": 80,
+    "outcomes": {
+      "valid": 25,
+      "invalid": 43,
+      "indeterminate": 12
+    },
+    "declared": {
+      "0.4": 12,
+      "0.2": 7,
+      "1.0": 16,
+      "0.3": 19,
+      "0.1": 14,
+      "not read": 12
+    },
+    "validByVersion": {
+      "0.4": 11,
+      "1.0": 14
+    },
+    "unsupportedVersion": 40
+  },
+  "hosts": [
+    {
+      "host": "printwithpoppy.com",
+      "checked_at": "2026-11-19T18:52:15.100Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Print with Poppy",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "cc2f198a34fd7352f83db00cbdf3d90f2715bca694e0ce18a55b483033c43c80"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://printwithpoppy.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://printwithpoppy.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "520f3e18292efb1857cb78b2cb4eefb4942638021187d927d751da0798cc387a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "3d2e15ec008584ca9f2f7492a347edc57e812bc1353abb924ac0d8987615f83e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "operations",
+          "mediated-sign-in"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "sandbox.printwithpoppy.com",
+      "checked_at": "2026-11-19T18:52:27.468Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Print with Poppy — Agent Sandbox",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "504f23570c7a8c4e3e14f1ceab417f0ccb3f04a6cbaa5c0f4b221817a1e71505"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "1d745b8ee4c436f5b0b19252fe29d1375ec3793e7ed1d2e4213e9658c57b2e94"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "d385ebd246ca8aca02809d15cf7e48e2be9bc1ec075c4c7150df3b2f46db4dbd"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "operations",
+          "mediated-sign-in"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "archon.technology",
+      "checked_at": "2026-11-19T18:52:39.614Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "archon.social",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://archon.technology/.well-known/poppy.json",
+          "finalUrl": "https://archon.technology/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "65aeee738a9dae3b69111f285891d7633369c0f9accc3f61199eedf650bb2d51"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "flowers.papsandbox.com",
+      "checked_at": "2026-11-19T18:52:41.610Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Northlight Flowers",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "812623d85966b0c9af500a05c2d346758d2b4a2f10c1be52395db21bd306c6df"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://flowers.papsandbox.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "df12faca9c67e7f8aa81425ce7b47f2234ce2546d16bd60eb440bf42c4ad3677"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "1d992bbd4ec12e77a22e2a1e6fc24150f3b5411031b7e5eac71fc186b752e2c5"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations",
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "crosswalk.to",
+      "checked_at": "2026-11-19T18:52:44.148Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "crosswalk",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://crosswalk.to/.well-known/poppy.json",
+          "finalUrl": "https://crosswalk.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "44edd6676ac52f35181eb72ec10fa005c694579f1a1f29d41ec3edeeaaf0f070"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "stacktr.ee",
+      "checked_at": "2026-11-19T18:52:45.389Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Stacktree",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://stacktr.ee/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.stacktr.ee/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stacktr.ee/.well-known/poppy.json",
+          "finalUrl": "https://stacktr.ee/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "f2e112a17939be8d83d04b3c82e2e8908ca6fc55fcf94dcc51f72c605349e8bb"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://stacktr.ee/.well-known/oauth-protected-resource",
+          "finalUrl": "https://stacktr.ee/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "f8e15b63da4d52fe622b5dddf9c5332e54318b9604e50c92d718426ab61280d8"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "finalUrl": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "08dffdebe12b862542998884b5b33dfcc82aded1022b84b3b4c52061b3f926b9"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp",
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:device_code"
+        ]
+      }
+    },
+    {
+      "host": "www.planmyvisit.to",
+      "checked_at": "2026-11-19T18:52:48.063Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "PlanMyVisit by Autoura",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "finalUrl": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "372131eb3b567710f6108edcd727c71552f071105b6512129ab47b208ec03813"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "saferate.com",
+      "checked_at": "2026-11-19T18:52:49.343Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Safe Rate",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://saferate.com/.well-known/poppy.json",
+          "finalUrl": "https://saferate.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "5adc830f13af44ac762328b0424a34a6599c0f432dec0acdc4b18c2717998080"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "ample.computer",
+      "checked_at": "2026-11-19T18:52:51.324Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Ample Computer",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ample.computer/.well-known/poppy.json",
+          "finalUrl": "https://ample.computer/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "2b46d10e4f33a34067ba9d027919bf2327f3edee237b88807f86f138c30ca587"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "withpoppyseed.dev",
+      "checked_at": "2026-11-19T18:52:53.770Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Poppy Travel",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://withpoppyseed.dev/.well-known/poppy.json",
+          "finalUrl": "https://www.withpoppyseed.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "984608396072226cd10b94492b7f76334f9b6ffc0109905525791a8610539943"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp",
+          "openapi"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": true,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "poppy-receiver.roundtrip.workers.dev",
+      "checked_at": "2026-11-19T18:52:56.314Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Northstar Outfitters",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "finalUrl": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "45c8189975c31264267dd2d5992c2f19c0cfe7c067bfed5fa09ed8d2d1fba334"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "tilopay.shop",
+      "checked_at": "2026-11-19T18:52:57.722Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Tilopay",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "951591f371b979c991984079948aecaadeb1f5757575b54a684ac2f41226828d"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "tilopay.com/store-discovery",
+          "tilopay.com/public-mcp",
+          "tilopay.com/hosted-checkout"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "tilopay.tilopay.shop",
+      "checked_at": "2026-11-19T18:53:00.497Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://tilo.shop/tienda/tilopay/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/tienda/tilopay/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "application/json"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "emorahealth.com",
+      "checked_at": "2026-11-19T18:53:03.768Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Emora Health",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 1,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "/scopes_supported/0",
+          "text": "mcp is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://emorahealth.com/.well-known/poppy.json",
+          "finalUrl": "https://www.emorahealth.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "826d45eba04fa7531950c2bdb1e59fa0b16c2ebefdfaaf12f1c614c455c2f016"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://www.emorahealth.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://www.emorahealth.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "c575d748adb27b6408695d369df2323a3d761372efda1cdb4fedde17ab95188c"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "e0c5980ac28b846c3bb17be656088fed9004ec70db3e774fba9cc02106d39fbb"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "links",
+          "disclosures"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "host": "rentourbins.com",
+      "checked_at": "2026-11-19T18:53:05.991Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Rent Our Bins",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://rentourbins.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://rentourbins.com/.well-known/poppy.json",
+          "finalUrl": "https://rentourbins.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "f21d82b0253fc05eecece557c6319adeecdc56b7700ce926f0f5b55dd876aca1"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "neutral-state-jev-dub-bench.vercel.app",
+      "checked_at": "2026-11-19T18:53:07.598Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Dub",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "a2429c8fecf8de2ff07302abbdd9acf6543663dcee99ff5c2df79c2c4368139a"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-protected-resource",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "8021e6137c802ccf9e688ca09c5bae96bea594707f20e0b0c6ea76714db6a33a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "43aeaa0282c374b0de162e3227604ec91223e9fc64352abbf544b43d6f0604ba"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:workos:agent-auth:grant-type:claim",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    },
+    {
+      "host": "neutral-state-jev-os-bench.vercel.app",
+      "checked_at": "2026-11-19T18:53:11.531Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "OpenStatus",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "59322ab46e9ca78739f6f6a7fc08b3bd90b60239457fdf562665bc526e7f7643"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "ax-air.com",
+      "checked_at": "2026-11-19T18:53:14.251Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Ax Air",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://ax-air.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ax-air.com/.well-known/poppy.json",
+          "finalUrl": "https://ax-air.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "1146f67bdd7266ab10c374f59c1ebdadef952764c0a2c3ef009da4d6befc9248"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "notjustabank.com",
+      "checked_at": "2026-11-19T18:53:15.766Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Not Just a Bank",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://notjustabank.com/.well-known/poppy.json",
+          "finalUrl": "https://notjustabank.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "57955e0c02c76f0d5bc62a62c9ab9d3aff32fb965b716ba1f174e10525f87ae8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "spotmeplease.com",
+      "checked_at": "2026-11-19T18:53:20.701Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Spot",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://spotmeplease.com/.well-known/poppy.json",
+          "finalUrl": "https://spotmeplease.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "b18b4a46c558c2023e2868229b8a77aa4800d8acaf2439ebb0b7f4b5285fb464"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "spotmeplease.com/approvals"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "poppy.ilmer.org",
+      "checked_at": "2026-11-19T18:53:21.909Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Ilmer Past",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "44058bf262777e02e9b51e46e6536d470d92ae87e74eea7160324e1421e5343a"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "www.ilmer.org",
+      "checked_at": "2026-11-19T18:53:23.383Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Ilmer Past",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.ilmer.org/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://www.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "4eff95379434c5ed4bee86186b90bb20c144721f9837a617753c185035561a72"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "salespeak.ai",
+      "checked_at": "2026-11-19T18:53:24.731Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Salespeak",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "prm-no-issuer",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "The domain publishes no protected resource metadata (HTTP 404), so the Company has no issuer: it offers signed-out Sessions only, and its identifier is https://salespeak.ai."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://salespeak.ai/.well-known/poppy.json",
+          "finalUrl": "https://salespeak.ai/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "bab9747e935ad1e1a84532b749b0641c46f922167eb8babfce24f3278fe6a0a5"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://salespeak.ai/.well-known/oauth-protected-resource",
+          "finalUrl": "https://salespeak.ai/.well-known/oauth-protected-resource",
+          "status": 404,
+          "contentType": "text/plain; charset=utf-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "www.alpine-retail.com",
+      "checked_at": "2026-11-19T18:53:26.614Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Cliffside Retail",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.alpine-retail.com/.well-known/poppy.json",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "996afd51294f1a8b9e889f72a17d06656657a7b61b851fd3d4b546256acf6ccb"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "6ffb4731ce284886e28aa1b77be0292a0c446ae5ba506f55654bb0253106ae43"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "298cc40ec3310bf2f21b7abc77c3c15ca60dfdca23fd54826748b8cb60742815"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "windomsports.com",
+      "checked_at": "2026-11-19T18:53:28.765Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Windom Sports",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://windomsports.com/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://windomsports.com/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://windomsports.com/.well-known/poppy.json",
+          "finalUrl": "https://windomsports.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "0306f0325f894ecb1302d0ccc36e884c6eb369651e4326998f3ebe2ecae69201"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://windomsports.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://windomsports.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "f1ea357268542eeceaa37511f19a6539104ce689272375a0d23ebf1e5408708b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "53b7aca3bfe62a547f7636c873718b82ba1163646702542020afa5e4a46cd3f6"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "host": "getvibe.dev",
+      "checked_at": "2026-11-19T18:53:30.930Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "The Vibe Suite",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://getvibe.dev/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://getvibe.dev/.well-known/poppy.json",
+          "finalUrl": "https://getvibe.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "b3ccd678cbb2c6a5623765d26be043fd9b2955dad015ae6a4bc357f43e64a017"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "origin-platform-labs.netlify.app",
+      "checked_at": "2026-11-19T18:53:32.317Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Origin Platform Labs",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "finalUrl": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "c5a4c005c51e062d61ecf8435225578d22f13609ee27c8a23d2081c4b7149683"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "intercom.io",
+      "checked_at": "2026-11-19T18:53:33.796Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.intercom.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://intercom.io/.well-known/poppy.json",
+          "finalUrl": "https://www.intercom.com/.well-known/poppy.json",
+          "status": 404
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "bank.notjustabank.com",
+      "checked_at": "2026-11-19T18:53:36.171Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Not Just a Bank",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://bank.notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://bank.notjustabank.com/.well-known/poppy.json",
+          "finalUrl": "https://bank.notjustabank.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "57955e0c02c76f0d5bc62a62c9ab9d3aff32fb965b716ba1f174e10525f87ae8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "food.papsandbox.com",
+      "checked_at": "2026-11-19T18:53:37.529Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Kettle Street Noodles",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://food.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://food.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "dd99134c2f9ea2fdd64f8563a408b206275b8a32788a601da9f2ce768194d614"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations",
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "poppy.lukemolony.com",
+      "checked_at": "2026-11-19T18:53:39.052Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Lantern & Loch",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy.lukemolony.com/.well-known/poppy.json",
+          "finalUrl": "https://demo.poppykit.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "5f97c37bf3dda4886677e8b0379725e415c5bf442e6fb78bc253602cce624c2e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "stays.papsandbox.com",
+      "checked_at": "2026-11-19T18:53:41.356Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Harbour Row Stays",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stays.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://stays.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "f49fa2ed4806a0cff160a41eb440c64a182403b90310fee0a55ad4741486e176"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://stays.papsandbox.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://stays.papsandbox.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "0fc76dffb8494494f839cb044aa11f6bb4d5c9c1f710d5393e0d697c1bd82f6a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://stays.papsandbox.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://stays.papsandbox.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "d1989767944d0e300589990b102afdbd6cb267d9bd0e040748dfbd9cc527992e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations",
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "planmyvisit.to",
+      "checked_at": "2026-11-19T18:53:43.738Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "PlanMyVisit by Autoura",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://planmyvisit.to/.well-known/poppy.json",
+          "finalUrl": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "372131eb3b567710f6108edcd727c71552f071105b6512129ab47b208ec03813"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "directv.com",
+      "checked_at": "2026-11-19T18:53:45.223Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "DIRECTV",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://directv.com/.well-known/poppy.json",
+          "finalUrl": "https://www.directv.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "b2224b23854318e08b98ef36bbdbafbee51a0ac3d73fc2f7aa6f38fe9d0d0c26"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "ticketfairy.com",
+      "checked_at": "2026-11-19T18:53:47.190Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "Ticket Fairy",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ticketfairy.com/.well-known/poppy.json",
+          "finalUrl": "https://www.ticketfairy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=UTF-8",
+          "sha256": "8b3168057819ce9878892fe3a93a033a288d22f81ee375eedeee7192805cf8f1"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "gtslotcars.com",
+      "checked_at": "2026-11-19T18:53:48.894Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "GT Slot Cars",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://gtslotcars.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://gtslotcars.com/.well-known/poppy.json",
+          "finalUrl": "https://gtslotcars.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "ccfd2958152f4ec17ed3bf687c3ec560c6e4cf29d9fd65459093b21c906352dc"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "x402broker.com",
+      "checked_at": "2026-11-19T18:53:50.141Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "X402-BROKER — Universal A2A, MCP & x402 Clearinghouse",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://x402broker.com/.well-known/poppy.json",
+          "finalUrl": "https://x402broker.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "1dab3ecba066bdac5627df502faae261c2d9669ef36786ddf42e2be0b7732f3b"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": true,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "vtc.com",
+      "checked_at": "2026-11-19T18:53:51.391Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "VTC",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://vtc.com/.well-known/poppy.json",
+          "finalUrl": "https://vtc.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "4d0e47d9a6d5cf00b11fc709671f29d2d77ec30432c760bb96bd94cf38fd9ef4"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "coveragecat.com",
+      "checked_at": "2026-11-19T18:53:53.197Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "Coverage Cat",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://coveragecat.com/.well-known/poppy.json",
+          "finalUrl": "https://coveragecat.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "47b41016a265af34d84ae1aa890fbcf04b5567eb2270c96e22026a7c398090a8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "you.com",
+      "checked_at": "2026-11-19T18:53:54.456Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "You.com",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 5,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://auth.you.com/.well-known/oauth-authorization-server/v1/apps/P2jInttRMuXpyYZMbVcsc4C9Z0RT may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/0",
+          "text": "openid is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/1",
+          "text": "profile is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/2",
+          "text": "email is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/3",
+          "text": "phone is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/4",
+          "text": "offline_access is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://you.com/.well-known/poppy.json",
+          "finalUrl": "https://you.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "c6aa74b6694428600125b07366d82d3a8c05c1436ee46855ac0901da0e554261"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://you.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://you.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "121f708478bd8e5d0ac510fa4397ed64212471cff55fc7376fb569eb5df7a8b5"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://auth.you.com/.well-known/oauth-authorization-server/v1/apps/P2jInttRMuXpyYZMbVcsc4C9Z0RT",
+          "finalUrl": "https://auth.you.com/.well-known/oauth-authorization-server/v1/apps/P2jInttRMuXpyYZMbVcsc4C9Z0RT",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "138e0e913941f2acab80354571c0799d70dc95f7cdde183ab6af55b6c2a5a687"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "you.com/onboarding"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "client_credentials",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "urn:openid:params:grant-type:ciba",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          "urn:ietf:params:oauth:grant-type:token-exchange"
+        ]
+      }
+    },
+    {
+      "host": "prijsprofeet.nl",
+      "checked_at": "2026-11-19T18:53:56.313Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "PrijsProfeet",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://prijsprofeet.nl/.well-known/poppy.json",
+          "finalUrl": "https://www.prijsprofeet.nl/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "5dd24a5062bf0caf4a0a90ca62f8dffd00685ea4675e07ba671fb823e001fed7"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "prijsprofeet.be",
+      "checked_at": "2026-11-19T18:53:58.531Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "PrijsProfeet",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://prijsprofeet.be/.well-known/poppy.json",
+          "finalUrl": "https://www.prijsprofeet.be/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "280675654945401fdb55e533d378a87cb07453181c40b45706a593253c536eb4"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "account.dev.censuble.com",
+      "checked_at": "2026-11-19T18:54:01.695Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Censuble",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://account.dev.censuble.com/.well-known/poppy.json",
+          "finalUrl": "https://account.dev.censuble.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "b9d9c22adfcfd5dd2ad6e054ecd0d732f3a79649c01db83391641a9bb0a7aa5c"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "synchronyinnovationlabs.com",
+      "checked_at": "2026-11-19T18:54:03.391Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Synchrony",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://synchronyinnovationlabs.com/.well-known/poppy.json",
+          "finalUrl": "https://synchronyinnovationlabs.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "cb05eae37853f4483c037a9ce05dd7825a7107185e05813a18e193705c3a9307"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "globalresearch.ca",
+      "checked_at": "2026-11-19T18:54:05.272Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://globalresearch.ca/.well-known/poppy.json answered HTTP 403."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://globalresearch.ca/.well-known/poppy.json",
+          "finalUrl": "https://globalresearch.ca/.well-known/poppy.json",
+          "status": 403,
+          "contentType": "text/html; charset=UTF-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "vzlabnb.com",
+      "checked_at": "2026-11-19T18:54:06.447Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "VzlaBnB",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://vzlabnb.com/.well-known/poppy.json",
+          "finalUrl": "https://vzlabnb.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json;charset=utf-8",
+          "sha256": "4971b56ef630806fb548301c0ff8ec2d694c65a239a1d24e92947ec03dea1e12"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "project-1xtwb.vercel.app",
+      "checked_at": "2026-11-19T18:54:07.704Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "My B2B Store",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://project-1xtwb.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://project-1xtwb.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "b1ed5d654f312352dae363bad4d4947fb1ef32f5de645ef30e5fbfa4da55b04e"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource",
+          "finalUrl": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "5b1c353b439b3a2181e5995a2943b8e287528512ae395a4d43e7afe1ab1f527f"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "53bac6e470f8ab00079ae7c8108814b1ca9c2990936261720c8792aa3c7de184"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp",
+          "openapi"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "host": "xien63.github.io",
+      "checked_at": "2026-11-19T18:54:10.396Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Klinik Demo Sejahtera",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 2,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-content-type",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://xien63.github.io/.well-known/oauth-protected-resource is served as application/octet-stream, not application/json."
+        },
+        {
+          "id": "http-content-type",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://xien63.github.io/.well-known/oauth-authorization-server/oauth is served as application/octet-stream, not application/json."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://xien63.github.io/.well-known/poppy.json",
+          "finalUrl": "https://xien63.github.io/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "58629ad58122dd6dbbdd80e2d29fe79a55c5203aa98312ba4653917d686051c3"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://xien63.github.io/.well-known/oauth-protected-resource",
+          "finalUrl": "https://xien63.github.io/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/octet-stream",
+          "sha256": "aad638b40ecf271614c462efa87d470383f1c07a398ce5cb01fb528ced1a990b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://xien63.github.io/.well-known/oauth-authorization-server/oauth",
+          "finalUrl": "https://xien63.github.io/.well-known/oauth-authorization-server/oauth",
+          "status": 200,
+          "contentType": "application/octet-stream",
+          "sha256": "d536247e4de72e470461506170c142c5ce9e1bdf8ec25d442fd8c8aa3d7a7fbb"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": true,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "urn:ietf:params:oauth:grant-type:device_code"
+        ]
+      }
+    },
+    {
+      "host": "goodrx.com",
+      "checked_at": "2026-11-19T18:54:12.080Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 0,
+        "warning": 1,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-failed",
+          "severity": "warning",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "Fetching https://blocked.goodrx.com/ failed."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://goodrx.com/.well-known/poppy.json",
+          "finalUrl": "https://blocked.goodrx.com/"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "orbitz.com",
+      "checked_at": "2026-11-19T18:54:14.191Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.orbitz.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://orbitz.com/.well-known/poppy.json",
+          "finalUrl": "https://www.orbitz.com/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "text/html;charset=UTF-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "rocket.com",
+      "checked_at": "2026-11-19T18:54:15.698Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Rocket Mortgage",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://rocket.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://rocket.com/.well-known/poppy.json",
+          "finalUrl": "https://rocket.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "654af3017e899a32356bb30de9e7bf319cdf77d620b74e9e721a74fa5a0bb6e0"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "prijsprofeet.de",
+      "checked_at": "2026-11-19T18:54:17.074Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "PrijsProfeet",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://prijsprofeet.de/.well-known/poppy.json",
+          "finalUrl": "https://www.prijsprofeet.de/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "5c006f2c680ad6797268adf499696e16ea72e0edc67ff973d1783bbed3b8868e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "www.cliffside-retail.com",
+      "checked_at": "2026-11-19T18:54:20.190Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Cliffside Retail",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.cliffside-retail.com/.well-known/poppy.json",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "996afd51294f1a8b9e889f72a17d06656657a7b61b851fd3d4b546256acf6ccb"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "6ffb4731ce284886e28aa1b77be0292a0c446ae5ba506f55654bb0253106ae43"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "298cc40ec3310bf2f21b7abc77c3c15ca60dfdca23fd54826748b8cb60742815"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "mediated-sign-in"
+        ],
+        "browserJoin": true,
+        "grantTypes": [
+          "refresh_token",
+          "authorization_code",
+          "https://personalagentprotocol.org/grant/mediated-sign-in"
+        ]
+      }
+    },
+    {
+      "host": "poppylab.dev",
+      "checked_at": "2026-11-19T18:54:22.009Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://poppylab.dev/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppylab.dev/.well-known/poppy.json",
+          "finalUrl": "https://poppylab.dev/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "text/html; charset=utf-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "demo.poppykit.dev",
+      "checked_at": "2026-11-19T18:54:24.222Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Lantern & Loch",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://demo.poppykit.dev/.well-known/poppy.json",
+          "finalUrl": "https://demo.poppykit.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "5f97c37bf3dda4886677e8b0379725e415c5bf442e6fb78bc253602cce624c2e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "papplayground.com",
+      "checked_at": "2026-11-19T18:54:25.506Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://papplayground.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://papplayground.com/.well-known/poppy.json",
+          "finalUrl": "https://papplayground.com/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "application/json"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "papsandbox.com",
+      "checked_at": "2026-11-19T18:54:27.720Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://papsandbox.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://papsandbox.com/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "application/json"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "poppy-simulator.stacktr.ee",
+      "checked_at": "2026-11-19T18:54:29.215Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://poppy-simulator.stacktr.ee/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy-simulator.stacktr.ee/.well-known/poppy.json",
+          "finalUrl": "https://poppy-simulator.stacktr.ee/.well-known/poppy.json",
+          "status": 404
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "geico.com",
+      "checked_at": "2026-11-19T18:54:30.470Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.geico.com/.well-known/poppy.json answered HTTP 403."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://geico.com/.well-known/poppy.json",
+          "finalUrl": "https://www.geico.com/.well-known/poppy.json",
+          "status": 403,
+          "contentType": "text/html"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "rocketmortgage.com",
+      "checked_at": "2026-11-19T18:54:31.943Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "Rocket Mortgage",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.rocketmortgage.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://rocketmortgage.com/.well-known/poppy.json",
+          "finalUrl": "https://www.rocketmortgage.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "89606998e3f4a48687bdec63562a3ff364378f116e5668c29aa55e8caefd74f7"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "abilityatlas.app",
+      "checked_at": "2026-11-19T18:54:33.462Z",
+      "outcome": "invalid",
+      "declared": "0.2",
+      "checked_against": "1.0",
+      "organization": "Ability Atlas",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.2; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://abilityatlas.app/.well-known/poppy.json",
+          "finalUrl": "https://abilityatlas.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "e4eb18e7cce663ddb61d3d1fdf034498de551269b96540059d68b98a754ac1a3"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "relayshield.net",
+      "checked_at": "2026-11-19T18:54:36.048Z",
+      "outcome": "invalid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "RelayShield",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 1,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://relayshield.net/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-content-type",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://relayshield.net/.well-known/oauth-protected-resource is served as text/html; charset=utf-8, not application/json."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://relayshield.net/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "json-syntax",
+          "severity": "error",
+          "basis": "RFC",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "Unexpected character."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://relayshield.net/.well-known/poppy.json",
+          "finalUrl": "https://relayshield.net/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "dfb38fd7b1f52c2efc96d83323288cf37a351adf0c890fd031f7e6c1fe46bad5"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://relayshield.net/.well-known/oauth-protected-resource",
+          "finalUrl": "https://relayshield.net/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "text/html; charset=utf-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi",
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "saponis.app",
+      "checked_at": "2026-11-19T18:54:37.451Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Saponis",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://saponis.app/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "",
+          "text": "Nothing here uses Sessions: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://saponis.app/.well-known/poppy.json",
+          "finalUrl": "https://saponis.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "6688418576c39d8f527a9c242987202c52703261d750ab95c0c0ada127edd427"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "microradicle.com",
+      "checked_at": "2026-11-19T18:54:38.873Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "MicroRadicle",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.microradicle.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "",
+          "text": "Nothing here uses Sessions: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://microradicle.com/.well-known/poppy.json",
+          "finalUrl": "https://www.microradicle.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "c76b7830c2b6df8d199450888e63ee1e7468bfd92e8e84d36278da4669e8e19e"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "doughmatrix.com",
+      "checked_at": "2026-11-19T18:54:40.733Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "DoughMatrix",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.doughmatrix.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "",
+          "text": "Nothing here uses Sessions: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://doughmatrix.com/.well-known/poppy.json",
+          "finalUrl": "https://www.doughmatrix.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "7932cde3b0445600c486e22299dd9027ac730c79aa1fe9e65f3124acd035a417"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "improvado.io",
+      "checked_at": "2026-11-19T18:54:42.103Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "Improvado",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://improvado.io/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://improvado.io/.well-known/poppy.json",
+          "finalUrl": "https://improvado.io/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "1ad55f9cabec689695a0afc4be4648eb7152bdc8874a7e1c3c99ed2b004e470b"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "zero-slop.ai",
+      "checked_at": "2026-11-19T18:54:43.411Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Zero Slop",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://zero-slop.ai/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "prm-no-issuer",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "The domain publishes no protected resource metadata (HTTP 404), so the Company has no issuer: it offers signed-out Sessions only, and its identifier is https://zero-slop.ai."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://zero-slop.ai/.well-known/poppy.json",
+          "finalUrl": "https://zero-slop.ai/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "bda251c3a661c6a5d794fc0449714723499b3a62031d417c38f30c705ad13172"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://zero-slop.ai/.well-known/oauth-protected-resource",
+          "finalUrl": "https://zero-slop.ai/.well-known/oauth-protected-resource",
+          "status": 404,
+          "contentType": "text/html; charset=utf-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "yruz.one",
+      "checked_at": "2026-11-19T18:54:44.948Z",
+      "outcome": "invalid",
+      "declared": "0.1",
+      "checked_against": "1.0",
+      "organization": "YRUZ",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://yruz.one/.well-known/poppy.json may be cached for 172800 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.1; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://yruz.one/.well-known/poppy.json",
+          "finalUrl": "https://yruz.one/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "0297467e89aa74de281b3d161e47bab8cf3b70293b5db52a054aeffe5021b07d"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "allbirds.com",
+      "checked_at": "2026-11-19T18:54:46.308Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Allbirds",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 6,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "protocol-type-unknown",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "/agent/protocols/0/type",
+          "text": "Agents that don't know \"ucp\" skip this entry."
+        },
+        {
+          "id": "no-poppy-protocol",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "poppy",
+          "pointer": "/agent/protocols",
+          "text": "agent.protocols has no entry of type poppy."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://allbirds.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://shopify.com/.well-known/oauth-authorization-server/authentication/11044168 may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/0",
+          "text": "openid is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/1",
+          "text": "email is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/2",
+          "text": "customer-account-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/3",
+          "text": "customer-account-mcp-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/5",
+          "text": "dev.ucp.shopping.catalog.search:read is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://allbirds.com/.well-known/poppy.json",
+          "finalUrl": "https://allbirds.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "ebb8c7dc085354cf4d5a73ecdf29119ae23d2c713d769e5f1aa5d73a051f4120"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://allbirds.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://allbirds.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "0d170fb46a34289c42ff4b9e369fb19c9cd52e03d5d5ecbf60e2f8432a16fa9b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://shopify.com/.well-known/oauth-authorization-server/authentication/11044168",
+          "finalUrl": "https://shopify.com/.well-known/oauth-authorization-server/authentication/11044168",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "12e468be589f283170491a57fac503af33a932fad941b3c51682e223cdff6265"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "ucp"
+        ],
+        "extensions": [
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    },
+    {
+      "host": "gymshark.com",
+      "checked_at": "2026-11-19T18:54:48.280Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Gymshark US",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 6,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "protocol-type-unknown",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "/agent/protocols/0/type",
+          "text": "Agents that don't know \"ucp\" skip this entry."
+        },
+        {
+          "id": "no-poppy-protocol",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "poppy",
+          "pointer": "/agent/protocols",
+          "text": "agent.protocols has no entry of type poppy."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://gymshark.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://shopify.com/.well-known/oauth-authorization-server/authentication/1566146 may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/0",
+          "text": "openid is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/1",
+          "text": "email is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/2",
+          "text": "customer-account-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/3",
+          "text": "customer-account-mcp-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/5",
+          "text": "dev.ucp.shopping.catalog.search:read is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://gymshark.com/.well-known/poppy.json",
+          "finalUrl": "https://gymshark.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "b14303c2a335469f2697eb3e5a66a4c88d77f9cf8f3a5207c3f9f8cdffe17c4e"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://gymshark.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://gymshark.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "6eb72d7fdedc594f7546533eb6fc7c3c3bcda6b1b826bdddda939f3d1554c695"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://shopify.com/.well-known/oauth-authorization-server/authentication/1566146",
+          "finalUrl": "https://shopify.com/.well-known/oauth-authorization-server/authentication/1566146",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "ff5691266a95ad1d4ae9896cfa024a4c4b0d3283f0c7ff9c690f11ce2a78d0aa"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "ucp"
+        ],
+        "extensions": [
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    },
+    {
+      "host": "brooklinen.com",
+      "checked_at": "2026-11-19T18:54:50.129Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Brooklinen",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 6,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "protocol-type-unknown",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "/agent/protocols/0/type",
+          "text": "Agents that don't know \"ucp\" skip this entry."
+        },
+        {
+          "id": "no-poppy-protocol",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "poppy",
+          "pointer": "/agent/protocols",
+          "text": "agent.protocols has no entry of type poppy."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://brooklinen.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://shopify.com/.well-known/oauth-authorization-server/authentication/9517126 may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/0",
+          "text": "openid is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/1",
+          "text": "email is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/2",
+          "text": "customer-account-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/3",
+          "text": "customer-account-mcp-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/5",
+          "text": "dev.ucp.shopping.catalog.search:read is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://brooklinen.com/.well-known/poppy.json",
+          "finalUrl": "https://brooklinen.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "e42020e8390d496f7f6c74687fafc40018452c878e081610e28198a74409a9f5"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://brooklinen.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://brooklinen.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "c30b19805d5e3641cb952ebb9373679214323c579946f3a34e32b6b17c116221"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://shopify.com/.well-known/oauth-authorization-server/authentication/9517126",
+          "finalUrl": "https://shopify.com/.well-known/oauth-authorization-server/authentication/9517126",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "2a5d58888568c55ca70a7e8074e4c732b746422cf487212059554fe9c686c72c"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "ucp"
+        ],
+        "extensions": [
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    },
+    {
+      "host": "shopify.com",
+      "checked_at": "2026-11-19T18:54:51.862Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.shopify.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://shopify.com/.well-known/poppy.json",
+          "finalUrl": "https://www.shopify.com/.well-known/poppy.json",
+          "status": 404,
+          "contentType": "text/plain;charset=UTF-8"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "chargezen.com",
+      "checked_at": "2026-11-19T18:54:53.066Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Chargezen",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://chargezen.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://chargezen.com/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://mcp.chargezen.com/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://chargezen.com/.well-known/poppy.json",
+          "finalUrl": "https://chargezen.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "608fd360a1cade0bdba139e6e15d1b0442f1adf92f0e9e36bdffac894f5d3709"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://chargezen.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://chargezen.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "170e96495fa40c373e10b03ce9a47bda1564e9815e9d76a816f0406eb7b1da69"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.chargezen.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.chargezen.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "d0461de42c038dcd0fe806ab27873e11976658e06c7745125b81d61a92c029a9"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp",
+          "mcp",
+          "mcp",
+          "mcp",
+          "mcp",
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:device_code"
+        ]
+      }
+    },
+    {
+      "host": "qianyuan.ltd",
+      "checked_at": "2026-11-19T18:54:55.784Z",
+      "outcome": "invalid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "QianYuan (乾元)",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://qianyuan.ltd/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://qianyuan.ltd/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "prm-resource-mismatch",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "protected-resource",
+          "pointer": "/resource",
+          "text": "resource is \"https://qianyuan.ltd/mcp\", not https://qianyuan.ltd."
+        },
+        {
+          "id": "prm-no-issuer",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "protected-resource",
+          "pointer": "/authorization_servers",
+          "text": "The domain's protected resource metadata lists no authorization server, so the Company has no issuer: it offers signed-out Sessions only, and its identifier is https://qianyuan.ltd."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://qianyuan.ltd/.well-known/poppy.json",
+          "finalUrl": "https://qianyuan.ltd/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "f112b8049d6480b8c2b32eb9eaa24e4d2e77fcdb746efe07cdd6c55f2e6e9a6f"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://qianyuan.ltd/.well-known/oauth-protected-resource",
+          "finalUrl": "https://qianyuan.ltd/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "d511604333e55f2e2f5523679de6d18847d2561714e3ab6d875f9be8251cc8e5"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp",
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "stays.poppysandbox.dev",
+      "checked_at": "2026-11-19T18:54:57.815Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "Stays",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://stays.poppysandbox.dev/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://stays.poppysandbox.dev/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://auth.stays.poppysandbox.dev/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stays.poppysandbox.dev/.well-known/poppy.json",
+          "finalUrl": "https://stays.poppysandbox.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "1e25601f2f74785c91241a57d4495bb1b72f4b09501f63d1630141da5ec72b32"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://stays.poppysandbox.dev/.well-known/oauth-protected-resource",
+          "finalUrl": "https://stays.poppysandbox.dev/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "21c8f0029f720b4fad21c237ccd537548988e2a022f116028f5e3846ce015d81"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://auth.stays.poppysandbox.dev/.well-known/oauth-authorization-server",
+          "finalUrl": "https://auth.stays.poppysandbox.dev/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "cb22106272ef09a1e9c6b764fa03e9bbfa965122fbe3d1b391d39f3641922888"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "openapi"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "client_credentials",
+          "refresh_token",
+          "urn:openid:params:grant-type:ciba",
+          "urn:ietf:params:oauth:grant-type:device_code",
+          "urn:ietf:params:oauth:grant-type:token-exchange",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    },
+    {
+      "host": "www.geico.com",
+      "checked_at": "2026-11-19T19:00:10.173Z",
+      "outcome": "indeterminate",
+      "declared": null,
+      "checked_against": "1.0",
+      "organization": null,
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.geico.com/.well-known/poppy.json answered HTTP 403."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.geico.com/.well-known/poppy.json",
+          "finalUrl": "https://www.geico.com/.well-known/poppy.json",
+          "status": 403,
+          "contentType": "text/html"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "www.bkoc.no",
+      "checked_at": "2026-11-19T19:00:16.388Z",
+      "outcome": "valid",
+      "declared": "1.0",
+      "checked_against": "1.0",
+      "organization": "bergenkranogcargo",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.bkoc.no/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "prm-no-issuer",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "The domain publishes no protected resource metadata (HTTP 404), so the Company has no issuer: it offers signed-out Sessions only, and its identifier is https://www.bkoc.no."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.bkoc.no/.well-known/poppy.json",
+          "finalUrl": "https://www.bkoc.no/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "16417a8f29834dff19f29a396dbec6080278aace6c96b36a3c8f2aba48df5147"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://www.bkoc.no/.well-known/oauth-protected-resource",
+          "finalUrl": "https://www.bkoc.no/.well-known/oauth-protected-resource",
+          "status": 404
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "mercury.com",
+      "checked_at": "2026-11-19T19:00:28.242Z",
+      "outcome": "invalid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "Mercury",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 15,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://mercury.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is app.mercury.com, but the document was served by mercury.com."
+        },
+        {
+          "id": "http-content-type",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://app.mercury.com/.well-known/oauth-protected-resource is served as binary/octet-stream, not application/json."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://mcp.mercury.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/9",
+          "text": "reimbursements:manage is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/10",
+          "text": "ledgers:create is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/11",
+          "text": "ledgers:update is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/12",
+          "text": "ledgers:delete is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/13",
+          "text": "journal_entries:create is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/14",
+          "text": "journal_entries:update is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/15",
+          "text": "journal_entries:delete is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/16",
+          "text": "books_transactions:categorize is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/17",
+          "text": "books_categorization_rules:create is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/18",
+          "text": "books_categorization_rules:delete is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/19",
+          "text": "accrual_sources:create is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/20",
+          "text": "accrual_sources:update is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/21",
+          "text": "payment_applications:create is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/22",
+          "text": "payment_applications:delete is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://mercury.com/.well-known/poppy.json",
+          "finalUrl": "https://mercury.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "abea320f85ba2e11d50283f492273ec4524ec26939baf1ea1d8172b1fc169911"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://app.mercury.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://app.mercury.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "binary/octet-stream",
+          "sha256": "e10fa1e41311a84f4bd906beb735139acc321aa5a608e3023682eb91ba3b3a2c"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.mercury.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.mercury.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "6f687142bac078ac23dc855bcf7544d0da8c16ba5ce3b89685a18ada2f1dd5d5"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [
+          "mcp"
+        ],
+        "conversationProtocols": [],
+        "extensions": [],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "host": "byltbasics.com",
+      "checked_at": "2026-11-19T19:00:35.388Z",
+      "outcome": "invalid",
+      "declared": "0.3",
+      "checked_against": "1.0",
+      "organization": "BYLT",
+      "refused_by_pda": true,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "basis": "MUST",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.4, 1.0."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://byltbasics.com/.well-known/poppy.json",
+          "finalUrl": "https://byltbasics.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "sha256": "d0e4e96d4cf167af16b7b642be7ef92be13ce714494e3e69474b0bb31f9ce7b4"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "poppy"
+        ],
+        "extensions": [
+          "operations",
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": []
+      }
+    },
+    {
+      "host": "www.byltbasics.com",
+      "checked_at": "2026-11-19T19:00:36.807Z",
+      "outcome": "valid",
+      "declared": "0.4",
+      "checked_against": "Draft 0.4",
+      "organization": "BYLT Basics",
+      "refused_by_pda": false,
+      "counts": {
+        "error": 0,
+        "warning": 6,
+        "info": 3
+      },
+      "messages": [
+        {
+          "id": "protocol-type-unknown",
+          "severity": "info",
+          "basis": "Rule",
+          "document": "poppy",
+          "pointer": "/agent/protocols/0/type",
+          "text": "Agents that don't know \"ucp\" skip this entry."
+        },
+        {
+          "id": "no-poppy-protocol",
+          "severity": "warning",
+          "basis": "Reading",
+          "document": "poppy",
+          "pointer": "/agent/protocols",
+          "text": "agent.protocols has no entry of type poppy."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "basis": "SHOULD",
+          "document": "protected-resource",
+          "pointer": "",
+          "text": "https://www.byltbasics.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "basis": "Guides",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://shopify.com/.well-known/oauth-authorization-server/authentication/14645034 may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/0",
+          "text": "openid is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/1",
+          "text": "email is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/2",
+          "text": "customer-account-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/3",
+          "text": "customer-account-mcp-api:full is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "basis": "SHOULD",
+          "document": "oauth-metadata",
+          "pointer": "/scopes_supported/5",
+          "text": "dev.ucp.shopping.catalog.search:read is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.byltbasics.com/.well-known/poppy.json",
+          "finalUrl": "https://www.byltbasics.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "1976e32fa6e22927ed1e9b59767b3970a154538ce864e93676afc4f84e81417b"
+        },
+        {
+          "kind": "protected-resource",
+          "url": "https://www.byltbasics.com/.well-known/oauth-protected-resource",
+          "finalUrl": "https://www.byltbasics.com/.well-known/oauth-protected-resource",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "e41f65ab44ab705ebcd973c923a4c423ee5ef97c4c0e6f312027acee7c397bfd"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://shopify.com/.well-known/oauth-authorization-server/authentication/14645034",
+          "finalUrl": "https://shopify.com/.well-known/oauth-authorization-server/authentication/14645034",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "sha256": "2aafcfd561564a1e7170e0cccc089a390a82b783102f2b0b77423eee529fca96"
+        }
+      ],
+      "capabilities": {
+        "apiTypes": [],
+        "conversationProtocols": [
+          "ucp"
+        ],
+        "extensions": [
+          "ucp"
+        ],
+        "browserJoin": false,
+        "grantTypes": [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ]
+      }
+    }
+  ]
+}

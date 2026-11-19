@@ -1,0 +1,929 @@
+{
+  "version": 1,
+  "checked": "2026-11-19",
+  "method": "Manual source review: rechecked the 42 repositories from 12 November and 15 additional projects found through GitHub and implementation lists. All default-branch heads recorded; 18 were unchanged. Changed projects' READMEs were read and selected implementations' source files inspected at the recorded commit. Review labels distinguish source inspection, README claims and unchanged heads. Only Print with Poppy was executed, in isolated Docker demo mode; no third-party issues or messages were posted.",
+  "repositories": [
+    {
+      "repository": "irvinebroque/poppy-demo",
+      "head": "863ebf21a10a55e932c5028c956f13ee6b74a62a",
+      "headDate": "2026-11-08T16:56:48Z",
+      "checkedAt": "2026-11-19T18:52:52.688Z",
+      "previousHead": "863ebf21a10a55e932c5028c956f13ee6b74a62a",
+      "previousSupport": "pre-publication 0.4 draft (upstream a2ca25a, 8 Nov): no Operations 3 or Poppy-Extensions",
+      "unchangedSince12November": true,
+      "role": "Company and Personal Agent demo",
+      "version": "pre-publication 0.4 draft (upstream a2ca25a, 8 Nov): no Operations 3 or Poppy-Extensions",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "spenciefy/print-with-poppy",
+      "head": "f4b839e8d4a08dc33d7e17fd2721fae4ac8ad802",
+      "headDate": "2026-11-16T17:22:53Z",
+      "checkedAt": "2026-11-19T18:52:52.688Z",
+      "previousHead": "bd1dc43c993a3c9bf6a21626f16f5836f745cb39",
+      "previousSupport": "0.4 published",
+      "unchangedSince12November": false,
+      "role": "Company",
+      "version": "Published 0.4; Operations 3; Mediated Sign-In 1",
+      "review": "source_review_and_isolated_interop",
+      "evidence": [
+        "server/routes.ts",
+        "server/auth.ts",
+        "server/delegation.ts",
+        "docs/POPPY-0.4.md"
+      ],
+      "notes": "Only src/main.tsx and src/style.css differ from the maintained 20a3d56 pin. Current HEAD passed all 30 demo grid cells. Both public hosts passed discovery at 0.4."
+    },
+    {
+      "repository": "datalayer/personal-agent-protocol",
+      "head": "3d1463e28b4a648b18b6c44d045693277fc693e6",
+      "headDate": "2026-11-18T14:29:20Z",
+      "checkedAt": "2026-11-19T18:52:52.682Z",
+      "previousHead": "ee03a044c6c597573522076006b396d43f7412df",
+      "previousSupport": "0.4 published (SDK 0.35.0); Draft 1.0 opt-in",
+      "unchangedSince12November": false,
+      "role": "SDK, both sides (Python, TypeScript)",
+      "version": "Published 1.0 default; published 0.4 opt-in; SDK 0.37.5",
+      "review": "source_review",
+      "evidence": [
+        "protocol/UPSTREAM.md",
+        "src/profile.ts",
+        "personal_agent_protocol/profile.py",
+        "package.json"
+      ],
+      "notes": "Both roles and both languages. The retained DRAFT_* identifiers name frozen 1.0, not the current 1.1 draft. npm and PyPI both report 0.37.5. Not run against PDA in this refresh."
+    },
+    {
+      "repository": "richardanaya/pi-poppy",
+      "head": "11ea10630180740f16ccd507b8f90f69870c7e32",
+      "headDate": "2026-10-10T03:55:17Z",
+      "checkedAt": "2026-11-19T18:52:52.688Z",
+      "previousHead": "11ea10630180740f16ccd507b8f90f69870c7e32",
+      "previousSupport": "0.1",
+      "unchangedSince12November": true,
+      "role": "Personal Agent (pi extension)",
+      "version": "0.1",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "akshay5995/poppyseed",
+      "head": "6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+      "headDate": "2026-10-27T15:36:46Z",
+      "checkedAt": "2026-11-19T18:52:52.698Z",
+      "previousHead": "6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+      "previousSupport": "earlier 0.3 draft (Session Tokens)",
+      "unchangedSince12November": true,
+      "role": "Company SDK",
+      "version": "earlier 0.3 draft (Session Tokens)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "personal-agent-protocol/personal-agent-protocol",
+      "head": "589743afa56ee02bea71d1509c29b0b4ca5b3e50",
+      "headDate": "2026-11-18T14:30:27Z",
+      "checkedAt": "2026-11-19T18:52:52.682Z",
+      "previousHead": "ad20217d3cb97f50345d41748a393600d6e8c779",
+      "previousSupport": "0.4 published (frozen at ed47408); Draft 1.0 in progress since 272cab0",
+      "unchangedSince12November": false,
+      "role": "specification, site and Company kit",
+      "version": "Published 1.0; 1.1 is a separate draft",
+      "review": "source_review",
+      "evidence": [
+        "content/versions/versions.json",
+        "content/versions/1.0/spec.mdx",
+        "kit/company/validate/catalog.ts"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "everruns/everruns",
+      "head": "6b54feae5b0bad826314a31f2e9a90cb98dcfd93",
+      "headDate": "2026-11-19T18:48:02Z",
+      "checkedAt": "2026-11-19T18:52:52.698Z",
+      "previousHead": "4d9e050077a345b0851a170021e79781642b6646",
+      "previousSupport": "0.1 (Poppy code unchanged since 11 October)",
+      "unchangedSince12November": false,
+      "role": "agent platform, both sides",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-authkit",
+      "head": "19c2827a1928734cda93d3e07a4f122675efa3f9",
+      "headDate": "2026-11-19T13:41:56Z",
+      "checkedAt": "2026-11-19T18:52:53.344Z",
+      "previousHead": "0851daa97ba5be1331f3a9d9dc386f62503ddf50",
+      "previousSupport": "28 October 0.3 text (pap_dlg)",
+      "unchangedSince12November": false,
+      "role": "Company SDK",
+      "version": "Draft 0.3",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-agent",
+      "head": "b10aa64b3413b1f96cecaf865fe8003b9b37f674",
+      "headDate": "2026-11-19T13:57:09Z",
+      "checkedAt": "2026-11-19T18:52:53.116Z",
+      "previousHead": "cd46fc2bfff06d37a6269e64046f3deea5298b17",
+      "previousSupport": "28 October 0.3 text (pap_dlg)",
+      "unchangedSince12November": false,
+      "role": "Personal Agent",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "ketanbj/openavt",
+      "head": "e8f1e7edd7e82e1b07ddb013e446ecd97dede38d",
+      "headDate": "2026-10-31T22:21:51Z",
+      "checkedAt": "2026-11-19T18:52:54.366Z",
+      "previousHead": "e8f1e7edd7e82e1b07ddb013e446ecd97dede38d",
+      "previousSupport": "0.1",
+      "unchangedSince12November": true,
+      "role": "research tooling",
+      "version": "0.1",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "rbirkby/Ilmer.org",
+      "head": "bbfc402ae8bc6ab98698dd630a0359a9fea91cbc",
+      "headDate": "2026-11-15T22:15:06Z",
+      "checkedAt": "2026-11-19T18:52:53.901Z",
+      "previousHead": "0f91926a0bbd87109738d6eb8433f9400796d24d",
+      "previousSupport": "0.1 (Poppy code unchanged)",
+      "unchangedSince12November": false,
+      "role": "Company",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "timothyohare/personal-agent-protocol",
+      "head": "d090c34bf0b06df58626da736af8725bf63bc890",
+      "headDate": "2026-11-15T10:09:16Z",
+      "checkedAt": "2026-11-19T18:52:54.189Z",
+      "previousHead": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+      "previousSupport": "0.1",
+      "unchangedSince12November": false,
+      "role": "Company and Personal Agent demo",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "akshay5995/poppy-agent-demo",
+      "head": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+      "headDate": "2026-10-16T14:43:18Z",
+      "checkedAt": "2026-11-19T18:52:54.871Z",
+      "previousHead": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+      "previousSupport": "0.1",
+      "unchangedSince12November": true,
+      "role": "Personal Agent",
+      "version": "0.1",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "allowfy/allowfy-check",
+      "head": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+      "headDate": "2026-10-20T19:11:24Z",
+      "checkedAt": "2026-11-19T18:52:54.509Z",
+      "previousHead": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+      "previousSupport": "0.2",
+      "unchangedSince12November": true,
+      "role": "Company checker",
+      "version": "0.2",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "ora/poppy-ax",
+      "head": "47663cb45695ad39d0df01153f151eb2ecd34ee3",
+      "headDate": "2026-11-15T23:56:42Z",
+      "checkedAt": "2026-11-19T18:52:54.788Z",
+      "previousHead": "c2793e0bfd0283a3bc87c1df38df5b32883fddd0",
+      "previousSupport": "guide follows Draft 1.0; no protocol implementation",
+      "unchangedSince12November": false,
+      "role": "guide and checker front end",
+      "version": "Guide and checker catalog for 1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Metadata checking and guidance, not an authenticated interop result."
+    },
+    {
+      "repository": "Flaxscrip/poppy-test-agent",
+      "head": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+      "headDate": "2026-10-23T11:09:08Z",
+      "checkedAt": "2026-11-19T18:52:55.855Z",
+      "previousHead": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+      "previousSupport": "no protocol code",
+      "unchangedSince12November": true,
+      "role": "test agent keys for the official validator",
+      "version": "no protocol code",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "ohartwig/poppy",
+      "head": "7992d2a9e904d24debb4829868cd7a13d6b8b5a5",
+      "headDate": "2026-11-18T20:30:55Z",
+      "checkedAt": "2026-11-19T18:52:55.885Z",
+      "previousHead": "894def4beba5d84f030f4bbeda1fdda82cda1d9f",
+      "previousSupport": "0.2",
+      "unchangedSince12November": false,
+      "role": "Company SDK (PHP)",
+      "version": "0.2",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "kidkuddy/poppy-cli",
+      "head": "0a6dab5560083824d7ac3908ada84cca6683e1fa",
+      "headDate": "2026-10-25T15:40:44Z",
+      "checkedAt": "2026-11-19T18:52:56.439Z",
+      "previousHead": "0a6dab5560083824d7ac3908ada84cca6683e1fa",
+      "previousSupport": "0.2",
+      "unchangedSince12November": true,
+      "role": "Personal Agent CLI",
+      "version": "0.2",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "ohartwig/sylius-poppy",
+      "head": "61b2f1b03c9b74714157af7c5a82a7961d7d1e59",
+      "headDate": "2026-11-19T00:44:08Z",
+      "checkedAt": "2026-11-19T18:52:56.064Z",
+      "previousHead": "10d3f796792b60f5d732efb13c5bfe9cfcb1536e",
+      "previousSupport": "0.2",
+      "unchangedSince12November": false,
+      "role": "Company (Sylius)",
+      "version": "0.2",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "JaviChulvi/awesome-poppy",
+      "head": "1fdc20598524d81efd68ad04dcd92abf47becfa8",
+      "headDate": "2026-11-15T19:15:45Z",
+      "checkedAt": "2026-11-19T18:52:55.836Z",
+      "previousHead": "8cdd4d2154e23d947d95c75f4a1f69f04ab2e386",
+      "previousSupport": "list; predates 0.4's publication",
+      "unchangedSince12November": false,
+      "role": "Directory",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Some version summaries still describe earlier drafts."
+    },
+    {
+      "repository": "LMol-4/poppykit-client",
+      "head": "8bce3a145354d235018c5b7ad46b8185ee65907f",
+      "headDate": "2026-11-02T10:31:07Z",
+      "checkedAt": "2026-11-19T18:52:56.980Z",
+      "previousHead": "8bce3a145354d235018c5b7ad46b8185ee65907f",
+      "previousSupport": "28 October 0.3 text (pap_dlg, Operations 2)",
+      "unchangedSince12November": true,
+      "role": "Personal Agent SDK",
+      "version": "28 October 0.3 text (pap_dlg, Operations 2)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "authlete/poppy-company",
+      "head": "3d5b8d327300cc12cc05856a5f2dc77e84246434",
+      "headDate": "2026-11-17T06:08:56Z",
+      "checkedAt": "2026-11-19T18:52:57.692Z",
+      "previousHead": "f26e7008a5c169491e43b215ba42d2cae4a22751",
+      "previousSupport": "0.3 published; lists 0.4 in supported_versions pointing at the same 0.3 document",
+      "unchangedSince12November": false,
+      "role": "Company",
+      "version": "1.0",
+      "review": "source_review",
+      "evidence": [
+        "src/config.ts",
+        "src/poppy/metadata.ts"
+      ],
+      "notes": "Default Company declares 1.0. The public stays.poppysandbox.dev discovery chain also passed at 1.0. No authenticated journey tested."
+    },
+    {
+      "repository": "descope/poppy-agent",
+      "previousRepository": "descope/poppy-js",
+      "head": "3c33139a767fe36cebd259f9ad5355d58718c0f0",
+      "headDate": "2026-11-18T20:30:04Z",
+      "checkedAt": "2026-11-19T18:52:57.586Z",
+      "previousHead": "167ae80bd56516d26570d1035f0b3df14cd3ec06",
+      "previousSupport": "0.3 published (7205250); 0.4 in open PR #15",
+      "unchangedSince12November": false,
+      "role": "Personal Agent SDK and agent conformance suite",
+      "version": "1.0, 0.4 and 0.3; package.json version 1.0.0",
+      "review": "source_review",
+      "evidence": [
+        "src/discovery.ts",
+        "src/oauth.ts",
+        "README.md",
+        "package.json"
+      ],
+      "notes": "Renamed from descope/poppy-js. SUPPORTED_PROTOCOL_VERSIONS names all three published versions. Public npm lookup of @descope/poppy-agent returned 404. Not executed here."
+    },
+    {
+      "repository": "ohartwig/typo3-poppy",
+      "head": "6513f5e2658a3ddea06f7884c785543042674220",
+      "headDate": "2026-11-19T00:46:41Z",
+      "checkedAt": "2026-11-19T18:52:56.032Z",
+      "previousHead": "60bfbb35fa72a2dd4b8a7e27e7ce1e98e129b0b9",
+      "previousSupport": "0.2",
+      "unchangedSince12November": false,
+      "role": "Company (TYPO3)",
+      "version": "0.2",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "LMol-4/poppykit-server",
+      "head": "ad1c5b2cb0b712935f9533a46fef61666afac4f7",
+      "headDate": "2026-11-02T10:31:09Z",
+      "checkedAt": "2026-11-19T18:52:57.522Z",
+      "previousHead": "ad1c5b2cb0b712935f9533a46fef61666afac4f7",
+      "previousSupport": "28 October 0.3 text (pap_dlg, Operations 2)",
+      "unchangedSince12November": true,
+      "role": "Company SDK",
+      "version": "28 October 0.3 text (pap_dlg, Operations 2)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "authlete/poppy-agent-playground",
+      "head": "6c47e92e2b719202cf346d99a3048b6a7e2ad39e",
+      "headDate": "2026-11-16T18:35:23Z",
+      "checkedAt": "2026-11-19T18:52:58.042Z",
+      "previousHead": "8848030e7cc9a09b324bd5bb948d19d7d2264756",
+      "previousSupport": "0.3 published",
+      "unchangedSince12November": false,
+      "role": "Personal Agent playground",
+      "version": "1.0 and 0.3 in locally patched vendored client",
+      "review": "source_review",
+      "evidence": [
+        "vendor/poppy-js/PATCHES.md",
+        "vendor/poppy-js/dist/discovery.js",
+        "vendor/poppy-js/dist/session.js"
+      ],
+      "notes": "The playground documents local changes to an older 0.3 SDK for PAR, discovery and version headers. This is not a full independent final-version conformance result."
+    },
+    {
+      "repository": "AgentConnect/service-agent",
+      "head": "72d32a8c97d62a5bbf2ba0d8266923a7177668ed",
+      "headDate": "2026-11-13T01:25:30Z",
+      "checkedAt": "2026-11-19T18:52:58.137Z",
+      "previousHead": "868fc0a261bb80b99ea08efcf98d5f2062f9bff0",
+      "previousSupport": "0.3 published, signed-out Sessions only",
+      "unchangedSince12November": false,
+      "role": "Company",
+      "version": "PAP 0.3, signed-out",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "datalayer/agent-runtimes",
+      "head": "a4ffaaa35513375b0859e60c483569e2f4461819",
+      "headDate": "2026-11-19T17:40:29Z",
+      "checkedAt": "2026-11-19T18:52:58.660Z",
+      "previousHead": "de2bc86d1310ec83d672d89ef8ec0fbaa326fa0a",
+      "previousSupport": "pre-publication 0.4 draft (Datalayer SDK 0.32)",
+      "unchangedSince12November": false,
+      "role": "agent platform, both sides",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "diegopacheco/ai-playground",
+      "head": "47a464c1f16c314ba2ae75703adf5df802e1f5e3",
+      "headDate": "2026-11-18T16:01:59Z",
+      "checkedAt": "2026-11-19T18:52:58.756Z",
+      "previousHead": "43693cdec53c03c2d51da4c49deb707a4549aed8",
+      "previousSupport": "pre-publication 0.4 draft (6 November); Operations 3 not checked",
+      "unchangedSince12November": false,
+      "role": "Company and browser agent proof of concept",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "mpuig/poppylab",
+      "head": "0ed7d46de181f90fdf957e318a3ca7597167e440",
+      "headDate": "2026-11-04T16:27:42Z",
+      "checkedAt": "2026-11-19T18:52:58.964Z",
+      "previousHead": "0ed7d46de181f90fdf957e318a3ca7597167e440",
+      "previousSupport": "0.3 published",
+      "unchangedSince12November": true,
+      "role": "two Companies and a Personal Agent test bench",
+      "version": "0.3 published",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "AgentConnect/dsh-pap",
+      "head": "d705fbf08fe2e6088afbb2b2a0c6b444978f6c97",
+      "headDate": "2026-11-19T12:53:02Z",
+      "checkedAt": "2026-11-19T18:52:58.127Z",
+      "previousHead": "fc5fbb98583d4d5d0d7112a4a6c2b5bb779b1480",
+      "previousSupport": "0.3 published (6fb46d3)",
+      "unchangedSince12November": false,
+      "role": "Personal Agent plugin",
+      "version": "PAP 1.0",
+      "review": "source_review",
+      "evidence": [
+        "README.md",
+        "src/discovery.ts",
+        "src/client.ts"
+      ],
+      "notes": "Client for DeepSeek Harness with local reusable identity. Not executed here."
+    },
+    {
+      "repository": "auto-agent-protocol/auto-agent-protocol",
+      "head": "90865ef83496b059ab3570a5914c1bfaae435b46",
+      "headDate": "2026-11-19T18:08:35Z",
+      "checkedAt": "2026-11-19T18:52:58.362Z",
+      "previousHead": "2dd71bce4e7f3c02f445246aee32f35a765802ac",
+      "previousSupport": "0.3 published (6fb46d3)",
+      "unchangedSince12November": false,
+      "role": "domain specification with a Poppy binding",
+      "version": "AAP 4.0 declares a PAP 1.0 binding",
+      "review": "binding_documentation",
+      "evidence": [
+        "README.md",
+        "docs/personal-agent-protocol.md"
+      ],
+      "notes": "Automotive binding and reference implementation claims. Its conformance assertion was not independently tested here."
+    },
+    {
+      "repository": "techsaurabh-394/haat-gateway",
+      "head": "94ff5896146c5417781cbc1ce6f675e5d9eda651",
+      "headDate": "2026-11-10T07:18:22Z",
+      "checkedAt": "2026-11-19T18:52:59.767Z",
+      "previousHead": "94ff5896146c5417781cbc1ce6f675e5d9eda651",
+      "previousSupport": "28 October 0.3 text (pap_dlg)",
+      "unchangedSince12November": true,
+      "role": "Company gateway",
+      "version": "28 October 0.3 text (pap_dlg)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "TryGeoSuite/poppy-json",
+      "head": "316d03465a2fd295764cbcf459ae1bdf73be7a08",
+      "headDate": "2026-11-04T08:21:41Z",
+      "checkedAt": "2026-11-19T18:53:00.431Z",
+      "previousHead": "316d03465a2fd295764cbcf459ae1bdf73be7a08",
+      "previousSupport": "0.3 (discovery only)",
+      "unchangedSince12November": true,
+      "role": "poppy.json checker",
+      "version": "0.3 (discovery only)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "curtismu7/poppy-agent-tester-LAB",
+      "head": "162751c17aca31b5043a0d083f6d8b4c872a0b5f",
+      "headDate": "2026-11-19T17:35:41Z",
+      "checkedAt": "2026-11-19T18:53:00.165Z",
+      "previousHead": "43860693c0da8dadf1cfd095e8b1e5f66a8c4011",
+      "previousSupport": "28 October 0.3 text (pap_dlg)",
+      "unchangedSince12November": false,
+      "role": "Personal Agent tester",
+      "version": "1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Agent-side lab for a configured OAuth environment; not run."
+    },
+    {
+      "repository": "curtismu7/AI-DEMO2",
+      "head": "2d88a3af9ce4974197df939f30985ed97cd2d2ba",
+      "headDate": "2026-11-19T17:20:07Z",
+      "checkedAt": "2026-11-19T18:53:00.309Z",
+      "previousHead": "948a1aa16ac671387dafce473941bc3ac8216b90",
+      "previousSupport": "28 October 0.3 text (pap_dlg)",
+      "unchangedSince12November": false,
+      "role": "Company routes in a larger demo",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "miguel-elizalde/beehive",
+      "previousRepository": "melizalde-ds/beehive",
+      "head": "3dc316ed0f96e12f2b45252cb33d709adc46191f",
+      "headDate": "2026-11-07T20:09:38Z",
+      "checkedAt": "2026-11-19T18:53:00.623Z",
+      "previousHead": "3dc316ed0f96e12f2b45252cb33d709adc46191f",
+      "previousSupport": "its own pre-0.2 shape",
+      "unchangedSince12November": true,
+      "role": "Company (hackathon)",
+      "version": "its own pre-0.2 shape",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "neos-wave/service-handshake-pap-extension",
+      "head": "1bda0951fd57c1440a6be425555896c50a9af54f",
+      "headDate": "2026-11-02T16:05:12Z",
+      "checkedAt": "2026-11-19T18:53:01.335Z",
+      "previousHead": "1bda0951fd57c1440a6be425555896c50a9af54f",
+      "previousSupport": "0.3, Operations 2 (proposal only)",
+      "unchangedSince12November": true,
+      "role": "extension proposal",
+      "version": "0.3, Operations 2 (proposal only)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "tusharck/poppy-validator",
+      "head": "ef7544f94195f2cc274ef0d10d0bb1379abebbe2",
+      "headDate": "2026-10-13T15:24:21Z",
+      "checkedAt": "2026-11-19T18:53:01.809Z",
+      "previousHead": "ef7544f94195f2cc274ef0d10d0bb1379abebbe2",
+      "previousSupport": "0.1",
+      "unchangedSince12November": true,
+      "role": "poppy.json linter",
+      "version": "0.1",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "turbo998/agentic-commerce-lab",
+      "head": "c59f69a63b7d745105342eb0774d66acb6874ee7",
+      "headDate": "2026-11-18T21:07:48Z",
+      "checkedAt": "2026-11-19T18:53:01.582Z",
+      "previousHead": "36aacd244f51a50081f6d0ac8691b3a49b4243fa",
+      "previousSupport": "research notes on 0.3",
+      "unchangedSince12November": false,
+      "role": "research",
+      "version": null,
+      "review": "head_and_readme_only",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "rahulsinghai/poppy-demo",
+      "head": "2da922e832c554cee7fcbcc05977ec0ab458c961",
+      "headDate": "2026-11-06T01:51:34Z",
+      "checkedAt": "2026-11-19T18:53:01.896Z",
+      "previousHead": "2da922e832c554cee7fcbcc05977ec0ab458c961",
+      "previousSupport": "no code (documents only)",
+      "unchangedSince12November": true,
+      "role": "documents",
+      "version": "no code (documents only)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "abbaspour/poppy-bash",
+      "head": "66a5311b000da5f66ee1341a039fbb3e35894bd2",
+      "headDate": "2026-11-18T07:50:29Z",
+      "checkedAt": "2026-11-19T18:53:02.247Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Personal Agent in Bash",
+      "version": "1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "madduajay/shop",
+      "head": "ac320815e31967512973fb7983f0bdab17e4fbf7",
+      "headDate": "2026-10-29T04:29:03Z",
+      "checkedAt": "2026-11-19T18:53:00.568Z",
+      "previousHead": "ac320815e31967512973fb7983f0bdab17e4fbf7",
+      "previousSupport": "0.2 (vendored Datalayer SDK; paths only read)",
+      "unchangedSince12November": true,
+      "role": "Company",
+      "version": "0.2 (vendored Datalayer SDK; paths only read)",
+      "review": "unchanged_source_head",
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "repository": "brosenberger/module-poppy",
+      "head": "815fa2a711c96dcad22f060d9a291a4877a38534",
+      "headDate": "2026-11-19T18:12:57Z",
+      "checkedAt": "2026-11-19T18:53:03.217Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Magento 2 discovery module",
+      "version": "1.0 discovery",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Publishing discovery is not a complete Company implementation."
+    },
+    {
+      "repository": "vishkaty/poppy-agent-conformance",
+      "head": "aac0ec69f608f9843681d466b617dbc67f218e17",
+      "headDate": "2026-11-18T22:01:30Z",
+      "checkedAt": "2026-11-19T18:53:03.547Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Personal Agent request-log checker",
+      "version": "Published 1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "27 documented checks. The README explicitly excludes root-key verification and Company testing; not run against PDA here."
+    },
+    {
+      "repository": "ofershap/poppy-go",
+      "head": "ceef9ea383e2f1fcc18b1bbaa3cf15574d9367b7",
+      "headDate": "2026-11-14T11:27:34Z",
+      "checkedAt": "2026-11-19T18:53:02.776Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Go Company-side primitives",
+      "version": "Targets 1.0; README still calls it a draft",
+      "review": "source_review",
+      "evidence": [
+        "README.md",
+        "clientassert/clientassert.go",
+        "poppyjson/poppyjson_test.go"
+      ],
+      "notes": "Five-minute default assertion acceptance and 1.0 documents. No independent final-version audit or PDA grid run."
+    },
+    {
+      "repository": "abbaspour/poppy-sample-company-cloudflare-auth0",
+      "head": "099f494901d0a13d0c072211a2edf7c76805c5c0",
+      "headDate": "2026-11-18T04:04:48Z",
+      "checkedAt": "2026-11-19T18:53:03.115Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Company example for Cloudflare Workers and Auth0",
+      "version": "1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "pimvanoerle/poppy-agent",
+      "head": "0c2ee9ac338db4f7e19fbeeebb287b874fc959a5",
+      "headDate": "2026-11-15T12:39:05Z",
+      "checkedAt": "2026-11-19T18:53:04.131Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Early agent project",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "README says v0.0.1 and very early; wire version not established by this review."
+    },
+    {
+      "repository": "SecSimply/poppyseed",
+      "head": "1240f37b37669511ce97c7203042d4934cfe40ba",
+      "headDate": "2026-11-14T11:57:27Z",
+      "checkedAt": "2026-11-19T18:53:03.871Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Next.js Company integration and checker",
+      "version": "Draft 0.3",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "NHTanvir/pollen",
+      "head": "539c02a2b0b4dcd91527d913a3bd1e81af198598",
+      "headDate": "2026-11-17T15:57:13Z",
+      "checkedAt": "2026-11-19T18:53:04.772Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Discovery checker",
+      "version": "1.0 discovery",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "gangjig/poppy-probe",
+      "head": "f65622e6bfde9a0f009397035e605edf97894e96",
+      "headDate": "2026-11-16T13:30:19Z",
+      "checkedAt": "2026-11-19T18:53:05.184Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Discovery probe",
+      "version": "1.0 discovery",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "curtismu7/poppy-verification-LAB",
+      "head": "43febea218ec810e5dd7ca587a4204bef26ef869",
+      "headDate": "2026-11-19T16:05:46Z",
+      "checkedAt": "2026-11-19T18:53:05.115Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Company and issuer verification lab",
+      "version": "Published 1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Not run against PDA."
+    },
+    {
+      "repository": "ArielSmoliar/poppy-execution-controls",
+      "head": "9a561232079f5d6d97648dc8c59c67e2c2471815",
+      "headDate": "2026-11-15T02:58:17Z",
+      "checkedAt": "2026-11-19T18:53:05.274Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Execution-control evaluation library",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Adjacent controls; does not claim complete Poppy interoperability."
+    },
+    {
+      "repository": "ZiMing-X/wishos-core",
+      "head": "77f47f3e7fa6b6437ce1460ab6b6e13cbf6629b6",
+      "headDate": "2026-11-18T07:00:17Z",
+      "checkedAt": "2026-11-19T18:53:05.734Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Adjacent DSH workflow tooling",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "Bot-Shield/poppy-extensions",
+      "head": "3cb7e936064526ed2691d35c6a1df4a7a31bced3",
+      "headDate": "2026-11-18T20:16:46Z",
+      "checkedAt": "2026-11-19T18:53:05.710Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Extension proposals and prototype",
+      "version": "Third-party extension drafts for 1.0",
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "datalayer-externals/awesome-poppy",
+      "head": "1fdc20598524d81efd68ad04dcd92abf47becfa8",
+      "headDate": "2026-11-15T19:15:45Z",
+      "checkedAt": "2026-11-19T18:53:06.380Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Directory mirror",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    },
+    {
+      "repository": "ofershap/awesome-poppy",
+      "head": "6d316d512aaad21e086077ed720a8a9ba0f3f09d",
+      "headDate": "2026-11-13T20:44:57Z",
+      "checkedAt": "2026-11-19T18:53:06.712Z",
+      "previousHead": null,
+      "previousSupport": null,
+      "unchangedSince12November": false,
+      "role": "Directory fork",
+      "version": null,
+      "review": "readme_claim",
+      "evidence": [
+        "README.md"
+      ],
+      "notes": "Current wire support was not established; the previous support field remains a dated observation."
+    }
+  ],
+  "unavailableLinks": [
+    {
+      "repository": "descope/poppy-conformance",
+      "source": "descope/poppy-agent README.md",
+      "result": "Public GitHub repository and API lookup returned 404; no conformance result inferred."
+    }
+  ]
+}
