@@ -1,6 +1,6 @@
 # How we test against Companies
 
-A Personal Agent can only be tested against a Company, and the tests need one they can sign in to, buy from and break without anyone being harmed. So we built one: the mock Company in [`test/mock-company/`](../test/mock-company). It is written from the draft, records every departure from it by name, and refuses what the draft tells a Company to refuse. Most of what this page describes exists to keep that mock honest, because a test is only as good as the Company it runs against.
+A Personal Agent can only be tested against a Company, and the tests need one they can sign in to, buy from and break without anyone being harmed. So we built one: the mock Company in [`test/mock-company/`](../test/mock-company). It implements the pinned 0.4 and published 1.0 specifications, records departures by name, and refuses what the applicable version tells a Company to refuse. Most of what this page describes exists to keep that mock honest, because a test is only as good as the Company it runs against.
 
 This page explains the approach. The interop harness's contract is [interop-spec.md](interop-spec.md), how checks become failures or warnings is [conformance-levels.md](conformance-levels.md), and the page for other projects' maintainers is [testing-with-us.md](testing-with-us.md).
 
@@ -10,7 +10,7 @@ The mock is one implementation of the Company side: discovery documents, OAuth m
 
 Every check it makes records exactly one id from [`test/mock-company/violations.ts`](../test/mock-company/violations.ts), as `[id] detail`. Each id's description starts with its basis: `MUST`, `RFC` or `Rule` for a requirement, `SHOULD` or `Guides` for a recommendation, and `Reading` for our answer to an open question. The basis decides the level everywhere. A requirement broken is a failure, and anything else is a warning.
 
-What the mock records is its verdict. Whether it also refuses the request is its behaviour, and the two are separate. It refuses where the draft gives it an error to send, and where a recommendation guards against replay, forgery or a repeated write.
+What the mock records is its verdict. Whether it also refuses the request is its behaviour, and the two are separate. It refuses where the specification gives it an error to send, and where a recommendation guards against replay, forgery or a repeated write.
 
 ## Keeping the mock honest
 
@@ -18,7 +18,7 @@ Four checks stand between a bug in the mock and a test that passes for the wrong
 
 1. **Tamper rows.** `TAMPERS` in [`test/mock-company.test.ts`](../test/mock-company.test.ts) drives the mock with hand-made requests, never our client. Each row breaks one thing in an otherwise correct request and expects exactly one violation id. A check that stops firing fails a named row.
 2. **The catalogue test.** The same file checks that every id in `violations.ts` appears in the mock's source and has a tamper row. An id nobody tests can't be added quietly.
-3. **A second client.** Our client and our mock were written by the same people, so a misreading they share passes every test. [`test/hypothesis/`](../test/hypothesis) holds an independent Poppy client in Python, written from the draft rather than ported from `src/poppy`, and five stateful, model-based Hypothesis tests that drive it against the mock. It runs locally, after a change to the draft or a large change to the mock, and not in CI.
+3. **A second client.** Our client and our mock were written by the same people, so a misreading they share passes every test. [`test/hypothesis/`](../test/hypothesis) holds an independent Poppy client in Python, written from the protocol text rather than ported from `src/poppy`, and six stateful, model-based Hypothesis tests that drive it against the mock. It runs locally, after a specification change or a large change to the mock, and not in CI.
 4. **The maintainers' validator.** The [pinned 0.4 kit](../spec/company-kit-2026-11-11/README.md) runs unchanged over local HTTPS against the mock serving 0.4 alone, and the [published 1.0 kit](../spec/company-kit-2026-11-19/README.md) against the mock serving 1.0 alone, in its lenient, strict, Bearer and issuerless profiles. CI preserves the raw results and checks them against the reviewed findings ([0.4](../test/company-kit/reviewed-findings-0.4.json), [1.0](../test/company-kit/reviewed-findings-1.0.json)): the documented DPoP prerequisite findings, accepted controls and absent-feature skips. The 0.3 kit, which also checked the hosted dummy Company's handlers, stays pinned as history ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)); its [29 October review](company-kit-review.md) holds the last manual checklist review. The old 0.2 Docker lanes remain historical.
 
 A new check therefore lands with three things: the check in the mock, its id with a basis in `violations.ts`, and a tamper row. The catalogue test fails until all three are there.

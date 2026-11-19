@@ -79,7 +79,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/client.ts",
       "evidence": "test/poppy-1.0.test.ts",
-      "notes": "Sign-in initiation omits resource. The stored refresh grant is not resource-bound; later token requests name the selected verified service. A final-1.0 regression signs in once, enables a service afterward, and obtains API and MCP tokens without another authorization-code exchange."
+      "notes": "Sign-in initiation omits resource. The stored refresh grant is not resource-bound; later token requests name the selected verified service. A final-1.0 regression signs in while MCP is absent, then advertises MCP and a distinct API resource, expires the discovery cache, and obtains API and MCP tokens without another authorization-code exchange."
     },
     {
       "change": "Clearing context",
@@ -93,7 +93,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy-1.0.test.ts",
-      "notes": "A message with any role but user is the Company's content, under both versions, since dropping Company content isn't safer under 0.4. An author.type other than human was already read as the agent's. In a 1.x conversation a stream event with an SSE name other than working or text-delta, or none, is skipped; a 0.4 conversation still reads one, as before. An error code the agent doesn't know was already handled by its HTTP status. The mock can stream such an event (laterStreamEvent). The Company ignoring author fields on our messages needs nothing from us: we send only author.type."
+      "notes": "A message with any role but user is the Company's content, under both versions, since dropping Company content isn't safer under 0.4. An author.type other than human was already read as the agent's. In a 1.x conversation unknown SSE event names are skipped; unnamed/default message events, working and text-delta are handled; a 0.4 conversation still reads one, as before. An error code the agent doesn't know was already handled by its HTTP status. The mock can stream such an event (laterStreamEvent). The Company ignoring author fields on our messages needs nothing from us: we send only author.type."
     },
     {
       "change": "What working means",
@@ -107,7 +107,7 @@
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
       "evidence": "test/poppy-1.0.test.ts",
-      "notes": "Unknown authorization errors follow 8.11 and 5.4: sign the Session in again for the event’s scopes, using a refresh grant that covers them or asking the User to sign in. The client already refreshes an adequate grant for known and unknown errors. Tests verify fresh token requests, no duplicate accepted message and no unnecessary consent prompt."
+      "notes": "Unknown authorization errors follow 8.11 and 5.4: sign the Session in again for the event’s scopes, using a refresh grant that covers them or asking the User to sign in. The client already refreshes an adequate grant for known and unknown errors. Tests verify fresh token requests, no duplicate accepted message and no unnecessary consent prompt when the grant is adequate. When scopes are missing, both known and unknown errors lead through User consent for all still-needed scopes and continue the original conversation."
     },
     {
       "change": "Lookalike domains",
@@ -128,7 +128,7 @@
       "disposition": "Guidance",
       "implementation": "src/poppy/signin.ts",
       "evidence": "spec/version-1.0-retrieved-2026-11-19/pages/1.0-mediated-sign-in.md",
-      "notes": "Publication establishes the extension retirement dates; it changes no endpoint fields. Mediated Sign-In 1 remains supported without changing User consent or credential handling."
+      "notes": "The final text records a planned retirement on 17 March 2027; it changes no endpoint fields. Mediated Sign-In 1 remains supported without changing User consent or credential handling."
     },
     {
       "change": "Unconfirmed company names",
