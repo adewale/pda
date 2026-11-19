@@ -1,63 +1,73 @@
 # The Poppy ecosystem
 
-A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), updated **12 November 2026**. Each observation and test result keeps its own date. The historical full grid was run on **17 October** at **13 October** pins. Refresh on demand for a specific integration decision; [the last section](#how-to-update-this-map) describes the scope.
+A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), updated **19 November 2026** by a manual refresh. This review rechecked 80 public Company hosts and 57 repository heads, and ran the current Print with Poppy source through the isolated interop grid. Directory totals, source claims, discovery results and executed journeys are identified separately. Earlier evidence keeps its original date.
 
-This page owns current ecosystem observations. The [frozen implementation catalogue](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/implementations.md) preserves the earlier licence and maturity survey. Historical [implementation findings](history/poppy-issues.md) and [interop design](history/interop-testing.md) retain their recorded revisions. For the protocol we implement, use the [0.4 issue list](poppy-0.4-issues.md), [our readings](readings.md), the [harness contract](interop-spec.md), and [current verification](poppy-0.4-conformance.md#current-verification). Other dated reports are in [history](history/README.md).
-
-**Historical method (12–13 October).** Read-only: GitHub (repositories, code, issues and pull requests), npm, PyPI, crates.io, web search, and the community lists. We read other projects' code at a pinned commit and run it only in Docker. We fetch a live Company's `poppy.json` and its issuer's metadata only with our validator CLI, once per host per survey, one host at a time; the hosts come from our records, public directories and other projects' pull requests. Nothing is posted to other projects.
+This page owns ecosystem observations. [Current protocol verification](poppy-0.4-conformance.md#current-verification) owns PDA's verification status; [the 1.0 upgrade](poppy-1.0-upgrade.md) records the published-version alignment. The [harness contract](interop-spec.md) describes the tests. The [frozen implementation catalogue](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/implementations.md) preserves the earlier licence and maturity survey.
 
 <a id="the-spec"></a>
-
 <a id="current-ecosystem"></a>
 <a id="current-ecosystem--21-october-2026"></a>
 <a id="current-ecosystem--28-october-2026"></a>
-
 <a id="current-ecosystem--29-october-2026"></a>
 
-## Current ecosystem — 12 November 2026
+## Current ecosystem — 19 November 2026
 
-PDA speaks **Poppy 0.4** ([decision 49](decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)), deployed on 12 November, and refuses a Company that declares anything else. Since 13 November the repository also speaks 1.0 ([decision 51](decisions.md#51-10-beside-04)), updated to the published final text on 19 November, not yet deployed. The external observations below retain their original dates. 0.4 was published on 10 November as the 1.0 release candidate. Upstream opened **Draft 1.0** on 11 November (`272cab0`): 0.4 with fixes; at `ad20217` we found it differing only in its version strings, and by `bb98332` (13 November) it had six breaking changes ([1.0 upgrade](poppy-1.0-upgrade.md)). The official kit's validator at `ad20217` checks for `"1.0"` alone, so it fails a 0.4 Company's `discovery.protocol-version`; our validator keeps the [frozen 0.4 pin](../spec/draft-0.4-retrieved-2026-11-11/README.md). Both checks below are read only: no Session, sign-in or order was attempted, and nothing was posted to any project.
+Poppy **1.0 was published and frozen on 14 November** ([final 1.0 pin](../spec/version-1.0-retrieved-2026-11-19/README.md)); the [frozen 0.4 pin](../spec/draft-0.4-retrieved-2026-11-11/README.md) remains available. Upstream now has a separate 1.1 draft and tells implementers to build against 1.0. PDA's repository supports published 1.0 beside frozen 0.4. Its live [build-info](https://poppydemoagent.dev/api/build-info), observed on 19 November, reports clean commit `d9323da`, versions 0.4 and 1.0, and the **13 November draft pin for 1.0**. The final-1.0 alignment is merged in the repository but has not reached that served build ([receipt](evidence/ecosystem-2026-11-19/deployment.json), [deployment tasks](deployment-tasks.md)). No deployment was made for this survey.
 
-### Public discovery — 12 November 2026
+### The independent Company: Print with Poppy
 
-58 hosts, checked one at a time with our validator's 0.4 profile at `c79324a` ([receipt](evidence/ecosystem-2026-11-12/discovery.json)): the 29 October list's 33, [PAP Checker's directory](https://papchecker.com/sites) (39) and Company hosts named on [poppy.md's implementations page](https://poppy.md/implementations). **9 valid, 41 refused for their version, 8 indeterminate.**
+[Current source `f4b839e`](https://github.com/spenciefy/print-with-poppy/tree/f4b839e8d4a08dc33d7e17fd2721fae4ac8ad802), dated 16 November, still implements **0.4**, Operations 3 and Mediated Sign-In 1. Both `printwithpoppy.com` and `sandbox.printwithpoppy.com` passed current discovery validation at 0.4, with no errors or warnings. Their deployed commits were not established from those documents.
 
-| Hosts | Declared | Result | Notes |
-| --- | --- | --- | --- |
-| printwithpoppy.com, sandbox.printwithpoppy.com | 0.4 | Valid | 0 errors, 0 warnings. Both declared 0.3 or 0.2 on 29 October |
-| www.cliffside-retail.com, www.alpine-retail.com | 0.4 | Valid | Both serve Cliffside Retail. The official demos page labels it 0.4 |
-| flowers.papsandbox.com, stays.papsandbox.com | 0.4 | Valid | Each links its 0.3 document in `supported_versions`. food.papsandbox.com still declares 0.3 |
-| stacktr.ee | 0.4 | Valid | Links a 0.3 document in `supported_versions` |
-| emorahealth.com | 0.4 | Valid | Declared 0.1 on 29 October |
-| project-1xtwb.vercel.app | 0.4 | Valid | "My B2B Store"; new since 29 October |
-| 18 hosts, among them planmyvisit.to, saferate.com, notjustabank.com, directv.com, orbitz.com, rocket.com and demo.poppykit.dev | 0.3 | Refused | A version PDA no longer speaks; not a failure against its own rules. Which 0.3 text each follows was not judged |
-| archon.technology, crosswalk.to, ticketfairy.com, x402broker.com, coveragecat.com, vzlabnb.com | 0.2 | Refused | As above |
-| 17 hosts, among them ample.computer, tilopay.shop, poppy.ilmer.org, you.com and getvibe.dev | 0.1 | Refused | As above |
-| tilopay.tilopay.shop, intercom.io, poppylab.dev, papplayground.com, papsandbox.com, poppy-simulator.stacktr.ee | not read | Indeterminate | `poppy.json` answered 404 |
-| globalresearch.ca; goodrx.com | not read | Indeterminate | 403; a redirect to a block page over 100 KB |
+The current source passed **30 of 30 isolated interop cases**, ten each with PDA, the lenient agent and the strict agent; there were no failed, unsupported or errored cells and no warnings ([receipt](evidence/ecosystem-2026-11-19/interop.json)). The tests include Direct and Mediated Sign-In, API access, sign-out, refusal and consent cases, and a photo upload followed by exact-terms approval. The Company ran unpatched in its demo mode on a Docker network with no external route. Payments, printing and email were simulated. No live authenticated journey or real order was attempted.
 
-A valid document says only that discovery would succeed. Of the nine, Print with Poppy's sandbox is the only one known to simulate payment and fulfilment, which the live checks need ([deployment tasks](deployment-tasks.md#2-live-checks)).
+Only `src/main.tsx` and `src/style.css` changed between our maintained `20a3d56` pin and current HEAD. The executable backend and dependencies are unchanged. The current HEAD was selected in a temporary worktree for this run; the maintained peer pin stays at `20a3d56` because a homepage change adds no protocol coverage. [The interop report](interop-spec.md#print-with-poppy-at-20a3d56) retains both runs.
 
-### Who implements 0.4 — 12 November 2026
+### Who implements Poppy — 19 November 2026
 
-42 repositories read at their default-branch heads ([receipt](evidence/ecosystem-2026-11-12/repositories.json)): the 29 October survey's 23, awesome-poppy's list, and GitHub searches since 28 October. Code was read, never run.
+The [repository receipt](evidence/ecosystem-2026-11-19/repositories.json) records all 57 default-branch heads: the previous survey's 42 and 15 additional projects. Eighteen heads were unchanged. Its review labels distinguish source inspection, README claims and unchanged source; a new head alone is not a protocol upgrade. Except for Print with Poppy, these implementations were not executed against PDA.
 
-| Project | Head | What it implements |
+| Project | Current observation | Evidence and limit |
 | --- | --- | --- |
-| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/bd1dc43c993a3c9bf6a21626f16f5836f745cb39) | `bd1dc43`, 12 November | 0.4. Its PR #36, merged at 19:45 UTC, reads the delegation from `poppy_dlg` with `typ: poppy-delegation+jwt`. At `ae453ed` it read `pap_dlg`, so its API refused our Session JWTs ([interop spec](interop-spec.md#print-with-poppy-delegation)). Our interop pin moved to `bd1dc43` the same day, and our agent passes all ten of its scenarios there. Its PR #38, at `20a3d56` the same evening, writes approval amounts in whole units instead of cents; the pin moved there and the ten still pass ([interop spec](interop-spec.md#print-with-poppy-at-20a3d56)). Whether the live store runs either commit wasn't checked |
-| [Datalayer SDKs](https://github.com/datalayer/personal-agent-protocol/tree/ee03a044c6c597573522076006b396d43f7412df) | `ee03a04`, 12 November | 0.4 as published (SDK 0.35.0): Operations 3 and Browser Control 1, with Draft 1.0 opt-in. The only open-source implementation of published 0.4 on both sides |
-| [poppy-demo](https://github.com/irvinebroque/poppy-demo/tree/863ebf21a10a55e932c5028c956f13ee6b74a62a), [agent-runtimes](https://github.com/datalayer/agent-runtimes/tree/de2bc86d1310ec83d672d89ef8ec0fbaa326fa0a), diegopacheco's proof of concept | 6 to 12 November | 0.4 drafts from before publication (6 to 8 November): no Operations 3 or `Poppy-Extensions` where checked |
-| [descope/poppy-js](https://github.com/descope/poppy-js/tree/167ae80bd56516d26570d1035f0b3df14cd3ec06) | `167ae80`, 11 November | 0.3 as published; 0.4 is in its open PR #15 |
-| [authlete/poppy-company](https://github.com/authlete/poppy-company/tree/f26e7008a5c169491e43b215ba42d2cae4a22751) | `f26e700`, 10 November | 0.3 as published. It lists 0.4 in `supported_versions` but links the same 0.3 document |
-| 0.3 as published on 4 November (`poppy_dlg`) | | authlete/poppy-agent-playground, AgentConnect's dsh-pap and service-agent, auto-agent-protocol, poppylab, TryGeoSuite/poppy-json |
-| The 28 October 0.3 text (`pap_dlg`) | | PoppyKit client and server, adonis-agora agent and authkit, haat-gateway, two curtismu7 demos |
-| Earlier drafts | | poppyseed (the earlier 0.3 draft); ohartwig's three, poppy-cli, allowfy-check (0.2); everruns, pi-poppy, Ilmer, tipping-co, poppy-agent-demo, openavt (0.1) |
+| [Datalayer Python and TypeScript SDKs](https://github.com/datalayer/personal-agent-protocol/tree/3d1463e28b4a648b18b6c44d045693277fc693e6) | **0.37.5**, released on npm and PyPI; **published 1.0 is the default**, with 0.4 available when selected. Implements both roles, including reference Companies | Reviewed `protocol/UPSTREAM.md` and both profile modules. They identify the frozen 14 November text, not draft 1.1. Strong candidate for an independent 1.0 grid peer; not yet in our grid |
+| [Descope `poppy-agent`](https://github.com/descope/poppy-agent/tree/3c33139a767fe36cebd259f9ad5355d58718c0f0) | Renamed from `poppy-js`; source supports **1.0, 0.4 and 0.3** | `src/discovery.ts` lists those versions. Package source says 1.0.0, but the public npm lookup returned 404 and the README says to install from source. Not an executed interop result |
+| [Authlete Company](https://github.com/authlete/poppy-company/tree/3d5b8d327300cc12cc05856a5f2dc77e84246434) | Declares **1.0**; `stays.poppysandbox.dev` passed discovery at 1.0 | Reviewed the Company configuration and metadata. Authenticated behavior was not exercised |
+| [Authlete agent playground](https://github.com/authlete/poppy-agent-playground/tree/6c47e92e2b719202cf346d99a3048b6a7e2ad39e) | Locally patched, vendored 0.3 client also accepts **1.0** | Reviewed its documented PAR, discovery and version-header patches. This does not establish that every final-1.0 difference is implemented |
+| [AgentConnect `dsh-pap`](https://github.com/AgentConnect/dsh-pap/tree/d705fbf08fe2e6088afbb2b2a0c6b444978f6c97) | DSH client now uses **1.0** | Read the client and discovery code. Its separate `service-agent` README still describes a signed-out **0.3** Company |
+| [Auto Agent Protocol](https://github.com/auto-agent-protocol/auto-agent-protocol/tree/90865ef83496b059ab3570a5914c1bfaae435b46) | AAP 4.0 documents a **PAP 1.0** automotive binding | Binding documentation reviewed; its conformance claim was not tested here |
+| [poppy-go](https://github.com/ofershap/poppy-go/tree/ceef9ea383e2f1fcc18b1bbaa3cf15574d9367b7) | Go Company-side primitives targeting **1.0**; README still calls it a draft | Source includes 1.0 documents and five-minute assertion acceptance. No full final-version review or grid run here |
+| [Bash agent](https://github.com/abbaspour/poppy-bash) and [Cloudflare/Auth0 Company](https://github.com/abbaspour/poppy-sample-company-cloudflare-auth0) | Separate **1.0** examples | Current README claims, not executed results |
+| [Magento module](https://github.com/brosenberger/module-poppy) | **1.0 discovery** | Publishing discovery is its stated scope; it is not evidence of a complete Company implementation |
+| [vishkaty's agent checker](https://github.com/vishkaty/poppy-agent-conformance/tree/aac0ec69f608f9843681d466b617dbc67f218e17) and [verification LAB](https://github.com/curtismu7/poppy-verification-LAB) | New **1.0** verification tools | The request-log checker documents 27 checks with a narrower scope than full cryptographic or Company verification. Neither was run against PDA |
+| [Pollen](https://github.com/NHTanvir/pollen), [Poppy Probe](https://github.com/gangjig/poppy-probe) and [Ora's guide/checker](https://github.com/ora/poppy-ax) | **1.0 metadata checking** | These check documents or present a checker's results; that does not prove sign-in, Sessions or actions |
+| Older-version projects | `pi-poppy` remains 0.1; the ohartwig integrations still describe 0.2; PoppyKit's older 0.3 heads are unchanged; SecSimply's separate Next.js Poppyseed describes 0.3 | The receipt retains exact revisions and marks projects whose current wire support was not established. Old support is not silently carried forward after an unrelated repository update |
 
-`poppy_dlg` alone doesn't mark 0.4: 0.3 as published on 4 November already used it, and only the 28 October text used `pap_dlg`. `Poppy-Version`, `Poppy-Extensions` and Operations 3 do. The [receipt](evidence/ecosystem-2026-11-12/repositories.json) lists every repository, including lists, tooling and proposals.
+### Public discovery
 
-**What it means for PDA.** Discovery now succeeds at nine public hosts (eight Companies; Cliffside Retail has two hosts), where none served 0.4 on 29 October. Print with Poppy is the only one with source we can pin and a sandbox that simulates payment. With its fix, our agent passes every scenario it claims in Docker ([results](interop-results/README.md#print-with-poppy-at-04)); the signed-in live check against its sandbox is next. Datalayer's SDKs are the one independent 0.4 implementation that could join the interop grid.
+**80 exact hosts** were checked: the previous 58 and 22 additional hosts from public listings and primary-source examples. The current validator selected the version each document declares. Reads were sequential, metadata-only and at least one second apart. The temporary transport pinned HTTPS to verified public IPs through the managed proxy; no runtime policy was changed ([method and reports](evidence/ecosystem-2026-11-19/discovery.json)).
+
+| Result | Hosts | Meaning |
+| --- | ---: | --- |
+| Valid 1.0 discovery | **14** | Includes Cliffside/Alpine, Stacktree, Emora, the flowers/stays demos, Authlete's stays example, Chargezen and the Wix site `www.bkoc.no` |
+| Valid 0.4 discovery | **11** | Includes Print with Poppy's two hosts, You.com, the B2B demo and four Shopify storefronts |
+| Unsupported version | **40** | Fourteen declared 0.1, seven 0.2 and nineteen 0.3. Their own-version conformance was not judged |
+| Current-version discovery rejected | **3** | One 0.4 and two 1.0 discovery chains failed validation; declaring a supported version is not enough |
+| Indeterminate | **12** | HTTP refusal, missing documents or a failed fetch prevented a check |
+
+Warning-only reports can still be valid; the receipt keeps every warning. Counts are hosts, not unique Companies. Exact hostnames matter: `byltbasics.com` declared 0.3, while `www.byltbasics.com` declared 0.4 and passed. Both GEICO hostnames were inconclusive from this environment, despite directory reports of a 1.0 document. None of these discovery checks starts a Session, signs in, or verifies an action.
+
+### Platform rollout and public claims
+
+[PAP Checker's directory](https://papchecker.com/sites) reports **10,097 publishing sites** on 19 November: 7,397 declaring 1.0 and 2,637 declaring 0.4. It attributes **7,386 to Wix** and **2,631 to Shopify**—99.2% of its total—and 68 company-authored sites to 64 organizations. These are that directory's coverage figures, not a census or our own successful-journey count ([source record](evidence/ecosystem-2026-11-19/directory.json)).
+
+Our Wix example, `www.bkoc.no`, passed discovery at 1.0 and advertises MCP without OAuth sign-in. Allbirds, Gymshark, Brooklinen and `www.byltbasics.com` passed at 0.4 and advertise UCP. [Shopify's developer response](https://community.shopify.dev/t/how-will-personal-agent-protocol-sessions-surface-to-apps/38467/3) describes this automatic discovery-to-UCP path and explains that a UCP order alone does not prove Poppy was involved. **PDA does not implement UCP**, so accepting those files does not by itself enable their shopping flows.
+
+[Sierra's 13 November announcement](https://sierra.ai/blog/releasing-poppy) says Muse uses Poppy, Shopify publishes files automatically, and more than 100 companies are design partners. It names Mercury, Synchrony and Turkish Airlines as going live. Those are first-party rollout claims; this review did not verify their authenticated journeys or infer a production implementation from a partner logo.
+
+**What this changes for PDA.** Keep 0.4: Print with Poppy and the sampled Shopify templates still need it. Datalayer is now the strongest source-reviewed candidate for adding an independent frozen-1.0 Company to the grid. That needs an adapter and an actual run before claiming independent 1.0 interoperability. If Shopify commerce is a target, UCP support needs a separate implementation decision. Discovery growth alone settles neither question.
 
 ## Historical observations
+
+The [12 November survey](https://github.com/adewale/pda/blob/848df6b2ce82d497794964f251885644aa45f4ef/docs/ecosystem.md#current-ecosystem--12-november-2026) is frozen at the last revision that held it, with its [discovery](evidence/ecosystem-2026-11-12/discovery.json) and [repository](evidence/ecosystem-2026-11-12/repositories.json) receipts.
 
 The [29 October observations](https://github.com/adewale/pda/blob/c79324a007d5a658a339f2c1fb922aac60b73e47/docs/ecosystem.md#current-ecosystem--29-october-2026), at 0.3, are frozen at the last revision that held them ([receipt](evidence/ecosystem-2026-10-29/discovery.json)). The earlier surveys, scorecard and fault-line analysis are [frozen at their recorded revision](https://github.com/adewale/pda/blob/289c6592c6f6e629b1d525247f3c4e2243662bc2/docs/ecosystem.md#earlier-observations--28-october-2026). They are evidence of those dates, not an additional current inventory.
 
