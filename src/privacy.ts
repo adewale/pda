@@ -9,7 +9,7 @@
 import { ConfigError } from "./config.ts";
 
 /** Bumped whenever the policy's text changes. */
-export const PRIVACY_UPDATED = "11 November 2026";
+export const PRIVACY_UPDATED = "13 November 2026";
 
 export type PrivacyEnv = {
   readonly PRIVACY_CONTACT?: unknown;
@@ -61,7 +61,7 @@ export function privacyPage(env: PrivacyEnv): Response {
 <ul>
 <li><strong>When you sign in with Google:</strong> your Google account ID, your email address, and, for a Google Workspace account, its domain. It asks Google only for the <code>openid</code> and <code>email</code> scopes, and reads nothing else from your Google account: no Gmail, Drive, Calendar or contacts.</li>
 <li><strong>When you sign in with GitHub:</strong> your GitHub account ID and your primary verified email address.</li>
-<li><strong>What you give your agent:</strong> your messages, photos you attach, an Anthropic or OpenAI API key if you add one, short notes your agent saves about you (its memory), reminders and scheduled tasks you ask for, your browser's push subscription if you turn on notifications, and what your agent does for you at companies: the sign-ins, conversations and orders you ask for and approve.</li>
+<li><strong>What you give your agent:</strong> your messages, photos you attach, an Anthropic, OpenAI or Google Gemini API key if you add one, short notes your agent saves about you (its memory), reminders and scheduled tasks you ask for, your browser's push subscription if you turn on notifications, and what your agent does for you at companies: the sign-ins, conversations and orders you ask for and approve.</li>
 </ul>
 
 <h2>How it's used</h2>
@@ -72,7 +72,7 @@ export function privacyPage(env: PrivacyEnv): Response {
 
 <h2>Who else sees it</h2>
 <ul>
-<li><strong>The AI model provider</strong> receives conversation context and recent attached images so it can reply: previews when available, or the original image when no preview is available and the file is small enough. The provider is Anthropic, through Cloudflare's AI Gateway, when the operator pays; or Anthropic or OpenAI directly, under your own account, when you use your own key. Providers may retain submitted data under their terms and account settings; the Workers Logs limits below do not describe those copies or AI Gateway retention.</li>
+<li><strong>The AI model provider</strong> receives conversation context and recent attached images so it can reply: previews when available, or the original image when no preview is available and the file is small enough. The provider is Anthropic, through Cloudflare's AI Gateway, when the operator pays; or Anthropic, OpenAI or Google Gemini directly, under your own account, when you use your own key. Providers may retain submitted data under their terms and account settings; the Workers Logs limits below do not describe those copies or AI Gateway retention.</li>
 <li><strong>Recognition at companies:</strong> each Company gets its own random User ID for you and can recognize you across signed-out visits. Signing in links those visits to your account there. Your agent keeps the mapping private. It does not currently offer anonymous browsing sessions.</li>
 <li><strong>Companies you ask your agent to work with</strong> receive messages and requests your model generates for your task. You choose which Companies your agent can contact in the composer, and your choice stays until you change it. You can also choose photos and their destination there to permit upload for that message without another disclosure card. Attaching a photo or naming one in prose alone does not permit Company upload; it needs a disclosure decision. When a Company asks you to approve an operation, your agent shows its exact terms and waits for your decision. Routine requests may run without another click. You sign in on the Company's page or a sign-in form in this app; credentials entered in that form go only to the Company's sign-in endpoint, never to the model. The Company handles information it receives under its own policies.</li>
 <li><strong>Websites you ask your agent to read</strong> receive a request for that page from Cloudflare's network. General page reads send no cookies or account credentials. The address itself can contain private information in its hostname, path or query. A page that needs JavaScript may also be loaded in a fresh browser in Cloudflare's Browser Run, which runs the page's own scripts, allows only public requests that read, and is closed afterwards. Those scripts can contact other public websites.</li>

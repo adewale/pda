@@ -6,7 +6,7 @@ Back to the [README](../README.md) · What's left to deploy and check: [deployme
 
 ## The architecture in one paragraph
 
-One Cloudflare Worker serves the page, signs people in with Google or GitHub, serves the agent's public Poppy identity and a public validator. Each signed-in identity gets one `PersonalAgent` Durable Object, which runs Pi through `PiHarness`, keeps the conversation and every piece of Poppy state in its own SQLite, and holds the Poppy client, its tools and a fetch-based browser. Two small Durable Objects share state across people: `CompanyLimiter`, one per Company, for rate limits, and `DomainBudget`, one per budget domain, for the demo's spend. Model calls go to Claude through AI Gateway, paid by the operator and capped, or straight to Anthropic or OpenAI with the person's own key. The [spec's Architecture section](../pda-spec.md#architecture) has the diagram.
+One Cloudflare Worker serves the page, signs people in with Google or GitHub, serves the agent's public Poppy identity and a public validator. Each signed-in identity gets one `PersonalAgent` Durable Object, which runs Pi through `PiHarness`, keeps the conversation and every piece of Poppy state in its own SQLite, and holds the Poppy client, its tools and a fetch-based browser. Two small Durable Objects share state across people: `CompanyLimiter`, one per Company, for rate limits, and `DomainBudget`, one per budget domain, for the demo's spend. Model calls go to Claude through AI Gateway, paid by the operator and capped, or straight to Anthropic, OpenAI or Gemini with the person's own key. The [spec's Architecture section](../pda-spec.md#architecture) has the diagram.
 
 ## Contents
 
@@ -174,6 +174,8 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 - **When.** 11 October (`e5b0818`; Settings `83d4d81`); Sonnet 5.5, 12 October.
 
 ## 14. Own keys: pasted, sent straight to the vendor
+
+The two-vendor limit below was widened to include Google Gemini by [decision 52](#52-gemini-as-a-third-own-key-vendor).
 
 - **Context.** People without the demo need to bring their own model access, and the operator must never pay for it or be able to spend it by accident.
 - **Decision.** A pasted Anthropic or OpenAI API key, and nothing else. It is checked with a free vendor call (list models), sealed in the person's agent under `TOKEN_ENC_KEY` with additional data naming the agent and provider, and opened only for a call or a check. pi-ai's own `anthropic` and `openai` providers send it straight to the vendor, never through the operator's gateway, with an auth context that holds no ambient credentials (under `nodejs_compat`, `process.env` holds the Worker's secrets). Settings says the operator can technically read it, and advises a spending limit at the provider.
@@ -701,3 +703,15 @@ Speaking both versions was superseded by [decision 49](#49-03-dropped-the-agent-
 - **Alternatives.** *Move to 1.0 alone*, as decision 49 did for 0.4: one version, but every 0.4 Company refused until it upgrades. *Push only under 1.0*: a 0.4 Company that requires PAR would be refused for a reason RFC 9126 already answers. *Push when the agent builds the card*: the `request_uri` would expire before most Users open it.
 - **Consequences.** This partly supersedes decision 49's "0.4 alone"; its rules for stored state and history stand. The Hypothesis client speaks both versions and draws one per run; in the interop grid the agents declare both, `lenient-company` and `strict-company` serve 1.0 and `lenient-company-v04` serves 0.4 (see the [1.0 upgrade](poppy-1.0-upgrade.md)).
 - **When.** 13 November 2026, at the owner's request.
+
+## 52. Gemini as a third own-key vendor
+
+- **Context.** Decision 14 limited user-supplied API keys to Anthropic and OpenAI. `@earendil-works/pi-ai` 1.3.0 already ships a native `googleProvider()` (`@google/genai` on `generativelanguage.googleapis.com/v1beta` with `x-goog-api-key`), while its bundled `google.json` catalog doesn't yet list `gemini-4-hydrogen`. Google's Generative Language API also differs from Anthropic and OpenAI on a bad or revoked key: it answers HTTP 400 (`INVALID_ARGUMENT`) with `reason: "API_KEY_INVALID"` ("API key not valid") rather than 401.
+- **Decision.**
+  - **A third own-key option, nothing else.** `KeyProvider` gains `"google"` (matching `googleProvider().id` and `CredentialStore.read("google")`), shown as `"Gemini"` (`PROVIDER_LABEL` in `src/config.ts`). The single-slot `model_keys` table (`slot = 1`), AES-GCM sealing (`model-key:v1:google:<agent id>`), and the demo lane (`DEMO_MODEL_ID` on AI Gateway) are unchanged; Vertex AI isn't supported.
+  - **`GEMINI_MODEL_ID` required, with an idempotent catalog fallback.** `readModelConfig` requires `GEMINI_MODEL_ID` (`gemini-4-hydrogen` in Wrangler), failing closed like every other setting. `nativeProviders()` wraps `googleProvider()` with `withGeminiFallback`, appending a `gemini-4-hydrogen` `Model<"google-generative-ai">` entry only when the upstream catalog doesn't already list that id.
+  - **Header-only key check and narrow 400 refusal matching.** `POST /api/model-key` checks `AIza…` keys with `GET https://generativelanguage.googleapis.com/v1beta/models?pageSize=1` carrying `x-goog-api-key` (never `?key=`). `providerReason` reads `error.status` and `error.details[].reason`, and `isKeyRefused` matches `\bapi_key_invalid\b|api key not valid` alongside 401 and `invalid_api_key`, so a bad or revoked Gemini key is refused and marked `invalid` without misclassifying an ordinary 400 (`INVALID_ARGUMENT`) from a malformed request. `src/log.ts` and `redactKeys` scrub `AIza…` tokens alongside `sk-…`.
+  - **A stateful SSE fake.** `test/fake-models.ts` shares one directive planner across OpenAI and `fakeGemini` (`:streamGenerateContent?alt=sse`), verifying `x-goog-api-key`, `thoughtSignature` preservation across turns, `functionCall` / `functionResponse` pairing, `inlineData` attachments, `read_url` reader isolation and compaction (`test/gemini-lane.test.ts`).
+- **Alternatives.** *Default `GEMINI_MODEL_ID` in code*: breaks the fail-closed rule that no setting has a default. *Match bare `400` or `INVALID_ARGUMENT` as a refused key*: any malformed request would invalidate a working key. *A minimal text-only fake*: leaves `thoughtSignature` round-tripping, tool calls, images and compaction untested on the Google wire.
+- **Consequences.** Users can bring an Anthropic, OpenAI or Gemini API key. Streaming `gemini-4-hydrogen` and the `/v1beta/models` check against Google's live endpoint in workerd remain an open check in [deployment-tasks.md](deployment-tasks.md).
+- **When.** 18 November 2026.

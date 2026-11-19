@@ -10,7 +10,7 @@ Public pages need no sign-in: `/about` introduces the project and links to the P
 
 Open the address the operator gave you (the live deployment is https://poppydemoagent.dev) and choose **Google** or **GitHub**. The agent asks Google only for your email address; it reads nothing else from either account.
 
-- **Who gets in.** On the live deployment, sign-up is open: any Google or GitHub account gets an agent. To use it you add your own Anthropic or OpenAI key in **Settings**, unless the operator has put you on the demo, which they pay for. A deployment that hasn't opened sign-up lets in only the accounts its operator listed: a Google email address, every account of a Google Workspace domain, or a GitHub account. Anyone else sees "That account isn't on this agent's allowlist"; ask the operator to add you.
+- **Who gets in.** On the live deployment, sign-up is open: any Google or GitHub account gets an agent. To use it you add your own Anthropic, OpenAI or Gemini key in **Settings**, unless the operator has put you on the demo, which they pay for. A deployment that hasn't opened sign-up lets in only the accounts its operator listed: a Google email address, every account of a Google Workspace domain, or a GitHub account. Anyone else sees "That account isn't on this agent's allowlist"; ask the operator to add you.
 - **One agent per account.** Signing in with Google and with GitHub gives you two separate agents, each with its own conversation, notes, key and reminders. Pick one and keep to it.
 - You stay signed in for 30 days on that browser. **Settings → Account** says who you are signed in as, and has **Sign out of this agent**.
 
@@ -19,7 +19,7 @@ Open the address the operator gave you (the live deployment is https://poppydemo
 Your agent can't answer until one of these is in place. **Settings → Model** shows which one it is using.
 
 - **The demo allowance.** If the operator put you on their demo list, they pay for your agent's model calls up to a daily amount, which resets at midnight UTC. The meter in Settings shows how much of today's you've used. Everyone on the demo from one Google Workspace domain also shares a daily allowance, and everyone on a personal Google account or a GitHub account shares another. When yours or the shared one runs out, a banner says so and the agent waits until midnight UTC or until you add a key.
-- **Your own key.** In **Settings → Model**, choose Anthropic or OpenAI and paste an API key. The agent checks it with the vendor before keeping it, keeps it encrypted, and sends it only to that vendor. Once a working key is in place, the agent uses it instead of the demo. A key the vendor refuses when you paste it isn't kept, and the vendor's reason is shown; if the vendor refuses it later, Settings says so and the agent stops calling the model until you replace it.
+- **Your own key.** In **Settings → Model**, choose Anthropic, OpenAI or Gemini and paste an API key. The agent checks it with the vendor before keeping it, keeps it encrypted, and sends it only to that vendor. Once a working key is in place, the agent uses it instead of the demo. A key the vendor refuses when you paste it isn't kept, and the vendor's reason is shown; if the vendor refuses it later, Settings says so and the agent stops calling the model until you replace it.
 - **An organisation-wide Anthropic key** needs its **Workspace ID** (the optional field under the key), because Anthropic then needs to know which workspace to bill. A key created inside a workspace doesn't.
 
 ## What to ask

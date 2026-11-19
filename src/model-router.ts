@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, maySignIn, onDemo, type ListEnv } from "./allowlist";
@@ -151,7 +152,7 @@ export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "e
   if (message.stopReason !== "error") return null;
   const text = message.errorMessage ?? "";
   if (isKeyRefused(text) || /refused your key/.test(text)) return "key_refused";
-  if (/prompt is too long|context.{0,20}(length|window)|too many tokens/i.test(text)) return "context_too_long";
+  if (/prompt is too long|context.{0,20}(length|window)|too many tokens|input token count.*exceeds|maximum number of tokens/i.test(text)) return "context_too_long";
   if (/timed? ?out|timeout/i.test(text)) return "timeout";
   const status = /\b([45]\d\d)\b/.exec(text)?.[1];
   return status ? `http_${status}` : "error";
@@ -193,9 +194,54 @@ export function withVendorCompat(model: Model<Api>, specifier: string): Model<Ap
   return { ...model, compat: { ...model.compat, ...vendor.compat } } as Model<Api>;
 }
 
-/** pi-ai's Anthropic and OpenAI providers: straight to each vendor, with the person's key. */
+/**
+ * Fallback catalog entry for `gemini-4-hydrogen` until `@earendil-works/pi-ai`
+ * adds it to `data/google.json`. Ignored automatically once `googleProvider()`
+ * lists `gemini-4-hydrogen` itself.
+ */
+const HYDROGEN_FALLBACK: Model<"google-generative-ai"> = {
+  id: "gemini-4-hydrogen",
+  name: "Gemini 4 Hydrogen",
+  api: "google-generative-ai",
+  provider: "google",
+  baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  reasoning: true,
+  thinkingLevelMap: {
+    off: null,
+    minimal: null,
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: null,
+    max: null
+  },
+  input: ["text", "image"],
+  cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+  contextWindow: 1_048_576,
+  maxTokens: 65_536,
+  inputLimits: {
+    maxRequestBytes: 20_971_520,
+    images: {
+      maxPerRequest: 3600,
+      resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4_718_592, jpegQuality: 80 }
+    }
+  },
+  type: "chat"
+};
+
+function withGeminiFallback(provider: Provider): Provider {
+  return {
+    ...provider,
+    getModels: () => {
+      const models = provider.getModels();
+      return models.some((model) => model.id === HYDROGEN_FALLBACK.id) ? models : [...models, HYDROGEN_FALLBACK];
+    }
+  };
+}
+
+/** pi-ai's Anthropic, OpenAI and Google providers: straight to each vendor, with the person's key. */
 export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider()];
+  return [anthropicProvider(), openaiProvider(), withGeminiFallback(googleProvider())];
 }
 
 /** A text explaining a refusal: the model error pi records, and the notice the person sees. */
@@ -271,7 +317,7 @@ export class ModelAccess {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
-      const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" }[provider];
+      const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID", google: "GEMINI_MODEL_ID" }[provider];
       throw new ConfigError(`${name} ${JSON.stringify(id)} isn't in pi-ai's ${PROVIDER_LABEL[provider]} catalog`);
     }
     // A key that belongs to a whole Anthropic organisation names its workspace on every request.

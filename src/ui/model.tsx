@@ -1,5 +1,6 @@
 import { KeyIcon, WarningIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { KEY_PROVIDERS, PROVIDER_LABEL as PROVIDER, type KeyProvider } from "../config";
 import type { Entitlement } from "../model-router";
 import { Action } from "./controls";
 
@@ -16,9 +17,10 @@ export type EntitlementState =
   | { readonly state: "ready"; readonly entitlement: Entitlement }
   | { readonly state: "unavailable" };
 
-const PROVIDER: Record<"anthropic" | "openai", string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI"
+const KEY_PLACEHOLDER: Readonly<Record<KeyProvider, string>> = {
+  anthropic: "sk-ant-…",
+  openai: "sk-…",
+  google: "AIza…"
 };
 
 /** The entitlement, refreshed on demand. One per page; Settings and the banner share it. */
@@ -149,9 +151,9 @@ function Status({ entitlement }: { entitlement: Entitlement }) {
   return <p className="text-base text-pretty text-kumo-warning">Needs a key: your agent can't call a model until you add one.</p>;
 }
 
-/** Paste an Anthropic or OpenAI key (sent once, never shown again), or remove it. */
+/** Paste an Anthropic, OpenAI or Gemini key (sent once, never shown again), or remove it. */
 function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange: (next: Entitlement) => void }) {
-  const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
+  const [provider, setProvider] = useState<KeyProvider>("anthropic");
   const [key, setKey] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [busy, setBusy] = useState(false);
@@ -208,7 +210,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
       <fieldset>
         <legend className="text-[13px] font-medium text-kumo-default">{hasKey ? "Replace it with a key from" : "Your key from"}</legend>
         <div className="mt-1 flex flex-wrap gap-2">
-          {(["anthropic", "openai"] as const).map((value) => (
+          {KEY_PROVIDERS.map((value) => (
             <label
               key={value}
               className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-base ring ring-kumo-line transition-colors duration-150 has-checked:bg-kumo-tint has-checked:ring-kumo-focus/40 has-focus-visible:ring-2 has-focus-visible:ring-kumo-brand max-sm:min-h-11"
@@ -229,7 +231,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
           autoComplete="off"
           spellCheck={false}
           className={field}
-          placeholder={provider === "anthropic" ? "sk-ant-…" : "sk-…"}
+          placeholder={KEY_PLACEHOLDER[provider]}
           value={key}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? ids.error : undefined}

@@ -1,8 +1,10 @@
 import type { AuthContext, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
-import { isKeyProvider, type KeyProvider } from "./config";
+import { isKeyProvider, PROVIDER_LABEL, type KeyProvider } from "./config";
 import type { Sealer } from "./poppy/store";
 import { literal } from "./decode";
 import { integer, nullable, one, table, text, textOf } from "./rows";
+
+export { PROVIDER_LABEL } from "./config";
 
 /**
  * A person's own model key, in their own agent's SQLite, sealed with the
@@ -42,11 +44,6 @@ export type KeyInfo = {
 
 /** Identifies one saved key internally, across calls and encryption-key rotation. */
 export type KeyVersion = { readonly provider: KeyProvider; readonly generation: string };
-
-export const PROVIDER_LABEL: Record<KeyProvider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI"
-};
 
 /** The additional data a key is sealed with. */
 export function keyContext(provider: KeyProvider, agent: string): string {
@@ -221,15 +218,17 @@ export const NO_AMBIENT_AUTH: AuthContext = {
   fileExists: async () => false
 };
 
-const PREFIX: Record<KeyProvider, string> = { anthropic: "sk-ant-", openai: "sk-" };
+const PREFIX: Readonly<Record<KeyProvider, string>> = { anthropic: "sk-ant-", openai: "sk-", google: "AIza" };
 
 /** A format problem with a pasted key, or null. Never repeats the key. */
 export function keyFormatProblem(provider: KeyProvider, key: string): string | null {
+  const label = PROVIDER_LABEL[provider];
+  const article = /^[AEIOU]/i.test(label) ? "an" : "a";
   if (key.length < 20 || key.length > 512 || !/^[\x21-\x7e]+$/.test(key)) {
-    return `That doesn't look like an ${PROVIDER_LABEL[provider]} API key.`;
+    return `That doesn't look like ${article} ${label} API key.`;
   }
   if (!key.startsWith(PREFIX[provider])) {
-    return `${PROVIDER_LABEL[provider]} API keys start with ${PREFIX[provider]}.`;
+    return `${label} API keys start with ${PREFIX[provider]}.`;
   }
   return null;
 }
@@ -258,6 +257,10 @@ export function keyCheckRequest(provider: KeyProvider, key: string, workspace: s
       });
     case "openai":
       return new Request("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
+    case "google":
+      return new Request("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {
+        headers: { "x-goog-api-key": key }
+      });
   }
 }
 
@@ -268,8 +271,9 @@ const REASON_MAX_CHARS = 400;
 
 /**
  * The provider's own reason for refusing a request, from its error JSON
- * (`{ error: { type, message } }`, both Anthropic's and OpenAI's shape), read
- * from at most 4 KB, with anything key-like redacted. Null when there is none.
+ * (`{ error: { type, status, details, message } }`, Anthropic's, OpenAI's and
+ * Google's shapes), read from at most 4 KB, with anything key-like redacted.
+ * Null when there is none.
  */
 async function providerReason(response: Response, key: string): Promise<string | null> {
   try {
@@ -283,10 +287,17 @@ async function providerReason(response: Response, key: string): Promise<string |
       text += decoder.decode(value, { stream: true });
     }
     await reader.cancel();
-    const error = (JSON.parse(text) as { error?: { type?: unknown; message?: unknown } }).error;
+    const error = (JSON.parse(text) as { error?: { type?: unknown; status?: unknown; message?: unknown; details?: unknown } }).error;
     const message = typeof error?.message === "string" ? error.message : "";
-    const type = typeof error?.type === "string" ? error.type : "";
-    const reason = redactKeys([type, message].filter(Boolean).join(": "), key).replace(/\s+/g, " ").trim();
+    const code = typeof error?.type === "string" ? error.type : typeof error?.status === "string" ? error.status : "";
+    const reasons = Array.isArray(error?.details)
+      ? error.details.flatMap((detail) =>
+          detail && typeof detail === "object" && typeof (detail as { reason?: unknown }).reason === "string"
+            ? [(detail as { reason: string }).reason]
+            : []
+        )
+      : [];
+    const reason = redactKeys([code, ...reasons, message].filter(Boolean).join(": "), key).replace(/\s+/g, " ").trim();
     return reason ? reason.slice(0, REASON_MAX_CHARS) : null;
   } catch {
     return null;
@@ -295,8 +306,9 @@ async function providerReason(response: Response, key: string): Promise<string |
 
 /**
  * Ask the provider whether the key works. A refusal of the key itself (401,
- * 403) says only that; any other answer quotes the provider's reason
- * (redacted), since it is usually about the account, such as its credit.
+ * 403, or Google's 400 `API_KEY_INVALID`) says only that; any other answer
+ * quotes the provider's reason (redacted), since it is usually about the
+ * account, such as its credit.
  */
 export async function checkKey(
   provider: KeyProvider,
@@ -319,6 +331,9 @@ export async function checkKey(
     return { ok: false, status: 400, error: `${PROVIDER_LABEL[provider]} refused that key.` };
   }
   const reason = await providerReason(response, key);
+  if (response.status === 400 && reason !== null && isKeyRefused(reason)) {
+    return { ok: false, status: 400, error: `${PROVIDER_LABEL[provider]} refused that key.` };
+  }
   let said = `${PROVIDER_LABEL[provider]} answered ${response.status}${reason ? ` (${reason})` : ""}; the key wasn't saved.`;
   if (provider === "anthropic" && !workspace && reason?.includes(ANTHROPIC_WORKSPACE_HEADER)) {
     said += " Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.";
@@ -331,12 +346,12 @@ export async function checkKey(
 /** `text` with the key, and anything shaped like a provider key, replaced. For error messages that reach the transcript. */
 export function redactKeys(text: string, key?: string): string {
   let out = key ? text.split(key).join("[key]") : text;
-  out = out.replace(/\bsk-[A-Za-z0-9_*.-]{6,}/g, "[key]");
+  out = out.replace(/\b(?:sk-|AIza)[A-Za-z0-9_*.-]{6,}/g, "[key]");
   return out;
 }
 
 /** A provider's error that means the key itself was refused. */
 export function isKeyRefused(errorMessage: string | undefined): boolean {
   if (!errorMessage) return false;
-  return /\b401\b|authentication_error|invalid_api_key|invalid x-api-key|incorrect api key|unauthorized/i.test(errorMessage);
+  return /\b401\b|authentication_error|invalid_api_key|invalid x-api-key|incorrect api key|unauthorized|\bapi_key_invalid\b|api key not valid/i.test(errorMessage);
 }
