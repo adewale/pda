@@ -110,6 +110,10 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
   } }), [companies, session]);
   const connected = session.status === "open";
   const [stopNotSent, setStopNotSent] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearNotSent, setClearNotSent] = useState(false);
+  // Clear chat resets the conversation; it isn't queued, so it shows only while connected and idle.
+  const clearable = session.status === "open" && !session.running && session.messages.some(m => m.role !== "notice");
   const hintId = "composer-hint";
   const sendable = session.status !== "unauthenticated" && (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
   /**
@@ -255,13 +259,36 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
             />
           )}
         </div>
-        <p id={hintId} className="mt-1.5 text-[13px] text-kumo-subtle max-sm:sr-only">
-          {session.status === "unauthenticated" ? "Sign in again to send. Copy any draft you want to keep before reloading." : connected
-            ? session.running
-              ? "Enter queues a follow-up · Steer adds it to the current answer"
-              : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
-            : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
-        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p id={hintId} className="min-w-0 flex-1 text-[13px] text-kumo-subtle max-sm:sr-only">
+            {session.status === "unauthenticated" ? "Sign in again to send. Copy any draft you want to keep before reloading." : connected
+              ? session.running
+                ? "Enter queues a follow-up · Steer adds it to the current answer"
+                : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
+              : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
+          </p>
+          {clearable ? (
+            confirmingClear ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Clear chat?">
+                <Action type="button" variant="secondary-destructive" onClick={() => { setConfirmingClear(false); setClearNotSent(!session.reset()); }}>
+                  Clear chat
+                </Action>
+                <Action type="button" variant="secondary" onClick={() => setConfirmingClear(false)}>
+                  Keep it
+                </Action>
+              </div>
+            ) : (
+              <Action type="button" variant="ghost" onClick={() => { setClearNotSent(false); setConfirmingClear(true); }}>
+                Clear chat
+              </Action>
+            )
+          ) : null}
+        </div>
+        {clearNotSent && clearable ? (
+          <p role="alert" className="mt-1.5 text-[13px] text-kumo-danger">
+            {NOT_SENT}
+          </p>
+        ) : null}
         {stopNotSent && session.running ? (
           <p role="alert" className="mt-1.5 text-[13px] text-kumo-danger">
             {NOT_SENT}
