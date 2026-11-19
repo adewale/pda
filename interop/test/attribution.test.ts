@@ -24,6 +24,13 @@ describe("attribution", () => {
     expect(attribute(warningsOnly, [], none).rule).toBe("unattributed");
   });
 
+  it("keeps final 1.0’s lifetime MUST as an agent violation despite incompatible S2 readings", () => {
+    const lifetime = companyRecorded({ id: "client-assertion.lifetime-1.0", basis: "MUST", level: "failure", detail: "301 seconds" }, "strict-company", false);
+    const target = cell("a", "strict-company", "fail", [lifetime, refusal("S2")]);
+    const readings = { agent: { a: { S2: "any" } }, company: { "strict-company": { S2: "jwt-300s" } } };
+    expect(attribute(target, [target], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+  });
+
   it("rule 2: an agent that passes against the reference, at a Company every agent fails, blames the Company", () => {
     const target = cell("a", "c", "fail");
     const grid = [target, cell("a", "lenient-company", "pass"), cell("b", "c", "fail"), cell("b", "lenient-company", "pass")];

@@ -72,7 +72,7 @@
       "disposition": "Done",
       "implementation": "test/mock-company/core.ts",
       "evidence": "test/mock-company.test.ts",
-      "notes": "The agent already signs one-minute assertions, below the final five-minute maximum. Under 1.x the strict mock now accepts 60, 120 and 300 seconds and rejects 301 seconds with a normative violation. The 0.4 strict 60-second reading is preserved. S2 typing and lifetime compatibility are evaluated separately."
+      "notes": "The agent already signs one-minute assertions, below the final five-minute maximum. Under 1.x the strict mock now accepts 60, 120 and 300 seconds and rejects 301 seconds with a normative violation. The trace reader uses the negotiated cell version too: no lifetime warning through 300 seconds under 1.0, a normative error above it. The 0.4 strict 60-second reading is preserved. S2 typing and lifetime compatibility are evaluated separately."
     },
     {
       "change": "One sign-in for every resource",
