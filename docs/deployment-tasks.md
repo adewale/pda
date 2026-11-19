@@ -1,8 +1,14 @@
 # Deployment tasks
 
-Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. This file owns deployed state and outstanding live checks; [protocol verification](poppy-0.3-conformance.md#current-verification) owns the recorded protocol evidence.
+Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. This file owns deployed state and outstanding live checks; [protocol verification](poppy-0.4-conformance.md#current-verification) owns the recorded protocol evidence.
 
 Back to the [README](../README.md) · Why it's built this way: [decisions.md](decisions.md)
+
+## Current observed deployment — 19 November 2026
+
+A public GET of [`/api/build-info`](https://poppydemoagent.dev/api/build-info) reports clean source `d9323da`, Worker version `a31f3b3e-c615-430d-a075-9adbc6983208`, and Poppy **0.4 and 1.0**. The revisions are 11 November for 0.4 and **13 November for 1.0**, so the served 1.0 build still identifies the draft snapshot. The [observation receipt](evidence/ecosystem-2026-11-19/deployment.json) records the response. This is an observation, not a deployment performed by this survey, and does not repeat the full public preflight or authenticated journeys.
+
+The repository's published-final 1.0 alignment (PR #75, merged at `848df6b`) pins the 19 November snapshot. It has not reached the observed served build. The older deployment entries below retain their dates and checks; do not read the 12 November record as the current served source.
 
 ## 1. Configuration and accounts
 

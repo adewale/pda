@@ -12,7 +12,7 @@ This page owns ecosystem observations. [Current protocol verification](poppy-0.4
 
 ## Current ecosystem — 19 November 2026
 
-Poppy **1.0 was published and frozen on 14 November**. Upstream now has a separate 1.1 draft and tells implementers to build against 1.0. PDA's repository supports published 1.0 beside frozen 0.4; the last recorded deployment remains 0.4 ([deployment tasks](deployment-tasks.md)). No deployment was made for this survey.
+Poppy **1.0 was published and frozen on 14 November**. Upstream now has a separate 1.1 draft and tells implementers to build against 1.0. PDA's repository supports published 1.0 beside frozen 0.4. Its live [build-info](https://poppydemoagent.dev/api/build-info), observed on 19 November, reports clean commit `d9323da`, versions 0.4 and 1.0, and the **13 November draft pin for 1.0**. The final-1.0 alignment is merged in the repository but has not reached that served build ([receipt](evidence/ecosystem-2026-11-19/deployment.json), [deployment tasks](deployment-tasks.md)). No deployment was made for this survey.
 
 ### The independent Company: Print with Poppy
 
