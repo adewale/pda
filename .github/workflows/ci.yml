@@ -82,7 +82,7 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-04-wrangler
 
-      - name: Pinned upstream 1.0 draft Company kit and reviewed findings
+      - name: Pinned upstream final 1.0 Company kit and reviewed findings
         if: steps.scope.outputs.specialist == 'true'
         run: node scripts/check-company-kit.mjs --protocol 1.0 --reviewed-findings --output "$RUNNER_TEMP/company-kit-1.0.json"
         env:
@@ -96,6 +96,13 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-dpop-wrangler
 
+      - name: Final 1.0 kit with DPoP prerequisites and independent proof controls
+        if: steps.scope.outputs.specialist == 'true'
+        run: node scripts/check-company-kit.mjs --protocol 1.0 --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-1.0-dpop.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-10-dpop-wrangler
+
       - name: Upload upstream Company-kit results
         if: always() && steps.scope.outputs.specialist == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -105,6 +112,7 @@ jobs:
           path: |
             ${{ runner.temp }}/company-kit-0.4.json
             ${{ runner.temp }}/company-kit-1.0.json
+            ${{ runner.temp }}/company-kit-1.0-dpop.json
             ${{ runner.temp }}/company-kit-dpop.json
             ${{ runner.temp }}/approval-crashes.json
           if-no-files-found: ignore

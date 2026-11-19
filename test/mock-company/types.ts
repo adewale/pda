@@ -1,8 +1,8 @@
 /**
- * The mock Company's configuration, state and host scheme. Everything here is
- * the Company side of Personal Agent Protocol 0.3, for tests only.
- * `protocolVersion` is only what poppy.json declares, so a test can make it
- * declare a version the agent doesn't speak.
+ * The mock Company’s configuration, state and host scheme, for tests only.
+ * It implements Poppy 0.4 and published 1.0. `protocolVersion` selects the
+ * version-dependent rules and what poppy.json declares; tests may also set
+ * an unsupported version to check that the agent refuses it.
  */
 
 export type SignInTypes = {

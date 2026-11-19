@@ -74,6 +74,7 @@ export const VIOLATIONS = {
   "client-assertion.signature": "RFC (RFC 7523 3; 4.1: signed by a key from jwks_uri): Client assertion doesn't verify against the client's JWKS, or has expired",
   "client-assertion.iat-exp-missing": "MUST (4.1: \"MUST include iat\"; RFC 7523 3 requires exp): Client assertion without iat or exp",
   "client-assertion.lifetime": "Reading (S2: strict 60 s; 4.1: \"MUST make them short-lived\", and the Guides' five minutes is the lenient 300 s): Client assertion lifetime is too long",
+  "client-assertion.lifetime-1.0": "MUST (1.0 4.1: \"MUST set exp at most 5 minutes after iat\"): Client assertion lifetime exceeds five minutes",
   "client-assertion.missing": "Rule (4.1, 4.2, 4.3, 4.4, 4.6: each token, device authorization and revocation request carries the client assertion; \"The Personal Agent authenticates at the token endpoint with a client assertion signed by a key from jwks_uri\"): Token, device or revocation request without a client assertion",
   "client-assertion.not-jwt": "RFC (RFC 7523 3; 4.1): Client assertion is not a JWT",
   "client-assertion.wrong-typ": "RFC (RFC 8725 3.11, which 5.2 cites: explicit typing keeps a Session JWT, delegation or DPoP proof from being taken for another JWT): A DPoP proof, Session JWT or delegation used as the client assertion",

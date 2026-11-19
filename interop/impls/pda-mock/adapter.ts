@@ -125,7 +125,7 @@ const MANIFEST = {
         "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "NREP", "CDUP", "CIDUP", "ODUP"
       ],
   // S2 lenient-300s: no typ or kid needed, but an assertion living over 300 s is refused (MAX_ASSERTION_LIFETIME).
-  readings: { S1: "issuer", S2: PROFILE === "strict" ? "jwt-60s" : "lenient-300s", S3: "insertion", S23: "per-company" },
+  readings: { S1: "issuer", S2: PROFILE === "strict" ? (WIRE_VERSION === "0.4" ? "jwt-60s" : "jwt-300s") : "lenient-300s", S3: "insertion", S23: "per-company" },
   relaxations: [] as string[],
   ...(ADVERSARY ? { attacks: ATTACK_IDS, adversarial: true } : {}),
   profile: PROFILE,

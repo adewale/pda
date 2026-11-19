@@ -21,8 +21,8 @@ function now(): number {
 }
 
 /**
- * Client assertions are short-lived (spec 4.1: "MUST make them short-lived",
- * with no number). One minute.
+ * Client assertions last one minute, within final 1.0's five-minute maximum (4.1)
+ * and the older 0.4 short-lived policy.
  */
 const ASSERTION_SECONDS = 60;
 

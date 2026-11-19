@@ -7,7 +7,7 @@
  * Each check names its basis, and its severity follows from it
  * (docs/conformance-levels.md): a MUST, an RFC's MUST or a keyword-less rule
  * broken is an error, which fails the cell; a SHOULD, the Guides or our
- * reading (S2's `typ`, `kid` and lifetime; S1's `aud` array; which hosts
+ * reading (S2's `typ`, `kid` and 0.4 lifetime; S1's `aud` array; which hosts
  * receive tokens, N10) is a warning, which doesn't. A mock id's basis is the
  * mock's (test/mock-company/violations.ts), and the tests check they agree.
  */
@@ -29,6 +29,7 @@ export const TRACE_CHECKS = {
   "client-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Client assertion has no kid (S2)" },
   "client-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Client assertion alg isn't ES256 or PS384" },
   "client-assertion.iat-exp-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without iat or exp" },
+  "client-assertion.lifetime-1.0": { side: "agent", basis: "MUST", mock: true, what: "Client assertion lifetime over final 1.0’s 300-second bound" },
   "client-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Client assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
   "client-assertion.jti-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without a jti" },
   "client-assertion.jti-reused": { side: "agent", basis: "MUST", mock: true, what: "Client assertion jti used twice" },
@@ -114,7 +115,7 @@ function check(id: TraceCheckId, exchange: Exchange | null, detail: string): Che
   return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail, source: "trace" };
 }
 
-const SIGNING = new Set(["ES256", "RS256"]);
+const SIGNING = new Set(["ES256", "PS384"]);
 /** RFC 9449 acceptance window plus clock skew, as the mock allows. */
 const DPOP_WINDOW_SECONDS = 90;
 
@@ -125,7 +126,7 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("base6
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
 /** Client assertions: header, lifetime, jti, and an audience that is the issuer (4.1). */
-export function assertionChecks(all: readonly Exchange[]): Check[] {
+export function assertionChecks(all: readonly Exchange[], protocolVersion?: string): Check[] {
   const found: Check[] = [];
   const seen = new Set<string>();
   for (const x of agentRequests(all)) {
@@ -146,7 +147,9 @@ export function assertionChecks(all: readonly Exchange[]): Check[] {
       found.push(check("client-assertion.iat-exp-missing", x, "no numeric iat and exp"));
     } else {
       const lifetime = payload.exp - payload.iat;
-      if (lifetime > 300) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
+      if (protocolVersion === "1.0") {
+        if (lifetime > 300) found.push(check("client-assertion.lifetime-1.0", x, `lifetime ${lifetime} s exceeds 1.0’s 300-second maximum`));
+      } else if (lifetime > 300) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
       else if (lifetime > 60) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
     }
     if (typeof payload.jti !== "string" || payload.jti === "") found.push(check("client-assertion.jti-missing", x, "no jti"));
@@ -716,13 +719,13 @@ export function metadataFetchChecks(all: readonly Exchange[]): Check[] {
 }
 
 /** Every trace check. */
-export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = []): Check[] {
+export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = [], protocolVersion?: string): Check[] {
   return [
     ...browserSessionResponseChecks(all),
     ...handoffChecks(all),
     ...directParentChecks(all),
     ...metadataFetchChecks(all),
-    ...assertionChecks(all),
+    ...assertionChecks(all, protocolVersion),
     ...dpopChecks(all),
     ...tokenInUrlChecks(all),
     ...unlistedHostChecks(all),

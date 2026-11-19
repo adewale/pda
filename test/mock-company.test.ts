@@ -841,6 +841,13 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(301) }) })
   },
   {
+    id: "client-assertion.lifetime-1.0",
+    what: "a 301-second assertion at a final 1.0 Company",
+    config: { protocolVersion: "1.0", strictAssertions: true },
+    detail: "[client-assertion.lifetime-1.0] client assertion: lifetime 301s is too long (at most 300s)",
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(301) }) })
+  },
+  {
     id: "client-assertion.missing",
     what: "a revocation without a client assertion",
     detail: (c) => `[client-assertion.missing] no client assertion at ${c.hosts.revocationEndpoint}`,
@@ -2218,6 +2225,15 @@ const TAMPERS: readonly Tamper[] = [
     }
   }
 ];
+
+it.each([60, 120, 300])("final 1.0 accepts a %i-second client assertion at a strict Company", async seconds => {
+  const c = company();
+  await c.stub.configure({ protocolVersion: "1.0", strictAssertions: true });
+  const response = await revoke(c, { client: await clientAssertion(c, { claims: lifetime(seconds) }) });
+  expect(response.status).toBe(200);
+  await response.body?.cancel();
+  expect((await c.stub.state()).recorded).toEqual([]);
+});
 
 describe("each check the mock Company makes", () => {
   it.each(TAMPERS.map((row) => [`${row.id}: ${row.what}`, row] as const))("records %s", async (_name, row) => {

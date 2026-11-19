@@ -13,6 +13,9 @@ it("reports drift per pin: a frozen version's own pages and changelog entries, t
     writeFileSync(preload, `import {readFileSync} from 'node:fs';
 const {pins}=JSON.parse(readFileSync('spec/upstream.json'));
 const stored=new Map();
+// Serve each published version's unchanged section on the shared changelog.
+const sections=pins.map(pin=>readFileSync(pin.snapshot+'/pages/changelog.md','utf8').split(/^## /m).find(s=>s.startsWith('Version '+pin.protocolVersion+'\\n')||s.startsWith('Draft '+pin.protocolVersion+'\\n'))).filter(Boolean);
+const changelog=sections.map(section=>'## '+section).join('\\n');
 for(const pin of pins)for(const page of JSON.parse(readFileSync(pin.snapshot+'/manifest.json')).pages){
  if(page.markdown.fetched?.url)stored.set(page.markdown.fetched.url,{name:page.name,file:pin.snapshot+'/'+page.markdown.file});
 }
@@ -21,7 +24,7 @@ globalThis.fetch=async input=>{
  const page=stored.get(String(input));
  if(test.includes('removed:'+page.name))return new Response('',{status:Number(process.env.DRIFT_TEST_STATUS)});
  if(test.includes('changed:'+page.name))return new Response('## Draft 0.4\\n\\n#### A newer entry\\n\\n## Version 0.3\\n\\n#### Another entry\\n');
- return new Response(readFileSync(page.file));
+ return new Response(page.name==='changelog'?changelog:readFileSync(page.file));
 };`);
     const run = (test, status = "404") => spawnSync(process.execPath, ["--import", preload, "scripts/check-spec.mjs", "--drift"], { encoding: "utf8", env: { ...process.env, DRIFT_TEST: test, DRIFT_TEST_STATUS: status } });
 
@@ -36,15 +39,15 @@ globalThis.fetch=async input=>{
     expect(moved.stdout).toContain("CHANGED 0.4-spec");
     expect(moved.stdout).toContain("CHANGED 0.3-guides");
 
-    // The shared changelog: each published version compares only its own entry titles, and the draft the whole text.
+    // The shared changelog: each published version compares only its own entry titles, including final 1.0.
     const changelog = run("changed:changelog");
     expect(changelog.status).toBe(1);
     expect(changelog.stdout).toContain("CHANGED 0.3 changelog entries");
     expect(changelog.stdout).toContain("CHANGED 0.4 changelog entries");
-    expect(changelog.stdout.match(/CHANGED changelog /g)).toHaveLength(1);
-    expect(changelog.stdout).toContain("before updating the 1.0 pin");
+    expect(changelog.stdout).toContain("CHANGED 1.0 changelog entries");
+    expect(changelog.stdout).toContain("a published version changed");
 
-    // A shared page is checked once, for the newest pin (the 1.0 draft); the published versions ignore it.
+    // A shared page is checked once, for the newest pin (published 1.0); the published versions ignore it.
     const shared = run("changed:introduction");
     expect(shared.status).toBe(1);
     expect(shared.stdout.match(/CHANGED introduction/g)).toHaveLength(1);

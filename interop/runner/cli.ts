@@ -498,7 +498,7 @@ export async function runOne(
     writeFileSync(path.join(options.resultsDir, file), `${JSON.stringify(har, null, 1)}\n`);
     cell.har = file;
     const recorded = exchanges(har);
-    checks.push(...traceChecks(recorded, callbacks));
+    checks.push(...traceChecks(recorded, callbacks, cell.protocolVersion));
     checks.push(...(await documentChecks(recorded, cell.protocolVersion)));
     checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
     checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));

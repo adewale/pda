@@ -1,6 +1,6 @@
 """
-A minimal Personal Agent Protocol (Poppy) client for 0.4 and the 1.0
-draft, written from the 11 November 0.4 text
+A minimal Personal Agent Protocol (Poppy) client for 0.4 and 1.0,
+originally written from the 11 November 0.4 text
 (spec/draft-0.4-retrieved-2026-11-11/pages/: the spec, and the Operations
 and Mediated Sign-In extensions), the 13 November 1.0 text
 (spec/draft-1.0-retrieved-2026-11-13/pages/) and the `v04-*` and `v10-*`
@@ -9,6 +9,9 @@ client on 12 November 2026; nothing of 0.3 is left. 1.0 added on 13
 November: protocol descriptions (8.1), `prompt=consent` (4.2), pushed
 authorization requests whenever the issuer lists the endpoint (4.2, RFC
 9126), and stream events with SSE names it doesn't know skipped (8.6).
+
+The final 1.0 pin retains its 60-second assertions and resource-independent
+sign-in. It does not handle Company-to-agent authorization events.
 
 It is deliberately small: discovery (3), including redirects of the
 well-known URL, the choice among `protocol_version` and

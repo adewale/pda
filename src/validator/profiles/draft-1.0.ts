@@ -1,5 +1,5 @@
 /**
- * The 1.0 draft (spec/draft-1.0-retrieved-2026-11-13): 0.4's rules, with a
+ * Published 1.0 (spec/version-1.0-retrieved-2026-11-19): 0.4's rules, with a
  * required `description` on each `agent.protocols` entry (8.1), a port in
  * `organization.domain` when it isn't 443 (3.1), and client assertions
  * accepted with ES256 and PS384 (4.1). Its other changes are the Personal
@@ -18,7 +18,7 @@ const OAUTH: OAuthRules = { assertionAlgs: { ref: spec10("4.1", "agent-identity"
 export const draft10: Profile = {
   ...draft04,
   version: "1.0",
-  name: "Draft 1.0",
+  name: "1.0",
   poppy: (c: Checker, doc: unknown, context: { requestedDomain?: string }) => checkPoppy(c, doc, context, RULES),
   oauthMetadata: (c, doc, poppy) => checkOAuthMetadata(c, doc, poppy, OAUTH)
 };

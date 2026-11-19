@@ -62,6 +62,19 @@ describe("trace checks", () => {
     ]);
   });
 
+  it.each(["ES256", "PS384", "RS256"])("checks the published 1.0 assertion signing recommendation for %s", alg => {
+    const all = recording(sessionStart(0, { client: clientAssertion({ header: { alg } }) }));
+    const algorithms = traceChecks(all, [], "1.0").filter(c => c.id === "client-assertion.alg");
+    expect(ids(algorithms)).toEqual(alg === "RS256" ? ["client-assertion.alg:warning"] : []);
+  });
+
+  it.each([60, 120, 300, 301])("checks a %i-second assertion against the cell’s final 1.0 version", seconds => {
+    const all = recording(sessionStart(0, { client: clientAssertion({ payload: { exp: NOW + seconds } }) }));
+    const lifetimeChecks = traceChecks(all, [], "1.0").filter(c => c.id.startsWith("client-assertion.lifetime"));
+    expect(ids(lifetimeChecks)).toEqual(seconds <= 300 ? [] : ["client-assertion.lifetime-1.0:error"]);
+    if (seconds > 300) expect(lifetimeChecks[0]!.basis).toBe("MUST");
+  });
+
   it("checks a client assertion's iss, sub and aud form", () => {
     const client = clientAssertion({ payload: { sub: "someone", aud: [TOKEN] } });
     expect(ids(assertionChecks(recording(sessionStart(0, { client }))))).toEqual(["client-assertion.aud-array:error", "client-assertion.iss-sub:error"]);

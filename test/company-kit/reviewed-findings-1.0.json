@@ -1,5 +1,5 @@
 {
-  "catalogChecks": 132,
+  "catalogChecks": 133,
   "dpopPrerequisite": {
     "response": "400 Bad Request, error invalid_dpop_proof",
     "warningProfiles": [
@@ -10,6 +10,7 @@
       "assertion.ps384",
       "assertion.signature",
       "assertion.expired",
+      "assertion.lifetime",
       "assertion.claims",
       "assertion.aud-array",
       "assertion.aud-endpoint",
@@ -33,6 +34,7 @@
       "assertion.claims",
       "assertion.expired",
       "assertion.jti-reuse",
+      "assertion.lifetime",
       "assertion.ps384",
       "assertion.signature",
       "discovery.supported-versions",
@@ -62,5 +64,5 @@
     ]
   },
   "positiveControlProfile": "bearer",
-  "notes": "The pinned draft 1.0 kit (13 November, upstream bb98332) against the mock serving 1.0 alone. Its catalogue and findings are the 0.4 kit's: the kit's validator has no check for protocol descriptions, Pushed Authorization Requests, prompt=consent or the DPoP key at refresh; it makes assertion.ps384 a MUST, which still waits on the same DPoP prerequisite (spec/company-kit-2026-11-13/README.md). These are reviewed observations, not rewritten upstream verdicts: any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check. Mock skips: discovery.supported-versions and discovery.versions-same-company, because the reviewed run serves one version (docs/readings.md#v04-version-missing). The issuerless profile adds the OAuth checks that need an issuer."
+  "notes": "Published 1.0 kit retrieved 19 November. All 133 upstream verdicts are retained. The added assertion.lifetime check has the same reviewed missing-DPoP prerequisite on lenient/strict profiles; the bearer profile supplies an accepted five-minute lifetime control. Any new or disappeared finding fails review. Issuerless skips remain explicit."
 }

@@ -1,6 +1,6 @@
 /**
- * Our client against the mock Company serving the 1.0 draft as retrieved on
- * 13 November (spec/draft-1.0-retrieved-2026-11-13), alone, beside 0.4, or
+ * Our client against the mock Company serving published 1.0 as retrieved on
+ * 19 November (spec/version-1.0-retrieved-2026-11-19), alone, beside 0.4, or
  * as a newer minor version (3.4). Every test also passes the strict check in
  * agent-helpers: the mock recorded no violation or warning, and what the
  * agent sent passes the kit's schemas for the version it declared.
@@ -227,5 +227,74 @@ describe("1.0: the same DPoP key at refresh (4.4)", () => {
     const refreshes = (await requests(c)).filter((request) => path(request) === "/oauth/token" && request.status === 200).slice(before.length);
     expect(refreshes).toHaveLength(1);
     // The strict check after each test finds no dpop.refresh-key-changed.
+  });
+});
+
+describe("final 1.0", () => {
+  it.each(["insufficient_scope", "example.test/renew-consent"])("signs the Session in again for authorization error %s", async error => {
+    const c = await company(V10);
+    const a = await agent();
+    await signInDirect(a, c);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const before = await requests(c);
+    await c.stub.pushEvent(first.conversationId, { type: "authorization", error, scope: "orders:read" });
+    const notice = await a.stub.poppyWaitForNotice(error);
+    expect(notice).toContain("Session is now signed in");
+    // 8.11 refers to 5.4, which permits refresh of an adequate grant.
+    const after = await requests(c);
+    expect(after.filter(r => r.grant === "refresh_token").length).toBeGreaterThan(before.filter(r => r.grant === "refresh_token").length);
+    expect(after.filter(r => r.grant === "authorization_code")).toHaveLength(1);
+    const messages = (all: readonly MockRequest[]) => all.filter(r => r.method === "POST" && r.url.startsWith(c.hosts.conversationsEndpoint));
+    expect(messages(before)).toHaveLength(1);
+    expect(messages(after)).toHaveLength(1);
+    expect((await cards(a)).filter(item => item.kind === "signin_link" && item.open)).toHaveLength(0);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it.each(["insufficient_scope", "example.test/renew-consent"])("asks the User for missing scopes after authorization error %s", async error => {
+    const c = await company(V10);
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read"]);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "authorization", error, scope: "orders:write" });
+    const notice = await a.stub.poppyWaitForNotice(error);
+    expect(notice).toContain('scopes "orders:write"');
+    expect(notice).toContain("needs the User signed in");
+    expect((await requests(c)).filter(r => r.grant === "authorization_code")).toHaveLength(1);
+    const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:write"], reason: "To continue your conversation" });
+    expect(started.isError).toBe(false);
+    const card = (await cards(a)).find(item => item.kind === "signin_link" && item.open)!;
+    expect(card).toBeDefined();
+    const authorization = new URL(card.url);
+    expect(authorization.searchParams.has("resource")).toBe(false);
+    expect(new Set(authorization.searchParams.get("scope")!.split(" "))).toEqual(new Set(["orders:read", "orders:write"]));
+    const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
+    const callback = await fetchWorker(new Request(location, { headers: { Cookie: a.cookie } }));
+    expect(await callback.text()).toMatch(/Connected to/);
+    const continued = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "Please continue" });
+    expect(continued.isError).toBe(false);
+    expect(JSON.parse(continued.text).conversationId).toBe(first.conversationId);
+    const state = await c.stub.state();
+    expect(state.requests.filter(r => r.grant === "authorization_code")).toHaveLength(2);
+    expect(state.conversations).toHaveLength(1);
+    expect(state.performs).toBe(0);
+  });
+
+  it("uses one sign-in grant for services offered after sign-in", async () => {
+    const c = await company({ ...V10, mcp: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    const before = await requests(c);
+    expect(before.filter(r => r.grant === "authorization_code")).toHaveLength(1);
+    expect(before.filter(r => r.grant === "authorization_code").every(r => !r.bodyKeys.includes("resource"))).toBe(true);
+    await c.stub.configure({ apiResource: true, mcp: true });
+    // Rediscover the newly advertised MCP service after the cache expires.
+    await a.stub.poppyAdvance(301_000);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).isError).toBe(false);
+    expect((await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } })).isError).toBe(false);
+    const after = await requests(c);
+    expect(after.filter(r => r.grant === "authorization_code")).toHaveLength(1);
+    expect(after.filter(r => r.grant === "refresh_token").length).toBeGreaterThanOrEqual(2);
+    expect((await c.stub.state()).performs).toBe(0);
   });
 });

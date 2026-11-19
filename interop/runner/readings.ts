@@ -9,7 +9,7 @@ import type { Check } from "./types.ts";
 
 export const QUESTIONS = {
   S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "endpoint", "either"] },
-  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "lenient-120s", "lenient-300s", "any"] },
+  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "jwt-300s", "lenient-120s", "lenient-300s", "any"] },
   S3: { question: "Metadata location for an issuer with a path", values: ["insertion", "append", "either"] },
   S23: { question: "DPoP nonce scope", values: ["per-origin", "per-company"] }
 } as const;
@@ -34,12 +34,18 @@ export function questionOf(checkId: string): QuestionId | undefined {
 }
 
 /**
- * S2 readings from narrowest to widest. An agent's says what it sends; a
- * Company's what it accepts. `jwt-60s`: `typ: "JWT"` and at most 60 s.
- * `lenient-120s`: any `typ`, at most 120 s. `lenient-300s`: any `typ`, at
- * most 300 s. `any`: no limit stated.
+ * S2 readings by assertion type and maximum lifetime. An agent states what
+ * it sends; a Company states what it accepts. `jwt-60s`: `typ: "JWT"` and at most 60 s.
+ * `jwt-300s`: `typ: "JWT"` and at most 300 s. `lenient-120s`: any `typ`,
+ * at most 120 s. `lenient-300s`: any `typ`, at most 300 s. `any`: no limit stated.
  */
-const S2_ORDER = ["jwt-60s", "lenient-120s", "lenient-300s", "any"] as const;
+const S2_LIMITS: Record<string, { jwt: boolean; seconds: number }> = {
+  "jwt-60s": { jwt: true, seconds: 60 },
+  "jwt-300s": { jwt: true, seconds: 300 },
+  "lenient-120s": { jwt: false, seconds: 120 },
+  "lenient-300s": { jwt: false, seconds: 300 },
+  any: { jwt: false, seconds: Infinity }
+};
 
 /**
  * Can an agent with one reading work with a Company with another? An agent
@@ -50,13 +56,9 @@ export function compatible(question: string, agent: string | undefined, company:
   if (!agent || !company) return true;
   switch (question) {
     case "S2": {
-      // A Company accepts every agent reading at least as narrow as its own:
-      // `jwt-60s` only `jwt-60s`; `lenient-120s` also itself; `lenient-300s`
-      // also both lenient readings, but not `any`, which may live past 300 s;
-      // `any` everything.
-      const sent = S2_ORDER.indexOf(agent as (typeof S2_ORDER)[number]);
-      const accepted = S2_ORDER.indexOf(company as (typeof S2_ORDER)[number]);
-      return sent < 0 || accepted < 0 || sent <= accepted;
+      // Both restrictions must fit: jwt-300s and lenient-120s are incomparable.
+      const sent = S2_LIMITS[agent], accepted = S2_LIMITS[company];
+      return !sent || !accepted || (sent.seconds <= accepted.seconds && (!accepted.jwt || sent.jwt));
     }
     case "S23":
       // An agent that keeps a nonce per origin copes with one per Company; not the converse.
@@ -101,13 +103,13 @@ function wantedAud(reading: string, endpoint: AssertionEndpoint, called: string)
 /**
  * What an S2 reading refuses in an assertion; null when it is accepted, or
  * the reading sets no limit. `jwt-60s`: no `typ: "JWT"`, or a lifetime over
- * 60 s. `lenient-120s`: a lifetime over 120 s. `lenient-300s`: a lifetime
- * over 300 s.
+ * 60 s. `jwt-300s`: no `typ: "JWT"`, or over 300 s. `lenient-120s`:
+ * a lifetime over 120 s. `lenient-300s`: a lifetime over 300 s.
  */
 function assertionFault(reading: string | undefined, jwt: DecodedJwt): string | null {
   const lifetime = Number(jwt.payload.exp) - Number(jwt.payload.iat);
-  if (reading === "jwt-60s") {
-    return jwt.header.typ !== "JWT" || !(lifetime <= 60) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
+  if (reading === "jwt-60s" || reading === "jwt-300s") {
+    return jwt.header.typ !== "JWT" || !(lifetime <= S2_LIMITS[reading]!.seconds) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
   }
   const limit = reading === "lenient-120s" ? 120 : reading === "lenient-300s" ? 300 : null;
   if (limit !== null) return !(lifetime <= limit) ? `a ${lifetime} s lifetime` : null;

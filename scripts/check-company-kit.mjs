@@ -47,7 +47,7 @@ const dpopPatch = path.join(root, "test/company-kit/dpop-probes.patch");
 if (withDpop) {
   const copy = path.join(directory, "kit");
   cpSync(kit, copy, { recursive: true });
-  execFileSync("git", ["apply", "--unidiff-zero", dpopPatch], { cwd: copy, stdio: "pipe" });
+  execFileSync("git", ["apply", dpopPatch], { cwd: copy, stdio: "pipe" });
   cli = path.join(copy, "validate/index.ts");
 }
 const pdaOrigin = "https://kit-agent.test";

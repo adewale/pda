@@ -5,14 +5,6 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const root = path.join(import.meta.dirname, "../..");
-let directory: string;
-beforeAll(() => {
-  directory = mkdtempSync(path.join(tmpdir(), "pda-kit-proof-controls-"));
-  cpSync(path.join(root, "spec/company-kit-2026-11-11/kit"), directory, { recursive: true });
-  execFileSync("git", ["apply", "--unidiff-zero", path.join(root, "test/company-kit/dpop-probes.patch")], { cwd: directory });
-});
-afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
-
 // Execute the real temporary patched kit with Node's TypeScript loader. Its
 // signer and assertion verdicts remain independent of PDA's JWT code.
 const probe = String.raw`
@@ -61,11 +53,17 @@ if(mode==="retry") {
  console.log(JSON.stringify({calls,verdicts}));
 }
 `;
-function run(mode: string) {
-  return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", probe, directory, mode], { encoding: "utf8" }));
-}
-
-describe("separately patched upstream DPoP probe prerequisites", () => {
+describe.each(["company-kit-2026-11-11", "company-kit-2026-11-19"])("separately patched upstream DPoP prerequisites (%s)", snapshot => {
+  let directory: string;
+  beforeAll(() => {
+    directory = mkdtempSync(path.join(tmpdir(), "pda-kit-proof-controls-"));
+    cpSync(path.join(root, "spec", snapshot, "kit"), directory, { recursive: true });
+    execFileSync("git", ["apply", path.join(root, "test/company-kit/dpop-probes.patch")], { cwd: directory });
+  });
+  afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
+  function run(mode: string) {
+    return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", probe, directory, mode], { encoding: "utf8" }));
+  }
   it("uses replacement nonces from ordinary token responses without changing assertion verdicts", () => {
     const result = run("rotation");
     expect(result.verdicts).toEqual([{ id: "assertion.ps384", status: "pass" }, { id: "assertion.signature", status: "pass" }]);
