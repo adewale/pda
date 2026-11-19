@@ -184,6 +184,7 @@ export function redact(text: string): string {
     .replace(/[^\s@"'<>()[\]]+@[^\s@"'<>()[\]]+\.[A-Za-z]{2,}/g, "[email]")
     .replace(/“[^”]*”|‘[^’]*’|"[^"]*"|'[^'\s][^']*'|`[^`]*`/g, "[text]")
     .replace(/\b(Bearer|DPoP|Basic)\s+\S+/gi, "$1 [secret]")
+    .replace(/\b(?:sk-|AIza)[A-Za-z0-9_*.-]{6,}/g, "[secret]")
     .replace(/[A-Za-z0-9_\-+/=~]{24,}/g, "[secret]")
     .replace(/\b\d{4,8}\b/g, "[number]")
     .replace(/\s+/g, " ")

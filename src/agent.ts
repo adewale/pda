@@ -808,7 +808,7 @@ export class PersonalAgent extends DurableObject<Env> {
   async setModelKey(identity: Caller, provider: unknown, key: unknown, workspace?: unknown): Promise<KeyResult> {
     await this.recordIdentity(identity);
     if (!isKeyProvider(provider)) {
-      return { ok: false, status: 400, error: "Choose Anthropic or OpenAI." };
+      return { ok: false, status: 400, error: "Choose Anthropic, OpenAI or Gemini." };
     }
     if (typeof key !== "string") return { ok: false, status: 400, error: "Paste a key." };
     const trimmed = key.trim();

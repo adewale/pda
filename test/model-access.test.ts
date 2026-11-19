@@ -7,9 +7,10 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Entitlement } from "../src/model-router";
-import { demoCatalogModel, gatewayDemoLane, nativeProviders, refusalText } from "../src/model-router";
+import { demoCatalogModel, gatewayDemoLane, modelErrorCode, nativeProviders, refusalText } from "../src/model-router";
 import { calculateCost } from "@earendil-works/pi-ai";
-import { keyContext } from "../src/model-keys";
+import { message } from "../src/log";
+import { keyContext, keyFormatProblem, redactKeys, workspaceProblem } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
 import { keyState } from "./fake-models";
@@ -173,6 +174,74 @@ describe("own keys: the key never leaves the agent", () => {
     const removed = await api(identity, "/api/model-key", { method: "DELETE" });
     expect(await removed.json()).toMatchObject({ lane: "none", reason: "no_key", key: null });
   });
+
+  it("uses a Gemini key through Google's own API, handles Google's HTTP 400 API_KEY_INVALID vs non-auth 400s, and redacts AIza keys", async () => {
+    const identity = someone("nokey.example");
+    const stub = await stubFor(identity);
+    const mark = await stub.poppyLogMark();
+
+    const refused = await saveKey(identity, "google", "AIza-test-bad-0123456789abcdef");
+    expect(refused.status).toBe(400);
+    const refusedBody = await refused.text();
+    expect(refusedBody).toContain("Gemini refused that key.");
+    expect(refusedBody).not.toContain("AIza-test-bad");
+    expect((await entitlement(identity)).key).toBeNull();
+
+    const brokeKey = "AIza-test-broke-0123456789abcdef";
+    const broke = await saveKey(identity, "google", brokeKey);
+    expect(broke.status).toBe(400);
+    const brokeBody = await broke.text();
+    expect(brokeBody).toContain("Gemini answered 400 (FAILED_PRECONDITION: Billing not enabled for key [key]); the key wasn't saved.");
+    expect(brokeBody).not.toContain("AIza-test-broke");
+    expect((await entitlement(identity)).key).toBeNull();
+
+    const goodKey = `AIza-test-good-${crypto.randomUUID()}`;
+    const saved = await saveKey(identity, "google", goodKey);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      lane: "own_key",
+      reason: null,
+      key: { provider: "google", status: "valid", source: "pasted" },
+      model: { provider: "google", id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" }
+    });
+
+    const connection = await connect(identity);
+    await chat(connection.socket, connection.client, "hi Gemini", "fake Gemini (gemini-4-hydrogen) answers: hi Gemini");
+
+    // A non-auth HTTP 400 (`INVALID_ARGUMENT` without `API_KEY_INVALID`) must NOT mark a valid Gemini key invalid.
+    await send(connection, "trigger [bad-request] please");
+    expect((await stub.lastAssistant()).error).toContain("Request contains an invalid argument");
+    expect(await entitlement(identity)).toMatchObject({ lane: "own_key", reason: null, key: { provider: "google", status: "valid" } });
+
+    expect((await stub.poppyLogsSince(mark)).join("\n")).not.toContain(goodKey);
+    expect((await stub.poppyLogsSince(mark)).join("\n")).not.toContain(brokeKey);
+    expect(await stub.demoCallCount()).toBe(0);
+    connection.socket.close();
+  });
+});
+
+describe("key format and redaction", () => {
+  it("validates Gemini key prefixes, articles and workspace rejection, and scrubs AIza tokens from transcripts and logs", () => {
+    expect(keyFormatProblem("google", "AIzaSyA1234567890abcdef")).toBeNull();
+    expect(keyFormatProblem("google", "sk-test-0123456789abcdef")).toBe("Gemini API keys start with AIza.");
+    expect(keyFormatProblem("google", "short")).toBe("That doesn't look like a Gemini API key.");
+    expect(keyFormatProblem("anthropic", "short")).toBe("That doesn't look like an Anthropic API key.");
+    expect(keyFormatProblem("openai", "short")).toBe("That doesn't look like an OpenAI API key.");
+    expect(workspaceProblem("google", "wrkspc_01")).toBe("Only Anthropic keys take a workspace ID.");
+
+    const shortGemini = "AIzaSyShortKey12";
+    const fullGemini = "AIzaSyD0123456789abcdefghijklmnopqr";
+    expect(redactKeys(`Error for ${fullGemini} and ${shortGemini}`)).toBe("Error for [key] and [key]");
+    expect(redactKeys(`Exact ${fullGemini}`, fullGemini)).toBe("Exact [key]");
+    expect(String(message(`Upstream echoed ${shortGemini} and ${fullGemini}`))).toBe("Upstream echoed [secret] and [secret]");
+
+    expect(
+      modelErrorCode({
+        stopReason: "error",
+        errorMessage: "got status: INVALID_ARGUMENT. The input token count (1100000) exceeds the maximum number of tokens allowed (1048576)."
+      })
+    ).toBe("context_too_long");
+  });
 });
 
 describe("own keys: sealing", () => {
@@ -219,7 +288,10 @@ describe("precedence and who pays", () => {
   });
 
   it("sends own-key calls only to pi-ai's vendor providers, never the AI binding", () => {
-    expect(nativeProviders().map((provider) => provider.id)).toEqual(["anthropic", "openai"]);
+    const providers = nativeProviders();
+    expect(providers.map((provider) => provider.id)).toEqual(["anthropic", "openai", "google"]);
+    const googleModels = providers.find((provider) => provider.id === "google")!.getModels();
+    expect(googleModels.filter((model) => model.id === "gemini-4-hydrogen")).toHaveLength(1);
   });
 
   it("tags demo calls with the agent and its budget domain, on the demo gateway, and prices them by pi-ai's catalog", async () => {
@@ -431,16 +503,41 @@ describe("a key the vendor stops accepting", () => {
     expect(await stub.poppyDumpStorage()).not.toContain(key);
     connection.socket.close();
   });
+
+  it("marks a revoked Gemini key invalid on Google's HTTP 400 API_KEY_INVALID, logs key_refused, and never falls back to the demo", async () => {
+    const identity = someone("workspace.example");
+    const stub = await stubFor(identity);
+    const mark = await stub.poppyLogMark();
+    const key = `AIza-test-revoked-${crypto.randomUUID()}`;
+    expect((await saveKey(identity, "google", key)).status).toBe(200);
+
+    const connection = await connect(identity);
+    await send(connection, "are you there Gemini?");
+    expect((await stub.lastAssistant()).error).toContain("Gemini refused your key (401)");
+    expect(await entitlement(identity)).toMatchObject({ lane: "none", reason: "key_invalid", key: { provider: "google", status: "invalid" } });
+    const card = (JSON.parse(await stub.poppyCards()) as Array<{ id: string; open: boolean; text: string }>).find((item) => item.id === "model-access");
+    expect(card).toMatchObject({ open: true });
+    expect(card?.text).toContain("Gemini refused your key (401)");
+    expect(card?.text).toContain("It won't use the demo instead.");
+
+    const recentLogs = (await stub.poppyLogsSince(mark)).join("\n");
+    expect(recentLogs).toContain('"code":"key_refused"');
+    expect(recentLogs).toContain('"errors":{"key_refused":1}');
+    expect(recentLogs).not.toContain(key);
+    expect(await stub.demoCallCount()).toBe(0);
+    expect(await stub.poppyDumpStorage()).not.toContain(key);
+    connection.socket.close();
+  });
 });
 
-describe("only Anthropic and OpenAI keys", () => {
+describe("only Anthropic, OpenAI and Gemini keys", () => {
   it("has no OpenRouter sign-in, and refuses a pasted key for any other provider", async () => {
     const identity = someone("nokey.example");
     expect((await api(identity, "/auth/openrouter/start")).status).toBe(404);
     expect((await api(identity, "/auth/openrouter/callback?code=x&state=y")).status).toBe(404);
     const refused = await saveKey(identity, "openrouter", `sk-or-v1-${crypto.randomUUID()}`);
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("Choose Anthropic or OpenAI.");
+    expect(await refused.text()).toContain("Choose Anthropic, OpenAI or Gemini.");
     expect((await entitlement(identity)).key).toBeNull();
   });
 
