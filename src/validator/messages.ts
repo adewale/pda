@@ -19,7 +19,7 @@
  * presents our policy as the draft's requirement.
  *
  * The messages check 0.4 (spec/draft-0.4-retrieved-2026-11-11) and the 1.0
- * draft (spec/draft-1.0-retrieved-2026-11-13). The links go to 0.4's pages,
+ * published text (spec/version-1.0-retrieved-2026-11-19). The links go to 0.4's pages,
  * or 1.0's (`spec10`) for a rule 0.4 doesn't have. Where 0.3, 0.4 or 1.0
  * changed a rule a Company may still follow, the explanation says what
  * replaced it.
@@ -43,7 +43,7 @@ export const spec = (section: string, anchor: string): Ref => ({
   label: `Spec ${section}`,
   url: `${SITE}/spec#${anchor}`
 });
-/** A section of the 1.0 draft's specification, for a rule 0.4 doesn't have. */
+/** A section of the published 1.0 specification, for a rule 0.4 doesn't have. */
 export const spec10 = (section: string, anchor: string): Ref => ({
   label: `Spec ${section} (1.0)`,
   url: `https://personalagentprotocol.org/docs/1.0/spec#${anchor}`

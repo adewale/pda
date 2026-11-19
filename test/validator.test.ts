@@ -280,7 +280,7 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
   );
 };
 
-/** SPEC_POPPY as the 1.0 draft writes it: a description on each conversation protocol entry (8.1). */
+/** SPEC_POPPY as published 1.0 writes it: a description on each conversation protocol entry (8.1). */
 const POPPY_10 = {
   ...structuredClone(SPEC_POPPY),
   protocol_version: "1.0",
@@ -310,7 +310,7 @@ const POPPY_10_FIXTURES: readonly Fixture[] = [
     run: () => served(POPPY_10),
     ids: [],
     outcome: "valid",
-    also: (report) => expect(report.checkedAgainst).toBe("Draft 1.0")
+    also: (report) => expect(report.checkedAgainst).toBe("1.0")
   },
   {
     name: "1.0: every conversation protocol entry needs a description",
@@ -343,7 +343,7 @@ const POPPY_10_FIXTURES: readonly Fixture[] = [
     })),
     ids: ["version-newer-minor", "unknown-member"],
     outcome: "valid",
-    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 1.0", protocolVersion: "1.0", refused: false })
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "1.0", protocolVersion: "1.0", refused: false })
   },
   {
     name: "1.0: a 0.4 poppy.json that links a 1.0 document is used in 1.0, the newest version both speak",
@@ -364,7 +364,7 @@ const POPPY_10_FIXTURES: readonly Fixture[] = [
     run: () => servedVersions(with10((d) => (d.protocol_version = "1.1")), {}, ["0.4", "1.0"]),
     ids: ["version-newer-minor"],
     outcome: "valid",
-    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 1.0", poppy: { protocol_version: "1.1" } })
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "1.0", poppy: { protocol_version: "1.1" } })
   },
   {
     name: "1.0: a 0.4 agent doesn't use a Company that serves only 1.0, a version it can't speak",
@@ -615,7 +615,7 @@ const POPPY_JSON: readonly Fixture[] = [
     run: () => text("poppy", withPoppy((d) => delete d.protocol_version)),
     // The newest version the validator knows.
     ids: { contains: ["missing-member"] },
-    also: (report) => expect(report.checkedAgainst).toBe("Draft 1.0")
+    also: (report) => expect(report.checkedAgainst).toBe("1.0")
   },
   {
     name: "checks organization: not an object",
@@ -1329,7 +1329,7 @@ const FETCHING: readonly Fixture[] = [
 describe("valid documents", () => testEach(VALID));
 describe("poppy.json", () => testEach(POPPY_JSON));
 describe("poppy.json in the 0.4 draft, and choosing a version", () => testEach(POPPY_04));
-describe("poppy.json in the 1.0 draft, and choosing between 0.4 and 1.0", () => testEach(POPPY_10_FIXTURES));
+describe("poppy.json in published 1.0, and choosing between 0.4 and 1.0", () => testEach(POPPY_10_FIXTURES));
 describe("discovery: the issuer from the domain's protected resource metadata", () => testEach(DISCOVERY));
 describe("OAuth server metadata, checked against poppy.json", () => testEach(METADATA));
 describe("client metadata and keys", () => testEach(CLIENT));

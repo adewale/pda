@@ -65,8 +65,8 @@ describe("personal data controls", () => {
     const build = await response.json() as Record<string, unknown>;
     expect(Object.keys(build).sort()).toEqual(["commit", "dirty", "protocolRevision", "protocolRevisions", "protocolVersions", "workerVersion"]);
     // The newest version's revision, and each version's.
-    expect(build.protocolRevision).toBe("2026-11-13");
-    expect(build.protocolRevisions).toEqual({ "0.4": "2026-11-11", "1.0": "2026-11-13" });
+    expect(build.protocolRevision).toBe("2026-11-19");
+    expect(build.protocolRevisions).toEqual({ "0.4": "2026-11-11", "1.0": "2026-11-19" });
     expect(build.protocolVersions).toEqual(["0.4", "1.0"]);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });

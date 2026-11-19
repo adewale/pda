@@ -5,7 +5,7 @@
  * before its issuer is used. We speak 0.4, the
  * 1.0 release candidate, as retrieved on 11 November 2026
  * (spec/draft-0.4-retrieved-2026-11-11), decision 43, and beside it the 1.0
- * draft as retrieved on 13 November 2026 (spec/draft-1.0-retrieved-2026-11-13),
+ * published version, retrieved on 19 November 2026 (spec/version-1.0-retrieved-2026-11-19),
  * decision 51; 0.3 was dropped in decision 49. With more than one, we choose
  * the newest a Company offers (3.4). The list is oldest first, and stays a
  * list so a new version is added as data (docs/upgrading.md).
@@ -13,11 +13,11 @@
 export const PROTOCOL_VERSIONS = ["0.4", "1.0"] as const;
 export type ProtocolVersion = (typeof PROTOCOL_VERSIONS)[number];
 /** The dates of the manually reviewed site snapshots we implement, by version. */
-export const PROTOCOL_REVISIONS: Readonly<Record<ProtocolVersion, string>> = { "0.4": "2026-11-11", "1.0": "2026-11-13" };
+export const PROTOCOL_REVISIONS: Readonly<Record<ProtocolVersion, string>> = { "0.4": "2026-11-11", "1.0": "2026-11-19" };
 /** The newest version's snapshot date, as build info has always reported it. */
 export const PROTOCOL_REVISION = PROTOCOL_REVISIONS["1.0"];
 /** The upstream commit whose text the newest version's snapshot matches (spec/upstream.json). */
-export const PROTOCOL_COMMIT: string | null = "bb9833219c59554518164ce53bf659abcdf99863";
+export const PROTOCOL_COMMIT: string | null = "589743afa56ee02bea71d1509c29b0b4ca5b3e50";
 
 export function supportsProtocol(value: unknown): value is ProtocolVersion {
   return PROTOCOL_VERSIONS.some((version) => version === value);

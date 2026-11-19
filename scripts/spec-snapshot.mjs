@@ -660,7 +660,8 @@ function save(site) {
   const version = stated?.version ?? "unknown";
   // A draft in progress shows no "Updated" date, so its snapshot is named by the day it was retrieved.
   const retrieved = `retrieved-${site.sitemap.retrieved_at.slice(0, 10)}`;
-  let dir = spec?.updated ? `draft-${version}-${new Date(`${spec.updated} UTC`).toISOString().slice(0, 10)}` : `draft-${version}-${retrieved}`;
+  const prefix = stated?.draft === false ? "version" : "draft";
+  let dir = spec?.updated ? `${prefix}-${version}-${new Date(`${spec.updated} UTC`).toISOString().slice(0, 10)}` : `${prefix}-${version}-${retrieved}`;
   if (existsSync(path.join(specDir, dir))) dir += `-${retrieved}`;
   const out = path.join(specDir, dir);
   mkdirSync(path.join(out, "pages"), { recursive: true });

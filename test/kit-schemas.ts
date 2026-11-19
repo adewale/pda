@@ -1,6 +1,6 @@
 import upstream from "../spec/upstream.json";
 import { validateSchema as validate04 } from "../spec/company-kit-2026-11-11/kit/validate/schema.ts";
-import { validateSchema as validate10 } from "../spec/company-kit-2026-11-13/kit/validate/schema.ts";
+import { validateSchema as validate10 } from "../spec/company-kit-2026-11-19/kit/validate/schema.ts";
 import type { AgentPayload } from "./mock-company/types";
 
 /**
@@ -18,17 +18,17 @@ import type { AgentPayload } from "./mock-company/types";
  * A request's kit is the version its `Poppy-Version` declares (3.4), else
  * the caller's default, 0.4, as for the client metadata, which a Company
  * fetches without one, and which every kit checks. The 0.3 kit stays pinned
- * as history (decision 49); the 1.0 draft's kit judges 1.0 requests.
+ * as history (decision 49); the published 1.0 kit judges 1.0 requests.
  */
 
 /** Schemas by kit, keyed by file name. A glob needs a literal path, so a re-pin updates this map (KIT_PATHS checks it). */
 const SCHEMAS: Record<string, Record<string, object>> = {
   "0.4": fileNames(import.meta.glob("../spec/company-kit-2026-11-11/kit/schemas/*.schema.json", { eager: true, import: "default" })),
-  "1.0": fileNames(import.meta.glob("../spec/company-kit-2026-11-13/kit/schemas/*.schema.json", { eager: true, import: "default" }))
+  "1.0": fileNames(import.meta.glob("../spec/company-kit-2026-11-19/kit/schemas/*.schema.json", { eager: true, import: "default" }))
 };
 /** Each kit's own validator, so a kit is judged only by its own files. */
 const VALIDATORS: Record<string, typeof validate04> = { "0.4": validate04, "1.0": validate10 };
-const KIT_PATHS: Record<string, string> = { "0.4": "spec/company-kit-2026-11-11", "1.0": "spec/company-kit-2026-11-13" };
+const KIT_PATHS: Record<string, string> = { "0.4": "spec/company-kit-2026-11-11", "1.0": "spec/company-kit-2026-11-19" };
 for (const [version, kit] of Object.entries(KIT_PATHS)) {
   const pin = upstream.pins.find((candidate) => candidate.protocolVersion === version);
   if (pin?.kit !== kit) throw new Error(`test/kit-schemas.ts reads the ${version} kit from ${kit}, but spec/upstream.json pins ${pin?.kit}`);

@@ -725,9 +725,10 @@ export class Company {
       this.violation(`${kind}.iat-exp-missing`, `${label}: iat and exp are required`);
       return false;
     }
-    const longest = this.config.strictAssertions ? STRICT_ASSERTION_LIFETIME : MAX_ASSERTION_LIFETIME;
+    const final = !this.config.protocolVersion.startsWith("0.");
+    const longest = final || !this.config.strictAssertions ? MAX_ASSERTION_LIFETIME : STRICT_ASSERTION_LIFETIME;
     if (payload.exp - payload.iat > longest) {
-      this.violation(`${kind}.lifetime`, `${label}: lifetime ${payload.exp - payload.iat}s is too long (at most ${longest}s)`);
+      this.violation(final ? "client-assertion.lifetime-1.0" : `${kind}.lifetime`, `${label}: lifetime ${payload.exp - payload.iat}s is too long (at most ${longest}s)`);
       return false;
     }
     return true;

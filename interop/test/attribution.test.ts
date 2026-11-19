@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { agentRecorded, attribute, attributeAll, checkLevel, companyRecorded, failureCode, knownFailure, knownMatches, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
 import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
@@ -463,7 +461,7 @@ describe("reading compatibility", () => {
   });
 
   it("S2 lenient-120s (print-with-poppy, Datalayer 0.10.0): between jwt-60s and lenient-300s", () => {
-    expect(QUESTIONS.S2.values).toEqual(["jwt-60s", "lenient-120s", "lenient-300s", "any"]);
+    expect(QUESTIONS.S2.values).toEqual(["jwt-60s", "jwt-300s", "lenient-120s", "lenient-300s", "any"]);
     // As a Company: accepts jwt-60s and itself, not the wider readings.
     expect(compatible("S2", "jwt-60s", "lenient-120s")).toBe(true);
     expect(compatible("S2", "lenient-120s", "lenient-120s")).toBe(true);
@@ -493,12 +491,10 @@ describe("reading compatibility", () => {
     expect(sentBeyond("lenient-120s")).toEqual([2, 3]);
   });
 
-  it("lenient-company declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
-    const root = path.join(import.meta.dirname, "../..");
-    const adapter = readFileSync(path.join(root, "interop/impls/pda-mock/adapter.ts"), "utf8");
-    const core = readFileSync(path.join(root, "test/mock-company/core.ts"), "utf8");
-    expect(adapter).toMatch(/S2: PROFILE === "strict" \? "jwt-60s" : "lenient-300s"/);
-    expect(core).toMatch(/const MAX_ASSERTION_LIFETIME = 300;/);
-    expect(core).toMatch(/const STRICT_ASSERTION_LIFETIME = 60;/);
+  it("compares the final strict assertion profile by JWT typing and lifetime", () => {
+    expect(compatible("S2", "jwt-60s", "jwt-300s")).toBe(true);
+    expect(compatible("S2", "jwt-300s", "lenient-300s")).toBe(true);
+    expect(compatible("S2", "jwt-300s", "lenient-120s")).toBe(false);
+    expect(compatible("S2", "lenient-120s", "jwt-300s")).toBe(false);
   });
 });

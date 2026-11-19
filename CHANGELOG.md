@@ -2,6 +2,18 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
+## Unreleased — published Poppy 1.0 (19 November 2026)
+
+**Changed:** pin published 1.0 (14 November) to the 19 November specification and official Company kit at upstream `589743a`. The [1.0 upgrade](docs/poppy-1.0-upgrade.md) records all 22 [upstream changelog](https://personalagentprotocol.org/docs/changelog#1.0) entries. The older draft inputs remain archived; 0.4 keeps its frozen pin. No 1.1 draft features are enabled.
+
+**Fixed:** the strict 1.0 Company accepts assertion lifetimes through 300 seconds and rejects 301. Regression tests verify that known and unknown conversation authorization errors refresh an adequate grant without resending an accepted message. A regression checks one sign-in grant across Company services introduced later.
+
+**Validation:** full offline suite, type checks, tooling, specification and documentation checks; the 133-check published kit with raw findings preserved and a separate DPoP-supplied run. See the upgrade’s verification section for counts and limitations.
+
+**Migration:** no stored-state migration. Pending and failed sign-ins preserve existing account grants. This changes repository inputs and behavior; it does not deploy them.
+
+**Rollback:** revert this change to the 13 November 1.0 draft pin and behavior. No ledger reset is needed.
+
 ## Unreleased — each check quotes the sentence it enforces
 
 The validator called northbound.camp invalid because `scopes_supported` lists scopes, such as `openid`, that `auth.scopes` doesn't describe. 4.7 has said the Company SHOULD describe them since 0.3's text of 3 November; our message was written from the 28 October text, when it was a MUST, and nothing compared it with later pins.

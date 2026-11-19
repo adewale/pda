@@ -1,5 +1,5 @@
 /**
- * Every protocol version the validator knows: 0.4 and the 1.0 draft. A
+ * Every protocol version the validator knows: 0.4 and published 1.0. A
  * document that declares another version is refused as unsupported, since
  * our client won't use it, except that from 1.0 a newer minor version is
  * checked with the newest profile of its major version (3.4). To support an
