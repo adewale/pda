@@ -28,6 +28,7 @@
     "DEMO_DAILY_USD_PER_DOMAIN": 0,
     "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",
     "OPENAI_MODEL_ID": "gpt-6.1-sol",
+    "GEMINI_MODEL_ID": "gemini-4-hydrogen",
     "SIGNUP": "allowlist",
     "SIGNIN_PROVIDERS": ["github"],
     "BROWSER_RUN": "off",

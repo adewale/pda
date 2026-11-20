@@ -66,7 +66,7 @@ No tool approves anything. A scheduled task's run is a background turn like a Co
 | Photos in the chat: kept in the agent, shown to the model, uploaded for the User's task to its Company | None: the composer, the agent's storage and a request hook | No extra card for an explicit composer file-and-destination selection; disclosure consent for another saved photo | `src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx` |
 | One never-ending conversation, summarised past about 150,000 tokens | None: a compaction hook | No | `src/compaction.ts` |
 | Activity: what the agent did at each Company, and every Poppy exchange with its spec section | None: the Activity page | No | `src/poppy/activity.ts`, `src/poppy/protocol-log.ts`, `src/ui/activity.tsx` |
-| Pay for the model with the operator's capped demo or the User's own Anthropic or OpenAI key | None: Settings | Pasting a key is the User's action | `src/model-router.ts`, `src/model-keys.ts`, `src/budget.ts` |
+| Pay for the model with the operator's capped demo or the User's own Anthropic, OpenAI or Gemini key | None: Settings | Pasting a key is the User's action | `src/model-router.ts`, `src/model-keys.ts`, `src/budget.ts` |
 | Sign in to the agent with Google or GitHub | None: the Worker | It is the User's action | `src/oauth.ts`, `src/session.ts` |
 
 All eleven general tools are ours, built for this project in `src/tools/`: `read_url` fetches pages from Cloudflare's network directly and renders the ones that need JavaScript in Cloudflare Browser Run, and the other ten run in the agent itself. Reminders and tasks wake on the agent's own Durable Object alarm; a notification goes through the push service the User's browser chose (Google, Mozilla, Apple or Microsoft).

@@ -13,7 +13,7 @@ This pair does not verify AI Gateway spend rules, Browser Run or real-device pus
 - A Cloudflare account ID, a Workers subdomain, and an authenticated Wrangler session or account-scoped API token with Workers deployment, Durable Objects and asset upload permissions. This workspace currently has no authenticated Cloudflare identity.
 - A separate GitHub OAuth App, its client ID/secret, and the test User's GitHub login and numeric ID. Set its callback to `<PDA_ORIGIN>/auth/github/callback`. The production OAuth application is not reused.
 - Two unused isolated Worker names: `pda-hosted-<label>` and `pda-dummy-<label>`, and their HTTPS origins. A privacy contact is required by the real PDA.
-- A User-supplied Anthropic or OpenAI model key, entered in the hosted PDA after real sign-in. No key is seeded or copied from production.
+- A User-supplied Anthropic, OpenAI or Gemini model key, entered in the hosted PDA after real sign-in. No key is seeded or copied from production.
 
 ## Prepare and review
 

@@ -64,7 +64,7 @@ At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printw
 - Your agent contacts only the Companies you list in the composer, which stay selected until you change them. Domain names in a message grant nothing.
 - Photos explicitly selected for a Company in the composer can upload there for that message without another disclosure click. Prose references alone grant no permission. An unselected saved photo still needs disclosure consent.
 
-**Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.
+**Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic, OpenAI or Gemini key.
 
 **Your agent's local state** lives in its own storage; task information also goes to the model provider and relevant Companies. [The privacy policy](https://poppydemoagent.dev/privacy) says what is kept and for how long.
 
@@ -104,7 +104,7 @@ The [documentation index](docs/README.md) maps each guide and reference to the q
 - **Secrets stay out of the model.** Access tokens, delegated keys and DPoP keys live only in memory; refresh tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
 - **General tools beside Poppy.** `read_url` reads one public page with no cookies or credentials, renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts, and hands it to a reader with no tools, so the agent gets an answer about the page, labelled untrusted, never the page itself; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
 - **Reminders and tasks on the agent's own alarm.** `remind_me`, `schedule_task`, `list_scheduled` and `cancel_scheduled` keep rows in the agent's SQLite, and the Durable Object's alarm runs each on time, with no page open. A reminder makes no model call; a task is a background turn with no extra powers, metered like any other. Only a turn the User's own message started can set or cancel one. Notifications go by Web Push, encrypted for each browser, only to the browsers' own push services.
-- **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
+- **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic, OpenAI or Gemini key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Regular tests run offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives stateful Hypothesis tests of the mock, because a misreading our client and mock share is invisible to both.
 
 The design is [pda-spec.md](pda-spec.md); how to use the agent and check it works is [docs/using.md](docs/using.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
