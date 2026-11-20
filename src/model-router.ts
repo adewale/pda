@@ -219,7 +219,7 @@ const HYDROGEN_FALLBACK: Model<"google-generative-ai"> = {
     max: null
   },
   input: ["text", "image"],
-  cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+  cost: { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 },
   contextWindow: 1_048_576,
   maxTokens: 65_536,
   inputLimits: {
