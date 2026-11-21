@@ -12,7 +12,7 @@ import { promises as dns } from "node:dns";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import { pinnedLookup, type Resolver } from "../src/validator/address.ts";
-import type { Fetcher } from "../src/validator/fetch.ts";
+import { INVALID_STATUS, type Fetcher } from "../src/validator/fetch.ts";
 
 /** Every address the system resolver gives for a name, in its own order. */
 export const systemResolver: Resolver = async (hostname) =>
@@ -37,6 +37,11 @@ export function addressCheckingFetcher(resolve: Resolver = systemResolver): Fetc
             for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) responseHeaders.append(name, item);
           }
           const status = incoming.statusCode ?? 0;
+          // Node's parser takes any three digits; a Response holds only 200 to 599, and throwing here would escape the promise.
+          if (status < 200 || status > 599) {
+            incoming.destroy();
+            return reject(Object.assign(new RangeError(`the server answered with HTTP status ${status}, which isn't a valid status`), { code: INVALID_STATUS }));
+          }
           const empty = status === 204 || status === 304 || input.method === "HEAD";
           if (empty) incoming.resume();
           settle(new Response(empty ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>), { status, headers: responseHeaders }));

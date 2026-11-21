@@ -16,7 +16,7 @@ import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage, onCompanyDomain } from "../src/poppy/browser";
-import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
+import { assertPublicHost, fetchJson, identifiedFetcher, POPPY_USER_AGENT, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
@@ -227,6 +227,23 @@ describe("3 discovery: reusing poppy.json for its cache lifetime", () => {
 
 describe("Guides: fetching metadata safely", () => {
   const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
+
+  it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
+    const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
+    await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
+  });
+
+  it("names the agent with a User-Agent, keeping one a request already has", async () => {
+    const seen: (string | null)[] = [];
+    const fetcher = identifiedFetcher(async (request) => {
+      seen.push(request.headers.get("User-Agent"));
+      return new Response(await request.text());
+    });
+    const posted = await fetcher(new Request("https://api.example/x", { method: "POST", body: "kept", headers: { Accept: "application/json" } }));
+    expect(await posted.text()).toBe("kept");
+    await fetcher(new Request("https://api.example/x", { headers: { "User-Agent": "other/1" } }));
+    expect(seen).toEqual([POPPY_USER_AGENT, "other/1"]);
+  });
 
   it.each(PRIVATE_HOSTS)("never fetches from %s, directly or by redirect", async (host) => {
     const target = `https://${host}/openapi.json`;

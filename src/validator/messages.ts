@@ -158,8 +158,9 @@ export const MESSAGES = define({
     basis: "MUST",
     requires: "A Company MUST publish its poppy.json document at https://{domain}/.well-known/poppy.json over HTTPS",
     title: "Not served with HTTP 200",
-    explain: "The document must be served successfully for anyone to use it.",
-    fix: "Serve the document with status 200.",
+    explain:
+      "The document must be served successfully for anyone to use it. The report says which status came back, and whether a redirect had no Location or one that isn't a URL. A server error (5xx) is often temporary, so a report may change on a second try. A 401 or 403 that a browser doesn't get usually means the site turns away automated clients or cloud addresses, which would turn agents away too.",
+    fix: "Serve the document with status 200 to anyone, including automated clients, and redirect only to a valid HTTPS URL.",
     ref: spec("3", "discovery")
   },
   "http-failed": {
@@ -168,8 +169,8 @@ export const MESSAGES = define({
     refuses: true,
     title: "Couldn't fetch the document",
     explain:
-      "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Cloudflare's own statuses for an unusable answer, 520 to 527 and 530, count as failures too: the server sent nothing. A server that drops the connection, or a 520, is often bot protection turning away automated clients or cloud addresses, which agents' fetches come from as well. Nothing was checked, and our client can't use a document it couldn't fetch.",
-    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. To check the document's contents meanwhile, validate a saved copy of it.",
+      "The request failed before the site answered: DNS, TLS (including a certificate that didn't verify), the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Some answers count as failures too, because they come from something other than the site or say nothing about the document: Cloudflare's own statuses for an unusable answer (520 to 527 and 530), a refusal from a bot-protection service (recognised by the marks Cloudflare, Akamai, DataDome and Imperva put on their own refusals), and a rate limit (429). A dropped connection, a 520 or a bot-protection refusal usually means the site turns away automated clients or cloud addresses, which agents' fetches come from as well. Nothing was checked, and our client can't use a document it couldn't fetch.",
+    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. After a rate limit, try again later. To check the document's contents meanwhile, validate a saved copy of it.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-too-large": {

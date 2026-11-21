@@ -10,7 +10,7 @@
  * The API allows any origin and sends no cookies. Callers can limit input
  * work separately from the quota for URL checks that fetch from the network.
  */
-import type { Fetcher } from "./fetch.ts";
+import { USER_AGENT, withUserAgent, type Fetcher } from "./fetch.ts";
 import { formPage, messagesPage, resultPage } from "./html.ts";
 import type { DocumentKind } from "./primitives.ts";
 import { validateTarget, validateText, type Report } from "./validate.ts";
@@ -134,7 +134,8 @@ async function run(input: Input, request: Request, options: ValidatorHttpOptions
   if (input.url) {
     if (input.url.length > 2048) throw new BadInput("The URL is too long.");
     if (!(await options.allowFetch(request))) throw new BadInput("Too many checks from your address; wait a minute.", 429);
-    return validateTarget(options.fetcher, input.url, {
+    // The validator names itself, whichever Worker hosts it.
+    return validateTarget(withUserAgent(options.fetcher, USER_AGENT), input.url, {
       ...(input.protocolVersion ? { protocolVersion: input.protocolVersion } : {})
     });
   }

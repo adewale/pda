@@ -3,7 +3,8 @@ import {
   isPublicHost,
   raceAbort,
   readLimited as readWithin,
-  withDeadline
+  withDeadline,
+  withUserAgent
 } from "../validator/fetch.ts";
 import { parseStrictJson, type Json } from "./json";
 
@@ -11,6 +12,18 @@ export { raceAbort, withDeadline };
 
 /** Every outbound Poppy request goes through one of these; tests swap it for the mock Company. */
 export type Fetcher = (request: Request) => Promise<Response>;
+
+/**
+ * Names the agent on its Poppy requests, and nothing about its User. Without
+ * one a Worker's requests carry no User-Agent, and a Company's bot protection
+ * turns those away first; the validator names itself the same way.
+ */
+export const POPPY_USER_AGENT = "DurablePersonalAgent/1.0 (Poppy personal agent)";
+
+/** `fetcher`, with `POPPY_USER_AGENT` on each request that doesn't already name one, discovery's included. */
+export function identifiedFetcher(fetcher: Fetcher): Fetcher {
+  return withUserAgent(fetcher, POPPY_USER_AGENT);
+}
 
 /** A Company answered with something we refuse to use. */
 export class PoppyFetchError extends Error {
@@ -127,7 +140,11 @@ export async function fetchJson(
     if ("redirect" in answer) {
       if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
       if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
-      current = new URL(answer.redirect, current);
+      try {
+        current = new URL(answer.redirect, current);
+      } catch {
+        throw new PoppyFetchError(`Redirect to something that isn't a URL from ${current.href}`);
+      }
       continue;
     }
     return {
@@ -171,7 +188,11 @@ export async function fetchBytes(
     if ("redirect" in answer) {
       if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
       if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
-      current = new URL(answer.redirect, current);
+      try {
+        current = new URL(answer.redirect, current);
+      } catch {
+        throw new PoppyFetchError(`Redirect to something that isn't a URL from ${current.href}`);
+      }
       continue;
     }
     return answer;

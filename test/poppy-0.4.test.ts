@@ -9,6 +9,7 @@ import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { agent, cards, company, fetchWorker, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
+import { POPPY_USER_AGENT } from "../src/poppy/fetch";
 import type { AgentPayload } from "./mock-company/types";
 
 const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
@@ -203,6 +204,19 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     expect(await state(a, first.conversationId)).toEqual({ status: "idle", responder: "human", working: 0, handoff: "none" });
   });
 
+});
+
+describe("0.4: the agent names itself to Companies", () => {
+  it("sends its User-Agent on discovery and every other request a Company receives", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    // Setting the Company up also validates it, with the validator's own User-Agent.
+    const before = (await requests(c)).length;
+    await tool(a, "poppy_discover", { domain: c.domain });
+    const seen = (await requests(c)).slice(before);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen.map((request) => request.headers["user-agent"]))).toEqual(new Set([POPPY_USER_AGENT]));
+  });
 });
 
 describe("0.4: task coverage from the tasks endpoint (9)", () => {

@@ -14,12 +14,24 @@ export type Fetcher = (request: Request) => Promise<Response>;
 export const LIMITS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } as const;
 
 /**
- * Sent on every fetch, so a Company's logs and bot rules see who is asking and
- * where to read about it. Without one a Worker's and Node's requests carry no
+ * The validator's name, for a Company's logs and bot rules. `fetchDocument`
+ * sends none of its own, because the agent's discovery fetches through it
+ * too and names itself; the HTTP validator (http.ts) and the CLI add this
+ * with `withUserAgent`. Without one a Worker's and Node's requests carry no
  * User-Agent, and bot protection blocks those first. Its version is
  * `VALIDATOR.version` (validate.ts); a test keeps the two equal.
  */
 export const USER_AGENT = "PoppyValidator/1.0.0 (+https://poppydemoagent.dev/validator)";
+
+/** `fetcher`, with `userAgent` on each request that doesn't already name one. */
+export function withUserAgent(fetcher: Fetcher, userAgent: string): Fetcher {
+  return (request) => {
+    if (request.headers.has("User-Agent")) return fetcher(request);
+    const headers = new Headers(request.headers);
+    headers.set("User-Agent", userAgent);
+    return fetcher(new Request(request, { headers }));
+  };
+}
 
 /**
  * Statuses Cloudflare answers with itself when the server behind it gives no
@@ -38,19 +50,109 @@ const CONNECTION_STATUSES: Readonly<Record<number, string>> = {
   530: "couldn't be resolved or reached"
 };
 
+/** An error's code, from Node (`code`) or undici and others (`cause.code`). */
+function errorCode(error: Error): unknown {
+  return (error as { code?: unknown }).code ?? (error.cause as { code?: unknown } | undefined)?.code;
+}
+
 /**
  * Errors that mean the server accepted the connection and then dropped it,
  * from Node (`code`) or a Worker (its message). A refused connection is left
  * out: that is usually a server that isn't listening, not one turning us away.
  */
-function droppedConnection(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = (error as { code?: unknown }).code ?? (error.cause as { code?: unknown } | undefined)?.code;
+function droppedConnection(error: Error): boolean {
+  const code = errorCode(error);
   if (code === "ECONNRESET" || code === "EPIPE" || code === "UND_ERR_SOCKET") return true;
   return /connection (was )?(reset|lost|closed)|socket hang up/i.test(error.message);
 }
 
-/** For a dropped connection, the usual sign of bot protection; not for a server that is down or misconfigured. */
+/** Node's codes for a certificate that didn't verify. */
+const CERTIFICATE_ERRORS = new Set([
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_REVOKED",
+  "CERT_UNTRUSTED",
+  "CERT_SIGNATURE_FAILURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "ERR_TLS_CERT_ALTNAME_INVALID"
+]);
+
+/**
+ * Thrown by a fetcher whose server answered with a status a `Response` can't
+ * hold (outside 200 to 599); Node's parser accepts any three digits.
+ */
+export const INVALID_STATUS = "ERR_HTTP_INVALID_STATUS_CODE";
+
+/** Why a fetch failed, from what the fetcher threw, as the end of "Fetching … failed". */
+function failureReason(error: unknown): string {
+  if (!(error instanceof Error)) return ".";
+  const code = errorCode(error);
+  if (code === INVALID_STATUS) return `: ${error.message}.`;
+  if (typeof code === "string" && CERTIFICATE_ERRORS.has(code)) return `: its TLS certificate didn't verify (${code}). The Guides ask agents to validate certificates, so none will use it.`;
+  if (code === "ENOTFOUND") return ": the host name doesn't resolve.";
+  if (code === "EAI_AGAIN") return ": the host name couldn't be resolved just now.";
+  if (code === "ECONNREFUSED") return ": the server refused the connection.";
+  if (code === "ETIMEDOUT") return ": the connection timed out.";
+  if (code === "EHOSTUNREACH" || code === "ENETUNREACH") return ": the host is unreachable.";
+  if (droppedConnection(error)) return `: the server dropped the connection. ${BLOCKED_HINT}`;
+  return ".";
+}
+
+/**
+ * The bot-protection service that answered instead of the site, recognised by
+ * what each puts on its own refusals (a header, its Server name, or a body it
+ * always sends), or undefined. A plain 403 says nothing either way.
+ */
+function botProtection(status: number, headers: Headers, body: string): string | undefined {
+  const server = headers.get("Server") ?? "";
+  if (headers.has("cf-mitigated")) return "Cloudflare";
+  if (/^cloudflare$/i.test(server) && /^error code: 10\d\d\b/.test(body.trim())) return "Cloudflare";
+  if (headers.has("x-datadome")) return "DataDome";
+  if (/^AkamaiGHost$/i.test(server) && (status === 403 || /Access Denied/i.test(body))) return "Akamai";
+  if (/Incapsula incident ID|_Incapsula_Resource/i.test(body)) return "Imperva";
+  return undefined;
+}
+
+/** Retry-After as seconds from now (RFC 9110 10.2.3: delay seconds or an HTTP date), or undefined. */
+export function retryAfterSeconds(headers: Headers, now = Date.now()): number | undefined {
+  const value = headers.get("Retry-After")?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, Math.round((at - now) / 1000));
+}
+
+/** The start of an error page, enough to recognise a bot-protection refusal; whatever arrived if it stalls or fails. */
+async function readPrefix(response: Response, maxBytes: number, signal: AbortSignal): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < maxBytes) {
+      const { done, value } = await raceAbort(reader.read(), signal);
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } catch {
+    // The deadline or the stream ended it; use what arrived.
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  const all = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    all.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(all.subarray(0, maxBytes));
+}
+
 const BLOCKED_HINT =
   "Sites that block automated clients or cloud addresses often do this, and would block an agent the same way. To check the document itself, validate a saved copy.";
 
@@ -228,8 +330,7 @@ export async function fetchDocument(
     const timer = setTimeout(() => deadline.abort(new DOMException("The fetch timed out", "TimeoutError")), LIMITS.timeoutMs);
     const failed = (error: unknown): Fetched => {
       if (error instanceof Error && error.name === "TimeoutError") c.report("http-failed", "", `Fetching ${at} timed out after ${LIMITS.timeoutMs / 1000} seconds.`);
-      else if (droppedConnection(error)) c.report("http-failed", "", `Fetching ${at} failed: the server dropped the connection. ${BLOCKED_HINT}`);
-      else c.report("http-failed", "", `Fetching ${at} failed.`);
+      else c.report("http-failed", "", `Fetching ${at} failed${failureReason(error)}`);
       return { url, finalUrl: at, maxAgeSeconds: null };
     };
     let response: Response;
@@ -237,7 +338,7 @@ export async function fetchDocument(
       response = await raceAbort(fetcher(
         new Request(at, {
           method: "GET",
-          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+          headers: { Accept: "application/json" },
           redirect: "manual",
           signal: deadline.signal
         })
@@ -255,8 +356,8 @@ export async function fetchDocument(
       }
       return failed(error);
     }
-    // Only a 200 has its body read; nothing else needs the deadline after this.
-    if (response.status !== 200) clearTimeout(timer);
+    // A 200 has its body read and a 401 or 403 its first bytes (botProtection); nothing else needs the deadline after this.
+    if (response.status !== 200 && response.status !== 401 && response.status !== 403) clearTimeout(timer);
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       void response.body?.cancel().catch(() => undefined);
       const location = response.headers.get("Location");
@@ -272,26 +373,62 @@ export async function fetchDocument(
         c.report("http-too-many-redirects", "", `More than ${LIMITS.maxRedirects} redirects from ${url}.`);
         return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
       }
-      current = new URL(location, current);
+      try {
+        current = new URL(location, current);
+      } catch {
+        const shown = location.length > 200 ? `${location.slice(0, 200)}…` : location;
+        c.report("http-status", "", `${at} redirects (HTTP ${response.status}) to ${JSON.stringify(shown)}, which isn't a URL.`);
+        return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
+      }
       continue;
     }
     const contentType = response.headers.get("Content-Type") ?? undefined;
     const base = { url, finalUrl: at, status: response.status, ...(contentType ? { contentType } : {}) };
     if (response.status !== 200) {
-      void response.body?.cancel().catch(() => undefined);
+      const status = response.status;
+      let body = "";
+      if (status === 401 || status === 403) {
+        body = await readPrefix(response, 2048, deadline.signal);
+        clearTimeout(timer);
+      } else void response.body?.cancel().catch(() => undefined);
       // No answer from the site, so not a status it chose: report it as a failed fetch.
-      const dropped = CONNECTION_STATUSES[response.status];
+      const dropped = CONNECTION_STATUSES[status];
       if (dropped) {
         c.report(
           "http-failed",
           "",
-          `Fetching ${at} failed: the server ${dropped}. HTTP ${response.status} is Cloudflare's code for that, not a status the server sent.${response.status === 520 ? ` ${BLOCKED_HINT}` : ""}`
+          `Fetching ${at} failed: the server ${dropped}. HTTP ${status} is Cloudflare's code for that, not a status the server sent.${status === 520 ? ` ${BLOCKED_HINT}` : ""}`
         );
         return { ...base, maxAgeSeconds: null };
       }
+      const wait = retryAfterSeconds(response.headers);
+      const asks = wait === undefined ? "" : ` and asks to wait ${wait} seconds`;
+      // Its bot protection answered, not the site: the validator was turned away before the site was asked.
+      const service = botProtection(status, response.headers, body);
+      if (service) {
+        c.report(
+          "http-failed",
+          "",
+          `Fetching ${at} failed: ${service}'s bot protection turned the validator away (HTTP ${status}), so the site wasn't asked. It would turn agents away the same way unless it lets them through. To check the document itself, validate a saved copy.`
+        );
+        return { ...base, maxAgeSeconds: null };
+      }
+      // A limit on how often we may ask, not an answer about the document.
+      if (status === 429) {
+        c.report("http-failed", "", `Fetching ${at} failed: the server is limiting how often it's asked (HTTP 429)${asks}. Try again later.`);
+        return { ...base, maxAgeSeconds: null };
+      }
       // A 404 is an answer where the protocol gives it a meaning, such as no issuer (3.2); the caller reports it.
-      if (response.status === 404 && options.notFoundIsAnswer) return { ...base, maxAgeSeconds: null };
-      c.report("http-status", "", `${at} answered HTTP ${response.status}.`);
+      if (status === 404 && options.notFoundIsAnswer) return { ...base, maxAgeSeconds: null };
+      if (status >= 500) {
+        c.report("http-status", "", `${at} answered HTTP ${status}, a server error${asks}. Server errors are often temporary; try again later.`);
+      } else if (status === 401 || status === 403) {
+        c.report(
+          "http-status",
+          "",
+          `${at} answered HTTP ${status}. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
+        );
+      } else c.report("http-status", "", `${at} answered HTTP ${status}.`);
       return { ...base, maxAgeSeconds: null };
     }
     let bytes: Uint8Array | null;

@@ -42,7 +42,7 @@ import { Sealer } from "./poppy/store";
 import type { Card } from "./poppy/wire";
 import type { PoppyBrowser } from "./poppy/browser";
 import { PoppyCapability } from "./poppy/capability";
-import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
+import { identifiedFetcher, type Fetcher, type PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { browserRunHandover } from "./poppy/browser-run";
 import type { HandoverLauncher } from "./poppy/handover";
@@ -219,7 +219,7 @@ export class PersonalAgent extends DurableObject<Env> {
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
-      fetcher: this.#stoppedByDeletion(this.poppyFetcher()),
+      fetcher: this.#stoppedByDeletion(identifiedFetcher(this.poppyFetcher())),
       browser: () => (browser ??= this.poppyBrowser()),
       handover: () => (handover === undefined ? (handover = this.poppyHandover()) : handover),
       framesRefused: () => this.data.deleting || this.#deleting !== undefined,
