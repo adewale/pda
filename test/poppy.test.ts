@@ -233,6 +233,12 @@ describe("Guides: fetching metadata safely", () => {
     await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
   });
 
+  // docs/readings.md#success-status: the same rule as the validator's, so discovery and later reads agree.
+  it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
+    const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
+    await expect(fetchJson(served, "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+  });
+
   it("names the agent with a User-Agent, keeping one a request already has", async () => {
     const seen: (string | null)[] = [];
     const fetcher = identifiedFetcher(async (request) => {

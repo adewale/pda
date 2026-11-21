@@ -104,8 +104,8 @@ export function timeoutError(error: unknown, url: string): unknown {
 /**
  * Fetch a JSON document another party controls: HTTPS only, a few redirects
  * (each HTTPS), a size cap and a timeout over the answer and its body, no
- * credentials, no private hosts (Guides, "Fetching metadata safely"), and
- * strict JSON.
+ * credentials, no private hosts (Guides, "Fetching metadata safely"), strict
+ * JSON, and HTTP 200 only.
  */
 export async function fetchJson(
   fetcher: Fetcher,
@@ -129,7 +129,8 @@ export async function fetchJson(
         await response.body?.cancel();
         return { redirect: response.headers.get("Location") } as const;
       }
-      if (!response.ok) {
+      // 200 only, as the validator requires of every document it fetches (docs/readings.md#success-status).
+      if (response.status !== 200) {
         await response.body?.cancel();
         throw new PoppyFetchError(`${at.href} returned HTTP ${response.status}`);
       }
