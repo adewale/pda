@@ -167,8 +167,9 @@ export const MESSAGES = define({
     requires: "Set limits: … a timeout of a few seconds",
     refuses: true,
     title: "Couldn't fetch the document",
-    explain: "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Nothing was checked, and our client can't use a document it couldn't fetch.",
-    fix: "Check that the URL is reachable from the public internet and answers within a few seconds.",
+    explain:
+      "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Cloudflare's own statuses for an unusable answer, 520 to 527 and 530, count as failures too: the server sent nothing. A server that drops the connection, or a 520, is often bot protection turning away automated clients or cloud addresses, which agents' fetches come from as well. Nothing was checked, and our client can't use a document it couldn't fetch.",
+    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. To check the document's contents meanwhile, validate a saved copy of it.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-too-large": {

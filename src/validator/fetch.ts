@@ -13,6 +13,47 @@ export type Fetcher = (request: Request) => Promise<Response>;
 // first answer after a cold start can take longer than 5 s (readings.md).
 export const LIMITS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } as const;
 
+/**
+ * Sent on every fetch, so a Company's logs and bot rules see who is asking and
+ * where to read about it. Without one a Worker's and Node's requests carry no
+ * User-Agent, and bot protection blocks those first. Its version is
+ * `VALIDATOR.version` (validate.ts); a test keeps the two equal.
+ */
+export const USER_AGENT = "PoppyValidator/1.0.0 (+https://poppydemoagent.dev/validator)";
+
+/**
+ * Statuses Cloudflare answers with itself when the server behind it gives no
+ * usable response. A Worker's fetch reports a dropped connection this way, and
+ * a site behind Cloudflare does too, so none of them is the site's own answer.
+ */
+const CONNECTION_STATUSES: Readonly<Record<number, string>> = {
+  520: "dropped the connection or sent a response that couldn't be read",
+  521: "refused the connection",
+  522: "didn't accept the connection in time",
+  523: "couldn't be reached",
+  524: "accepted the connection but didn't answer in time",
+  525: "failed the TLS handshake",
+  526: "presented a certificate that couldn't be verified",
+  527: "couldn't be reached",
+  530: "couldn't be resolved or reached"
+};
+
+/**
+ * Errors that mean the server accepted the connection and then dropped it,
+ * from Node (`code`) or a Worker (its message). A refused connection is left
+ * out: that is usually a server that isn't listening, not one turning us away.
+ */
+function droppedConnection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code ?? (error.cause as { code?: unknown } | undefined)?.code;
+  if (code === "ECONNRESET" || code === "EPIPE" || code === "UND_ERR_SOCKET") return true;
+  return /connection (was )?(reset|lost|closed)|socket hang up/i.test(error.message);
+}
+
+/** For a dropped connection, the usual sign of bot protection; not for a server that is down or misconfigured. */
+const BLOCKED_HINT =
+  "Sites that block automated clients or cloud addresses often do this, and would block an agent the same way. To check the document itself, validate a saved copy.";
+
 export type Fetched = {
   readonly url: string;
   /** Where the document was finally served from, after redirects. */
@@ -186,8 +227,9 @@ export async function fetchDocument(
     const deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(new DOMException("The fetch timed out", "TimeoutError")), LIMITS.timeoutMs);
     const failed = (error: unknown): Fetched => {
-      const reason = error instanceof Error && error.name === "TimeoutError" ? `timed out after ${LIMITS.timeoutMs / 1000} seconds` : "failed";
-      c.report("http-failed", "", `Fetching ${at} ${reason}.`);
+      if (error instanceof Error && error.name === "TimeoutError") c.report("http-failed", "", `Fetching ${at} timed out after ${LIMITS.timeoutMs / 1000} seconds.`);
+      else if (droppedConnection(error)) c.report("http-failed", "", `Fetching ${at} failed: the server dropped the connection. ${BLOCKED_HINT}`);
+      else c.report("http-failed", "", `Fetching ${at} failed.`);
       return { url, finalUrl: at, maxAgeSeconds: null };
     };
     let response: Response;
@@ -195,7 +237,7 @@ export async function fetchDocument(
       response = await raceAbort(fetcher(
         new Request(at, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: { Accept: "application/json", "User-Agent": USER_AGENT },
           redirect: "manual",
           signal: deadline.signal
         })
@@ -237,6 +279,16 @@ export async function fetchDocument(
     const base = { url, finalUrl: at, status: response.status, ...(contentType ? { contentType } : {}) };
     if (response.status !== 200) {
       void response.body?.cancel().catch(() => undefined);
+      // No answer from the site, so not a status it chose: report it as a failed fetch.
+      const dropped = CONNECTION_STATUSES[response.status];
+      if (dropped) {
+        c.report(
+          "http-failed",
+          "",
+          `Fetching ${at} failed: the server ${dropped}. HTTP ${response.status} is Cloudflare's code for that, not a status the server sent.${response.status === 520 ? ` ${BLOCKED_HINT}` : ""}`
+        );
+        return { ...base, maxAgeSeconds: null };
+      }
       // A 404 is an answer where the protocol gives it a meaning, such as no issuer (3.2); the caller reports it.
       if (response.status === 404 && options.notFoundIsAnswer) return { ...base, maxAgeSeconds: null };
       c.report("http-status", "", `${at} answered HTTP ${response.status}.`);

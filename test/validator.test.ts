@@ -9,6 +9,7 @@ import {
   validateCompany,
   validateTarget,
   validateText,
+  VALIDATOR,
   type CompanyReport,
   type DocumentKind,
   type Fetcher,
@@ -16,7 +17,7 @@ import {
   type Report
 } from "../src/validator/index.ts";
 import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
-import { fetchDocument, isPublicHost, LIMITS, readLimited } from "../src/validator/fetch.ts";
+import { fetchDocument, isPublicHost, LIMITS, readLimited, USER_AGENT } from "../src/validator/fetch.ts";
 import { Checker } from "../src/validator/primitives.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
@@ -1258,6 +1259,38 @@ const FETCHING: readonly Fixture[] = [
     outcome: "indeterminate"
   },
   {
+    // A Worker's fetch answers 520 itself when the site resets the connection, as bot protection does.
+    name: "reports Cloudflare's 520 as a failed fetch that may be bot protection, not as the site's status",
+    run: () => fetchOne(() => new Response("error code: 520", { status: 520, headers: { "Content-Type": "text/plain" } })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toMatch(/dropped the connection.*HTTP 520 is Cloudflare's code for that, not a status the server sent/);
+      expect(report.messages[0]!.text).toMatch(/block automated clients.*validate a saved copy/);
+      expect(report.documents[0]).toMatchObject({ status: 520 });
+    }
+  },
+  {
+    name: "reports Cloudflare's other connection statuses as failed fetches without the bot-protection hint",
+    run: () => fetchOne(() => new Response(null, { status: 525 })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toMatch(/failed the TLS handshake\. HTTP 525 is Cloudflare's code/);
+      expect(report.messages[0]!.text).not.toMatch(/automated/);
+    }
+  },
+  {
+    name: "reports a connection the server drops as a failed fetch that may be bot protection",
+    run: () =>
+      validateCompany(async () => {
+        throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      }, "example.com"),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toMatch(/dropped the connection\. Sites that block automated clients/)
+  },
+  {
     name: "calls an unreachable host indeterminate, not invalid",
     run: () => validateCompany(network({}), "example.com"),
     ids: ["http-failed"],
@@ -1335,6 +1368,20 @@ describe("OAuth server metadata, checked against poppy.json", () => testEach(MET
 describe("client metadata and keys", () => testEach(CLIENT));
 describe("fetching", () => {
   testEach(FETCHING);
+
+  it("identifies itself with a User-Agent on every fetch, including redirects", async () => {
+    const agents: (string | null)[] = [];
+    const fetcher: Fetcher = async (request) => {
+      agents.push(request.headers.get("User-Agent"));
+      return request.url === wellKnown
+        ? new Response(null, { status: 302, headers: { Location: "https://www.example.com/.well-known/poppy.json" } })
+        : new Response("Not found", { status: 404 });
+    };
+    await validateCompany(fetcher, "example.com");
+    expect(agents.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(agents)).toEqual(new Set([USER_AGENT]));
+    expect(USER_AGENT).toBe(`PoppyValidator/${VALIDATOR.version} (+https://poppydemoagent.dev/validator)`);
+  });
 
   it("reports a body that stalls past the time limit as http-failed, not an exception", async () => {
     vi.useFakeTimers();
