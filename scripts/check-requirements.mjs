@@ -126,6 +126,59 @@ export async function requirementProblems(pins = runtimePins()) {
   return problems;
 }
 
+/**
+ * Every link to a 0.4 page the validator can give: each call of the helpers in
+ * src/validator/messages.ts (spec, guides, extension, mediatedExt) with
+ * literal arguments, in the catalog and in the profiles alike.
+ */
+export function messageLinks() {
+  const dir = path.join(root, "src/validator");
+  const files = [...readdirSync(dir).filter((name) => name.endsWith(".ts")).map((name) => path.join(dir, name)),
+    ...readdirSync(path.join(dir, "profiles")).filter((name) => name.endsWith(".ts")).map((name) => path.join(dir, "profiles", name))];
+  const links = new Map();
+  const add = (page, anchor, section, title) => links.set(`${page}#${anchor}`, { page, anchor, section, title });
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    for (const [, section, anchor] of text.matchAll(/\bspec\("([^"]+)", "([^"]+)"\)/g)) add("spec", anchor, section);
+    for (const [, title, anchor] of text.matchAll(/\bguides\("([^"]+)", "([^"]+)"\)/g)) add("guides", anchor, undefined, title);
+    for (const [, section, anchor] of text.matchAll(/\bmediatedExt\("([^"]+)", "([^"]+)"\)/g)) add("extensions/mediated-sign-in", anchor, section);
+    for (const [, name, , section, anchor] of text.matchAll(/\bextension\("([^"]+)", "([^"]+)", "([^"]+)", "([^"]+)"\)/g)) add(`extensions/${name}`, anchor, section);
+  }
+  return [...links.values()];
+}
+
+/** A pinned page's headings by id, as their text ("5.3 Verifying the Session header"). */
+function headings(snapshot, version, page) {
+  const file = path.join(root, snapshot, "html", `${version}-${page.replace(/^extensions\//, "")}.html`);
+  const found = new Map();
+  for (const [, , id, inner] of readFileSync(file, "utf8").matchAll(/<(h[1-6])[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)) {
+    found.set(id, inner.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, " ").trim());
+  }
+  return found;
+}
+
+/**
+ * A report checked against 1.x links the 1.x page for each 0.4 link
+ * (`refFor` in src/validator/messages.ts). That is right only where the 1.x
+ * page has the same anchor on a heading with the same section number, or for
+ * the Guides the same title. Every other link must be listed in
+ * `ONLY_IN_0_4`, and every listed link must really differ.
+ */
+export async function linkProblems() {
+  const { pins } = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
+  const latest = pins.filter((pin) => pin.runtime && /^1\./.test(pin.protocolVersion)).at(-1);
+  const { ONLY_IN_0_4 } = await import(pathToFileURL(path.join(root, "src/validator/messages.ts")).href);
+  const problems = [];
+  for (const link of messageLinks()) {
+    const url = `https://personalagentprotocol.org/docs/0.4/${link.page}#${link.anchor}`;
+    const heading = headings(latest.snapshot, latest.protocolVersion, link.page).get(link.anchor);
+    const same = heading !== undefined && (link.title !== undefined ? heading === link.title : heading.split(" ")[0] === link.section);
+    if (!same && !ONLY_IN_0_4.has(url)) problems.push(`${url}: ${heading === undefined ? "no such anchor" : `"${heading}"`} in ${latest.protocolVersion}; list it in ONLY_IN_0_4`);
+    if (same && ONLY_IN_0_4.has(url)) problems.push(`${url}: listed in ONLY_IN_0_4, but ${latest.protocolVersion} has the same section`);
+  }
+  return problems;
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const at = process.argv.indexOf("--quote");
   if (at >= 0) {

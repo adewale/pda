@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { LEDGER_START, LEDGER_END, ledgerSection } from "./spec-ledger.mjs";
-import { requirementProblems } from "./check-requirements.mjs";
+import { linkProblems, requirementProblems } from "./check-requirements.mjs";
 import { DRAFT_REVISIONS, PROTOCOL_COMMIT, PROTOCOL_REVISIONS, PROTOCOL_VERSIONS } from "../src/poppy/protocol-version.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -102,6 +102,11 @@ for (const pin of pins) {
 const problems = await requirementProblems();
 if (problems.length) throw new Error(`Checks whose quoted requirement isn't in the pinned text:\n${problems.join("\n")}`);
 console.log("Verified the quoted requirement of every normative validator message and mock check against the runtime pins.");
+
+// A 1.x report links the 1.x page for each 0.4 link, so each must name the same section there (check-requirements.mjs).
+const links = await linkProblems();
+if (links.length) throw new Error(`Validator links that a 1.x report would send to another section:\n${links.join("\n")}`);
+console.log("Verified that every 0.4 link the validator gives names the same section in the latest runtime pin.");
 
 let failed = false;
 if (process.argv.includes("--drift")) {

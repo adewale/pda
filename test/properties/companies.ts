@@ -5,6 +5,7 @@
  * Company's hosts would.
  */
 import { metadataUrl } from "../../src/validator/fetch";
+import { named as namedFetcher } from "../named-fetcher.ts";
 import { gs } from "./hegel";
 
 /** RFC 6749 scope-token characters: %x21 / %x23-5B / %x5D-7E. */
@@ -145,11 +146,11 @@ export function serving(company: Documents) {
   if (typeof named === "string" && URL.canParse(`https://${named}`)) documents.set(`https://${named.toLowerCase()}/.well-known/oauth-protected-resource`, company.resource);
   if (typeof issuer === "string" && URL.canParse(issuer)) documents.set(metadataUrl(issuer), company.metadata);
   const requests: string[] = [];
-  const fetcher = async (request: Request) => {
+  const fetcher = namedFetcher(async (request: Request) => {
     requests.push(request.url);
     const body = documents.get(request.url);
     if (body === undefined) return new Response("not found", { status: 404 });
     return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
-  };
+  });
   return { fetcher, requests };
 }

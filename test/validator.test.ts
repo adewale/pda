@@ -13,11 +13,12 @@ import {
   type CompanyReport,
   type DocumentKind,
   type Fetcher,
+  type IdentifiedFetcher,
   type MessageId,
   type Report
 } from "../src/validator/index.ts";
 import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
-import { fetchDocument, INVALID_STATUS, isPublicHost, LIMITS, readLimited, retryAfterSeconds, USER_AGENT, withUserAgent } from "../src/validator/fetch.ts";
+import { fetchDocument, INVALID_STATUS, isPublicHost, LIMITS, readLimited, retryAfterSeconds, withUserAgent, workerPorts } from "../src/validator/fetch.ts";
 import { Checker } from "../src/validator/primitives.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
@@ -74,12 +75,12 @@ function text(kind: DocumentKind, doc: unknown, options: Parameters<typeof valid
 }
 
 /** A fake network: URL → response. Anything else fails like a DNS error. */
-function network(routes: Record<string, () => Response>): Fetcher {
-  return async (request) => {
+function network(routes: Record<string, () => Response>): IdentifiedFetcher {
+  return named(async (request) => {
     const route = routes[request.url];
     if (!route) throw new TypeError("fetch failed");
     return route();
-  };
+  });
 }
 const jsonResponse = (body: unknown, headers: Record<string, string> = {}) => () =>
   new Response(typeof body === "string" ? body : JSON.stringify(body), {
@@ -181,19 +182,21 @@ const company = (change: { poppy?: (doc: Record<string, any>) => void; prm?: unk
   const metadata = structuredClone(SPEC_METADATA) as Record<string, any>;
   change.metadata?.(metadata);
   return validateCompany(
-    named(network({
+    network({
       "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(change.prm ?? SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(metadata),
       "https://auth.example.org/.well-known/oauth-authorization-server": jsonResponse({ ...metadata, issuer: "https://auth.example.org" }),
       ...(change.routes ?? {})
-    })),
+    }),
     "example.com"
   );
 };
 
 const wellKnown = "https://example.com/.well-known/poppy.json";
-const fetchOne = (route: () => Response) => validateCompany(named(network({ [wellKnown]: route })), "example.com");
+/** The mock Companies, named as a caller must name its fetcher. */
+const mockCompanies = () => named(testFetcher(env));
+const fetchOne = (route: () => Response) => validateCompany(network({ [wellKnown]: route }), "example.com");
 
 const noErrorsOrWarnings = (report: Report) => expect(report.counts.error + report.counts.warning).toBe(0);
 
@@ -230,7 +233,7 @@ const VALID: readonly Fixture[] = [
     // As the interop grid serves it (MOCK_BASE: no unknown API type). Its deliberately unknown
     // protocol, extension and field are reported as info only.
     name: "accepts the mock Company's documents, as the reference Company in the grid serves them",
-    run: async () => validateCompany(named(testFetcher(env)), await mockCompany({ unknownApi: false })),
+    run: async () => validateCompany(mockCompanies(), await mockCompany({ unknownApi: false })),
     ids: { contains: ["protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: noErrorsOrWarnings
@@ -239,7 +242,7 @@ const VALID: readonly Fixture[] = [
     // The conformance tests' default lists a graphql API on purpose, to check that agents skip
     // it (7: SHOULD skip). Since 0.3 other types are allowed, so that's information, not an error.
     name: "notes the unknown API type the conformance tests' mock lists on purpose",
-    run: async () => validateCompany(named(testFetcher(env)), await mockCompany()),
+    run: async () => validateCompany(mockCompanies(), await mockCompany()),
     ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: (report) => {
@@ -249,13 +252,13 @@ const VALID: readonly Fixture[] = [
   },
   {
     name: "accepts the mock Company's documents without its deliberate oddities, with no messages",
-    run: async () => validateCompany(named(testFetcher(env)), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
+    run: async () => validateCompany(mockCompanies(), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
     ids: [],
     outcome: "valid"
   },
   {
     name: "accepts our own client metadata and keys",
-    run: () => validateClient(named(testFetcher(env)), "https://agent.test/poppy/client.json"),
+    run: () => validateClient(mockCompanies(), "https://agent.test/poppy/client.json"),
     ids: [],
     outcome: "valid",
     also: (report) => expect(report.documents.map((d) => d.kind)).toEqual(["client-metadata", "jwks"])
@@ -270,13 +273,13 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
   const linkedUrl = change.linkedUrl ?? "https://example.com/poppy/0.4.json";
   const root = change.root ?? { ...structuredClone(POPPY_03), supported_versions: { "0.4": linkedUrl } };
   return validateCompany(
-    named(network({
+    network({
       "https://example.com/.well-known/poppy.json": jsonResponse(root),
       [linkedUrl]: jsonResponse(change.linked ?? SPEC_POPPY),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA),
       ...(change.routes ?? {})
-    })),
+    }),
     "example.com",
     change.versions ? { versions: change.versions } : {}
   );
@@ -296,12 +299,12 @@ const with10 = (change: (doc: Record<string, any>) => void) => {
 /** A Company whose poppy.json is `root`, linking `linked` (each version's document) on the same host. */
 const servedVersions = (root: Record<string, any>, linked: Record<string, Record<string, any>> = {}, versions?: readonly string[]) =>
   validateCompany(
-    named(network({
+    network({
       "https://example.com/.well-known/poppy.json": jsonResponse(root),
       ...Object.fromEntries(Object.entries(linked).map(([version, doc]) => [`https://example.com/poppy/${version}.json`, jsonResponse(doc)])),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA)
-    })),
+    }),
     "example.com",
     versions ? { versions } : {}
   );
@@ -313,6 +316,23 @@ const POPPY_10_FIXTURES: readonly Fixture[] = [
     ids: [],
     outcome: "valid",
     also: (report) => expect(report.checkedAgainst).toBe("1.0")
+  },
+  {
+    // refFor: the catalog is written against 0.4's pages; npm run check:spec checks each section is the same in 1.0.
+    name: "1.0: a report links the 1.0 pages, and a 0.4 report the 0.4 pages",
+    run: async () => {
+      const site = (report: Report) => [...new Set(report.messages.map((m) => /personalagentprotocol\.org\/docs\/([^/]+)\//.exec(m.ref.url)?.[1]).filter(Boolean))];
+      const v04 = text("poppy", { ...SPEC_POPPY, organization: { ...SPEC_POPPY.organization, logo_uri: "http://example.com/logo.png" } }, { domain: "example.com" });
+      expect(v04.checkedAgainst).toBe("Draft 0.4");
+      expect(site(v04)).toEqual(["0.4"]);
+      return served(with10((d) => (d.organization.logo_uri = "http://example.com/logo.png")));
+    },
+    ids: { contains: [] },
+    also: (report) => {
+      expect(report.messages.length).toBeGreaterThan(0);
+      expect(report.messages.every((m) => !m.ref.url.includes("/docs/0.4/"))).toBe(true);
+      expect(report.messages.some((m) => m.ref.url.startsWith("https://personalagentprotocol.org/docs/1.0/spec#"))).toBe(true);
+    }
   },
   {
     name: "1.0: every conversation protocol entry needs a description",
@@ -881,14 +901,14 @@ const DISCOVERY: readonly Fixture[] = [
     name: "accepts a signed-out Company whose protected resource metadata is a 404, identified by its domain",
     run: () =>
       validateCompany(
-        named(network({
+        network({
           "https://example.com/.well-known/poppy.json": jsonResponse({
             protocol_version: "0.4",
             organization: { name: "Example Company", domain: "example.com" },
             apis: [{ type: "mcp", url: "https://mcp.example.com/mcp", description: "Plans, phones, promotions and accessories" }]
           }),
           "https://example.com/.well-known/oauth-protected-resource": () => new Response(JSON.stringify({ error: "not_found" }), { status: 404, headers: { "Content-Type": "application/json" } })
-        })),
+        }),
         "example.com"
       ),
     ids: ["prm-no-issuer"],
@@ -1166,10 +1186,10 @@ const CLIENT: readonly Fixture[] = [
   },
   {
     name: "refuses a fetched EC signing key whose public coordinates are missing",
-    run: () => validateClient(named(network({
+    run: () => validateClient(network({
       "https://agent.example/agent.json": jsonResponse(SPEC_CLIENT),
       "https://agent.example/jwks.json": jsonResponse({ keys: [{ kty: "EC", crv: "P-256", kid: "missing", alg: "ES256" }] })
-    })), "https://agent.example/agent.json"),
+    }), "https://agent.example/agent.json"),
     ids: ["jwks-key-material", "jwks-key-material"],
     outcome: "invalid",
     also: async report => {
@@ -1230,7 +1250,7 @@ const CLIENT: readonly Fixture[] = [
     name: "refuses a client_id that redirects, as Companies do",
     run: () =>
       validateClient(
-        named(network({ "https://agent.example/agent.json": () => new Response(null, { status: 302, headers: { Location: "https://agent.example/v2.json" } }) })),
+        network({ "https://agent.example/agent.json": () => new Response(null, { status: 302, headers: { Location: "https://agent.example/v2.json" } }) }),
         "https://agent.example/agent.json"
       ),
     ids: ["http-redirect-not-allowed"],
@@ -1393,8 +1413,32 @@ const FETCHING: readonly Fixture[] = [
     also: (report) => expect(report.messages[0]!.text).toContain("a Worker gets this too for a name that resolves to a private address")
   },
   {
+    // docs/readings.md#worker-ports: a Worker would silently fetch port 443 instead.
+    name: "refuses, on Workers, a port a Worker wouldn't honour, asked for or redirected to",
+    run: async () => {
+      const asked: string[] = [];
+      const behind = workerPorts(async (request) => {
+        asked.push(request.url);
+        return request.url === wellKnown
+          ? new Response(null, { status: 302, headers: { Location: "https://example.com:4443/.well-known/poppy.json" } })
+          : new Response("{}", { headers: { "Content-Type": "application/json" } });
+      });
+      const direct = await validateTarget(named(behind), "https://api.example.com:9443/openapi.json");
+      expect(direct.messages[0]!.text).toBe(
+        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096, 8443), so https://api.example.com:9443 wasn't fetched. The CLI (npm run validate) fetches any port."
+      );
+      // A port on the list goes through.
+      await validateTarget(named(behind), "https://api.example.com:8443/openapi.json");
+      expect(asked).toEqual(["https://api.example.com:8443/openapi.json"]);
+      return validateCompany(named(behind), "example.com");
+    },
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toContain("can't fetch port 4443")
+  },
+  {
     name: "calls an unreachable host indeterminate, not invalid",
-    run: () => validateCompany(named(network({})), "example.com"),
+    run: () => validateCompany(network({}), "example.com"),
     ids: ["http-failed"],
     outcome: "indeterminate"
   },
@@ -1421,20 +1465,20 @@ const FETCHING: readonly Fixture[] = [
   },
   {
     name: "refuses non-HTTPS",
-    run: () => validateClient(named(network({})), "http://agent.example/agent.json"),
+    run: () => validateClient(network({}), "http://agent.example/agent.json"),
     ids: ["http-not-https"]
   },
   {
     // 3: "MUST NOT connect to a loopback, private, or link-local address" a party gave them.
     name: "refuses private hosts",
-    run: () => validateClient(named(network({})), "https://localhost/agent.json"),
+    run: () => validateClient(network({}), "https://localhost/agent.json"),
     ids: ["http-non-public-host"],
     outcome: "indeterminate",
     also: (report) => expect(report.messages[0]).toMatchObject({ basis: "MUST", severity: "error", refuses: true })
   },
   {
     name: "refuses special-use and private-use names, such as .internal and .home.arpa",
-    run: () => validateClient(named(network({})), "https://metadata.google.internal/agent.json"),
+    run: () => validateClient(network({}), "https://metadata.google.internal/agent.json"),
     ids: ["http-non-public-host"],
     outcome: "indeterminate"
   },
@@ -1456,7 +1500,7 @@ const FETCHING: readonly Fixture[] = [
   },
   {
     name: "refuses non-domains",
-    run: () => validateCompany(named(network({})), "not a domain"),
+    run: () => validateCompany(network({}), "not a domain"),
     ids: ["domain-invalid"]
   }
 ];
@@ -1518,8 +1562,8 @@ describe("fetching", () => {
     };
     await handleValidator(new Request("https://validator.test/validator/api?url=example.com"), { fetcher, allowFetch: async () => true });
     expect(agents.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(agents)).toEqual(new Set([USER_AGENT]));
-    expect(USER_AGENT).toBe(`PoppyValidator/${VALIDATOR.version} (+https://poppydemoagent.dev/validator)`);
+    // Named with the deployment that answered, not a fixed one.
+    expect(new Set(agents)).toEqual(new Set([`PoppyValidator/${VALIDATOR.version} (+https://validator.test/validator)`]));
     // The library requires a named fetcher and keeps its caller's name: the agent's discovery fetches through it as the agent (src/poppy/fetch.ts).
     agents.length = 0;
     await validateCompany(withUserAgent(fetcher, "Caller/1.0"), "example.com");

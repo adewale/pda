@@ -19,8 +19,9 @@
  * presents our policy as the draft's requirement.
  *
  * The messages check 0.4 (spec/draft-0.4-retrieved-2026-11-11) and the 1.0
- * published text (spec/version-1.0-retrieved-2026-11-19). The links go to 0.4's pages,
- * or 1.0's (`spec10`) for a rule 0.4 doesn't have. Where 0.3, 0.4 or 1.0
+ * published text (spec/version-1.0-retrieved-2026-11-19). The catalog's links are
+ * written against 0.4's pages, or 1.0's (`spec10`) for a rule 0.4 doesn't have;
+ * a report checked against 1.0 links 1.0's pages instead (`refFor`). Where 0.3, 0.4 or 1.0
  * changed a rule a Company may still follow, the explanation says what
  * replaced it.
  *
@@ -58,6 +59,24 @@ export const extension = (name: string, title: string, section: string, anchor: 
   url: `${SITE}/extensions/${name}#${anchor}`
 });
 export const mediatedExt = (section: string, anchor: string): Ref => extension("mediated-sign-in", "Mediated Sign-In", section, anchor);
+/**
+ * 0.4 links whose section moved or went in 1.0, so a 1.0 report keeps them as
+ * they are; `npm run check:spec` checks the list against the pinned pages
+ * (scripts/check-requirements.mjs, linkProblems).
+ */
+export const ONLY_IN_0_4: ReadonlySet<string> = new Set<string>([]);
+
+/**
+ * `ref` for a report checked against `version`: a 1.x report links the 1.x
+ * page where 1.x has the same section. The catalog is written against 0.4's
+ * pages, which a 1.0 report would otherwise link.
+ */
+export function refFor(ref: Ref, version: string): Ref {
+  const major = version.split(".")[0];
+  if (major === "0" || !ref.url.startsWith(`${SITE}/`) || ONLY_IN_0_4.has(ref.url)) return ref;
+  return { label: ref.label, url: ref.url.replace(`${SITE}/`, `https://personalagentprotocol.org/docs/${major}.0/`) };
+}
+
 export const rfc = (number: number, section?: string): Ref => ({
   label: `RFC ${number}${section ? ` §${section}` : ""}`,
   url: `https://www.rfc-editor.org/rfc/rfc${number}${section ? `#section-${section}` : ""}`

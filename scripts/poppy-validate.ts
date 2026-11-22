@@ -5,9 +5,9 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { validateTarget, validateText, VALIDATOR, type DocumentKind, type Report } from "../src/validator/index.ts";
+import { validateTarget, validateText, VALIDATOR, validatorUserAgent, type DocumentKind, type Report } from "../src/validator/index.ts";
 import { addressCheckingFetcher } from "./node-fetcher.ts";
-import { USER_AGENT, withUserAgent } from "../src/validator/fetch.ts";
+import { withUserAgent } from "../src/validator/fetch.ts";
 
 const HELP = `Usage: poppy-validate [options] <domain | url | file | ->
 
@@ -84,7 +84,8 @@ if (target === "-" || existsSync(target)) {
 } else {
   label = target;
   // Node can reach private networks, so this fetcher checks the address each name resolves to.
-  report = await validateTarget(withUserAgent(addressCheckingFetcher(), USER_AGENT), target, options);
+  // Run from anyone's machine, so it names its source project rather than a deployment.
+  report = await validateTarget(withUserAgent(addressCheckingFetcher(), validatorUserAgent("https://github.com/adewale/pda")), target, options);
 }
 
 if (values.json) {

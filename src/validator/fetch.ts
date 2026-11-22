@@ -13,16 +13,6 @@ export type Fetcher = (request: Request) => Promise<Response>;
 // first answer after a cold start can take longer than 5 s (readings.md).
 export const LIMITS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } as const;
 
-/**
- * The validator's name, for a Company's logs and bot rules. `fetchDocument`
- * sends none of its own, because the agent's discovery fetches through it
- * too and names itself; the HTTP validator (http.ts) and the CLI add this
- * with `withUserAgent`. Without one a Worker's and Node's requests carry no
- * User-Agent, and bot protection blocks those first. Its version is
- * `VALIDATOR.version` (validate.ts); a test keeps the two equal.
- */
-export const USER_AGENT = "PoppyValidator/1.0.0 (+https://poppydemoagent.dev/validator)";
-
 declare const NAMED: unique symbol;
 
 /**
@@ -41,6 +31,41 @@ export function withUserAgent(fetcher: Fetcher, userAgent: string): IdentifiedFe
     return fetcher(new Request(request, { headers }));
   };
   return named as IdentifiedFetcher;
+}
+
+/**
+ * The HTTPS ports a Cloudflare Worker's `fetch` honours: Cloudflare's proxied
+ * HTTPS ports. Cloudflare documents the list for its proxy, not for Workers;
+ * the deployed validator showed it holds for them too (22 November 2026):
+ * 2053, 2096 and 8443 were tried, while 444, 4443, 9443 and 12345 were
+ * answered at once by example.com's page on 443. A Worker sends any other
+ * port to 443 without saying so.
+ */
+export const WORKER_HTTPS_PORTS: readonly number[] = [443, 2053, 2083, 2087, 2096, 8443];
+
+/** What `workerPorts` rejects with, reported as `unsupported-port`. */
+export const UNSUPPORTED_PORT = "ERR_WORKER_UNSUPPORTED_PORT";
+
+/**
+ * `fetcher`, refusing an HTTPS URL on a port a Worker wouldn't honour, so a
+ * Worker never fetches, or sends a token to, a port other than the one asked
+ * for. For the fetchers that run on Workers: the hosted validator's and the
+ * agent's (docs/readings.md#worker-ports).
+ */
+export function workerPorts(fetcher: Fetcher): Fetcher {
+  return (request) => {
+    const url = new URL(request.url);
+    const port = url.port === "" ? 443 : Number(url.port);
+    if (url.protocol === "https:" && !WORKER_HTTPS_PORTS.includes(port)) {
+      return Promise.reject(
+        Object.assign(new TypeError(`a Cloudflare Worker can't fetch port ${port} over HTTPS (only ${WORKER_HTTPS_PORTS.join(", ")}), so ${url.origin} wasn't fetched`), {
+          code: UNSUPPORTED_PORT,
+          port
+        })
+      );
+    }
+    return fetcher(request);
+  };
 }
 
 /** For the `default` of a switch that covers every case: a case added later is a type error there. */
@@ -118,6 +143,7 @@ export type Failure =
   | { readonly kind: "non-public-address"; readonly message: string; readonly error: unknown }
   | { readonly kind: "invalid-status"; readonly message: string; readonly error: unknown }
   | { readonly kind: "certificate"; readonly code: string; readonly error: unknown }
+  | { readonly kind: "unsupported-port"; readonly port: number; readonly error: unknown }
   | { readonly kind: "unresolved" | "unresolved-for-now" | "refused" | "connect-timeout" | "unreachable" | "dropped" | "unknown"; readonly error: unknown };
 
 function failureOf(error: unknown, timeoutMs: number): Failure {
@@ -127,6 +153,7 @@ function failureOf(error: unknown, timeoutMs: number): Failure {
   // A fetcher that resolves names itself refuses one that leads to a private address (address.ts).
   if (error.name === "NonPublicAddressError") return { kind: "non-public-address", message: error.message, error };
   if (code === INVALID_STATUS) return { kind: "invalid-status", message: error.message, error };
+  if (code === UNSUPPORTED_PORT) return { kind: "unsupported-port", port: Number((error as { port?: unknown }).port), error };
   if (typeof code === "string" && CERTIFICATE_ERRORS.has(code)) return { kind: "certificate", code, error };
   if (code === "ENOTFOUND") return { kind: "unresolved", error };
   if (code === "EAI_AGAIN") return { kind: "unresolved-for-now", error };
@@ -626,6 +653,8 @@ function reportFailure(failure: Failure, at: string, c: Checker): void {
       return failed(`: ${failure.message}.`);
     case "certificate":
       return failed(`: its TLS certificate didn't verify (${failure.code}). The Guides ask agents to validate certificates, so none will use it.`);
+    case "unsupported-port":
+      return failed(`: ${(failure.error as Error).message}. The CLI (npm run validate) fetches any port.`);
     case "unresolved":
       return failed(": the host name doesn't resolve.");
     case "unresolved-for-now":

@@ -17,6 +17,7 @@ import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage, onCompanyDomain } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, identifiedFetcher, POPPY_USER_AGENT, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
+import { workerPorts } from "../src/validator/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
@@ -238,6 +239,16 @@ describe("Guides: fetching metadata safely", () => {
   it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
     const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
     await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+  });
+
+  it("never sends a request, on Workers, to a port a Worker would quietly swap for 443", async () => {
+    const sent: string[] = [];
+    const fetcher = identifiedFetcher(workerPorts(async (request) => {
+      sent.push(request.url);
+      return Response.json({});
+    }));
+    await expect(fetchJson(fetcher, "https://api.shop.example:4443/openapi.json")).rejects.toThrow("a Cloudflare Worker can't fetch port 4443 over HTTPS");
+    expect(sent).toEqual([]);
   });
 
   it("names the agent with a User-Agent, keeping one a request already has", async () => {
