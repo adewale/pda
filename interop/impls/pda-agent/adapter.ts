@@ -30,7 +30,7 @@ import { browse } from "../../../src/poppy/browser.ts";
 import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
 import { PROTOCOL_VERSIONS } from "../../../src/poppy/protocol-version.ts";
 import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
-import type { Fetcher } from "../../../src/poppy/fetch.ts";
+import { identifiedFetcher, type Fetcher } from "../../../src/poppy/fetch.ts";
 import type { Json } from "../../../src/poppy/json.ts";
 import { randomId } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
@@ -239,7 +239,7 @@ async function newAgent(): Promise<Agent> {
   const host: PoppyHost = {
     env,
     sql,
-    fetcher: fetcherFor(env, strict),
+    fetcher: identifiedFetcher(fetcherFor(env, strict)),
     showCard: async (card) => {
       cards.set(card.id, card);
     },

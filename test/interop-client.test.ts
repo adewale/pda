@@ -6,6 +6,7 @@ import { readInteropKeys } from "../src/poppy/interop-client";
 import { validateClient } from "../src/validator/validate";
 import { fetchWorker } from "./agent-helpers";
 import worker from "./worker";
+import { named } from "./named-fetcher.ts";
 
 /**
  * The interop test client (src/poppy/interop-client.ts): the live lane's
@@ -123,7 +124,7 @@ describe("the interop test client, configured", () => {
   it("passes the validator: valid client metadata and keys, with only the note that it can't use Direct Sign-In", async () => {
     const { publicSet } = await interopKey();
     const vars = { ...env, ...configured(publicSet) } as Env;
-    const report = await validateClient(async (request) => worker.fetch(request, vars), CLIENT);
+    const report = await validateClient(named(async (request) => worker.fetch(request, vars)), CLIENT);
     expect(report.outcome).toBe("valid");
     expect(report.counts).toMatchObject({ error: 0, warning: 0 });
     expect(report.documents.map((document) => document.kind)).toEqual(["client-metadata", "jwks"]);

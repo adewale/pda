@@ -17,11 +17,12 @@ import {
   type Report
 } from "../src/validator/index.ts";
 import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
-import { fetchDocument, INVALID_STATUS, isPublicHost, LIMITS, readLimited, retryAfterSeconds, USER_AGENT } from "../src/validator/fetch.ts";
+import { fetchDocument, INVALID_STATUS, isPublicHost, LIMITS, readLimited, retryAfterSeconds, USER_AGENT, withUserAgent } from "../src/validator/fetch.ts";
 import { Checker } from "../src/validator/primitives.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
 import worker, { testFetcher } from "./worker";
+import { named } from "./named-fetcher.ts";
 
 /**
  * The discovery-document validator. As with feed validators' test suites,
@@ -180,19 +181,19 @@ const company = (change: { poppy?: (doc: Record<string, any>) => void; prm?: unk
   const metadata = structuredClone(SPEC_METADATA) as Record<string, any>;
   change.metadata?.(metadata);
   return validateCompany(
-    network({
+    named(network({
       "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(change.prm ?? SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(metadata),
       "https://auth.example.org/.well-known/oauth-authorization-server": jsonResponse({ ...metadata, issuer: "https://auth.example.org" }),
       ...(change.routes ?? {})
-    }),
+    })),
     "example.com"
   );
 };
 
 const wellKnown = "https://example.com/.well-known/poppy.json";
-const fetchOne = (route: () => Response) => validateCompany(network({ [wellKnown]: route }), "example.com");
+const fetchOne = (route: () => Response) => validateCompany(named(network({ [wellKnown]: route })), "example.com");
 
 const noErrorsOrWarnings = (report: Report) => expect(report.counts.error + report.counts.warning).toBe(0);
 
@@ -229,7 +230,7 @@ const VALID: readonly Fixture[] = [
     // As the interop grid serves it (MOCK_BASE: no unknown API type). Its deliberately unknown
     // protocol, extension and field are reported as info only.
     name: "accepts the mock Company's documents, as the reference Company in the grid serves them",
-    run: async () => validateCompany(testFetcher(env), await mockCompany({ unknownApi: false })),
+    run: async () => validateCompany(named(testFetcher(env)), await mockCompany({ unknownApi: false })),
     ids: { contains: ["protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: noErrorsOrWarnings
@@ -238,7 +239,7 @@ const VALID: readonly Fixture[] = [
     // The conformance tests' default lists a graphql API on purpose, to check that agents skip
     // it (7: SHOULD skip). Since 0.3 other types are allowed, so that's information, not an error.
     name: "notes the unknown API type the conformance tests' mock lists on purpose",
-    run: async () => validateCompany(testFetcher(env), await mockCompany()),
+    run: async () => validateCompany(named(testFetcher(env)), await mockCompany()),
     ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: (report) => {
@@ -248,13 +249,13 @@ const VALID: readonly Fixture[] = [
   },
   {
     name: "accepts the mock Company's documents without its deliberate oddities, with no messages",
-    run: async () => validateCompany(testFetcher(env), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
+    run: async () => validateCompany(named(testFetcher(env)), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
     ids: [],
     outcome: "valid"
   },
   {
     name: "accepts our own client metadata and keys",
-    run: () => validateClient(testFetcher(env), "https://agent.test/poppy/client.json"),
+    run: () => validateClient(named(testFetcher(env)), "https://agent.test/poppy/client.json"),
     ids: [],
     outcome: "valid",
     also: (report) => expect(report.documents.map((d) => d.kind)).toEqual(["client-metadata", "jwks"])
@@ -269,13 +270,13 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
   const linkedUrl = change.linkedUrl ?? "https://example.com/poppy/0.4.json";
   const root = change.root ?? { ...structuredClone(POPPY_03), supported_versions: { "0.4": linkedUrl } };
   return validateCompany(
-    network({
+    named(network({
       "https://example.com/.well-known/poppy.json": jsonResponse(root),
       [linkedUrl]: jsonResponse(change.linked ?? SPEC_POPPY),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA),
       ...(change.routes ?? {})
-    }),
+    })),
     "example.com",
     change.versions ? { versions: change.versions } : {}
   );
@@ -295,12 +296,12 @@ const with10 = (change: (doc: Record<string, any>) => void) => {
 /** A Company whose poppy.json is `root`, linking `linked` (each version's document) on the same host. */
 const servedVersions = (root: Record<string, any>, linked: Record<string, Record<string, any>> = {}, versions?: readonly string[]) =>
   validateCompany(
-    network({
+    named(network({
       "https://example.com/.well-known/poppy.json": jsonResponse(root),
       ...Object.fromEntries(Object.entries(linked).map(([version, doc]) => [`https://example.com/poppy/${version}.json`, jsonResponse(doc)])),
       "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
       "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA)
-    }),
+    })),
     "example.com",
     versions ? { versions } : {}
   );
@@ -880,14 +881,14 @@ const DISCOVERY: readonly Fixture[] = [
     name: "accepts a signed-out Company whose protected resource metadata is a 404, identified by its domain",
     run: () =>
       validateCompany(
-        network({
+        named(network({
           "https://example.com/.well-known/poppy.json": jsonResponse({
             protocol_version: "0.4",
             organization: { name: "Example Company", domain: "example.com" },
             apis: [{ type: "mcp", url: "https://mcp.example.com/mcp", description: "Plans, phones, promotions and accessories" }]
           }),
           "https://example.com/.well-known/oauth-protected-resource": () => new Response(JSON.stringify({ error: "not_found" }), { status: 404, headers: { "Content-Type": "application/json" } })
-        }),
+        })),
         "example.com"
       ),
     ids: ["prm-no-issuer"],
@@ -1165,10 +1166,10 @@ const CLIENT: readonly Fixture[] = [
   },
   {
     name: "refuses a fetched EC signing key whose public coordinates are missing",
-    run: () => validateClient(network({
+    run: () => validateClient(named(network({
       "https://agent.example/agent.json": jsonResponse(SPEC_CLIENT),
       "https://agent.example/jwks.json": jsonResponse({ keys: [{ kty: "EC", crv: "P-256", kid: "missing", alg: "ES256" }] })
-    }), "https://agent.example/agent.json"),
+    })), "https://agent.example/agent.json"),
     ids: ["jwks-key-material", "jwks-key-material"],
     outcome: "invalid",
     also: async report => {
@@ -1229,7 +1230,7 @@ const CLIENT: readonly Fixture[] = [
     name: "refuses a client_id that redirects, as Companies do",
     run: () =>
       validateClient(
-        network({ "https://agent.example/agent.json": () => new Response(null, { status: 302, headers: { Location: "https://agent.example/v2.json" } }) }),
+        named(network({ "https://agent.example/agent.json": () => new Response(null, { status: 302, headers: { Location: "https://agent.example/v2.json" } }) })),
         "https://agent.example/agent.json"
       ),
     ids: ["http-redirect-not-allowed"],
@@ -1283,9 +1284,9 @@ const FETCHING: readonly Fixture[] = [
   {
     name: "reports a connection the server drops as a failed fetch that may be bot protection",
     run: () =>
-      validateCompany(async () => {
+      validateCompany(named(async () => {
         throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
-      }, "example.com"),
+      }), "example.com"),
     ids: ["http-failed"],
     outcome: "indeterminate",
     also: (report) => expect(report.messages[0]!.text).toMatch(/dropped the connection\. Sites that block automated clients/)
@@ -1358,17 +1359,17 @@ const FETCHING: readonly Fixture[] = [
   {
     name: "says why a fetch failed when the fetcher knows: DNS, refusal, certificate, impossible status",
     run: async () => {
-      const failing = (code: string, message = code) => validateCompany(async () => {
+      const failing = (code: string, message = code) => validateCompany(named(async () => {
         throw Object.assign(new Error(message), { code });
-      }, "example.com");
+      }), "example.com");
       expect((await failing("ENOTFOUND")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the host name doesn't resolve.`);
       expect((await failing("ECONNREFUSED")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server refused the connection.`);
       expect((await failing(INVALID_STATUS, "the server answered with HTTP status 999, which isn't a valid status")).messages[0]!.text)
         .toBe(`Fetching ${wellKnown} failed: the server answered with HTTP status 999, which isn't a valid status.`);
       // undici puts the code on the cause.
-      const viaCause = await validateCompany(async () => {
+      const viaCause = await validateCompany(named(async () => {
         throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }) });
-      }, "example.com");
+      }), "example.com");
       expect(viaCause.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the host name doesn't resolve.`);
       return failing("CERT_HAS_EXPIRED");
     },
@@ -1378,7 +1379,7 @@ const FETCHING: readonly Fixture[] = [
   },
   {
     name: "calls an unreachable host indeterminate, not invalid",
-    run: () => validateCompany(network({}), "example.com"),
+    run: () => validateCompany(named(network({})), "example.com"),
     ids: ["http-failed"],
     outcome: "indeterminate"
   },
@@ -1405,20 +1406,20 @@ const FETCHING: readonly Fixture[] = [
   },
   {
     name: "refuses non-HTTPS",
-    run: () => validateClient(network({}), "http://agent.example/agent.json"),
+    run: () => validateClient(named(network({})), "http://agent.example/agent.json"),
     ids: ["http-not-https"]
   },
   {
     // 3: "MUST NOT connect to a loopback, private, or link-local address" a party gave them.
     name: "refuses private hosts",
-    run: () => validateClient(network({}), "https://localhost/agent.json"),
+    run: () => validateClient(named(network({})), "https://localhost/agent.json"),
     ids: ["http-non-public-host"],
     outcome: "indeterminate",
     also: (report) => expect(report.messages[0]).toMatchObject({ basis: "MUST", severity: "error", refuses: true })
   },
   {
     name: "refuses special-use and private-use names, such as .internal and .home.arpa",
-    run: () => validateClient(network({}), "https://metadata.google.internal/agent.json"),
+    run: () => validateClient(named(network({})), "https://metadata.google.internal/agent.json"),
     ids: ["http-non-public-host"],
     outcome: "indeterminate"
   },
@@ -1426,9 +1427,9 @@ const FETCHING: readonly Fixture[] = [
     // The CLI's fetcher (scripts/node-fetcher.ts) throws this when a public-looking name resolves to a private address.
     name: "refuses a name a fetcher found resolves to a private address",
     run: () =>
-      validateCompany(async (request) => {
+      validateCompany(named(async (request) => {
         throw new NonPublicAddressError(new URL(request.url).hostname, "169.254.169.254");
-      }, "169.254.169.254.nip.io"),
+      }), "169.254.169.254.nip.io"),
     ids: ["http-non-public-address"],
     outcome: "indeterminate",
     also: (report) => {
@@ -1440,7 +1441,7 @@ const FETCHING: readonly Fixture[] = [
   },
   {
     name: "refuses non-domains",
-    run: () => validateCompany(network({}), "not a domain"),
+    run: () => validateCompany(named(network({})), "not a domain"),
     ids: ["domain-invalid"]
   }
 ];
@@ -1478,10 +1479,10 @@ describe("fetching", () => {
     vi.useFakeTimers();
     try {
       let cancelled = false;
-      const pending = validateCompany(async () => new Response(new ReadableStream<Uint8Array>({
+      const pending = validateCompany(named(async () => new Response(new ReadableStream<Uint8Array>({
         start(controller) { controller.enqueue(new TextEncoder().encode("error code: 1010")); },
         cancel: () => { cancelled = true; }
-      }), { status: 403, headers: { Server: "cloudflare" } }), "example.com");
+      }), { status: 403, headers: { Server: "cloudflare" } })), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1504,10 +1505,10 @@ describe("fetching", () => {
     expect(agents.length).toBeGreaterThanOrEqual(2);
     expect(new Set(agents)).toEqual(new Set([USER_AGENT]));
     expect(USER_AGENT).toBe(`PoppyValidator/${VALIDATOR.version} (+https://poppydemoagent.dev/validator)`);
-    // The agent's discovery fetches through validateCompany and names itself (src/poppy/fetch.ts).
+    // The library requires a named fetcher and keeps its caller's name: the agent's discovery fetches through it as the agent (src/poppy/fetch.ts).
     agents.length = 0;
-    await validateCompany(fetcher, "example.com");
-    expect(new Set(agents)).toEqual(new Set([null]));
+    await validateCompany(withUserAgent(fetcher, "Caller/1.0"), "example.com");
+    expect(new Set(agents)).toEqual(new Set(["Caller/1.0"]));
   });
 
   it("reports a body that stalls past the time limit as http-failed, not an exception", async () => {
@@ -1525,7 +1526,7 @@ describe("fetching", () => {
           }),
           { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300" } }
         );
-      const pending = validateCompany(stalling, "example.com");
+      const pending = validateCompany(named(stalling), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1542,7 +1543,7 @@ describe("fetching", () => {
     let release!: (response: Response) => void;
     const cancel = vi.fn(() => new Promise<void>(() => {}));
     try {
-      const pending = validateCompany(() => new Promise((resolve) => { release = resolve; }), "example.com");
+      const pending = validateCompany(named(() => new Promise((resolve) => { release = resolve; })), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1588,7 +1589,7 @@ describe("fetching", () => {
     // cannot finish while its sibling is still consuming the stalled source.
     const clone = mode === "a clone reader" ? response.clone().text().catch(() => undefined) : undefined;
     try {
-      const pending = validateCompany(async () => response, "example.com");
+      const pending = validateCompany(named(async () => response), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1613,7 +1614,7 @@ describe("fetching", () => {
       cancel
     }), { status, headers });
     const checker = new Checker("poppy");
-    const result = await fetchDocument(async () => response, wellKnown, checker, { followRedirects: false });
+    const result = await fetchDocument(named(async () => response), wellKnown, checker, { followRedirects: false });
     expect(result.text).toBeUndefined();
     expect(checker.messages.map((entry) => entry.id)).toEqual([message]);
     expect(cancel).toHaveBeenCalledOnce();

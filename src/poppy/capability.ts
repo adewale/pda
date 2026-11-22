@@ -14,7 +14,7 @@ import {
   startDirectConversation,
   updateAvailability
 } from "./conversations";
-import type { Fetcher, PoppyTimeouts } from "./fetch";
+import type { IdentifiedFetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
 import { decideAsAgent, decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
 import {
@@ -44,7 +44,7 @@ import { approvalDecisions } from "./approval-decisions";
 export type PoppyOptions = {
   readonly env: Env;
   readonly storage: DurableObjectStorage;
-  readonly fetcher: Fetcher;
+  readonly fetcher: IdentifiedFetcher;
   readonly browser: () => PoppyBrowser;
   /** Browsers to hand a website to the User in (handover.ts): Browser Run, or null while it is off. */
   readonly handover?: () => HandoverLauncher | null;

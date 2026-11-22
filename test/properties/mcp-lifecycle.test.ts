@@ -4,6 +4,7 @@ import { listMcpTools } from "../../src/poppy/apis";
 import { PoppyClient } from "../../src/poppy/client";
 import { completeDirectSignIn, signOut, startSignIn } from "../../src/poppy/signin";
 import type { Card } from "../../src/poppy/wire";
+import { named } from "../named-fetcher.ts";
 
 function gate() {
   let release!: () => void;
@@ -15,13 +16,13 @@ describe("MCP initialization belongs to one client and completes before tools ru
   it.each([false, true])("reinitializes after sign-in and account changes with DPoP=%s", async (mcpDpop) => {
     const w = await world({ mcpDpop });
     let initializations = 0;
-    const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
+    const client = new PoppyClient({ ...w.client.host, fetcher: named(async (request) => {
       if (new URL(request.url).pathname === "/mcp" && request.method === "POST") {
         const body = await request.clone().json() as { method: string };
         if (body.method === "initialize") initializations++;
       }
       return w.client.host.fetcher(request);
-    } });
+    }) });
     const list = () => listMcpTools(client, w.company, "main");
     const signIn = async (account: string, label = "main") => {
       const started = await startSignIn(client, w.company, { label, account, scopes: ["orders:read"], reason: "MCP account isolation", type: "direct" });
@@ -48,14 +49,14 @@ describe("MCP initialization belongs to one client and completes before tools ru
     const w = await world({ mcpDpop: true });
     const entered = gate(), proceed = gate();
     let initializations = 0, earlyTools = 0, released = false;
-    const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
+    const client = new PoppyClient({ ...w.client.host, fetcher: named(async (request) => {
       if (new URL(request.url).pathname === "/mcp" && request.method === "POST") {
         const body = await request.clone().json() as { method: string };
         if (body.method === "initialize") { initializations++; entered.release(); await proceed.promise; }
         if (body.method === "tools/list" && !released) earlyTools++;
       }
       return w.client.host.fetcher(request);
-    } });
+    }) });
     const first = listMcpTools(client, w.company, "main");
     await entered.promise;
     const second = listMcpTools(client, w.company, "main");
@@ -72,14 +73,14 @@ describe("MCP initialization belongs to one client and completes before tools ru
   it("discards failed initialization and retries it on the next request", async () => {
     const w = await world({});
     let notifications = 0, initializations = 0;
-    const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
+    const client = new PoppyClient({ ...w.client.host, fetcher: named(async (request) => {
       if (new URL(request.url).pathname === "/mcp" && request.method === "POST") {
         const body = await request.clone().json() as { method: string };
         if (body.method === "initialize") initializations++;
         if (body.method === "notifications/initialized" && notifications++ === 0) return new Response(null, { status: 500 });
       }
       return w.client.host.fetcher(request);
-    } });
+    }) });
     await expect(listMcpTools(client, w.company, "main")).rejects.toMatchObject({ code: "http_500" });
     expect((await listMcpTools(client, w.company, "main")).length).toBeGreaterThan(0);
     expect(initializations).toBe(2);

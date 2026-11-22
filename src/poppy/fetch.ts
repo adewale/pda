@@ -1,14 +1,19 @@
 import {
   cacheSeconds as headerCacheSeconds,
+  fetchHops,
   isPublicHost,
   raceAbort,
   readLimited as readWithin,
+  unreachable,
   withDeadline,
-  withUserAgent
+  withUserAgent,
+  type Hops,
+  type IdentifiedFetcher
 } from "../validator/fetch.ts";
 import { parseStrictJson, type Json } from "./json";
 
 export { raceAbort, withDeadline };
+export type { IdentifiedFetcher };
 
 /** Every outbound Poppy request goes through one of these; tests swap it for the mock Company. */
 export type Fetcher = (request: Request) => Promise<Response>;
@@ -21,7 +26,7 @@ export type Fetcher = (request: Request) => Promise<Response>;
 export const POPPY_USER_AGENT = "PoppyDemoAgent/1.0 (Poppy personal agent)";
 
 /** `fetcher`, with `POPPY_USER_AGENT` on each request that doesn't already name one, discovery's included. */
-export function identifiedFetcher(fetcher: Fetcher): Fetcher {
+export function identifiedFetcher(fetcher: Fetcher): IdentifiedFetcher {
   return withUserAgent(fetcher, POPPY_USER_AGENT);
 }
 
@@ -102,100 +107,70 @@ export function timeoutError(error: unknown, url: string): unknown {
 }
 
 /**
- * Fetch a JSON document another party controls: HTTPS only, a few redirects
- * (each HTTPS), a size cap and a timeout over the answer and its body, no
- * credentials, no private hosts (Guides, "Fetching metadata safely"), strict
- * JSON, and HTTP 200 only.
+ * Why a fetch stopped, as the error the caller sees: a `PoppyFetchError`
+ * for what we refused or what a timeout ended, and what the fetcher threw
+ * otherwise, unchanged.
  */
-export async function fetchJson(
-  fetcher: Fetcher,
-  url: string,
-  options: SafeFetchOptions = {}
-): Promise<FetchedJson> {
-  const { maxBytes, timeoutMs, maxRedirects } = { ...DEFAULTS, ...options };
-  let current = new URL(url);
-  for (let hop = 0; ; hop++) {
-    if (current.protocol !== "https:") {
-      throw new PoppyFetchError(`Refusing non-HTTPS URL ${current.href}`);
-    }
-    assertPublicHost(current);
-    const at = current;
-    const answer = await withDeadline(timeoutMs, async (signal) => {
-      const response = await raceAbort(
-        fetcher(new Request(at.href, { method: "GET", headers: { Accept: "application/json" }, redirect: "manual", signal })),
-        signal
-      );
-      if (response.status >= 300 && response.status < 400) {
-        await response.body?.cancel();
-        return { redirect: response.headers.get("Location") } as const;
-      }
-      // 200 only, as the validator requires of every document it fetches (docs/readings.md#success-status).
-      if (response.status !== 200) {
-        await response.body?.cancel();
-        throw new PoppyFetchError(`${at.href} returned HTTP ${response.status}`);
-      }
-      return { text: await readLimited(response, maxBytes, signal), maxAgeSeconds: cacheSeconds(response) } as const;
-    }).catch((error: unknown) => {
-      throw timeoutError(error, at.href);
-    });
-    if ("redirect" in answer) {
-      if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
-      if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
-      try {
-        current = new URL(answer.redirect, current);
-      } catch {
-        throw new PoppyFetchError(`Redirect to something that isn't a URL from ${current.href}`);
-      }
-      continue;
-    }
-    return {
-      json: parseStrictJson(answer.text),
-      finalUrl: current.href,
-      maxAgeSeconds: answer.maxAgeSeconds
-    };
+function stopError(result: Extract<Hops<unknown>, { kind: "stopped" }>, url: string): unknown {
+  const at = result.at.href;
+  const { stop } = result;
+  switch (stop.kind) {
+    case "not-https":
+      return new PoppyFetchError(`Refusing non-HTTPS URL ${at}`);
+    case "userinfo":
+      return new PoppyFetchError(`Refusing ${at}`);
+    case "non-public-host":
+      return new PoppyFetchError(`Refusing to fetch non-public host ${stop.host}`);
+    case "redirect-refused":
+    case "too-many-redirects":
+      return new PoppyFetchError(`Too many redirects from ${url}`);
+    case "bad-redirect":
+      return new PoppyFetchError(stop.target.kind === "missing" ? `Redirect without Location from ${at}` : `Redirect to something that isn't a URL from ${at}`);
+    case "answered":
+      return new PoppyFetchError(`${at} returned HTTP ${stop.answer.status}`);
+    case "failed":
+      return stop.failure.kind === "timeout" ? new PoppyFetchError(`${at}: timed out after ${stop.failure.seconds} seconds`) : stop.failure.error;
+    default:
+      return unreachable(stop);
   }
 }
 
 /**
- * `fetchJson`'s rules for a small binary document, such as a Company's logo:
- * HTTPS on a public host at every hop, a deadline, a size cap, and no
- * credentials sent. Returns the bytes and how long they may be cached.
+ * Fetch a JSON document another party controls with `fetchHops`, the
+ * validator's own fetch (HTTPS on public hosts, a few redirects, a deadline
+ * per hop, HTTP 200 only), then a size cap and strict JSON.
+ */
+export async function fetchJson(
+  fetcher: IdentifiedFetcher,
+  url: string,
+  options: SafeFetchOptions = {}
+): Promise<FetchedJson> {
+  const { maxBytes, timeoutMs, maxRedirects } = { ...DEFAULTS, ...options };
+  const result = await fetchHops(fetcher, new URL(url), { accept: "application/json", timeoutMs, redirects: maxRedirects }, async (response, signal) => ({
+    text: await readLimited(response, maxBytes, signal),
+    maxAgeSeconds: cacheSeconds(response)
+  }));
+  if (result.kind === "stopped") throw stopError(result, url);
+  return { json: parseStrictJson(result.value.text), finalUrl: result.at.href, maxAgeSeconds: result.value.maxAgeSeconds };
+}
+
+/**
+ * `fetchJson`'s fetch for a small binary document, such as a Company's logo,
+ * refusing a URL with credentials in it. Returns the bytes and how long they
+ * may be cached.
  */
 export async function fetchBytes(
-  fetcher: Fetcher,
+  fetcher: IdentifiedFetcher,
   url: string,
   options: SafeFetchOptions = {}
 ): Promise<{ readonly bytes: Uint8Array; readonly maxAgeSeconds: number | null }> {
   const { maxBytes, timeoutMs, maxRedirects } = { ...DEFAULTS, ...options };
-  let current = new URL(url);
-  for (let hop = 0; ; hop++) {
-    if (current.protocol !== "https:" || current.username || current.password) throw new PoppyFetchError(`Refusing ${current.href}`);
-    assertPublicHost(current);
-    const at = current;
-    const answer = await withDeadline(timeoutMs, async (signal) => {
-      const response = await raceAbort(fetcher(new Request(at.href, { method: "GET", headers: { Accept: "image/png, image/jpeg, image/gif, image/webp" }, redirect: "manual", signal })), signal);
-      if (response.status >= 300 && response.status < 400) {
-        await response.body?.cancel();
-        return { redirect: response.headers.get("Location") } as const;
-      }
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new PoppyFetchError(`${at.href} returned HTTP ${response.status}`);
-      }
-      return { bytes: await readLimitedBytes(response, maxBytes, signal), maxAgeSeconds: cacheSeconds(response) } as const;
-    }).catch((error: unknown) => {
-      throw timeoutError(error, at.href);
-    });
-    if ("redirect" in answer) {
-      if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
-      if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
-      try {
-        current = new URL(answer.redirect, current);
-      } catch {
-        throw new PoppyFetchError(`Redirect to something that isn't a URL from ${current.href}`);
-      }
-      continue;
-    }
-    return answer;
-  }
+  const result = await fetchHops(
+    fetcher,
+    new URL(url),
+    { accept: "image/png, image/jpeg, image/gif, image/webp", timeoutMs, redirects: maxRedirects, refuseUserinfo: true },
+    async (response, signal) => ({ bytes: await readLimitedBytes(response, maxBytes, signal), maxAgeSeconds: cacheSeconds(response) })
+  );
+  if (result.kind === "stopped") throw stopError(result, url);
+  return result.value;
 }

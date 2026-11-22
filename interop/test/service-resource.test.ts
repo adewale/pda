@@ -6,6 +6,7 @@ import { toIssuer } from "../../src/poppy/issuer.ts";
 import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { migrate } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
 
 const SERVICE = "https://api.books.example/v1";
 const ISSUER = "https://auth.books.example";
@@ -28,7 +29,7 @@ function fixture(answer: (url: string) => Response) {
       POPPY_LOGO_URI: "https://agent.example/logo.svg", TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64")
     } as unknown as Env,
     sql: memorySql(),
-    fetcher: async (request) => { requests.push(request.url); return answer(request.url); },
+    fetcher: named(async (request) => { requests.push(request.url); return answer(request.url); }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
@@ -112,7 +113,7 @@ async function resourceFixture(answer: PoppyHost["fetcher"]) {
 describe("the prepared resource request's Session binding", () => {
   it.each(["sign_in", "sign_out", "new_session", "same_account"] as const)("does not dispatch an earlier binding after %s during JWT signing", async (change) => {
     const sent: Request[] = [];
-    const { client, target, outgoing } = await resourceFixture(async (request) => { sent.push(request); return Response.json({}); });
+    const { client, target, outgoing } = await resourceFixture(named(async (request) => { sent.push(request); return Response.json({}); }));
     if (change === "sign_out" || change === "same_account") await client.completeSignIn(target, "main", "default", { access_token: "old-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-refresh", scope: "orders:read" });
     const ready = deferred(), release = deferred();
     const sign = client.sessionHeader.bind(client);
@@ -147,7 +148,7 @@ describe("the prepared resource request's Session binding", () => {
     const ready = deferred(), release = deferred();
     const sent: Request[] = [];
     const refreshes: string[] = [];
-    const { client, target, outgoing } = await resourceFixture(async (request) => {
+    const { client, target, outgoing } = await resourceFixture(named(async (request) => {
       if (request.url.endsWith("/token")) {
         const token = new URLSearchParams(await request.text()).get("refresh_token")!;
         refreshes.push(token);
@@ -156,7 +157,7 @@ describe("the prepared resource request's Session binding", () => {
       }
       sent.push(request);
       return Response.json({});
-    });
+    }));
     // A near-expired token forces a real refresh rather than a fabricated token() result.
     await client.completeSignIn(target, "main", "default", { access_token: "near-expiry", token_type: "Bearer", expires_in: 1, refresh_token: "old-refresh", scope: "orders:read" });
     const request = client.resource(target, outgoing);
@@ -172,7 +173,7 @@ describe("the prepared resource request's Session binding", () => {
 
   it("dispatches an unchanged binding and exposes that same binding to the authority check", async () => {
     const sent: Request[] = [];
-    const { client, target, outgoing } = await resourceFixture(async (request) => { sent.push(request); return Response.json({}); });
+    const { client, target, outgoing } = await resourceFixture(named(async (request) => { sent.push(request); return Response.json({}); }));
     await client.completeSignIn(target, "main", "default", { access_token: "current-access", token_type: "Bearer", expires_in: 3600, refresh_token: "current-refresh", scope: "orders:read" });
     let sid: string | undefined;
     await client.resource(target, outgoing, { beforeDispatch: () => { sid = client.session(target.issuer, "main")?.session_id; } });
@@ -183,10 +184,10 @@ describe("the prepared resource request's Session binding", () => {
 
   it("preserves a withdrawal generation across repeated sign-out, reauthentication, Session restart and client recreation", async () => {
     let sent = 0;
-    const { client, target, outgoing } = await resourceFixture(async (request) => {
+    const { client, target, outgoing } = await resourceFixture(named(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "renewed-access", token_type: "Bearer", expires_in: 3600 });
       return ++sent === 1 ? Response.json({ error: "session_ended" }, { status: 400 }) : Response.json({});
-    });
+    }));
     await client.completeSignIn(target, "main", "default", { access_token: "old-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-refresh", scope: "orders:read" });
     const before = client.session(target.issuer, "main")!;
     client.signOutSession(target.issuer, "main");

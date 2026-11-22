@@ -6,6 +6,7 @@ import type { Company } from "../../src/poppy/discovery";
 import { toIssuer } from "../../src/poppy/issuer";
 import { migrate } from "../../src/poppy/store";
 import { memorySql } from "../impls/pda-agent/sqlite";
+import { named } from "../../test/named-fetcher.ts";
 
 const company = (name: string): Company => ({
   issuer: toIssuer(`https://auth.${name}.example`), domain: `${name}.example`, name, protocolVersion: "0.4",
@@ -27,11 +28,11 @@ async function client(answer: () => Response): Promise<{ client: PoppyClient; re
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
     sql,
-    fetcher: async (request) => {
+    fetcher: named(async (request) => {
       requests.push(request.url);
       if (!new URL(request.url).pathname.endsWith("/poppy/tasks")) throw new Error(`Unexpected request: ${request.method} ${request.url}`);
       return answer();
-    },
+    }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false, pushDirect: () => {},
     userContext: () => ({ user_available: true }), sleep: async () => {}, now: Date.now
   };

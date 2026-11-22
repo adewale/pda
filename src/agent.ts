@@ -219,7 +219,7 @@ export class PersonalAgent extends DurableObject<Env> {
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
-      fetcher: this.#stoppedByDeletion(identifiedFetcher(this.poppyFetcher())),
+      fetcher: identifiedFetcher(this.#stoppedByDeletion(this.poppyFetcher())),
       browser: () => (browser ??= this.poppyBrowser()),
       handover: () => (handover === undefined ? (handover = this.poppyHandover()) : handover),
       framesRefused: () => this.data.deleting || this.#deleting !== undefined,

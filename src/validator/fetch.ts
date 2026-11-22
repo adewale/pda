@@ -23,14 +23,29 @@ export const LIMITS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } 
  */
 export const USER_AGENT = "PoppyValidator/1.0.0 (+https://poppydemoagent.dev/validator)";
 
+declare const NAMED: unique symbol;
+
+/**
+ * A fetcher that names its caller in `User-Agent`. Every fetch of another
+ * party's document takes one (`fetchHops`), so a caller that forgets to say
+ * who it is doesn't compile; `withUserAgent` is the only way to make one.
+ */
+export type IdentifiedFetcher = Fetcher & { readonly [NAMED]: true };
+
 /** `fetcher`, with `userAgent` on each request that doesn't already name one. */
-export function withUserAgent(fetcher: Fetcher, userAgent: string): Fetcher {
-  return (request) => {
+export function withUserAgent(fetcher: Fetcher, userAgent: string): IdentifiedFetcher {
+  const named: Fetcher = (request) => {
     if (request.headers.has("User-Agent")) return fetcher(request);
     const headers = new Headers(request.headers);
     headers.set("User-Agent", userAgent);
     return fetcher(new Request(request, { headers }));
   };
+  return named as IdentifiedFetcher;
+}
+
+/** For the `default` of a switch that covers every case: a case added later is a type error there. */
+export function unreachable(value: never): never {
+  throw new Error(`Unhandled case ${JSON.stringify(value)}`);
 }
 
 /**
@@ -87,27 +102,39 @@ const CERTIFICATE_ERRORS = new Set([
  */
 export const INVALID_STATUS = "ERR_HTTP_INVALID_STATUS_CODE";
 
-/** Why a fetch failed, from what the fetcher threw, as the end of "Fetching … failed". */
-function failureReason(error: unknown): string {
-  if (!(error instanceof Error)) return ".";
+/** Why a fetch got no answer, decided once from what the fetcher threw; `error` is what it threw. */
+export type Failure =
+  | { readonly kind: "timeout"; readonly seconds: number; readonly error: unknown }
+  | { readonly kind: "non-public-address"; readonly message: string; readonly error: unknown }
+  | { readonly kind: "invalid-status"; readonly message: string; readonly error: unknown }
+  | { readonly kind: "certificate"; readonly code: string; readonly error: unknown }
+  | { readonly kind: "unresolved" | "unresolved-for-now" | "refused" | "connect-timeout" | "unreachable" | "dropped" | "unknown"; readonly error: unknown };
+
+function failureOf(error: unknown, timeoutMs: number): Failure {
+  if (!(error instanceof Error)) return { kind: "unknown", error };
   const code = errorCode(error);
-  if (code === INVALID_STATUS) return `: ${error.message}.`;
-  if (typeof code === "string" && CERTIFICATE_ERRORS.has(code)) return `: its TLS certificate didn't verify (${code}). The Guides ask agents to validate certificates, so none will use it.`;
-  if (code === "ENOTFOUND") return ": the host name doesn't resolve.";
-  if (code === "EAI_AGAIN") return ": the host name couldn't be resolved just now.";
-  if (code === "ECONNREFUSED") return ": the server refused the connection.";
-  if (code === "ETIMEDOUT") return ": the connection timed out.";
-  if (code === "EHOSTUNREACH" || code === "ENETUNREACH") return ": the host is unreachable.";
-  if (droppedConnection(error)) return `: the server dropped the connection. ${BLOCKED_HINT}`;
-  return ".";
+  if (error.name === "TimeoutError") return { kind: "timeout", seconds: timeoutMs / 1000, error };
+  // A fetcher that resolves names itself refuses one that leads to a private address (address.ts).
+  if (error.name === "NonPublicAddressError") return { kind: "non-public-address", message: error.message, error };
+  if (code === INVALID_STATUS) return { kind: "invalid-status", message: error.message, error };
+  if (typeof code === "string" && CERTIFICATE_ERRORS.has(code)) return { kind: "certificate", code, error };
+  if (code === "ENOTFOUND") return { kind: "unresolved", error };
+  if (code === "EAI_AGAIN") return { kind: "unresolved-for-now", error };
+  if (code === "ECONNREFUSED") return { kind: "refused", error };
+  if (code === "ETIMEDOUT") return { kind: "connect-timeout", error };
+  if (code === "EHOSTUNREACH" || code === "ENETUNREACH") return { kind: "unreachable", error };
+  if (droppedConnection(error)) return { kind: "dropped", error };
+  return { kind: "unknown", error };
 }
+
+export type BotService = "Cloudflare" | "Akamai" | "DataDome" | "Imperva";
 
 /**
  * The bot-protection service that answered instead of the site, recognised by
  * what each puts on its own refusals (a header, its Server name, or a body it
  * always sends), or undefined. A plain 403 says nothing either way.
  */
-function botProtection(status: number, headers: Headers, body: string): string | undefined {
+function botProtection(status: number, headers: Headers, body: string): BotService | undefined {
   const server = headers.get("Server") ?? "";
   if (headers.has("cf-mitigated")) return "Cloudflare";
   if (/^cloudflare$/i.test(server) && /^error code: 10\d\d\b/.test(body.trim())) return "Cloudflare";
@@ -151,6 +178,136 @@ async function readPrefix(response: Response, maxBytes: number, signal: AbortSig
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(all.subarray(0, maxBytes));
+}
+
+/** Where a redirect points, decoded once: nothing else turns a `Location` into a URL. */
+export type RedirectTarget =
+  | { readonly kind: "url"; readonly url: URL }
+  | { readonly kind: "missing" }
+  | { readonly kind: "invalid"; readonly location: string };
+
+function redirectTarget(location: string | null, base: URL): RedirectTarget {
+  if (!location) return { kind: "missing" };
+  try {
+    return { kind: "url", url: new URL(location, base) };
+  } catch {
+    return { kind: "invalid", location };
+  }
+}
+
+/** What answered, decided once from the status, its headers and, for a 401 or 403, the start of its body. */
+export type Answer =
+  | { readonly kind: "served"; readonly status: 200 }
+  | { readonly kind: "redirect"; readonly status: number; readonly target: RedirectTarget }
+  /** Cloudflare's own status for an unusable answer from the server behind it. */
+  | { readonly kind: "cloudflare"; readonly status: number; readonly meaning: string }
+  | { readonly kind: "bot-protection"; readonly status: number; readonly service: BotService }
+  | { readonly kind: "rate-limited"; readonly status: 429; readonly retryAfter: number | undefined }
+  | { readonly kind: "server-error"; readonly status: number; readonly retryAfter: number | undefined }
+  | { readonly kind: "forbidden"; readonly status: 401 | 403 }
+  | { readonly kind: "not-found"; readonly status: 404 }
+  | { readonly kind: "other-status"; readonly status: number };
+
+/** Every answer but a document, after the body that won't be read is discarded. */
+async function classify(response: Response, base: URL, signal: AbortSignal): Promise<Answer> {
+  const { status, headers } = response;
+  if (status === 200) return { kind: "served", status };
+  // A 401 or 403 is read a little, for a bot-protection service's marks; every other body is discarded unread.
+  const forbidden = status === 401 || status === 403;
+  const body = forbidden ? await readPrefix(response, 2048, signal) : "";
+  if (!forbidden) void response.body?.cancel().catch(() => undefined);
+  if (status >= 300 && status < 400 && status !== 304) return { kind: "redirect", status, target: redirectTarget(headers.get("Location"), base) };
+  const meaning = CONNECTION_STATUSES[status];
+  if (meaning) return { kind: "cloudflare", status, meaning };
+  const service = status >= 400 ? botProtection(status, headers, body) : undefined;
+  if (service) return { kind: "bot-protection", status, service };
+  if (status === 429) return { kind: "rate-limited", status, retryAfter: retryAfterSeconds(headers) };
+  if (status === 404) return { kind: "not-found", status };
+  if (status >= 500) return { kind: "server-error", status, retryAfter: retryAfterSeconds(headers) };
+  if (status === 401 || status === 403) return { kind: "forbidden", status };
+  return { kind: "other-status", status };
+}
+
+/** Why `fetchHops` stopped without a document. */
+export type Stop =
+  | { readonly kind: "not-https"; readonly redirected: boolean }
+  | { readonly kind: "userinfo" }
+  | { readonly kind: "non-public-host"; readonly host: string }
+  | { readonly kind: "redirect-refused"; readonly status: number }
+  | { readonly kind: "too-many-redirects"; readonly status: number }
+  | { readonly kind: "bad-redirect"; readonly status: number; readonly target: Exclude<RedirectTarget, { kind: "url" }> }
+  | { readonly kind: "answered"; readonly answer: NotServed; readonly contentType: string | undefined }
+  | { readonly kind: "failed"; readonly failure: Failure };
+
+/** An answer that ends the fetch: neither a document nor a redirect. */
+export type NotServed = Exclude<Answer, { kind: "served" } | { kind: "redirect" }>;
+
+export type Hops<T> =
+  | { readonly kind: "served"; readonly at: URL; readonly value: T }
+  | { readonly kind: "stopped"; readonly at: URL; readonly stop: Stop };
+
+export type HopOptions = {
+  readonly accept: string;
+  /** One deadline for each hop: the answer and the body `read` reads. */
+  readonly timeoutMs: number;
+  /** How many redirects to follow, or "refused" for a document that must be served where it was asked for. */
+  readonly redirects: number | "refused";
+  /** Refuse a URL with a user name or password in it. */
+  readonly refuseUserinfo?: boolean;
+};
+
+type Step<T> =
+  | { readonly served: true; readonly value: T }
+  | { readonly served: false; readonly answer: Exclude<Answer, { kind: "served" }>; readonly contentType: string | undefined };
+
+/**
+ * The one fetch of a document another party controls, for the validator and
+ * the agent alike (Guides, "Fetching metadata safely"): HTTPS on a public
+ * host at every hop, redirects followed up to a limit, a deadline per hop
+ * over the answer and its body, HTTP 200 only (docs/readings.md#success-status),
+ * and every other answer or failure classified once. `read` reads a served
+ * body within the hop's deadline.
+ */
+export async function fetchHops<T>(
+  fetcher: IdentifiedFetcher,
+  url: URL,
+  options: HopOptions,
+  read: (response: Response, signal: AbortSignal) => Promise<T>
+): Promise<Hops<T>> {
+  for (let hop = 0, at = url; ; hop++) {
+    const here = at;
+    const stopped = (stop: Stop): Hops<T> => ({ kind: "stopped", at: here, stop });
+    if (here.protocol !== "https:") return stopped({ kind: "not-https", redirected: hop > 0 });
+    if (options.refuseUserinfo && (here.username || here.password)) return stopped({ kind: "userinfo" });
+    // `localhost.` is `localhost`: a fully qualified name's root dot doesn't change the host.
+    if (!isPublicHost(here)) return stopped({ kind: "non-public-host", host: here.hostname.toLowerCase().replace(/\.$/, "") });
+    let step: Step<T>;
+    try {
+      step = await withDeadline(options.timeoutMs, async (signal): Promise<Step<T>> => {
+        const request = new Request(here.href, { method: "GET", headers: { Accept: options.accept }, redirect: "manual", signal });
+        const response = await raceAbort(
+          fetcher(request).then((answer) => {
+            // A fetcher may ignore abort and return after we've already timed out.
+            if (signal.aborted) void answer.body?.cancel().catch(() => undefined);
+            return answer;
+          }),
+          signal
+        );
+        const answer = await classify(response, here, signal);
+        if (answer.kind === "served") return { served: true, value: await read(response, signal) };
+        return { served: false, answer, contentType: response.headers.get("Content-Type") ?? undefined };
+      });
+    } catch (error) {
+      return stopped({ kind: "failed", failure: failureOf(error, options.timeoutMs) });
+    }
+    if (step.served) return { kind: "served", at: here, value: step.value };
+    const { answer } = step;
+    if (answer.kind !== "redirect") return stopped({ kind: "answered", answer, contentType: step.contentType });
+    if (options.redirects === "refused") return stopped({ kind: "redirect-refused", status: answer.status });
+    if (answer.target.kind !== "url") return stopped({ kind: "bad-redirect", status: answer.status, target: answer.target });
+    if (hop >= options.redirects) return stopped({ kind: "too-many-redirects", status: answer.status });
+    at = answer.target.url;
+  }
 }
 
 const BLOCKED_HINT =
@@ -301,164 +458,170 @@ export async function readLimited(response: Response, maxBytes: number, signal: 
 }
 
 export async function fetchDocument(
-  fetcher: Fetcher,
+  fetcher: IdentifiedFetcher,
   url: string,
   c: Checker,
   options: { followRedirects?: boolean; notFoundIsAnswer?: boolean } = {}
 ): Promise<Fetched> {
-  const follow = options.followRedirects ?? true;
-  let current: URL;
+  let start: URL;
   try {
-    current = new URL(url);
+    start = new URL(url);
   } catch {
     c.report("http-failed", "", `${url} isn't a URL.`);
     return { url, finalUrl: url, maxAgeSeconds: null };
   }
-  for (let hop = 0; ; hop++) {
-    const at = current.href;
-    if (current.protocol !== "https:") {
-      if (hop === 0) c.report("http-not-https", "", `${at} isn't HTTPS.`);
-      else c.report("http-redirect-not-https", "", `A redirect led to ${at}, which isn't HTTPS.`);
-      return { url, finalUrl: at, maxAgeSeconds: null };
-    }
-    if (!isPublicHost(current)) {
-      c.report("http-non-public-host", "", `${current.hostname} isn't a public host name.`);
-      return { url, finalUrl: at, maxAgeSeconds: null };
-    }
-    // One deadline for the response and its body: a body that stalls is as failed as no answer.
-    const deadline = new AbortController();
-    const timer = setTimeout(() => deadline.abort(new DOMException("The fetch timed out", "TimeoutError")), LIMITS.timeoutMs);
-    const failed = (error: unknown): Fetched => {
-      if (error instanceof Error && error.name === "TimeoutError") c.report("http-failed", "", `Fetching ${at} timed out after ${LIMITS.timeoutMs / 1000} seconds.`);
-      else c.report("http-failed", "", `Fetching ${at} failed${failureReason(error)}`);
-      return { url, finalUrl: at, maxAgeSeconds: null };
-    };
-    let response: Response;
-    try {
-      response = await raceAbort(fetcher(
-        new Request(at, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          redirect: "manual",
-          signal: deadline.signal
-        })
-      ).then((answer) => {
-        // A fetcher may ignore abort and return after we've already timed out.
-        if (deadline.signal.aborted) void answer.body?.cancel().catch(() => undefined);
-        return answer;
-      }), deadline.signal);
-    } catch (error) {
-      clearTimeout(timer);
-      // A fetcher that resolves names itself refuses one that leads to a private address (address.ts).
-      if (error instanceof Error && error.name === "NonPublicAddressError") {
-        c.report("http-non-public-address", "", `${error.message}, so ${at} wasn't fetched.`);
-        return { url, finalUrl: at, maxAgeSeconds: null };
+  const result = await fetchHops(
+    fetcher,
+    start,
+    { accept: "application/json", timeoutMs: LIMITS.timeoutMs, redirects: (options.followRedirects ?? true) ? LIMITS.maxRedirects : "refused" },
+    async (response, signal) => ({ bytes: await readLimited(response, LIMITS.maxBytes, signal), headers: response.headers })
+  );
+  const at = result.at.href;
+  if (result.kind === "stopped") return { url, finalUrl: at, maxAgeSeconds: null, ...reportStop(result.stop, at, url, c, options) };
+  const { bytes, headers } = result.value;
+  const contentType = headers.get("Content-Type") ?? undefined;
+  const base = { url, finalUrl: at, status: 200, ...(contentType ? { contentType } : {}) };
+  if (!bytes) {
+    c.report("http-too-large", "", `${at} is larger than 100 KB.`);
+    return { ...base, maxAgeSeconds: null };
+  }
+  if (!/^application\/([\w.+-]+\+)?json\b/i.test(contentType ?? "")) {
+    c.report("http-content-type", "", `${at} is served as ${contentType ?? "no Content-Type"}, not application/json.`);
+  }
+  const maxAgeSeconds = cacheSeconds(headers);
+  if (maxAgeSeconds === null) c.report("http-no-cache-headers", "", `${at} sends no Cache-Control or Expires.`);
+  else if (maxAgeSeconds < 60 || maxAgeSeconds > 86_400) {
+    c.report("http-cache-bounded", "", `${at} may be cached for ${maxAgeSeconds} seconds; agents typically clamp that to between 60 and 86400.`);
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    c.report("not-utf8", "", `${at} isn't valid UTF-8.`);
+    return { ...base, maxAgeSeconds };
+  }
+  return { ...base, maxAgeSeconds, text };
+}
+
+/** The report for a fetch that stopped without a document, and the status and type it got, if any. */
+function reportStop(
+  stop: Stop,
+  at: string,
+  url: string,
+  c: Checker,
+  options: { notFoundIsAnswer?: boolean }
+): { status?: number; contentType?: string } {
+  switch (stop.kind) {
+    case "not-https":
+      if (stop.redirected) c.report("http-redirect-not-https", "", `A redirect led to ${at}, which isn't HTTPS.`);
+      else c.report("http-not-https", "", `${at} isn't HTTPS.`);
+      return {};
+    case "userinfo":
+      c.report("http-failed", "", `${at} has a user name or password in it, so it wasn't fetched.`);
+      return {};
+    case "non-public-host":
+      c.report("http-non-public-host", "", `${stop.host} isn't a public host name.`);
+      return {};
+    case "redirect-refused":
+      c.report("http-redirect-not-allowed", "", `${at} redirects (HTTP ${stop.status}) instead of serving the document.`);
+      return { status: stop.status };
+    case "too-many-redirects":
+      c.report("http-too-many-redirects", "", `More than ${LIMITS.maxRedirects} redirects from ${url}.`);
+      return { status: stop.status };
+    case "bad-redirect":
+      if (stop.target.kind === "missing") c.report("http-status", "", `${at} answered HTTP ${stop.status} without a Location.`);
+      else {
+        const shown = stop.target.location.length > 200 ? `${stop.target.location.slice(0, 200)}…` : stop.target.location;
+        c.report("http-status", "", `${at} redirects (HTTP ${stop.status}) to ${JSON.stringify(shown)}, which isn't a URL.`);
       }
-      return failed(error);
-    }
-    // A 200 has its body read and a 401 or 403 its first bytes (botProtection); nothing else needs the deadline after this.
-    if (response.status !== 200 && response.status !== 401 && response.status !== 403) clearTimeout(timer);
-    if (response.status >= 300 && response.status < 400 && response.status !== 304) {
-      void response.body?.cancel().catch(() => undefined);
-      const location = response.headers.get("Location");
-      if (!follow) {
-        c.report("http-redirect-not-allowed", "", `${at} redirects (HTTP ${response.status}) instead of serving the document.`);
-        return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
-      }
-      if (!location) {
-        c.report("http-status", "", `${at} answered HTTP ${response.status} without a Location.`);
-        return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
-      }
-      if (hop >= LIMITS.maxRedirects) {
-        c.report("http-too-many-redirects", "", `More than ${LIMITS.maxRedirects} redirects from ${url}.`);
-        return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
-      }
-      try {
-        current = new URL(location, current);
-      } catch {
-        const shown = location.length > 200 ? `${location.slice(0, 200)}…` : location;
-        c.report("http-status", "", `${at} redirects (HTTP ${response.status}) to ${JSON.stringify(shown)}, which isn't a URL.`);
-        return { url, finalUrl: at, status: response.status, maxAgeSeconds: null };
-      }
-      continue;
-    }
-    const contentType = response.headers.get("Content-Type") ?? undefined;
-    const base = { url, finalUrl: at, status: response.status, ...(contentType ? { contentType } : {}) };
-    if (response.status !== 200) {
-      const status = response.status;
-      let body = "";
-      if (status === 401 || status === 403) {
-        body = await readPrefix(response, 2048, deadline.signal);
-        clearTimeout(timer);
-      } else void response.body?.cancel().catch(() => undefined);
-      // No answer from the site, so not a status it chose: report it as a failed fetch.
-      const dropped = CONNECTION_STATUSES[status];
-      if (dropped) {
-        c.report(
-          "http-failed",
-          "",
-          `Fetching ${at} failed: the server ${dropped}. HTTP ${status} is Cloudflare's code for that, not a status the server sent.${status === 520 ? ` ${BLOCKED_HINT}` : ""}`
-        );
-        return { ...base, maxAgeSeconds: null };
-      }
-      const wait = retryAfterSeconds(response.headers);
-      const asks = wait === undefined ? "" : ` and asks to wait ${wait} seconds`;
-      // Its bot protection answered, not the site: the validator was turned away before the site was asked.
-      const service = botProtection(status, response.headers, body);
-      if (service) {
-        c.report(
-          "http-failed",
-          "",
-          `Fetching ${at} failed: ${service}'s bot protection turned the validator away (HTTP ${status}), so the site wasn't asked. It would turn agents away the same way unless it lets them through. To check the document itself, validate a saved copy.`
-        );
-        return { ...base, maxAgeSeconds: null };
-      }
-      // A limit on how often we may ask, not an answer about the document.
-      if (status === 429) {
-        c.report("http-failed", "", `Fetching ${at} failed: the server is limiting how often it's asked (HTTP 429)${asks}. Try again later.`);
-        return { ...base, maxAgeSeconds: null };
-      }
+      return { status: stop.status };
+    case "answered": {
+      const { answer } = stop;
+      const got = { status: answer.status, ...(stop.contentType ? { contentType: stop.contentType } : {}) };
       // A 404 is an answer where the protocol gives it a meaning, such as no issuer (3.2); the caller reports it.
-      if (status === 404 && options.notFoundIsAnswer) return { ...base, maxAgeSeconds: null };
-      if (status >= 500) {
-        c.report("http-status", "", `${at} answered HTTP ${status}, a server error${asks}. Server errors are often temporary; try again later.`);
-      } else if (status === 401 || status === 403) {
-        c.report(
-          "http-status",
-          "",
-          `${at} answered HTTP ${status}. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
-        );
-      } else c.report("http-status", "", `${at} answered HTTP ${status}.`);
-      return { ...base, maxAgeSeconds: null };
+      if (answer.kind === "not-found" && options.notFoundIsAnswer) return got;
+      reportAnswer(answer, at, c);
+      return got;
     }
-    let bytes: Uint8Array | null;
-    try {
-      bytes = await readLimited(response, LIMITS.maxBytes, deadline.signal);
-    } catch (error) {
-      return failed(error);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!bytes) {
-      c.report("http-too-large", "", `${at} is larger than 100 KB.`);
-      return { ...base, maxAgeSeconds: null };
-    }
-    if (!/^application\/([\w.+-]+\+)?json\b/i.test(contentType ?? "")) {
-      c.report("http-content-type", "", `${at} is served as ${contentType ?? "no Content-Type"}, not application/json.`);
-    }
-    const maxAgeSeconds = cacheSeconds(response.headers);
-    if (maxAgeSeconds === null) c.report("http-no-cache-headers", "", `${at} sends no Cache-Control or Expires.`);
-    else if (maxAgeSeconds < 60 || maxAgeSeconds > 86_400) {
-      c.report("http-cache-bounded", "", `${at} may be cached for ${maxAgeSeconds} seconds; agents typically clamp that to between 60 and 86400.`);
-    }
-    let text: string;
-    try {
-      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    } catch {
-      c.report("not-utf8", "", `${at} isn't valid UTF-8.`);
-      return { ...base, maxAgeSeconds };
-    }
-    return { ...base, maxAgeSeconds, text };
+    case "failed":
+      reportFailure(stop.failure, at, c);
+      return {};
+    default:
+      return unreachable(stop);
+  }
+}
+
+function reportAnswer(answer: NotServed, at: string, c: Checker): void {
+  const asks = (wait: number | undefined) => (wait === undefined ? "" : ` and asks to wait ${wait} seconds`);
+  switch (answer.kind) {
+    // No answer from the site, so not a status it chose: a failed fetch.
+    case "cloudflare":
+      c.report(
+        "http-failed",
+        "",
+        `Fetching ${at} failed: the server ${answer.meaning}. HTTP ${answer.status} is Cloudflare's code for that, not a status the server sent.${answer.status === 520 ? ` ${BLOCKED_HINT}` : ""}`
+      );
+      return;
+    // Its bot protection answered, not the site: the validator was turned away before the site was asked.
+    case "bot-protection":
+      c.report(
+        "http-failed",
+        "",
+        `Fetching ${at} failed: ${answer.service}'s bot protection turned the validator away (HTTP ${answer.status}), so the site wasn't asked. It would turn agents away the same way unless it lets them through. To check the document itself, validate a saved copy.`
+      );
+      return;
+    // A limit on how often we may ask, not an answer about the document.
+    case "rate-limited":
+      c.report("http-failed", "", `Fetching ${at} failed: the server is limiting how often it's asked (HTTP 429)${asks(answer.retryAfter)}. Try again later.`);
+      return;
+    case "server-error":
+      c.report("http-status", "", `${at} answered HTTP ${answer.status}, a server error${asks(answer.retryAfter)}. Server errors are often temporary; try again later.`);
+      return;
+    case "forbidden":
+      c.report(
+        "http-status",
+        "",
+        `${at} answered HTTP ${answer.status}. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
+      );
+      return;
+    case "not-found":
+    case "other-status":
+      c.report("http-status", "", `${at} answered HTTP ${answer.status}.`);
+      return;
+    default:
+      unreachable(answer);
+  }
+}
+
+function reportFailure(failure: Failure, at: string, c: Checker): void {
+  const failed = (reason: string) => c.report("http-failed", "", `Fetching ${at} failed${reason}`);
+  switch (failure.kind) {
+    case "timeout":
+      c.report("http-failed", "", `Fetching ${at} timed out after ${failure.seconds} seconds.`);
+      return;
+    case "non-public-address":
+      c.report("http-non-public-address", "", `${failure.message}, so ${at} wasn't fetched.`);
+      return;
+    case "invalid-status":
+      return failed(`: ${failure.message}.`);
+    case "certificate":
+      return failed(`: its TLS certificate didn't verify (${failure.code}). The Guides ask agents to validate certificates, so none will use it.`);
+    case "unresolved":
+      return failed(": the host name doesn't resolve.");
+    case "unresolved-for-now":
+      return failed(": the host name couldn't be resolved just now.");
+    case "refused":
+      return failed(": the server refused the connection.");
+    case "connect-timeout":
+      return failed(": the connection timed out.");
+    case "unreachable":
+      return failed(": the host is unreachable.");
+    case "dropped":
+      return failed(`: the server dropped the connection. ${BLOCKED_HINT}`);
+    case "unknown":
+      return failed(".");
+    default:
+      unreachable(failure);
   }
 }
 

@@ -8,7 +8,7 @@ import {
   type Company,
   type WebsiteOnly
 } from "./discovery";
-import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
+import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type IdentifiedFetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { number, object, optional, string, tryDecode, type Decoded } from "../decode";
@@ -44,7 +44,7 @@ import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-
 export type PoppyHost = {
   readonly env: Env;
   readonly sql: Sql;
-  readonly fetcher: Fetcher;
+  readonly fetcher: IdentifiedFetcher;
   /** Show or update a card in the person's chat page. */
   readonly showCard: (card: Card, options?: import("./cards").CardWriteOptions) => Promise<void>;
   /** Tell the model something happened, at most once per `operationId`. */

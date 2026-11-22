@@ -7,6 +7,7 @@ import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { signOut } from "../../src/poppy/signout.ts";
 import { migrate, Sealer } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
 
 function deferred() {
   let resolve!: () => void;
@@ -52,7 +53,7 @@ describe("refresh responses cannot replace a newer account family", () => {
     const ready = deferred(), release = deferred();
     const sent: Request[] = [];
     let refreshes = 0;
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       if (request.url.endsWith("/token")) {
         ++refreshes;
         ready.resolve(); await release.promise;
@@ -61,7 +62,7 @@ describe("refresh responses cannot replace a newer account family", () => {
       }
       sent.push(request);
       return Response.json({ ok: true });
-    });
+    }));
     const before = f.client.session(f.company.issuer, "main")!;
     const pending = f.client.resource(f.company, f.outgoing);
     const rejected = expect(pending).rejects.toMatchObject({ code: "approval_changed" });
@@ -80,10 +81,10 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it.each([false, true])("keeps a current refresh usable with token rotation=%s", async (rotated) => {
     const sent: Request[] = [];
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "current-access", token_type: "Bearer", expires_in: 3600, scope: "orders:read", ...(rotated ? { refresh_token: "current-rotated" } : {}) });
       sent.push(request); return Response.json({ ok: true });
-    });
+    }));
     const before = f.client.session(f.company.issuer, "main");
     await expect(f.client.resource(f.company, f.outgoing)).resolves.toHaveProperty("status", 200);
     expect(await f.refreshToken()).toBe(rotated ? "current-rotated" : "old-refresh");
@@ -92,10 +93,10 @@ describe("refresh responses cannot replace a newer account family", () => {
   });
 
   it("does not resurrect an account when sign-out wins during sign-in token sealing", async () => {
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       expect(request.url).toBe(f.company.endpoints!.revocation);
       return new Response(null, { status: 200 });
-    });
+    }));
     const ready = deferred(), release = deferred();
     const seal = f.client.sealer.seal.bind(f.client.sealer);
     const sealing = vi.spyOn(f.client.sealer, "seal").mockImplementation(async (text, context) => {
@@ -115,11 +116,11 @@ describe("refresh responses cannot replace a newer account family", () => {
   });
 
   it("does not rebind a Session when sign-out wins after sign-in token storage", async () => {
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       expect(request.url).toBe(f.company.endpoints!.revocation);
       expect(new URLSearchParams(await request.text()).get("token")).toBe("new-signin-refresh");
       return new Response(null, { status: 200 });
-    });
+    }));
     const before = f.client.session(f.company.issuer, "main")!;
     const store = f.client.storeAccountToken.bind(f.client);
     const storing = vi.spyOn(f.client, "storeAccountToken").mockImplementation(async (...args) => {
@@ -136,7 +137,7 @@ describe("refresh responses cannot replace a newer account family", () => {
   });
 
   it("does not overwrite newer sign-in access while a rotated refresh token is being sealed", async () => {
-    const f = await fixture(async () => Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-family-rotated" }));
+    const f = await fixture(named(async () => Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-family-rotated" })));
     const ready = deferred(), release = deferred();
     const seal = f.client.sealer.seal.bind(f.client.sealer);
     const sealing = vi.spyOn(f.client.sealer, "seal").mockImplementation(async (text, context) => {
@@ -156,7 +157,7 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it("does not send a superseded refresh token after its client assertion finishes signing", async () => {
     const sent: Request[] = [];
-    const f = await fixture(async (request) => { sent.push(request); return Response.json({ access_token: "unexpected-access", token_type: "Bearer", expires_in: 3600 }); });
+    const f = await fixture(named(async (request) => { sent.push(request); return Response.json({ access_token: "unexpected-access", token_type: "Bearer", expires_in: 3600 }); }));
     const ready = deferred(), release = deferred();
     const sign = crypto.subtle.sign.bind(crypto.subtle);
     const signing = vi.spyOn(crypto.subtle, "sign").mockImplementation(async (...args) => {
@@ -177,10 +178,10 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it("does not dispatch an old access token when same-account sign-in finishes during Session signing", async () => {
     const sent: Request[] = [];
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600 });
       sent.push(request); return Response.json({ ok: true });
-    });
+    }));
     const ready = deferred(), release = deferred();
     const header = f.client.sessionHeader.bind(f.client);
     const signing = vi.spyOn(f.client, "sessionHeader").mockImplementation(async (...args) => {
@@ -199,7 +200,7 @@ describe("refresh responses cannot replace a newer account family", () => {
 
   it("refreshes and rotates a token that was resealed from the previous encryption key", async () => {
     const previousKey = Buffer.alloc(32, 8).toString("base64");
-    const f = await fixture(async () => Response.json({ access_token: "current-access", token_type: "Bearer", expires_in: 3600, refresh_token: "current-rotated", scope: "orders:read" }), previousKey);
+    const f = await fixture(named(async () => Response.json({ access_token: "current-access", token_type: "Bearer", expires_in: 3600, refresh_token: "current-rotated", scope: "orders:read" })), previousKey);
     const previous = new Sealer({ TOKEN_ENC_KEY: previousKey } as Env);
     const sealed = await previous.seal("old-refresh", f.client.accountContext(f.company.issuer, "default"));
     f.client.sql.exec("UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ?", sealed, f.company.issuer, "default");
@@ -208,7 +209,7 @@ describe("refresh responses cannot replace a newer account family", () => {
   });
 
   it("keeps a current invalid_grant as a withdrawal of that account only", async () => {
-    const f = await fixture(async () => Response.json({ error: "invalid_grant" }, { status: 400 }));
+    const f = await fixture(named(async () => Response.json({ error: "invalid_grant" }, { status: 400 })));
     const before = f.client.session(f.company.issuer, "main")!;
     await expect(f.client.token(f.company)).resolves.toBeNull();
     expect(await f.refreshToken()).toBeNull();
@@ -218,10 +219,10 @@ describe("refresh responses cannot replace a newer account family", () => {
   it("does not invalidate an in-flight resource merely because another current refresh rotates the token", async () => {
     let refreshes = 0;
     const sent: Request[] = [];
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: `access-${++refreshes}`, token_type: "Bearer", expires_in: 3600, refresh_token: `rotation-${refreshes}` });
       sent.push(request); return Response.json({ ok: true });
-    });
+    }));
     const ready = deferred(), release = deferred();
     const header = f.client.sessionHeader.bind(f.client);
     let first = true;
@@ -243,11 +244,11 @@ describe("refresh responses cannot replace a newer account family", () => {
   it("does not restart a new account's Session because an older request returned session_ended", async () => {
     const ready = deferred(), release = deferred();
     let resources = 0;
-    const f = await fixture(async (request) => {
+    const f = await fixture(named(async (request) => {
       if (request.url.endsWith("/token")) return Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600 });
       if (++resources === 1) { ready.resolve(); await release.promise; return Response.json({ error: "session_ended" }, { status: 400 }); }
       return Response.json({ ok: true });
-    });
+    }));
     const pending = f.client.resource(f.company, f.outgoing);
     const rejected = expect(pending).rejects.toMatchObject({ code: "approval_changed" });
     await ready.promise;

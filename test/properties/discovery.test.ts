@@ -3,6 +3,7 @@ import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed
 import { validateCompany, validateText } from "../../src/validator/validate";
 import { companies, DEVICE_GRANT, hosts, MEDIATED_GRANT, serving, type Documents, type GeneratedCompany } from "./companies";
 import { gs, jsonValues, propertyAsync, property, type Json } from "./hegel";
+import { named } from "../named-fetcher.ts";
 
 /**
  * Discovery (spec 3) and the validator that gates it. Accept: any Company
@@ -12,7 +13,7 @@ import { gs, jsonValues, propertyAsync, property, type Json } from "./hegel";
  */
 
 async function discovered(company: GeneratedCompany): Promise<Company> {
-  const { result } = await discover(serving(company).fetcher, company.requested);
+  const { result } = await discover(named(serving(company).fetcher), company.requested);
   if (!isCompany(result)) throw new Error("discovered as website only");
   return result;
 }
@@ -20,7 +21,7 @@ async function discovered(company: GeneratedCompany): Promise<Company> {
 /** discover's answer, or the DiscoveryError it threw; anything else is rethrown, failing the property. */
 async function outcome(company: Documents) {
   try {
-    return { ok: true as const, result: (await discover(serving(company).fetcher, company.requested)).result };
+    return { ok: true as const, result: (await discover(named(serving(company).fetcher), company.requested)).result };
   } catch (error) {
     if (error instanceof DiscoveryError) return { ok: false as const, error };
     throw error;
@@ -41,7 +42,7 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
     "the validator calls a generated Company's three documents valid, and our client refuses nothing in them",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
-      const report = await validateCompany(serving(company).fetcher, company.requested);
+      const report = await validateCompany(named(serving(company).fetcher), company.requested);
       expect(report.messages.filter((message) => message.severity === "error" || message.refuses)).toEqual([]);
       expect(report.issuer).toBe(company.issuer);
     })
@@ -139,7 +140,7 @@ describe("discovery of a Company without an OAuth issuer (3.2)", () => {
     "is valid, refuses nothing, and is identified by https://{organization.domain}",
     propertyAsync(async (tc) => {
       const company = tc.draw(issuerless);
-      const report = await validateCompany(serving(company).fetcher, company.requested);
+      const report = await validateCompany(named(serving(company).fetcher), company.requested);
       expect(report.messages.filter((message) => message.severity === "error" || message.refuses)).toEqual([]);
       expect(report.messages.map((message) => message.id)).toContain("prm-no-issuer");
       expect(report.issuerless).toBe(true);
@@ -153,7 +154,7 @@ describe("discovery of a Company without an OAuth issuer (3.2)", () => {
     propertyAsync(async (tc) => {
       const company = tc.draw(issuerless);
       const { requests, fetcher } = serving(company);
-      const { result } = await discover(fetcher, company.requested);
+      const { result } = await discover(named(fetcher), company.requested);
       if (!isCompany(result)) throw new Error("discovered as website only");
       expect(result.issuer).toBe(`https://${company.domain.toLowerCase()}`);
       expect(result.issuerless).toBe(true);
@@ -172,17 +173,17 @@ describe("discovery of a Company without an OAuth issuer (3.2)", () => {
       const poppy = structuredClone(company.poppy);
       if (tc.draw(gs.booleans())) poppy.auth.issuer = company.issuer;
       else poppy.extensions = { ...(poppy.extensions ?? {}), "mediated-sign-in": [{ version: "1", fields: [{ name: "email", label: "Email", secret: false }], scopes: Object.keys(poppy.auth.scopes).slice(0, 1) }] };
-      const report = await validateCompany(serving({ ...company, poppy }).fetcher, company.requested);
+      const report = await validateCompany(named(serving({ ...company, poppy }).fetcher), company.requested);
       expect(report.messages.map((message) => message.id)).toContain("issuer-required");
       expect(report.refused).toBe(true);
-      await expect(discover(serving({ ...company, poppy }).fetcher, company.requested)).rejects.toBeInstanceOf(DiscoveryError);
+      await expect(discover(named(serving({ ...company, poppy }).fetcher), company.requested)).rejects.toBeInstanceOf(DiscoveryError);
     })
   );
 });
 
 /** The validator's errors for a Company's documents, by id: why discovery refuses it. */
 async function errors(company: Documents): Promise<string[]> {
-  const report = await validateCompany(serving(company).fetcher, company.requested);
+  const report = await validateCompany(named(serving(company).fetcher), company.requested);
   return report.messages.filter((message) => message.severity === "error").map((message) => message.id);
 }
 
@@ -326,7 +327,7 @@ describe("discovery refuses a Company whose documents break a MUST (3, 3.1, 3.2)
         metadata: { ...company.metadata, issuer }
       };
       expect((await outcome(changed)).ok).toBe(false);
-      const report = await validateCompany(serving(changed).fetcher, company.requested);
+      const report = await validateCompany(named(serving(changed).fetcher), company.requested);
       expect(report.messages.filter((message) => message.id === "not-https-url").map((message) => [message.document, message.pointer])).toEqual([
         ...("issuer" in company.poppy.auth ? [["poppy", "/auth/issuer"]] : []),
         ["protected-resource", "/authorization_servers/0"]
@@ -346,7 +347,7 @@ describe("discovery refuses a Company whose documents break a MUST (3, 3.1, 3.2)
       const changed = { ...company, [document]: replaced(company[document], path, insecure(lookup(company[document], path))) };
       tc.note(`${document} /${path.join("/")} as ${scheme}`);
       expect((await outcome(changed)).ok).toBe(false);
-      const report = await validateCompany(serving(changed).fetcher, company.requested);
+      const report = await validateCompany(named(serving(changed).fetcher), company.requested);
       const insecureMessages = report.messages.filter((message) => message.id === "not-https-url");
       expect(insecureMessages.map((message) => [message.document, message.pointer])).toEqual([[DOCUMENT[document], `/${path.join("/")}`]]);
       expect(report.refused).toBe(true);
@@ -458,7 +459,7 @@ describe("what these properties found, as examples", () => {
       metadata: {}
     };
     const network = serving(company);
-    const report = await validateCompany(network.fetcher, domain);
+    const report = await validateCompany(named(network.fetcher), domain);
     expect(report.outcome).toBe("invalid");
     expect(report.refused).toBe(true);
     expect(report.issuer).toBeUndefined();
@@ -466,7 +467,7 @@ describe("what these properties found, as examples", () => {
       [messageId, "protected-resource", "/authorization_servers/0"]
     ]);
     expect(network.requests).toEqual([`https://${domain}/.well-known/poppy.json`, `https://${domain}/.well-known/oauth-protected-resource`]);
-    await expect(discover(serving(company).fetcher, domain)).rejects.toBeInstanceOf(DiscoveryError);
+    await expect(discover(named(serving(company).fetcher), domain)).rejects.toBeInstanceOf(DiscoveryError);
   });
 
   it("keeps the description of a scope named like a member every object inherits", async () => {
@@ -481,7 +482,7 @@ describe("what these properties found, as examples", () => {
       resource: { resource: `https://${domain}`, authorization_servers: [issuer] },
       metadata: { issuer, token_endpoint: `${issuer}/token`, revocation_endpoint: `${issuer}/revoke`, grant_types_supported: ["refresh_token", "authorization_code"], authorization_endpoint: `${issuer}/authorize`, authorization_response_iss_parameter_supported: true, scopes_supported: ["__proto__", "constructor"], protected_resources: [`https://${domain}`] }
     };
-    const found = await discover(serving(company).fetcher, domain);
+    const found = await discover(named(serving(company).fetcher), domain);
     expect(isCompany(found.result) && Object.entries(found.result.customScopes)).toEqual([["__proto__", "A scope by any name"], ["constructor", "Another"]]);
   });
 });

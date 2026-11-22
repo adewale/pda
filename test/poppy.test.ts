@@ -20,6 +20,7 @@ import { assertPublicHost, fetchJson, identifiedFetcher, POPPY_USER_AGENT, Poppy
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
+import { named } from "./named-fetcher.ts";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
@@ -230,13 +231,13 @@ describe("Guides: fetching metadata safely", () => {
 
   it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
     const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
-    await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
   });
 
   // docs/readings.md#success-status: the same rule as the validator's, so discovery and later reads agree.
   it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
     const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
-    await expect(fetchJson(served, "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
   });
 
   it("names the agent with a User-Agent, keeping one a request already has", async () => {
@@ -259,10 +260,10 @@ describe("Guides: fetching metadata safely", () => {
       fetched.push(request.url);
       return response();
     };
-    await expect(fetchJson(answer(() => Response.json({})), target)).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/non-public host/);
     expect(fetched).toEqual([]);
     const redirect = answer(() => new Response(null, { status: 302, headers: { Location: target } }));
-    await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
     expect(fetched).toEqual(["https://public.example/openapi.json"]);
   });
 
@@ -288,7 +289,7 @@ describe("Guides: fetching metadata safely", () => {
           }),
           { headers: { "Content-Type": "application/json" } }
         );
-      const pending = fetchJson(stalling, "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
+      const pending = fetchJson(named(stalling), "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
       const settled = expect(pending).rejects.toThrow(new PoppyFetchError("https://api.shop.example/openapi.json: timed out after 5 seconds"));
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
@@ -345,7 +346,7 @@ describe("Guides: fetching metadata safely", () => {
 
   it("fetches a public host's document", async () => {
     expect(() => assertPublicHost(new URL("https://api.shop.example/openapi.json"))).not.toThrow();
-    const document = await fetchJson(async () => Response.json({ openapi: "3.1.0" }), "https://api.shop.example/openapi.json");
+    const document = await fetchJson(named(async () => Response.json({ openapi: "3.1.0" })), "https://api.shop.example/openapi.json");
     expect(document.json).toEqual({ openapi: "3.1.0" });
   });
 

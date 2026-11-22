@@ -229,10 +229,10 @@ The Guides say to set "a timeout of a few seconds" for fetches. We read that as 
 
 ## <a id="success-status"></a>Which status serves a document
 
-The validator and the agent use a fetched document only when it is served with HTTP 200, after any redirects: `poppy.json` and its linked versions, protected resource and OAuth server metadata, client metadata, key sets, and API descriptions (`fetchDocument` in `src/validator/fetch.ts`, `fetchJson` in `src/poppy/fetch.ts`). Any other status is reported as `http-status` or refused, except where the protocol gives one a meaning: a 404 for protected resource metadata means no issuer (§3.2).
+The validator and the agent use a fetched document only when it is served with HTTP 200, after any redirects: `poppy.json` and its linked versions, protected resource and OAuth server metadata, client metadata, key sets, and API descriptions (`fetchHops` in `src/validator/fetch.ts`, under `fetchDocument`, and `fetchJson` and `fetchBytes` in `src/poppy/fetch.ts`). Any other status is reported as `http-status` or refused, except where the protocol gives one a meaning: a 404 for protected resource metadata means no issuer (§3.2).
 
 - **Requirement, for the metadata.** RFC 9728 §3.2 (protected resource metadata) and RFC 8414 §3.2 (OAuth server metadata) say a successful response MUST use 200 OK.
 - **Local policy, for `poppy.json`.** §3 says a Company "MUST publish its `poppy.json` document at `https://{domain}/.well-known/poppy.json` over HTTPS" and names no status, and the Guides name none. We hold it to 200, as the metadata beside it is held, because RFC 9110 allows no other 2xx here: 204 and 205 carry no content, 206 answers only a Range request, which we never send, 201 says something was created, and 203 says an intermediary changed the content. The validator's `http-status` cites §3's sentence as its basis.
 
-Logos (`fetchBytes`) accept any 2xx: no document rests on them, and nothing in the protocol names their status. Before 21 November `fetchJson` accepted any 2xx while discovery, through the validator, required 200.
+One fetch (`fetchHops` in `src/validator/fetch.ts`) serves the validator, `fetchJson` and `fetchBytes`, so the rule is stated once and logos follow it too. Before 21 November `fetchJson` and `fetchBytes` accepted any 2xx while discovery, through the validator, required 200.
 
