@@ -29,6 +29,7 @@ import indexHtml from "../index.html?raw";
 import packageLock from "../package-lock.json?raw";
 import packageJson from "../package.json?raw";
 import tsconfig from "../tsconfig.json?raw";
+import tsconfigScripts from "../tsconfig.scripts.json?raw";
 import viteConfig from "../vite.config.ts?raw";
 import wranglerConfig from "../wrangler.jsonc?raw";
 import { fetchWorker, ORIGIN, person, sessionCookie, wsRequest } from "./agent-helpers";
@@ -81,6 +82,7 @@ const sources: Record<string, string> = {
   "package-lock.json": packageLock,
   "package.json": packageJson,
   "tsconfig.json": tsconfig,
+  "tsconfig.scripts.json": tsconfigScripts,
   "vite.config.ts": viteConfig,
   "wrangler.jsonc": wranglerConfig,
   "test/template.test.ts": thisTest
