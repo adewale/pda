@@ -62,7 +62,8 @@ const CONNECTION_STATUSES: Readonly<Record<number, string>> = {
   525: "failed the TLS handshake",
   526: "presented a certificate that couldn't be verified",
   527: "couldn't be reached",
-  530: "couldn't be resolved or reached"
+  // A Worker's fetch also gets 530 for a name that resolves to a private address, which Workers refuse to connect to.
+  530: "couldn't be resolved or reached; a Worker gets this too for a name that resolves to a private address, which Workers won't connect to"
 };
 
 /** An error's code, from Node (`code`) or undici and others (`cause.code`). */
@@ -102,7 +103,16 @@ const CERTIFICATE_ERRORS = new Set([
  */
 export const INVALID_STATUS = "ERR_HTTP_INVALID_STATUS_CODE";
 
-/** Why a fetch got no answer, decided once from what the fetcher threw; `error` is what it threw. */
+/**
+ * Why a fetch got no answer, decided once from what the fetcher threw;
+ * `error` is what it threw. The error codes are Node's, so only the CLI's
+ * fetcher (scripts/node-fetcher.ts) produces most of these. On Workers,
+ * where the hosted validator and the agent run, the same failures arrive as
+ * Cloudflare's own statuses instead (an `Answer` of kind "cloudflare": 526
+ * for a certificate, 530 for a name that doesn't resolve or resolves to a
+ * private address), and a Worker's `fetch` throws only for a lost connection
+ * ("dropped") or a timeout.
+ */
 export type Failure =
   | { readonly kind: "timeout"; readonly seconds: number; readonly error: unknown }
   | { readonly kind: "non-public-address"; readonly message: string; readonly error: unknown }
@@ -206,12 +216,18 @@ export type Answer =
   | { readonly kind: "server-error"; readonly status: number; readonly retryAfter: number | undefined }
   | { readonly kind: "forbidden"; readonly status: 401 | 403 }
   | { readonly kind: "not-found"; readonly status: 404 }
-  | { readonly kind: "other-status"; readonly status: number };
+  | { readonly kind: "other-status"; readonly status: number }
+  /** A final status outside 200 to 599. A Worker's fetch passes one through (999, 600), though no `Response` can be built with it; Node's fetcher rejects instead. */
+  | { readonly kind: "invalid-status"; readonly status: number };
 
 /** Every answer but a document, after the body that won't be read is discarded. */
 async function classify(response: Response, base: URL, signal: AbortSignal): Promise<Answer> {
   const { status, headers } = response;
   if (status === 200) return { kind: "served", status };
+  if (status < 200 || status > 599) {
+    void response.body?.cancel().catch(() => undefined);
+    return { kind: "invalid-status", status };
+  }
   // A 401 or 403 is read a little, for a bot-protection service's marks; every other body is discarded unread.
   const forbidden = status === 401 || status === 403;
   const body = forbidden ? await readPrefix(response, 2048, signal) : "";
@@ -587,6 +603,10 @@ function reportAnswer(answer: NotServed, at: string, c: Checker): void {
     case "not-found":
     case "other-status":
       c.report("http-status", "", `${at} answered HTTP ${answer.status}.`);
+      return;
+    // Worded as Node's fetcher words its rejection (scripts/node-fetcher.ts), so both runtimes report it alike.
+    case "invalid-status":
+      c.report("http-failed", "", `Fetching ${at} failed: the server answered with HTTP status ${answer.status}, which isn't a valid status.`);
       return;
     default:
       unreachable(answer);

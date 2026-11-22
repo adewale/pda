@@ -1378,6 +1378,21 @@ const FETCHING: readonly Fixture[] = [
     also: (report) => expect(report.messages[0]!.text).toMatch(/its TLS certificate didn't verify \(CERT_HAS_EXPIRED\)\. The Guides ask agents to validate certificates/)
   },
   {
+    // A Worker's fetch passes 999 or 600 through (checked against the deployed validator), though no Response can be constructed with it.
+    name: "reports a status outside 200 to 599 as a failed fetch, worded as the CLI words it",
+    run: () => fetchOne(() => Object.defineProperty(new Response("odd", { status: 500 }), "status", { value: 999 })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server answered with HTTP status 999, which isn't a valid status.`)
+  },
+  {
+    // Checked against the deployed validator: a name that resolves to 127.0.0.1 or 10.0.0.1 gets 530, as an unknown name does.
+    name: "says a 530 may also mean a name that resolves to a private address",
+    run: () => fetchOne(() => new Response("error code: 1003", { status: 530, headers: { Server: "cloudflare" } })),
+    ids: ["http-failed"],
+    also: (report) => expect(report.messages[0]!.text).toContain("a Worker gets this too for a name that resolves to a private address")
+  },
+  {
     name: "calls an unreachable host indeterminate, not invalid",
     run: () => validateCompany(named(network({})), "example.com"),
     ids: ["http-failed"],

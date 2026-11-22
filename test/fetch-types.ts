@@ -55,9 +55,10 @@ export function aMissedCaseIsATypeError(answer: Answer, stop: Stop): void {
     case "server-error":
     case "forbidden":
     case "not-found":
+    case "other-status":
       break;
     default:
-      // @ts-expect-error "other-status" isn't handled
+      // @ts-expect-error "invalid-status" isn't handled
       unreachable(answer);
   }
   switch (stop.kind) {
