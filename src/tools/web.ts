@@ -31,7 +31,7 @@ export const READ_LIMITS = {
 } as const;
 
 /** Names the agent and nothing about its User. */
-export const USER_AGENT = "DurablePersonalAgent/1.0 (read_url; reads a page a person asked their agent to read)";
+export const USER_AGENT = "PoppyDemoAgent/1.0 (read_url; reads a page a person asked their agent to read)";
 
 const ACCEPT = "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,application/json;q=0.7,application/xml;q=0.6,text/xml;q=0.6";
 

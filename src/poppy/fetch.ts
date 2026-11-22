@@ -18,7 +18,7 @@ export type Fetcher = (request: Request) => Promise<Response>;
  * one a Worker's requests carry no User-Agent, and a Company's bot protection
  * turns those away first; the validator names itself the same way.
  */
-export const POPPY_USER_AGENT = "DurablePersonalAgent/1.0 (Poppy personal agent)";
+export const POPPY_USER_AGENT = "PoppyDemoAgent/1.0 (Poppy personal agent)";
 
 /** `fetcher`, with `POPPY_USER_AGENT` on each request that doesn't already name one, discovery's included. */
 export function identifiedFetcher(fetcher: Fetcher): Fetcher {
