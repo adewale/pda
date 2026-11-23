@@ -226,3 +226,21 @@ When a reading changes, change the code, the adapter's declared `readings`, and 
 ## Fetch timeout for discovery documents
 
 The Guides say to set "a timeout of a few seconds" for fetches. We read that as 10 seconds for discovery documents, OAuth metadata, client metadata and API descriptions, in the validator and the agent alike. We used 5 seconds until 12 October, when a live Company on a serverless host (print-with-poppy) took longer than that to answer after a cold start. Size and redirect limits are unchanged.
+
+## <a id="success-status"></a>Which status serves a document
+
+The validator and the agent use a fetched document only when it is served with HTTP 200, after any redirects: `poppy.json` and its linked versions, protected resource and OAuth server metadata, client metadata, key sets, and API descriptions (`fetchHops` in `src/validator/fetch.ts`, under `fetchDocument`, and `fetchJson` and `fetchBytes` in `src/poppy/fetch.ts`). Any other status is reported as `http-status` or refused, except where the protocol gives one a meaning: a 404 for protected resource metadata means no issuer (§3.2).
+
+- **Requirement, for the metadata.** RFC 9728 §3.2 (protected resource metadata) and RFC 8414 §3.2 (OAuth server metadata) say a successful response MUST use 200 OK.
+- **Local policy, for `poppy.json`.** §3 says a Company "MUST publish its `poppy.json` document at `https://{domain}/.well-known/poppy.json` over HTTPS" and names no status, and the Guides name none. We hold it to 200, as the metadata beside it is held, because RFC 9110 allows no other 2xx here: 204 and 205 carry no content, 206 answers only a Range request, which we never send, 201 says something was created, and 203 says an intermediary changed the content. The validator's `http-status` cites §3's sentence as its basis.
+
+One fetch (`fetchHops` in `src/validator/fetch.ts`) serves the validator, `fetchJson` and `fetchBytes`, so the rule is stated once and logos follow it too. Before 21 November `fetchJson` and `fetchBytes` accepted any 2xx while discovery, through the validator, required 200.
+
+
+## <a id="worker-ports"></a>Ports a Worker can fetch
+
+The hosted validator and the agent run on Cloudflare Workers. A Worker's `fetch` honours only some HTTPS ports and sends any other port to 443 without saying so, so a document could be reported, or a token sent, for a URL that was never fetched. Cloudflare documents the HTTPS ports its proxy accepts (443, 2053, 2083, 2087, 2096 and 8443) but not the rule for Workers. The deployed validator showed it holds for them, on 22 November: requests to example.com on 2053, 2096 and 8443 were tried and timed out, while 444, 4443, 9443 and 12345 were answered at once with example.com's page on 443.
+
+- **Local policy.** On Workers, both fetchers refuse an HTTPS URL on any other port before sending it (`workerPorts` in `src/validator/fetch.ts`, around the validator route in `src/index.ts` and the agent's Poppy fetcher and fetch browser in `src/agent.ts`). The validator reports it as `http-failed`, and its explanation points to the CLI, whose Node fetcher reaches any port; the report's own text doesn't, since the agent's model reads it too.
+- **Requirement, unchanged.** §3.1 says `organization.domain` carries its port when that isn't 443, and that Personal Agents use a Company on another port only when configured to on purpose. Discovery already refuses a domain with a port (`domain-invalid`); this covers the other URLs a Company names, and redirects.
+- **If Cloudflare changes the list,** the probe in `docs/deployment-tasks.md` shows it: a port on the list should time out against a host that doesn't listen there, and one off it should be refused by the validator, not answered.

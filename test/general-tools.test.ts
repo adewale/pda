@@ -60,7 +60,7 @@ describe("read_url", () => {
       headers: { accept: expect.stringContaining("text/html"), "user-agent": USER_AGENT },
       body: ""
     });
-    expect(USER_AGENT).toMatch(/^DurablePersonalAgent\//);
+    expect(USER_AGENT).toMatch(/^PoppyDemoAgent\//);
   });
 
   it("refuses anything but https on a public host's standard port, before any request", async () => {

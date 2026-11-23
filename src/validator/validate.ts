@@ -5,15 +5,27 @@ import { compatibleVersions, protocolRevision } from "../poppy/protocol-version.
  * CLI, the HTTP endpoint and the form, and our own Poppy client uses
  * `validateCompany` to decide what it will ingest.
  */
-import { fetchDocument, metadataUrl, type Fetched, type Fetcher } from "./fetch.ts";
+import { fetchDocument, metadataUrl, type Fetched, type IdentifiedFetcher } from "./fetch.ts";
 import { parseJson } from "./json.ts";
-import { MESSAGES } from "./messages.ts";
+import { MESSAGES, refFor } from "./messages.ts";
 import { Checker, isHostname, isObject, type DocumentKind, type Message } from "./primitives.ts";
 import { pointer } from "./json.ts";
 import { LATEST, PROFILES, profileForVersion } from "./profiles/index.ts";
 import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
-export const VALIDATOR = { name: "poppy-validator", version: "1.0.0" } as const;
+// 1.1.0: who answered a fetch is reported apart from what the Company served, so a 520, a bot refusal or a 429 is http-failed, no longer http-status.
+export const VALIDATOR = { name: "poppy-validator", version: "1.1.0" } as const;
+
+/**
+ * The validator's name, for a Company's logs and bot rules, with where to read
+ * about it: the hosted validator gives its own page, so another deployment
+ * doesn't point Companies at ours, and the CLI gives its source project. The
+ * library sends no name of its own, because the agent's discovery fetches
+ * through it too and names itself (`withUserAgent` in fetch.ts).
+ */
+export function validatorUserAgent(about: string): string {
+  return `PoppyValidator/${VALIDATOR.version} (+${about})`;
+}
 
 /**
  * valid: no errors. invalid: an error, which is a MUST, an RFC's MUST or a
@@ -63,7 +75,8 @@ export type Report = {
 const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
-  const messages = checkers.flatMap((c) => c.messages);
+  // Each link goes to the pages of the version the documents were checked against.
+  const messages = checkers.flatMap((c) => c.messages).map((m) => ({ ...m, ref: refFor(m.ref, profile.version) }));
   const count = (severity: Message["severity"]) => messages.filter((m) => m.severity === severity).length;
   const unreachable = messages.some((m) => UNREACHABLE.has(m.id));
   const outcome: Outcome = unreachable
@@ -288,7 +301,7 @@ function linkedVersions(c: Checker, doc: Record<string, unknown>, own: unknown, 
  * protected resource metadata, which names the issuer, and the issuer's
  * OAuth metadata, checked against the chosen document (3.2).
  */
-export async function validateCompany(fetcher: Fetcher, domain: string, options: CompanyOptions = {}): Promise<CompanyReport> {
+export async function validateCompany(fetcher: IdentifiedFetcher, domain: string, options: CompanyOptions = {}): Promise<CompanyReport> {
   const requested = domainFromInput(domain);
   const poppyChecker = new Checker("poppy");
   const checkers = [poppyChecker];
@@ -426,7 +439,7 @@ export async function validateCompany(fetcher: Fetcher, domain: string, options:
 }
 
 /** A Personal Agent's client metadata at its client_id URL, and its key set (spec 4.1). */
-export async function validateClient(fetcher: Fetcher, url: string, options: TextOptions = {}): Promise<Report> {
+export async function validateClient(fetcher: IdentifiedFetcher, url: string, options: TextOptions = {}): Promise<Report> {
   const c = new Checker("client-metadata");
   const selected = profileByOption(options.protocolVersion, c);
   const profile = selected ?? LATEST;
@@ -455,7 +468,7 @@ export async function validateClient(fetcher: Fetcher, url: string, options: Tex
  * Validate whatever is at a URL or domain: a bare domain or a poppy.json URL
  * checks the Company; anything else is taken as a client_id URL.
  */
-export async function validateTarget(fetcher: Fetcher, target: string, options: TextOptions = {}): Promise<Report> {
+export async function validateTarget(fetcher: IdentifiedFetcher, target: string, options: TextOptions = {}): Promise<Report> {
   const trimmed = target.trim();
   if (!/^https?:\/\//i.test(trimmed)) return validateCompany(fetcher, trimmed);
   const url = new URL(trimmed);

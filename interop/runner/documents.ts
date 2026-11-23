@@ -4,7 +4,7 @@
  * a fetcher that answers only from the recording, so it judges exactly the
  * bytes and headers the other side saw.
  */
-import { validateClient, validateCompany, type Fetcher, type Report } from "../../src/validator/index.ts";
+import { validateClient, validateCompany, withUserAgent, type Fetcher, type Report } from "../../src/validator/index.ts";
 import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 import { clientIdOf, form, type Exchange } from "./har.ts";
 import type { Check, Side } from "./types.ts";
@@ -42,7 +42,8 @@ function toChecks(report: Report, side: Side, what: string): Check[] {
 
 /** Validate every Company domain whose poppy.json, and every client_id whose metadata, the recording holds. */
 export async function documentChecks(all: readonly Exchange[], protocolVersion: string = PROTOCOL_VERSIONS.at(-1)!): Promise<Check[]> {
-  const fetcher = recordedFetcher(all);
+  // Replayed offline, so no Company sees this name; the validator requires one all the same.
+  const fetcher = withUserAgent(recordedFetcher(all), "PoppyInteropRunner/1.0 (replay)");
   const checks: Check[] = [];
   const domains = new Set<string>();
   const clientIds = new Set<string>();

@@ -14,6 +14,7 @@ import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleInteropClientRoute } from "./poppy/interop-client";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
+import { workerPorts } from "./validator/fetch.ts";
 import {
   agentNameFor,
   AuthError,
@@ -516,7 +517,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (PAGE_PATHS.has(pathname)) return await env.ASSETS.fetch(request);
     if (pathname === "/validator" || pathname.startsWith("/validator/")) {
       const response = await handleValidator(request, {
-        fetcher: (outbound) => fetch(outbound),
+        // A Worker sends a port it won't honour to 443; refuse those instead (docs/readings.md#worker-ports).
+        fetcher: workerPorts((outbound) => fetch(outbound)),
         allowRequest: async (inbound) =>
           (await env.VALIDATOR_LIMITER.limit({ key: `input:${inbound.headers.get("CF-Connecting-IP") ?? "unknown"}` })).success,
         // URL checks fetch from the network: a few a minute per address.

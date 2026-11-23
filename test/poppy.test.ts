@@ -16,10 +16,12 @@ import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage, onCompanyDomain } from "../src/poppy/browser";
-import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
+import { assertPublicHost, fetchJson, identifiedFetcher, POPPY_USER_AGENT, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
+import { workerPorts } from "../src/validator/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
+import { named } from "./named-fetcher.ts";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
@@ -228,6 +230,39 @@ describe("3 discovery: reusing poppy.json for its cache lifetime", () => {
 describe("Guides: fetching metadata safely", () => {
   const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
 
+  it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
+    const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
+  });
+
+  // docs/readings.md#success-status: the same rule as the validator's, so discovery and later reads agree.
+  it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
+    const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
+    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+  });
+
+  it("never sends a request, on Workers, to a port a Worker would quietly swap for 443", async () => {
+    const sent: string[] = [];
+    const fetcher = identifiedFetcher(workerPorts(async (request) => {
+      sent.push(request.url);
+      return Response.json({});
+    }));
+    await expect(fetchJson(fetcher, "https://api.shop.example:4443/openapi.json")).rejects.toThrow("a Cloudflare Worker can't fetch port 4443 over HTTPS");
+    expect(sent).toEqual([]);
+  });
+
+  it("names the agent with a User-Agent, keeping one a request already has", async () => {
+    const seen: (string | null)[] = [];
+    const fetcher = identifiedFetcher(async (request) => {
+      seen.push(request.headers.get("User-Agent"));
+      return new Response(await request.text());
+    });
+    const posted = await fetcher(new Request("https://api.example/x", { method: "POST", body: "kept", headers: { Accept: "application/json" } }));
+    expect(await posted.text()).toBe("kept");
+    await fetcher(new Request("https://api.example/x", { headers: { "User-Agent": "other/1" } }));
+    expect(seen).toEqual([POPPY_USER_AGENT, "other/1"]);
+  });
+
   it.each(PRIVATE_HOSTS)("never fetches from %s, directly or by redirect", async (host) => {
     const target = `https://${host}/openapi.json`;
     expect(() => assertPublicHost(new URL(target))).toThrow(PoppyFetchError);
@@ -236,10 +271,10 @@ describe("Guides: fetching metadata safely", () => {
       fetched.push(request.url);
       return response();
     };
-    await expect(fetchJson(answer(() => Response.json({})), target)).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/non-public host/);
     expect(fetched).toEqual([]);
     const redirect = answer(() => new Response(null, { status: 302, headers: { Location: target } }));
-    await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
     expect(fetched).toEqual(["https://public.example/openapi.json"]);
   });
 
@@ -265,7 +300,7 @@ describe("Guides: fetching metadata safely", () => {
           }),
           { headers: { "Content-Type": "application/json" } }
         );
-      const pending = fetchJson(stalling, "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
+      const pending = fetchJson(named(stalling), "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
       const settled = expect(pending).rejects.toThrow(new PoppyFetchError("https://api.shop.example/openapi.json: timed out after 5 seconds"));
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
@@ -322,7 +357,7 @@ describe("Guides: fetching metadata safely", () => {
 
   it("fetches a public host's document", async () => {
     expect(() => assertPublicHost(new URL("https://api.shop.example/openapi.json"))).not.toThrow();
-    const document = await fetchJson(async () => Response.json({ openapi: "3.1.0" }), "https://api.shop.example/openapi.json");
+    const document = await fetchJson(named(async () => Response.json({ openapi: "3.1.0" })), "https://api.shop.example/openapi.json");
     expect(document.json).toEqual({ openapi: "3.1.0" });
   });
 
@@ -1963,7 +1998,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
   });
 
   /** A Company-terms approval whose actual business request encounters `fault`. */
-  async function approvedWrite(mode: "error" | "throw" | "gateway") {
+  async function approvedWrite(mode: "error" | "throw" | "gateway" | "port") {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
@@ -2000,6 +2035,18 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       expect(await exchangeRequests(context.c)).toEqual(before);
       expect((await context.c.stub.state()).performs).toBe(performs);
     }
+  });
+
+  it("calls an approved write refused before sending, on a port a Worker won't honour, not sent, with no unknown outcome", async () => {
+    // workerPorts throws inside the fetcher, where any other error would mean "no answer, may have reached the Company".
+    const { c, a, after, logged } = await approvedWrite("port");
+    expect(after.status).not.toBe("unknown");
+    expect(after.result ?? "").not.toContain("may or may not");
+    expect(logged.result).not.toBe("unknown");
+    expect((await c.stub.state()).performs).toBe(0);
+    // Nothing is held: the Company never got it, so a new request isn't refused as an unknown outcome.
+    const repeat = await tool(a, "poppy_api_call", exchangeWrite(c));
+    expect(repeat.text).not.toContain("unknown outcome");
   });
 
   it("says an approved write that got no answer may or may not have reached the Company, and never sends it again", async () => {

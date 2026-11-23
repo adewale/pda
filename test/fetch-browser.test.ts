@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CookieJar, decodeEntities, FetchBrowser } from "../src/poppy/fetch-browser";
 import type { Fetcher } from "../src/poppy/fetch";
+import { answerOf } from "../src/poppy/client";
+import { workerPorts } from "../src/validator/fetch";
 
 /**
  * The production browser's own rules, with stub fetchers. Browsing against
@@ -14,6 +16,21 @@ function html(body: string, headers: Record<string, string> = {}): Response {
 }
 
 describe("the fetch browser's cookie jar", () => {
+  it("leaves a form a Worker refused to send, on a port it won't honour, marked as never sent", async () => {
+    let sent = 0;
+    const context = await new FetchBrowser(workerPorts(async () => {
+      sent++;
+      return new Response("ok");
+    })).newContext(allowAll);
+    const failure = await context
+      .submit({ from: "https://shop.example/", method: "POST", action: "https://shop.example:9443/order", enctype: "application/x-www-form-urlencoded", fields: [] })
+      .then(() => undefined, (error: unknown) => error);
+    expect(String(failure)).toContain("a Cloudflare Worker can't fetch port 9443");
+    // Marked "none", it would read as possibly received and leave an unknown outcome.
+    expect(answerOf(failure)).toBeUndefined();
+    expect(sent).toBe(0);
+  });
+
   it("keeps cookies host-only, whatever their Domain says", () => {
     const jar = new CookieJar();
     jar.store(new URL("https://www.shop.example/"), ["a=1; Domain=shop.example; Path=/", "b=2; Path=/; Domain=elsewhere.example"]);

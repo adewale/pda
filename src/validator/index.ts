@@ -10,10 +10,11 @@
  * fetcher that checks each resolved address (`pinnedLookup`), and a caller
  * in any other runtime must supply a fetcher that does the same.
  */
-export { validateText, validateCompany, validateClient, validateTarget, summarize, domainFromInput, VALIDATOR } from "./validate.ts";
+export { validateText, validateCompany, validateClient, validateTarget, summarize, domainFromInput, VALIDATOR, validatorUserAgent } from "./validate.ts";
 export type { Report, CompanyReport, CompanyOptions, DocumentResult, Outcome, Skipped, TextOptions } from "./validate.ts";
 export type { Message, DocumentKind } from "./primitives.ts";
-export type { Fetcher } from "./fetch.ts";
+export type { Fetcher, IdentifiedFetcher } from "./fetch.ts";
+export { withUserAgent } from "./fetch.ts";
 export { MESSAGES, type MessageId, type Severity } from "./messages.ts";
 export { BASES, LEVELS, levelOf, severityOf, isBasis, type Basis, type Level } from "./levels.ts";
 export { PROFILES, LATEST } from "./profiles/index.ts";

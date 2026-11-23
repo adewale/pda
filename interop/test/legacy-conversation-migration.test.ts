@@ -7,6 +7,7 @@ import { readConversation, updateAvailability } from "../../src/poppy/conversati
 import { buildActivity, openAtCompanies } from "../../src/poppy/activity";
 import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
 import type { Company } from "../../src/poppy/discovery";
+import { named } from "../../test/named-fetcher.ts";
 
 const ISSUER = "https://auth.shop.example";
 
@@ -23,7 +24,7 @@ async function fixture() {
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
     sql,
-    fetcher: async request => {
+    fetcher: named(async request => {
       requests.push({ url: request.url, method: request.method });
       const url = new URL(request.url);
       if (url.pathname === "/.well-known/poppy.json") return Response.json({ protocol_version: "0.4", organization: { name: "Shop", domain: "shop.example" },
@@ -33,7 +34,7 @@ async function fixture() {
         grant_types_supported: ["refresh_token"], protected_resources: ["https://shop.example"] });
       if (url.pathname === "/conversations/remote_current/messages" && request.method === "POST") return Response.json({ conversation_id: "remote_current" }, { status: 202 });
       throw new Error(`Unexpected protocol request: ${request.method} ${request.url}`);
-    },
+    }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: Date.now
   };

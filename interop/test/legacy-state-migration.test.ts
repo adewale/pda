@@ -5,6 +5,7 @@ import { recoverSignIns } from "../../src/poppy/signin";
 import { migrate } from "../../src/poppy/store";
 import type { Company } from "../../src/poppy/discovery";
 import { PROTOCOL_REVISIONS } from "../../src/poppy/protocol-version";
+import { named } from "../../test/named-fetcher.ts";
 
 const ISSUER = "https://auth.shop.example";
 
@@ -18,7 +19,7 @@ function fixture() {
       POPPY_LOGO_URI: "https://agent.example/logo.svg", TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64")
     } as unknown as Env,
     sql,
-    fetcher: async request => {
+    fetcher: named(async request => {
       requests.push(request.url);
       const url = new URL(request.url);
       if (url.pathname.startsWith("/.well-known/oauth-authorization-server")) return Response.json({
@@ -27,7 +28,7 @@ function fixture() {
       });
       if (url.pathname === "/.well-known/oauth-protected-resource") return Response.json({ resource: "https://shop.example", authorization_servers: [ISSUER] });
       return Response.json({ protocol_version: "0.4", organization: { name: "Shop", domain: "shop.example" }, auth: { scopes: { "orders:read": "See orders" } }, agent: { protocols: [{ type: "poppy", endpoint: "https://shop.example/conversations" }] } });
-    },
+    }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: Date.now
   };

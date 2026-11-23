@@ -19,8 +19,9 @@
  * presents our policy as the draft's requirement.
  *
  * The messages check 0.4 (spec/draft-0.4-retrieved-2026-11-11) and the 1.0
- * published text (spec/version-1.0-retrieved-2026-11-19). The links go to 0.4's pages,
- * or 1.0's (`spec10`) for a rule 0.4 doesn't have. Where 0.3, 0.4 or 1.0
+ * published text (spec/version-1.0-retrieved-2026-11-19). The catalog's links are
+ * written against 0.4's pages, or 1.0's (`spec10`) for a rule 0.4 doesn't have;
+ * a report checked against 1.0 links 1.0's pages instead (`refFor`). Where 0.3, 0.4 or 1.0
  * changed a rule a Company may still follow, the explanation says what
  * replaced it.
  *
@@ -58,6 +59,25 @@ export const extension = (name: string, title: string, section: string, anchor: 
   url: `${SITE}/extensions/${name}#${anchor}`
 });
 export const mediatedExt = (section: string, anchor: string): Ref => extension("mediated-sign-in", "Mediated Sign-In", section, anchor);
+/**
+ * 0.4 links whose section moved or went in a 1.x version, so a 1.x report keeps
+ * them as they are; `npm run check:spec` checks the list against the pinned pages
+ * (scripts/check-requirements.mjs, linkProblems).
+ */
+export const ONLY_IN_0_4: ReadonlySet<string> = new Set<string>([]);
+
+/**
+ * `ref` for a report checked against the profile for `version` ("1.0"): it
+ * links that version's page where it has the same section, so a 1.0 report
+ * links /docs/1.0/ and a later profile its own pages. The catalog is written
+ * against 0.4's pages, which a 1.x report would otherwise link. `npm run
+ * check:spec` checks each section against every 1.x runtime pin.
+ */
+export function refFor(ref: Ref, version: string): Ref {
+  if (version.startsWith("0.") || !ref.url.startsWith(`${SITE}/`) || ONLY_IN_0_4.has(ref.url)) return ref;
+  return { label: ref.label, url: ref.url.replace(`${SITE}/`, `https://personalagentprotocol.org/docs/${version}/`) };
+}
+
 export const rfc = (number: number, section?: string): Ref => ({
   label: `RFC ${number}${section ? ` §${section}` : ""}`,
   url: `https://www.rfc-editor.org/rfc/rfc${number}${section ? `#section-${section}` : ""}`
@@ -158,8 +178,9 @@ export const MESSAGES = define({
     basis: "MUST",
     requires: "A Company MUST publish its poppy.json document at https://{domain}/.well-known/poppy.json over HTTPS",
     title: "Not served with HTTP 200",
-    explain: "The document must be served successfully for anyone to use it.",
-    fix: "Serve the document with status 200.",
+    explain:
+      "The document must be served successfully for anyone to use it. The report says which status came back, and whether a redirect had no Location or one that isn't a URL. A server error (5xx) is often temporary, so a report may change on a second try. A 401 or 403 that a browser doesn't get usually means the site turns away automated clients or cloud addresses, which would turn agents away too.",
+    fix: "Serve the document with status 200 to anyone, including automated clients, and redirect only to a valid HTTPS URL.",
     ref: spec("3", "discovery")
   },
   "http-failed": {
@@ -167,8 +188,9 @@ export const MESSAGES = define({
     requires: "Set limits: … a timeout of a few seconds",
     refuses: true,
     title: "Couldn't fetch the document",
-    explain: "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Nothing was checked, and our client can't use a document it couldn't fetch.",
-    fix: "Check that the URL is reachable from the public internet and answers within a few seconds.",
+    explain:
+      "The request failed before the site answered: DNS, TLS (including a certificate that didn't verify), the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Some answers count as failures too, because they come from something other than the site or say nothing about the document: Cloudflare's own statuses for an unusable answer (520 to 527 and 530), a refusal from a bot-protection service (recognised by the marks Cloudflare, Akamai, DataDome and Imperva put on their own refusals), and a rate limit (429). A dropped connection, a 520 or a bot-protection refusal usually means the site turns away automated clients or cloud addresses, which agents' fetches come from as well. Nothing was checked, and our client can't use a document it couldn't fetch.",
+    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. After a rate limit, try again later. To check the document's contents meanwhile, validate a saved copy of it. A Cloudflare Worker, which runs the hosted validator, fetches only ports 443, 2053, 2083, 2087, 2096 and 8443; the CLI (npm run validate) fetches any port.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-too-large": {

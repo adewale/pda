@@ -23,7 +23,7 @@ The design owns architecture and requirements. [Decisions](docs/decisions.md) pr
 Use Node 24 (`.nvmrc`) and `npm ci --legacy-peer-deps`.
 
 - `npm test`: five offline Vitest projects. Use a targeted Vitest command during development; run the full suite for code changes.
-- `npm run typecheck`: types; the optional `.githooks/pre-push` runs this too.
+- `npm run typecheck`: types, for the Workers program and for `scripts/` with Node's types (`tsconfig.scripts.json`); the optional `.githooks/pre-push` runs this too.
 - `npm run check:docs`: dependency-free documentation file/scenario references, independent of test titles.
 - `npm run check:spec`: pinned specification integrity and generated requirement ledger.
 - `npm run test:properties`: ordinary property cases; deep runs stay local.

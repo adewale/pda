@@ -7,6 +7,8 @@ import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { signOut } from "../../src/poppy/signout.ts";
 import { migrate, Sealer } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
+import type { Fetcher } from "../../src/poppy/fetch.ts";
 
 function deferred() {
   let resolve!: () => void;
@@ -14,7 +16,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function fixture(answer: PoppyHost["fetcher"], previousEncryptionKey?: string) {
+async function fixture(answer: Fetcher, previousEncryptionKey?: string) {
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const sql = memorySql();
   migrate(sql);
@@ -32,7 +34,7 @@ async function fixture(answer: PoppyHost["fetcher"], previousEncryptionKey?: str
       ...(previousEncryptionKey ? { TOKEN_ENC_KEY_PREVIOUS: previousEncryptionKey } : {}),
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
-    sql, fetcher: answer, showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
+    sql, fetcher: named(answer), showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
   const client = new PoppyClient(host);

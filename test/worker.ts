@@ -35,6 +35,7 @@ import type { HandoverLauncher } from "../src/poppy/handover";
 import { base64url } from "../src/base64url";
 import type { PushFetcher } from "../src/web-push";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
+import { workerPorts } from "../src/validator/fetch";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
 
@@ -79,7 +80,7 @@ export type NetworkFault = {
   readonly method: string;
   readonly url: string;
   readonly grant?: string;
-  readonly mode: "throw" | "gateway" | "hold" | "pause" | "lose" | "stall" | "error" | "null";
+  readonly mode: "throw" | "gateway" | "hold" | "pause" | "lose" | "stall" | "error" | "null" | "port";
 };
 
 type Faults = { pending: NetworkFault[]; held: (() => void)[]; stalled: { cancelled: boolean }[] };
@@ -107,6 +108,8 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     if (index === -1) return fetcher(request);
     const [fault] = pending.splice(index, 1);
     if (fault!.mode === "lose") throw new Error("Network connection lost before the request was sent");
+    // As if the Company had named a port a Worker won't honour: workerPorts' own refusal, before anything is sent.
+    if (fault!.mode === "port") return workerPorts(fetcher)(new Request(request.url.replace(/^https:\/\/([^/]+)/, "https://$1:9443"), request));
     if (fault!.mode === "error") return Response.json({ error: "server_error" }, { status: 500 });
     if (fault!.mode === "null") return Response.json(null);
     const response = await fetcher(request);

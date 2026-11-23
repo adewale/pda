@@ -10,6 +10,7 @@ import { sha256 } from "../../src/poppy/jwt.ts";
 import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { migrate } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
 
 const ISSUER = "https://auth.books.example";
 const ORIGIN = "https://api.books.example";
@@ -86,7 +87,7 @@ async function fixture(redirect: boolean) {
       TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64"), POPPY_SIGNING_JWKS: JSON.stringify([{ ...await exportJWK(signing.privateKey), kid: "redirect-test" }]),
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
-    sql, fetcher: async (request) => {
+    sql, fetcher: named(async (request) => {
       const publicUrl = new URL(request.url);
       if (!["auth.books.example", "api.books.example"].includes(publicUrl.hostname)) throw new Error("Unexpected public fixture host");
       // Materialize the unchanged bytes, as these small JSON/form requests are
@@ -96,7 +97,7 @@ async function fixture(redirect: boolean) {
         method: request.method, headers: request.headers, redirect: request.redirect, signal: request.signal,
         ...(body ? { body } : {})
       }));
-    },
+    }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };

@@ -1,5 +1,5 @@
 import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
-import type { Fetcher } from "./fetch";
+import type { IdentifiedFetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
@@ -186,7 +186,7 @@ export type Discovered = {
  * limit or reading of ours the message names); or a document that couldn't
  * be fetched. What follows reads fields the validator has checked.
  */
-export async function discover(fetcher: Fetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
+export async function discover(fetcher: IdentifiedFetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
   // 3.4: the newest version both sides speak, from poppy.json or a document its supported_versions links.
   const checked = await validateCompany(fetcher, domain, { versions });
   if (checked.refused || checked.outcome === "indeterminate" || !isObj(checked.poppy)) {
