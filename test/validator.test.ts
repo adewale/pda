@@ -1287,7 +1287,9 @@ const FETCHING: readonly Fixture[] = [
     outcome: "indeterminate",
     also: (report) => {
       expect(report.messages[0]!.text).toMatch(/dropped the connection.*HTTP 520 is Cloudflare's code for that, not a status the server sent/);
-      expect(report.messages[0]!.text).toMatch(/block automated clients.*validate a saved copy/);
+      expect(report.messages[0]!.text).toMatch(/block automated clients/);
+      // The agent's model reads this text too: nothing only a validator user could act on.
+      expect(report.messages[0]!.text).not.toMatch(/validator|saved copy|npm/);
       expect(report.documents[0]).toMatchObject({ status: 520 });
     }
   },
@@ -1323,7 +1325,12 @@ const FETCHING: readonly Fixture[] = [
     run: () => fetchOne(() => new Response("<html>Just a moment...</html>", { status: 403, headers: { "cf-mitigated": "challenge", Server: "cloudflare" } })),
     ids: ["http-failed"],
     outcome: "indeterminate",
-    also: (report) => expect(report.messages[0]!.text).toMatch(/Cloudflare's bot protection turned the validator away \(HTTP 403\), so the site wasn't asked.*validate a saved copy/)
+    also: (report) => {
+      expect(report.messages[0]!.text).toBe(
+        `Fetching ${wellKnown} failed: Cloudflare's bot protection answered (HTTP 403) instead of the site, which wasn't asked. It turns away automated clients, agents included, unless the site lets them through.`
+      );
+      expect(report.messages[0]!.text).not.toMatch(/validator|saved copy|npm/);
+    }
   },
   {
     // The block recorded in docs/deployment-tasks.md, from the validator API itself.
@@ -1410,7 +1417,7 @@ const FETCHING: readonly Fixture[] = [
     name: "says a 530 may also mean a name that resolves to a private address",
     run: () => fetchOne(() => new Response("error code: 1003", { status: 530, headers: { Server: "cloudflare" } })),
     ids: ["http-failed"],
-    also: (report) => expect(report.messages[0]!.text).toContain("a Worker gets this too for a name that resolves to a private address")
+    also: (report) => expect(report.messages[0]!.text).toContain("(from a Cloudflare Worker, a name that resolves to a private address gets 530 too)")
   },
   {
     // docs/readings.md#worker-ports: a Worker would silently fetch port 443 instead.
@@ -1425,7 +1432,7 @@ const FETCHING: readonly Fixture[] = [
       });
       const direct = await validateTarget(named(behind), "https://api.example.com:9443/openapi.json");
       expect(direct.messages[0]!.text).toBe(
-        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096, 8443), so https://api.example.com:9443 wasn't fetched. The CLI (npm run validate) fetches any port."
+        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096, 8443), so https://api.example.com:9443 wasn't fetched."
       );
       // A port on the list goes through.
       await validateTarget(named(behind), "https://api.example.com:8443/openapi.json");

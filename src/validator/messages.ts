@@ -60,21 +60,22 @@ export const extension = (name: string, title: string, section: string, anchor: 
 });
 export const mediatedExt = (section: string, anchor: string): Ref => extension("mediated-sign-in", "Mediated Sign-In", section, anchor);
 /**
- * 0.4 links whose section moved or went in 1.0, so a 1.0 report keeps them as
- * they are; `npm run check:spec` checks the list against the pinned pages
+ * 0.4 links whose section moved or went in a 1.x version, so a 1.x report keeps
+ * them as they are; `npm run check:spec` checks the list against the pinned pages
  * (scripts/check-requirements.mjs, linkProblems).
  */
 export const ONLY_IN_0_4: ReadonlySet<string> = new Set<string>([]);
 
 /**
- * `ref` for a report checked against `version`: a 1.x report links the 1.x
- * page where 1.x has the same section. The catalog is written against 0.4's
- * pages, which a 1.0 report would otherwise link.
+ * `ref` for a report checked against the profile for `version` ("1.0"): it
+ * links that version's page where it has the same section, so a 1.0 report
+ * links /docs/1.0/ and a later profile its own pages. The catalog is written
+ * against 0.4's pages, which a 1.x report would otherwise link. `npm run
+ * check:spec` checks each section against every 1.x runtime pin.
  */
 export function refFor(ref: Ref, version: string): Ref {
-  const major = version.split(".")[0];
-  if (major === "0" || !ref.url.startsWith(`${SITE}/`) || ONLY_IN_0_4.has(ref.url)) return ref;
-  return { label: ref.label, url: ref.url.replace(`${SITE}/`, `https://personalagentprotocol.org/docs/${major}.0/`) };
+  if (version.startsWith("0.") || !ref.url.startsWith(`${SITE}/`) || ONLY_IN_0_4.has(ref.url)) return ref;
+  return { label: ref.label, url: ref.url.replace(`${SITE}/`, `https://personalagentprotocol.org/docs/${version}/`) };
 }
 
 export const rfc = (number: number, section?: string): Ref => ({
@@ -189,7 +190,7 @@ export const MESSAGES = define({
     title: "Couldn't fetch the document",
     explain:
       "The request failed before the site answered: DNS, TLS (including a certificate that didn't verify), the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Some answers count as failures too, because they come from something other than the site or say nothing about the document: Cloudflare's own statuses for an unusable answer (520 to 527 and 530), a refusal from a bot-protection service (recognised by the marks Cloudflare, Akamai, DataDome and Imperva put on their own refusals), and a rate limit (429). A dropped connection, a 520 or a bot-protection refusal usually means the site turns away automated clients or cloud addresses, which agents' fetches come from as well. Nothing was checked, and our client can't use a document it couldn't fetch.",
-    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. After a rate limit, try again later. To check the document's contents meanwhile, validate a saved copy of it.",
+    fix: "Check that the URL answers within a few seconds from the public internet, including automated clients on cloud networks, not only browsers. After a rate limit, try again later. To check the document's contents meanwhile, validate a saved copy of it. A Cloudflare Worker, which runs the hosted validator, fetches only ports 443, 2053, 2083, 2087, 2096 and 8443; the CLI (npm run validate) fetches any port.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-too-large": {

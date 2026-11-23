@@ -21,7 +21,7 @@
  * `check-spec.mjs` runs this. Run it alone to list every problem, or with
  * `--quote <basis> <text> [version]` to test one quote.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -147,9 +147,10 @@ export function messageLinks() {
   return [...links.values()];
 }
 
-/** A pinned page's headings by id, as their text ("5.3 Verifying the Session header"). */
+/** A pinned page's headings by id, as their text ("5.3 Verifying the Session header"), or null when the pin has no such page. */
 function headings(snapshot, version, page) {
   const file = path.join(root, snapshot, "html", `${version}-${page.replace(/^extensions\//, "")}.html`);
+  if (!existsSync(file)) return null;
   const found = new Map();
   for (const [, , id, inner] of readFileSync(file, "utf8").matchAll(/<(h[1-6])[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)) {
     found.set(id, inner.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, " ").trim());
@@ -158,23 +159,33 @@ function headings(snapshot, version, page) {
 }
 
 /**
- * A report checked against 1.x links the 1.x page for each 0.4 link
- * (`refFor` in src/validator/messages.ts). That is right only where the 1.x
- * page has the same anchor on a heading with the same section number, or for
- * the Guides the same title. Every other link must be listed in
- * `ONLY_IN_0_4`, and every listed link must really differ.
+ * A report checked against a 1.x profile links that version's page for each
+ * 0.4 link (`refFor` in src/validator/messages.ts). That is right only where
+ * the page has the same anchor on a heading with the same section number, or
+ * for the Guides the same title, in every 1.x runtime pin, each a version a
+ * report can link. Every other link must be listed in `ONLY_IN_0_4`, and every
+ * listed link must really differ in one of them.
  */
 export async function linkProblems() {
   const { pins } = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
-  const latest = pins.filter((pin) => pin.runtime && /^1\./.test(pin.protocolVersion)).at(-1);
+  const linked = pins.filter((pin) => pin.runtime && !pin.protocolVersion.startsWith("0."));
   const { ONLY_IN_0_4 } = await import(pathToFileURL(path.join(root, "src/validator/messages.ts")).href);
   const problems = [];
   for (const link of messageLinks()) {
     const url = `https://personalagentprotocol.org/docs/0.4/${link.page}#${link.anchor}`;
-    const heading = headings(latest.snapshot, latest.protocolVersion, link.page).get(link.anchor);
-    const same = heading !== undefined && (link.title !== undefined ? heading === link.title : heading.split(" ")[0] === link.section);
-    if (!same && !ONLY_IN_0_4.has(url)) problems.push(`${url}: ${heading === undefined ? "no such anchor" : `"${heading}"`} in ${latest.protocolVersion}; list it in ONLY_IN_0_4`);
-    if (same && ONLY_IN_0_4.has(url)) problems.push(`${url}: listed in ONLY_IN_0_4, but ${latest.protocolVersion} has the same section`);
+    const differs = [];
+    for (const pin of linked) {
+      const page = headings(pin.snapshot, pin.protocolVersion, link.page);
+      if (page === null) {
+        problems.push(`${url}: ${pin.snapshot} has no pinned ${link.page} page to check it against`);
+        continue;
+      }
+      const heading = page.get(link.anchor);
+      const same = heading !== undefined && (link.title !== undefined ? heading === link.title : heading.split(" ")[0] === link.section);
+      if (!same) differs.push(`${heading === undefined ? "no such anchor" : `"${heading}"`} in ${pin.protocolVersion}`);
+    }
+    if (differs.length && !ONLY_IN_0_4.has(url)) problems.push(`${url}: ${differs.join(", ")}; list it in ONLY_IN_0_4`);
+    if (!differs.length && ONLY_IN_0_4.has(url)) problems.push(`${url}: listed in ONLY_IN_0_4, but every 1.x pin has the same section`);
   }
   return problems;
 }

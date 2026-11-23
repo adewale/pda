@@ -1998,7 +1998,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
   });
 
   /** A Company-terms approval whose actual business request encounters `fault`. */
-  async function approvedWrite(mode: "error" | "throw" | "gateway") {
+  async function approvedWrite(mode: "error" | "throw" | "gateway" | "port") {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
@@ -2035,6 +2035,18 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       expect(await exchangeRequests(context.c)).toEqual(before);
       expect((await context.c.stub.state()).performs).toBe(performs);
     }
+  });
+
+  it("calls an approved write refused before sending, on a port a Worker won't honour, not sent, with no unknown outcome", async () => {
+    // workerPorts throws inside the fetcher, where any other error would mean "no answer, may have reached the Company".
+    const { c, a, after, logged } = await approvedWrite("port");
+    expect(after.status).not.toBe("unknown");
+    expect(after.result ?? "").not.toContain("may or may not");
+    expect(logged.result).not.toBe("unknown");
+    expect((await c.stub.state()).performs).toBe(0);
+    // Nothing is held: the Company never got it, so a new request isn't refused as an unknown outcome.
+    const repeat = await tool(a, "poppy_api_call", exchangeWrite(c));
+    expect(repeat.text).not.toContain("unknown outcome");
   });
 
   it("says an approved write that got no answer may or may not have reached the Company, and never sends it again", async () => {

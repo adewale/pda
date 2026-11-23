@@ -106,7 +106,7 @@ console.log("Verified the quoted requirement of every normative validator messag
 // A 1.x report links the 1.x page for each 0.4 link, so each must name the same section there (check-requirements.mjs).
 const links = await linkProblems();
 if (links.length) throw new Error(`Validator links that a 1.x report would send to another section:\n${links.join("\n")}`);
-console.log("Verified that every 0.4 link the validator gives names the same section in the latest runtime pin.");
+console.log("Verified that every 0.4 link the validator gives names the same section in every 1.x runtime pin.");
 
 let failed = false;
 if (process.argv.includes("--drift")) {

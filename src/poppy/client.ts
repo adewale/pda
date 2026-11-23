@@ -39,6 +39,7 @@ import { FOREIGN_TEXT, literal, reportError, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
 import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
+import { refusedBeforeSending } from "../validator/fetch.ts";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -1700,6 +1701,8 @@ export class PoppyClient {
         )
       ).catch((error: unknown) => {
         log({ failed: noAnswer(error) });
+        // Refused before anything was sent (a port a Worker won't honour): it never reached the Company, so no unknown outcome.
+        if (refusedBeforeSending(error)) throw withoutAnswer(error);
         throw withAnswer(timeoutError(error, `${url.origin}${url.pathname}`), "none");
       });
       const nonce = response.headers.get("DPoP-Nonce");

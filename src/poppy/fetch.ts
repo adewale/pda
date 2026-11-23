@@ -122,6 +122,7 @@ function stopError(result: Extract<Hops<unknown>, { kind: "stopped" }>, url: str
     case "non-public-host":
       return new PoppyFetchError(`Refusing to fetch non-public host ${stop.host}`);
     case "redirect-refused":
+      return new PoppyFetchError(`${at} redirects (HTTP ${stop.status}) instead of serving the document`);
     case "too-many-redirects":
       return new PoppyFetchError(`Too many redirects from ${url}`);
     case "bad-redirect":

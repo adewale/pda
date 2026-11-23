@@ -106,7 +106,7 @@ Each requires the configured deployment/account or a real device; local failures
   Record the deployed commit, the Company and its pinned revision, and what was checked.
 - [ ] Who answered a fetch ([decision 52](decisions.md#52-one-fetch-for-every-document-and-who-answered-it)), after deploying it. Each is a `GET /validator/api?url=…` on the deployed validator (20 URL checks a minute) unless it says otherwise; the before column is what the 12 November deployment gave on 22 November.
   - `www.turkishairlines.com`: `http-failed`, "the server dropped the connection or sent a response that couldn't be read. HTTP 520 is Cloudflare's code…" (before: `http-status`, "answered HTTP 520").
-  - `expired.badssl.com`: `http-failed`, "failed the TLS handshake… HTTP 526"; `localtest.me`: `http-failed`, HTTP 530 with the private-address note.
+  - `expired.badssl.com`: `http-failed`, "presented a certificate that couldn't be verified. HTTP 526 is Cloudflare's code…"; `localtest.me`: `http-failed`, HTTP 530 with the private-address note.
   - `https://httpbin.org/status/999`: `http-failed`, "isn't a valid status" (before: "answered HTTP 999"); `/status/429`: "limiting how often it's asked".
   - `https://example.com:9443/x.json`: `http-failed`, "a Cloudflare Worker can't fetch port 9443" (before: example.com's 404 from port 443); `https://example.com:8443/x.json` still times out, showing 8443 is tried ([readings](readings.md#worker-ports)).
   - The report says `"validator": {"version": "1.1.0"}`, and a 1.0 Company's messages link `/docs/1.0/` pages.

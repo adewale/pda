@@ -1,6 +1,7 @@
 import type { BrowserContextHandle, BrowserCookie, FormSubmission, PageGuard, PageHeaders, PageSnapshot, PoppyBrowser, UserStep } from "./browser";
 import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from "./client";
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
+import { refusedBeforeSending } from "../validator/fetch.ts";
 import { isObject, parseStrictJson } from "./json";
 
 /**
@@ -602,7 +603,8 @@ class FetchContext implements BrowserContextHandle {
       const failure = signal.aborted ? new PoppyError("timeout", `${current.host} took longer than ${this.#options.timeoutMs / 1000} s`, 0) : error;
       const unreadable = unreadableAnswerOf(error);
       if (unreadable !== undefined) throw withUnreadableAnswer(failure, unreadable);
-      if (init.method === "POST" && sent) throw withAnswer(failure, answered ?? "none");
+      // A form a fetcher refused before sending (a port a Worker won't honour) never reached the Company.
+      if (init.method === "POST" && sent && !refusedBeforeSending(error)) throw withAnswer(failure, answered ?? "none");
       throw failure;
     }
   }

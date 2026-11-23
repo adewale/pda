@@ -68,6 +68,15 @@ export function workerPorts(fetcher: Fetcher): Fetcher {
   };
 }
 
+/**
+ * Whether a fetcher threw before sending anything: `workerPorts` refusing a
+ * port. A caller that marks a failed request as possibly received (the
+ * agent's unknown outcomes) must not mark this one: it never left.
+ */
+export function refusedBeforeSending(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === UNSUPPORTED_PORT;
+}
+
 /** For the `default` of a switch that covers every case: a case added later is a type error there. */
 export function unreachable(value: never): never {
   throw new Error(`Unhandled case ${JSON.stringify(value)}`);
@@ -87,8 +96,8 @@ const CONNECTION_STATUSES: Readonly<Record<number, string>> = {
   525: "failed the TLS handshake",
   526: "presented a certificate that couldn't be verified",
   527: "couldn't be reached",
-  // A Worker's fetch also gets 530 for a name that resolves to a private address, which Workers refuse to connect to.
-  530: "couldn't be resolved or reached; a Worker gets this too for a name that resolves to a private address, which Workers won't connect to"
+  // Worded for any runtime: only a Worker's fetch also gets 530 for a name that resolves to a private address.
+  530: "couldn't be resolved or reached (from a Cloudflare Worker, a name that resolves to a private address gets 530 too)"
 };
 
 /** An error's code, from Node (`code`) or undici and others (`cause.code`). */
@@ -353,8 +362,14 @@ export async function fetchHops<T>(
   }
 }
 
+/**
+ * Report texts reach the agent's model as well as the validator's users
+ * (discover() throws summarize(report)), so they say what happened and
+ * nothing only a validator user could do; that advice is in the catalog's
+ * `fix` (messages.ts), which the validator's pages show.
+ */
 const BLOCKED_HINT =
-  "Sites that block automated clients or cloud addresses often do this, and would block an agent the same way. To check the document itself, validate a saved copy.";
+  "Sites that block automated clients or cloud addresses often do this, and agents' fetches are both.";
 
 export type Fetched = {
   readonly url: string;
@@ -610,7 +625,7 @@ function reportAnswer(answer: NotServed, at: string, c: Checker): void {
       c.report(
         "http-failed",
         "",
-        `Fetching ${at} failed: ${answer.service}'s bot protection turned the validator away (HTTP ${answer.status}), so the site wasn't asked. It would turn agents away the same way unless it lets them through. To check the document itself, validate a saved copy.`
+        `Fetching ${at} failed: ${answer.service}'s bot protection answered (HTTP ${answer.status}) instead of the site, which wasn't asked. It turns away automated clients, agents included, unless the site lets them through.`
       );
       return;
     // A limit on how often we may ask, not an answer about the document.
@@ -654,7 +669,7 @@ function reportFailure(failure: Failure, at: string, c: Checker): void {
     case "certificate":
       return failed(`: its TLS certificate didn't verify (${failure.code}). The Guides ask agents to validate certificates, so none will use it.`);
     case "unsupported-port":
-      return failed(`: ${(failure.error as Error).message}. The CLI (npm run validate) fetches any port.`);
+      return failed(`: ${(failure.error as Error).message}.`);
     case "unresolved":
       return failed(": the host name doesn't resolve.");
     case "unresolved-for-now":
