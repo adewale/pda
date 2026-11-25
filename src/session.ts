@@ -1,9 +1,13 @@
 import { base64url, fromBase64url } from "./base64url";
 import type { Provider } from "./config";
+import { ProblemError, type Problem, type ProblemOrText } from "./diagnostic";
 
 /** A request without a valid session. */
-export class AuthError extends Error {
+export class AuthError extends ProblemError {
   override name = "AuthError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 export type Identity = {

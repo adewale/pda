@@ -3,6 +3,7 @@ import type { IdentifiedFetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
 /**
  * Extensions this client supports under each protocol version, with the
@@ -130,12 +131,12 @@ export type WebsiteOnly = {
 };
 
 /** Discovery refused a Company. Its message quotes what the Company published (the validator's findings, its name), so a wide event records only its class (`ForeignText`, src/log.ts). */
-export class DiscoveryError extends Error implements ForeignText {
+export class DiscoveryError extends ProblemError implements ForeignText {
   override name = "DiscoveryError";
   readonly [FOREIGN_TEXT] = true as const;
   /** The validator's report, when discovery refused what it read (for the protocol log). */
-  constructor(message: string, readonly report?: CompanyReport) {
-    super(message);
+  constructor(problem: ProblemOrText, readonly report?: CompanyReport) {
+    super(problem as Problem);
   }
 }
 

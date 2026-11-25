@@ -1,4 +1,5 @@
 /** Resource limits for the public HTTP service, separate from document conformance rules. */
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 export const HTTP_INPUT_LIMITS = {
   envelopeBytes: 200_000,
   bodyMs: 10_000,
@@ -7,9 +8,9 @@ export const HTTP_INPUT_LIMITS = {
   formFields: 64
 } as const;
 
-export class InputError extends Error {
-  constructor(message: string, readonly status = 400) {
-    super(message);
+export class InputError extends ProblemError {
+  constructor(problem: ProblemOrText, readonly status = 400) {
+    super(problem as Problem);
   }
 }
 

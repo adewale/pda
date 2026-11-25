@@ -12,6 +12,7 @@ import { secretProblem } from "./memory-store";
 import { literal } from "../decode";
 import { integer, nullable, one, rows, table, text, textOf, type RowOf } from "../rows";
 import { readTaskAccess, type TaskAccess } from "../task-access";
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
 /** Most reminders and tasks waiting to run, per agent. */
 export const MAX_ACTIVE_SCHEDULES = 20;
@@ -92,8 +93,11 @@ export type ScheduleRun = {
 };
 
 /** A refusal, worded for the model or the page. */
-export class ScheduleError extends Error {
+export class ScheduleError extends ProblemError {
   override name = "ScheduleError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 const SCHEDULES = `CREATE TABLE IF NOT EXISTS schedules (

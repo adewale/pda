@@ -1,4 +1,5 @@
 import type { Json } from "./poppy/json";
+import { ProblemError, type Problem, type ProblemOrText } from "./diagnostic";
 
 /**
  * Decoders for data that crosses a boundary into typed code: rows read back
@@ -7,8 +8,11 @@ import type { Json } from "./poppy/json";
  * doesn't match throws a `DecodeError` naming where, rather than flowing on
  * as a type it isn't. No dependency: a decoder is a function.
  */
-export class DecodeError extends Error {
+export class DecodeError extends ProblemError {
   override name = "DecodeError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 export type Decoder<T> = (value: unknown, at: string) => T;

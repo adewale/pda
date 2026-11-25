@@ -13,6 +13,7 @@
  */
 import { decodeEntities } from "../poppy/fetch-browser";
 import { isPublicHost, raceAbort, withDeadline } from "../validator/fetch";
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
 export type Fetcher = (request: Request) => Promise<Response>;
 
@@ -36,8 +37,11 @@ export const USER_AGENT = "PoppyDemoAgent/1.0 (read_url; reads a page a person a
 const ACCEPT = "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,application/json;q=0.7,application/xml;q=0.6,text/xml;q=0.6";
 
 /** A refusal or a failure, worded for the model. */
-export class ReadError extends Error {
+export class ReadError extends ProblemError {
   override name = "ReadError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 export type PageKind = "html" | "text" | "json" | "xml";

@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import { ProblemError, type Problem, type ProblemOrText } from "./diagnostic";
 
 /** Pi's thinking levels; anything else in `THINKING_LEVEL` is a config error. */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -48,8 +49,11 @@ export type ProviderConfig = {
 };
 
 /** A missing or invalid deploy setting; the message names the variable. */
-export class ConfigError extends Error {
+export class ConfigError extends ProblemError {
   override name = "ConfigError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 /**

@@ -40,6 +40,7 @@ import { domainFromInput } from "../domain";
 import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 import { refusedBeforeSending } from "../validator/fetch.ts";
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -83,12 +84,12 @@ export type JobName = "poppy-read" | "poppy-device" | "poppy-revoke" | "poppy-si
  * the Company sent (its `error_description`, its body), so a wide event
  * records only its class and code (`ForeignText`, src/log.ts).
  */
-export class PoppyError extends Error implements ForeignText {
+export class PoppyError extends ProblemError implements ForeignText {
   override name = "PoppyError";
   readonly [FOREIGN_TEXT] = true as const;
   constructor(
     readonly code: PoppyErrorCode,
-    message: string,
+    problem: ProblemOrText,
     readonly status: number,
     readonly detail: {
       readonly scope?: string;
@@ -100,7 +101,7 @@ export class PoppyError extends Error implements ForeignText {
       readonly poppyTask?: { readonly id: string; readonly result: import("./approval-outcome").ApprovalResult };
     } = {}
   ) {
-    super(message);
+    super(problem as Problem);
   }
 
   /** Whether the code is one of these. Only codes we or the draft define can be named, so a misspelt one is a type error. */

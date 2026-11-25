@@ -16,9 +16,13 @@
  *   forward) moves forward by the gap; one that happens twice takes the
  *   earlier, as Temporal's "compatible" choice does.
  */
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
-export class TimeError extends Error {
+export class TimeError extends ProblemError {
   override name = "TimeError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;

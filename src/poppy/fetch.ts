@@ -12,6 +12,7 @@ import {
   type IdentifiedFetcher
 } from "../validator/fetch.ts";
 import { parseStrictJson, type Json } from "./json";
+import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
 
 export { raceAbort, withDeadline };
 export type { IdentifiedFetcher };
@@ -32,8 +33,11 @@ export function identifiedFetcher(fetcher: Fetcher): IdentifiedFetcher {
 }
 
 /** A Company answered with something we refuse to use. */
-export class PoppyFetchError extends Error {
+export class PoppyFetchError extends ProblemError {
   override name = "PoppyFetchError";
+  constructor(problem: ProblemOrText) {
+    super(problem as Problem);
+  }
 }
 
 export type SafeFetchOptions = {
