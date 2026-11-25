@@ -230,6 +230,16 @@ describe("3 discovery: reusing poppy.json for its cache lifetime", () => {
 describe("Guides: fetching metadata safely", () => {
   const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
 
+  it("refuses a web page where a JSON document should be, as the validator does (http-web-page)", async () => {
+    const page = async () => new Response("<!DOCTYPE html><html><body>Sign in</body></html>", { headers: { "Content-Type": "text/html" } });
+    await expect(fetchJson(named(page), "https://public.example/openapi.json")).rejects.toThrow(
+      new PoppyFetchError("https://public.example/openapi.json answered with a web page, not a JSON document")
+    );
+    // A JSON document mislabelled as HTML is still read.
+    const mislabelled = async () => new Response('{"openapi":"3.1.0"}', { headers: { "Content-Type": "text/html" } });
+    await expect(fetchJson(named(mislabelled), "https://public.example/openapi.json")).resolves.toMatchObject({ json: { openapi: "3.1.0" } });
+  });
+
   it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
     const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
     await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);

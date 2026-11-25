@@ -2,6 +2,7 @@ import {
   cacheSeconds as headerCacheSeconds,
   fetchHops,
   isPublicHost,
+  isWebPage,
   raceAbort,
   readLimited as readWithin,
   unreachable,
@@ -149,9 +150,12 @@ export async function fetchJson(
   const { maxBytes, timeoutMs, maxRedirects } = { ...DEFAULTS, ...options };
   const result = await fetchHops(fetcher, new URL(url), { accept: "application/json", timeoutMs, redirects: maxRedirects }, async (response, signal) => ({
     text: await readLimited(response, maxBytes, signal),
+    contentType: response.headers.get("Content-Type") ?? undefined,
     maxAgeSeconds: cacheSeconds(response)
   }));
   if (result.kind === "stopped") throw stopError(result, url);
+  // The validator's classification (http-web-page): a page for people where the document should be.
+  if (isWebPage(result.value.contentType, result.value.text)) throw new PoppyFetchError(`${url} answered with a web page, not a JSON document`);
   return { json: parseStrictJson(result.value.text), finalUrl: result.at.href, maxAgeSeconds: result.value.maxAgeSeconds };
 }
 

@@ -9,7 +9,7 @@ The validator checks the documents a Personal Agent and a Company exchange befor
 
 - **Severity.** Each message names its basis, and its severity follows from it ([docs/conformance-levels.md](conformance-levels.md)). An `error` breaks a MUST, an RFC's MUST or a rule the draft states without a key word, and only errors make a document invalid. A `warning` departs from a SHOULD, the Guides or our reading of an open question. An `info` is harmless. What our own client refuses is reported separately (`refused`, and `refuses` on each message): it also refuses a few warnings that guard against hostile documents (the Guides' fetch limits, duplicate members, a fragment where no rule forbids one, spec-issues N9; HTTPS everywhere is the draft's own MUST), and tolerates a few errors it has a safe fallback for.
 - **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://poppydemoagent.dev/validator/messages)).
-- **Outcome.** `valid`, `invalid`, or `indeterminate` when fetching failed or a resource allowance prevented checks.
+- **Outcome.** `valid`, `invalid`, or `indeterminate` when a document wasn't served (another status, or a web page in its place), fetching failed, or a resource allowance prevented checks.
 
 A domain checks the Company's `poppy.json`, the domain's protected resource metadata, which names the issuer, and the issuer's OAuth server metadata; a URL is taken as a Personal Agent's `client_id`, which checks its client metadata and key set.
 

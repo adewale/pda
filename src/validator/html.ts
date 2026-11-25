@@ -134,7 +134,7 @@ export function resultPage(
   const { error, warning, info } = result.counts;
   const headline =
     result.outcome === "indeterminate"
-      ? "Couldn't check: a document couldn't be fetched within the limits"
+      ? "Couldn't check: a document wasn't served, or couldn't be fetched within the limits"
       : result.outcome === "invalid"
         ? `Not valid: ${error} error${error === 1 ? "" : "s"}`
         : warning > 0
@@ -200,7 +200,7 @@ export function messagesPage(): string {
 <h2 id="output">The JSON report</h2>
 <dl>
 <dt>outputVersion</dt><dd>1. Changes that break readers of the report get a new number.</dd>
-<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document couldn't be fetched, or not within the limits the Guides recommend, so it couldn't be checked).</dd>
+<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document wasn't served, or couldn't be fetched within the limits the Guides recommend, so it couldn't be checked).</dd>
 <dt>refused</dt><dd>Whether our Personal Agent refuses these documents: an error it doesn't tolerate, a warning it refuses, or a document it couldn't check.</dd>
 <dt>checkedAgainst</dt><dd>The protocol version whose rules were applied, chosen from poppy.json's protocol_version.</dd>
 <dt>documents</dt><dd>Each document checked: kind, url, finalUrl after redirects, status, contentType, maxAgeSeconds, and the parsed value.</dd>

@@ -14,7 +14,8 @@ import { LATEST, PROFILES, profileForVersion } from "./profiles/index.ts";
 import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
 // 1.1.0: who answered a fetch is reported apart from what the Company served, so a 520, a bot refusal or a 429 is http-failed, no longer http-status.
-export const VALIDATOR = { name: "poppy-validator", version: "1.1.0" } as const;
+// 1.2.0: a web page where a document should be is http-web-page, no longer json-syntax, and an unsettled issuer is noted (prm-unsettled).
+export const VALIDATOR = { name: "poppy-validator", version: "1.2.0" } as const;
 
 /**
  * The validator's name, for a Company's logs and bot rules, with where to read
@@ -72,7 +73,7 @@ export type Report = {
 };
 
 /** Messages after which the document wasn't fetched or read, so nothing in it was checked. */
-const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
+const UNREACHABLE = new Set(["http-failed", "http-status", "http-web-page", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
   // Each link goes to the pages of the version the documents were checked against.
@@ -414,6 +415,13 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
         const settled = profile.protectedResource(prmChecker, protectedResource, context);
         if (settled === null) issuerless = true;
         else facts.issuer = settled;
+      } else {
+        // 3.2: nothing that parsed as metadata, and not a 404: what came back is reported above; this is what it means to an agent.
+        prmChecker.report(
+          "prm-unsettled",
+          "",
+          `Agents can't tell from ${prmFetched.url} whether the Company has an OAuth issuer, so they don't fall back to https://${facts.domain.toLowerCase()} as its identifier and can't open Sessions with it.`
+        );
       }
     }
   }

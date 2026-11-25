@@ -92,8 +92,8 @@ if (target === "-" || existsSync(target)) {
 if (values.json) {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } else {
-  const where = (document: DocumentKind) =>
-    report.documents.find((d) => d.kind === document)?.finalUrl ?? report.documents.find((d) => d.kind === document)?.url ?? label;
+  // The URL each document was asked for: where redirects led is in the messages that need it, and in --json.
+  const where = (document: DocumentKind) => report.documents.find((d) => d.kind === document)?.url ?? label;
   for (const message of report.messages) {
     if (values.quiet && message.severity !== "error") continue;
     const position = message.line !== undefined ? `:${message.line}:${message.column}` : "";
@@ -109,7 +109,7 @@ if (values.json) {
   const { error, warning, info } = report.counts;
   const headline =
     report.outcome === "indeterminate"
-      ? "couldn't check: a document couldn't be fetched within the limits"
+      ? "couldn't check: a document wasn't served, or couldn't be fetched within the limits"
       : report.outcome === "invalid"
         ? "not valid"
         : warning > 0

@@ -280,6 +280,34 @@ async function classify(response: Response, base: URL, signal: AbortSignal): Pro
   return { kind: "other-status", status };
 }
 
+/**
+ * Whether a served body is a web page rather than the JSON document asked
+ * for: a sign-in wall, a single-page app's index, a site's catch-all route.
+ * It starts with markup, and either says it is HTML (`Content-Type`) or
+ * opens like an HTML page. Decided after reading, not in `classify`: a JSON
+ * document mislabelled `text/html` is still a document (a warning, not a
+ * refusal), and only its body tells the two apart. Markup is never JSON, so
+ * this never refuses a body the JSON parser would accept.
+ */
+export function isWebPage(contentType: string | undefined, text: string): boolean {
+  // trimStart drops a byte order mark too: ECMAScript counts U+FEFF as white space.
+  const body = text.trimStart();
+  if (!body.startsWith("<")) return false;
+  return /^(text\/html|application\/xhtml\+xml)\b/i.test(contentType ?? "") || /^<(!doctype\s+html|html)\b/i.test(body);
+}
+
+/**
+ * A URL as report text shows it: the one asked for in full, and one a
+ * redirect led to without its query. A redirect target's query can carry
+ * one-time values the Company chose (a sign-in request, a state, a code),
+ * and report text reaches the agent's model as well as people
+ * (`summarize`); the full URL stays in the report's `finalUrl`.
+ */
+export function shownUrl(at: URL, asked: URL): string {
+  if (at.href === asked.href) return at.href;
+  return `${at.origin}${at.pathname}${at.search ? "?…" : ""}`;
+}
+
 /** Why `fetchHops` stopped without a document. */
 export type Stop =
   | { readonly kind: "not-https"; readonly redirected: boolean }
@@ -534,13 +562,23 @@ export async function fetchDocument(
     { accept: "application/json", timeoutMs: LIMITS.timeoutMs, redirects: (options.followRedirects ?? true) ? LIMITS.maxRedirects : "refused" },
     async (response, signal) => ({ bytes: await readLimited(response, LIMITS.maxBytes, signal), headers: response.headers })
   );
-  const at = result.at.href;
-  if (result.kind === "stopped") return { url, finalUrl: at, maxAgeSeconds: null, ...reportStop(result.stop, at, url, c, options) };
+  const finalUrl = result.at.href;
+  const at = shownUrl(result.at, start);
+  if (result.kind === "stopped") return { url, finalUrl, maxAgeSeconds: null, ...reportStop(result.stop, at, url, c, options) };
   const { bytes, headers } = result.value;
   const contentType = headers.get("Content-Type") ?? undefined;
-  const base = { url, finalUrl: at, status: 200, ...(contentType ? { contentType } : {}) };
+  const base = { url, finalUrl, status: 200, ...(contentType ? { contentType } : {}) };
   if (!bytes) {
     c.report("http-too-large", "", `${at} is larger than 100 KB.`);
+    return { ...base, maxAgeSeconds: null };
+  }
+  // Who answered: a page for people, not the document. Its type, cache lifetime and syntax say nothing about the document, so none is reported.
+  const page = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(0, 1024));
+  if (isWebPage(contentType, page)) {
+    const type = contentType ? contentType.split(";")[0]!.trim() : "no Content-Type";
+    const elsewhere = result.at.host !== start.host ? ", on another host" : "";
+    const answered = finalUrl === start.href ? `${url} answered` : `${url} redirected to ${at}${elsewhere}, which answered`;
+    c.report("http-web-page", "", `${answered} with a web page (${type}), not a JSON document.`);
     return { ...base, maxAgeSeconds: null };
   }
   if (!/^application\/([\w.+-]+\+)?json\b/i.test(contentType ?? "")) {

@@ -9,6 +9,7 @@ import {
   validateCompany,
   validateTarget,
   validateText,
+  summarize,
   VALIDATOR,
   type CompanyReport,
   type DocumentKind,
@@ -930,13 +931,68 @@ const DISCOVERY: readonly Fixture[] = [
         poppy: (doc) => { delete doc.auth; delete doc.extensions; },
         routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 503 }) }
       }),
-    ids: ["http-status"],
+    ids: ["http-status", "prm-unsettled"],
     outcome: "indeterminate",
     also: (report) => {
       expect((report as CompanyReport).issuerless).toBeUndefined();
       expect((report as CompanyReport).identifier).toBeUndefined();
       expect(report.refused).toBe(true);
+      expect(report.messages[1]!.text).toBe(
+        "Agents can't tell from https://example.com/.well-known/oauth-protected-resource whether the Company has an OAuth issuer, so they don't fall back to https://example.com as its identifier and can't open Sessions with it."
+      );
     }
+  },
+  {
+    // The reported case: a signed-out Company whose site sends every unknown path, /.well-known/ included, to a sign-in page elsewhere.
+    name: "reports a sign-in page where the protected resource metadata should be as a web page, and what it means for the issuer",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": jsonResponse({
+            protocol_version: "1.0",
+            organization: { name: "Example Company", domain: "example.com" },
+            agent: { protocols: [{ type: "poppy", endpoint: "https://agents.example.net/poppy/conversations", description: "Claims and benefits" }] }
+          }),
+          "https://example.com/.well-known/oauth-protected-resource": () => new Response(null, { status: 301, headers: { Location: "/app/portal" } }),
+          "https://example.com/app/portal": () =>
+            new Response(null, { status: 302, headers: { Location: "https://login.example-idp.com/sso/saml?SAMLRequest=fVLRctow&RelayState=https%3A%2F%2Fexample.com%2Fapp%2Fportal" } }),
+          "https://login.example-idp.com/sso/saml?SAMLRequest=fVLRctow&RelayState=https%3A%2F%2Fexample.com%2Fapp%2Fportal": () =>
+            new Response("<!DOCTYPE html>\n<html><head><title>Sign in</title></head><body><form></form></body></html>", {
+              headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-cache, no-store" }
+            })
+        }),
+        "example.com"
+      ),
+    // Nothing about the page's syntax, type or cache lifetime: it isn't the document.
+    ids: ["http-web-page", "prm-unsettled"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.refused).toBe(true);
+      expect((report as CompanyReport).identifier).toBeUndefined();
+      const [page, note] = report.messages;
+      expect(page).toMatchObject({ document: "protected-resource", severity: "error", refuses: true });
+      expect(page!.text).toBe(
+        "https://example.com/.well-known/oauth-protected-resource redirected to https://login.example-idp.com/sso/saml?…, on another host, which answered with a web page (text/html), not a JSON document."
+      );
+      // The redirect's query can carry one-time values, and this text reaches the agent's model (summarize); the data keeps it.
+      expect(summarize(report)).toBe(page!.text.replace(/\.$/, ""));
+      expect(summarize(report)).not.toMatch(/SAMLRequest|RelayState/);
+      expect(report.documents[1]).toMatchObject({ status: 200, contentType: "text/html;charset=utf-8", finalUrl: expect.stringContaining("SAMLRequest=fVLRctow") });
+      expect(report.documents[1]).not.toHaveProperty("value");
+      expect(note).toMatchObject({ document: "protected-resource", severity: "info", refuses: false });
+      expect(note!.text).toContain("don't fall back to https://example.com as its identifier");
+    }
+  },
+  {
+    // 3.2: invalid metadata settles nothing either; its own messages say what is wrong with it.
+    name: "notes an unsettled issuer after protected resource metadata that isn't JSON",
+    run: () =>
+      company({
+        poppy: (doc) => { delete doc.auth; delete doc.extensions; },
+        routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("OK", { headers: { "Content-Type": "text/plain", "Cache-Control": "max-age=300" } }) }
+      }),
+    ids: ["http-content-type", "json-syntax", "prm-unsettled"],
+    outcome: "invalid"
   },
   {
     name: "refuses sign-in without an issuer: auth.issuer or signed_in access with a 404",
@@ -1464,6 +1520,53 @@ const FETCHING: readonly Fixture[] = [
     name: "checks content type and caching headers",
     run: () => fetchOne(() => new Response(JSON.stringify(WEBSITE_ONLY), { headers: { "Content-Type": "text/plain" } })),
     ids: ["http-content-type", "http-no-cache-headers", "website-only"]
+  },
+  {
+    // A single-page app answers every path with its index.
+    name: "reports a web page served where the document should be, without checking it as JSON",
+    run: () => fetchOne(() => new Response("<!doctype html><html><body><div id=root></div></body></html>", { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "max-age=300" } })),
+    ids: ["http-web-page"],
+    // Like a 404: the document isn't there, so nothing in it was checked.
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json answered with a web page (text/html), not a JSON document.");
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "recognises a web page by its markup when its Content-Type doesn't say HTML, after a byte order mark",
+    run: () => fetchOne(() => new Response("\uFEFF\n  <HTML><body>Moved</body></HTML>", { headers: { "Content-Type": "text/plain" } })),
+    ids: ["http-web-page"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toContain("with a web page (text/plain)")
+  },
+  {
+    name: "names a same-host redirect that ends at a web page, without calling it another host",
+    run: () =>
+      validateCompany(
+        network({
+          [wellKnown]: () => new Response(null, { status: 302, headers: { Location: "/home" } }),
+          "https://example.com/home": () => new Response("<!DOCTYPE html><html></html>", { headers: { "Content-Type": "text/html" } })
+        }),
+        "example.com"
+      ),
+    ids: ["http-web-page"],
+    also: (report) =>
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json redirected to https://example.com/home, which answered with a web page (text/html), not a JSON document.")
+  },
+  {
+    // Only markup that is a page: other markup is reported as what it is, a document that isn't JSON.
+    name: "checks XML as a document that isn't JSON, not as a web page",
+    run: () => fetchOne(() => new Response('<?xml version="1.0"?><poppy/>', { headers: { "Content-Type": "application/xml", "Cache-Control": "max-age=300" } })),
+    ids: ["http-content-type", "json-syntax"],
+    outcome: "invalid"
+  },
+  {
+    // A mislabelled document is still a document: a warning, and every rule checked.
+    name: "checks JSON served as text/html as JSON",
+    run: () => fetchOne(() => new Response(JSON.stringify(WEBSITE_ONLY), { headers: { "Content-Type": "text/html", "Cache-Control": "max-age=300" } })),
+    ids: ["http-content-type", "website-only"],
+    outcome: "valid"
   },
   {
     name: "checks a cache lifetime is bounded",
