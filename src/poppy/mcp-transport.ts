@@ -7,6 +7,7 @@ import { type Api, type DispatchGuard, findApi } from "./api-authority";
 import { fetchJson } from "./fetch";
 import { EndpointRequest } from "./outgoing";
 import { companyErrorCode } from "./error-codes";
+import { departure, ours, show, shown, type Departure, type Shown } from "../diagnostic";
 
 // ---------------------------------------------------------------- MCP
 
@@ -65,6 +66,17 @@ function mcpState(client: PoppyClient): McpState {
  */
 class McpEraChanged extends PoppyError {}
 
+/** A JSON-RPC error's own words: its message, or else its code. */
+function rpcSaid(error: { readonly [key: string]: Json }): Shown {
+  return typeof error.message === "string" ? show.text(error.message, 500) : show.code(error.code);
+}
+
+/** A server that speaks neither version this agent does: the versions it named, which can be none. */
+function noCommonVersion(api: Api, versions: readonly Json[]): Departure {
+  const named = versions.length > 0 ? show.list(versions.slice(0, 10).map((version) => show.code(version))) : ours("none it named");
+  return departure(shown`the MCP versions ${show.url(api.url)} speaks`, shown`${ours(MCP_MODERN)} or ${ours(MCP_LEGACY)}, which this agent speaks`, named);
+}
+
 /**
  * An MCP server's protected resource metadata (RFC 9728), fetched without
  * redirects: its `resource` is exactly the server's `url`, and its
@@ -78,14 +90,22 @@ async function checkResourceMetadata(client: PoppyClient, company: Company, api:
   try {
     const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`, { maxRedirects: 0 });
     if (isObject(json) && Array.isArray(json.authorization_servers)) {
-      if (!json.authorization_servers.includes(company.issuer)) throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
-      if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
+      const servers = json.authorization_servers;
+      if (!servers.includes(company.issuer)) {
+        // Issuers are compared as exact strings, so they are shown as written, not as parsed URLs.
+        const named = servers.length > 0 ? show.list(servers.slice(0, 5).map((server) => (typeof server === "string" ? show.text(server, 200) : show.kind(server)))) : ours("an empty list");
+        throw new PoppyError("bad_api", departure(shown`the authorization servers in ${show.url(api.url)}'s metadata`, shown`a list naming ${show.text(company.issuer, 200)}`, named), 0);
+      }
+      if (json.resource !== api.url) {
+        const got = typeof json.resource === "string" ? show.text(json.resource, 200) : show.kind(json.resource);
+        throw new PoppyError("bad_api", departure(ours("the resource in the MCP server's metadata"), shown`exactly its URL, ${show.text(api.url, 200)}`, got), 0);
+      }
       return { expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 };
     }
   } catch (error) {
     if (error instanceof PoppyError) throw error;
   }
-  throw new PoppyError("bad_api", `${api.url} publishes no protected resource metadata`, 0);
+  throw new PoppyError("bad_api", shown`${show.url(api.url)} publishes no protected resource metadata`, 0);
 }
 
 /**
@@ -99,18 +119,21 @@ async function checkResourceMetadata(client: PoppyClient, company: Company, api:
 async function rpcResult(client: PoppyClient, response: Response, id: number, era: McpEra): Promise<Json> {
   const messages = rpcMessages(response, await client.readBody(response));
   const message = messages.find((item) => isObject(item) && item.id === id);
-  if (!isObject(message)) throw new PoppyError("mcp_error", "The MCP server didn't answer the request", response.status);
+  if (!isObject(message)) {
+    const got = messages.length === 0 ? ours("no message") : shown`${show.count(messages.length, ours("message"), ours("messages"))}, none answering it`;
+    throw new PoppyError("mcp_error", departure(ours("the MCP server's reply"), ours("a JSON-RPC response to the request"), got), response.status);
+  }
   if (isObject(message.error)) {
-    throw withAnswer(new PoppyError("mcp_error", `MCP error: ${String(message.error.message ?? message.error.code)}`, response.status, { body: message.error }), response.status);
+    throw withAnswer(new PoppyError("mcp_error", shown`MCP error: ${rpcSaid(message.error)}`, response.status, { body: message.error }), response.status);
   }
   const result = message.result ?? null;
   if (era === "modern") {
     const resultType = isObject(result) && result.resultType !== undefined ? result.resultType : "complete";
     if (resultType === "input_required") {
-      throw withAnswer(new PoppyError("mcp_error", "The MCP server asked for input this agent doesn't give, so the request wasn't completed", response.status), response.status);
+      throw withAnswer(new PoppyError("mcp_error", ours("The MCP server asked for input this agent doesn't give, so the request wasn't completed"), response.status), response.status);
     }
     if (resultType !== "complete") {
-      throw new PoppyError("invalid_response", `The MCP server answered with resultType ${JSON.stringify(resultType).slice(0, 40)}, which this agent can't read`, response.status);
+      throw new PoppyError("invalid_response", departure(ours("the MCP server's resultType"), ours("complete or input_required, which this agent can read"), show.value(resultType)), response.status);
     }
   }
   return result;
@@ -163,7 +186,7 @@ export async function mcpRequest(
   if (response.status === 404 && !modern && target.sessionId) {
     entries.delete(target.key);
     await response.body?.cancel();
-    throw withAnswer(new PoppyError("mcp_session_expired", "The MCP session expired", 404), 404);
+    throw withAnswer(new PoppyError("mcp_session_expired", ours("The MCP session expired"), 404), 404);
   }
   if (!response.ok) {
     // The refusal's body, JSON or SSE, decides whether it is an era signal; one we can't read counts as empty.
@@ -181,8 +204,9 @@ export async function mcpRequest(
     if (otherEra) {
       entries.delete(target.key);
       if (eras.get(target.resourceKey) === target.era) eras.delete(target.resourceKey);
-      const now = modern ? MCP_LEGACY : MCP_MODERN;
-      throw withAnswer(new McpEraChanged("mcp_error", `${api.url} answered as an MCP ${now} server, so this ${modern ? MCP_MODERN : MCP_LEGACY} request wasn't accepted. Nothing was done; the next request uses ${now}.`, response.status, kept), response.status);
+      const now = ours(modern ? MCP_LEGACY : MCP_MODERN);
+      const changed = departure(shown`${show.url(api.url)}'s answer`, shown`one from an MCP ${ours(modern ? MCP_MODERN : MCP_LEGACY)} server`, shown`one from an MCP ${now} server, so the request wasn't accepted`, shown`Nothing was done; the next request uses ${now}`);
+      throw withAnswer(new McpEraChanged("mcp_error", changed, response.status, kept), response.status);
     }
     // A header that doesn't match a tool's current schema: the call isn't sent again, but the next one reads the list first.
     if (modern && signal.kind === "modern" && signal.code === HEADER_MISMATCH && method === "tools/call") {
@@ -190,14 +214,14 @@ export async function mcpRequest(
       if (entry) entry.tools = null;
     }
     if (signal.kind === "unsupported") {
-      throw withAnswer(new PoppyError("mcp_error", `${api.url} speaks MCP ${signal.supported.join(", ").slice(0, 200) || "versions it didn't name"}; this agent speaks ${MCP_MODERN} and ${MCP_LEGACY}`, response.status, kept), response.status);
+      throw withAnswer(new PoppyError("mcp_error", noCommonVersion(api, signal.supported), response.status, kept), response.status);
     }
     const required = extensionRequiredBody(company, body, response.status);
     if (required) throw required;
     const rpcError = isObject(body) && isObject(body.error) ? body.error : null;
     const code = rpcError ? "mcp_error" : companyErrorCode(isObject(body) ? body.error : undefined, response.status);
-    const said = rpcError ? `MCP error: ${String(rpcError.message ?? rpcError.code).slice(0, 500)}` : `returned ${code}`;
-    throw withAnswer(new PoppyError(code, `${api.url} answered HTTP ${response.status}: ${said}`, response.status, rpcError ? { body: rpcError } : kept), response.status);
+    const said = rpcError ? shown`MCP error: ${rpcSaid(rpcError)}` : shown`returned ${show.code(code)}`;
+    throw withAnswer(new PoppyError(code, shown`${show.url(api.url)} answered ${show.status(response.status)}: ${said}`, response.status, rpcError ? { body: rpcError } : kept), response.status);
   }
   let result: Json;
   try { result = await rpcResult(client, response, id, target.era); }
@@ -218,7 +242,7 @@ async function mcpNotify(client: PoppyClient, company: Company, label: string, a
     { label, resource: api.url, ...guard }
   );
   await response.body?.cancel();
-  if (!response.ok) throw withAnswer(new PoppyError(`http_${response.status}`, "The MCP server refused initialization", response.status), response.status);
+  if (!response.ok) throw withAnswer(new PoppyError(`http_${response.status}`, ours("The MCP server refused initialization"), response.status), response.status);
 }
 
 /** The cache key for an MCP server, and the partition this Poppy Session and its authority use there. */
@@ -262,7 +286,7 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   const key = binding.key;
   const target = (): McpTarget => {
     const entry = entries.get(key);
-    if (!entry) throw new PoppyError("mcp_error", "The MCP server's lifecycle changed while this request was being prepared. Start it again.", 0);
+    if (!entry) throw new PoppyError("mcp_error", ours("The MCP server's lifecycle changed while this request was being prepared. Start it again."), 0);
     return { key, resourceKey, era: entry.era, sessionId: entry.sessionId };
   };
   const pending = opening.get(key);
@@ -322,7 +346,7 @@ async function discoverEra(client: PoppyClient, company: Company, label: string,
     const versions = isObject(result) && Array.isArray(result.supportedVersions) ? result.supportedVersions : [];
     if (versions.includes(MCP_MODERN)) return "modern";
     if (versions.includes(MCP_LEGACY)) return "legacy";
-    throw new PoppyError("mcp_error", `${api.url} speaks MCP ${versions.map(String).join(", ").slice(0, 200) || "no version it named"}; this agent speaks ${MCP_MODERN} and ${MCP_LEGACY}`, 200);
+    throw new PoppyError("mcp_error", noCommonVersion(api, versions), 200);
   } catch (error) {
     if (error instanceof McpEraChanged) return "legacy";
     // A legacy server that ignores the version header and answers the unknown method with a JSON-RPC
@@ -342,7 +366,7 @@ async function initializeLegacy(client: PoppyClient, company: Company, label: st
   }, guard);
   const version = isObject(result) ? result.protocolVersion : undefined;
   if (version !== MCP_LEGACY) {
-    throw new PoppyError("mcp_error", `${api.url} answered initialize with MCP ${JSON.stringify(version ?? null).slice(0, 40)}; this agent speaks ${MCP_LEGACY} with initialize`, 200);
+    throw new PoppyError("mcp_error", departure(shown`the MCP version ${show.url(api.url)} answered initialize with`, shown`${ours(MCP_LEGACY)}, which this agent speaks with initialize`, show.code(version)), 200);
   }
   await mcpNotify(client, company, label, api, sessionId, "notifications/initialized", guard);
   return sessionId;
@@ -394,8 +418,14 @@ export async function prepareMcpCall(
   const target = await mcpSession(client, company, label, api, guard);
   if (target.era !== "modern") return { target, parameters: {} };
   const found = isObject(tool) ? headerParameters(tool.inputSchema) : null;
-  if (!found || !("parameters" in found)) throw new PoppyError("no_tool", `${api.url} lists no usable tool ${call.tool}. Nothing was sent.`, 0);
+  if (!found || !("parameters" in found)) {
+    const got = isObject(tool) ? ours("one whose x-mcp-header annotations aren't usable") : ours("no tool by that name");
+    throw new PoppyError("no_tool", departure(shown`the tool ${show.text(call.tool)}`, shown`a usable tool ${show.url(api.url)} lists`, got, ours("Nothing was sent")), 0);
+  }
   const parameters = parameterHeaders(found.parameters, call.args);
-  if (!parameters) throw new PoppyError("invalid_args", `args for ${call.tool} at ${company.name} can't go in the headers its tool names. Nothing was sent.`, 0);
+  if (!parameters) {
+    const subject = shown`args for ${show.text(call.tool)} at ${show.name(company.name)}`;
+    throw new PoppyError("invalid_args", departure(subject, ours("a string, boolean or whole number for each header its tool names"), ours("a value that can't go in a header"), ours("Nothing was sent")), 0);
+  }
   return { target, parameters };
 }

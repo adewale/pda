@@ -207,6 +207,27 @@ describe("an ordinary failure under 2026-07-28", () => {
   });
 });
 
+describe("a server that speaks neither version", () => {
+  it("is refused with the versions it named beside the ones this agent speaks", async () => {
+    const c = await company(MODERN_ONLY);
+    const a = await agent();
+    const message = await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      const C = await client.company(c.domain);
+      const original = client.resource.bind(client);
+      const outgoing = vi.spyOn(client, "resource").mockImplementation(async (target, request, options) => {
+        const sent = request.init().body;
+        if (isObject(sent) && sent.method === "server/discover") return Response.json({ jsonrpc: "2.0", id: sent.id ?? null, result: { supportedVersions: ["2024-11-05"] } });
+        return original(target, request, options);
+      });
+      try {
+        return await listMcpTools(client, C, "main").then(() => null, (error: unknown) => (error instanceof Error ? error.message : String(error)));
+      } finally { outgoing.mockRestore(); }
+    });
+    expect(message).toBe(`the MCP versions ${c.hosts.mcpUrl} speaks: expected 2026-07-28 or 2025-06-18, which this agent speaks, got 2024-11-05`);
+  });
+});
+
 describe("a header mismatch on a 2026-07-28 tools/call", () => {
   it("is reported with its body and not sent again, and the next call reads the tool list first", async () => {
     const c = await company(MODERN_ONLY);

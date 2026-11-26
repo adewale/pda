@@ -13,6 +13,16 @@ import { dispatchTaskRequest, registerExecutor, TermsRequested } from "./operati
 import { type SchemaDraft, schemaErrors, serialisedJson, leafErrors } from "./api-schema";
 import { isTaskRequest } from "./approval-outcome";
 import { readDecline } from "./declines";
+import { departure, ours, render, show, shown, type Shown } from "../diagnostic";
+
+/** What a tool's error result says: its text content, or else its structured content, as the tool's own words. */
+function toolSaid(result: { readonly [key: string]: Json }): Shown {
+  const texts = Array.isArray(result.content)
+    ? result.content.flatMap((item) => (isObject(item) && item.type === "text" && typeof item.text === "string" ? [item.text] : []))
+    : [];
+  if (texts.length > 0) return show.text(texts.join(" "), 1_000);
+  return result.structuredContent === undefined ? ours("no text") : show.text(JSON.stringify(result.structuredContent), 1_000);
+}
 
 /**
  * Call an MCP tool: its arguments, and the User's approval in `_meta` when
@@ -53,7 +63,7 @@ async function performMcp(
   // 0.4 Ops 6: an error result declining the approval we sent; nothing was done.
   const declined = call.approval && isObject(result) && result.isError === true ? readDecline(company, result.structuredContent, call.approval, true) : null;
   if (declined) throw withAnswer(declined, 200);
-  if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", `The MCP tool reported an error: ${JSON.stringify(result).slice(0, 1_000)}`, 200), 200);
+  if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", shown`The MCP tool reported an error: ${toolSaid(result)}`, 200), 200);
   return result;
 }
 
@@ -74,7 +84,7 @@ export async function callMcpTool(
   const guard = requestGuard(client, company, label, bindingSnapshot(client, company, label), true, beforeDispatch);
   const tools = await listMcpTools(client, company, label, api.url, guard);
   const tool = tools.find((item) => isObject(item) && item.name === request.tool);
-  if (!isObject(tool)) throw new PoppyError("no_tool", `${api.url} has no tool ${request.tool}`, 0);
+  if (!isObject(tool)) throw new PoppyError("no_tool", departure(shown`the tool ${show.text(request.tool)}`, shown`one ${show.url(api.url)} lists`, ours("no tool by that name")), 0);
   checkMcpArgs(company, request.tool, tool.inputSchema, request.args);
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
@@ -112,7 +122,7 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
 registerExecutor("mcp", async (client, company, approval, label, execution) => {
   if (!isTaskRequest(execution.approvalId) && !approval.call.approval) {
-    throw new PoppyError("approval_changed", "Preliminary MCP approvals are no longer supported. Ask for current Company terms.", 0);
+    throw new PoppyError("approval_changed", ours("Preliminary MCP approvals are no longer supported. Ask for current Company terms."), 0);
   }
   const guard = executionGuard(client, company, label, approval.binding, execution);
   // Under version 3 the approval says who approved it, when and how (0.4 Ops 6).
@@ -122,9 +132,9 @@ registerExecutor("mcp", async (client, company, approval, label, execution) => {
   if (isObject(result) && isObject(result.approval_required) && typeof result.proposed === "string") {
     if (approval.call.approval && result.approval_required.operation_id === approval.call.approval.operation_id &&
         result.approval_required.revision === approval.call.approval.revision) {
-      throw withAnswer(new PoppyError("approval_required", `${company.name} returned terms that were already approved, so the request was not completed`, 200), 200);
+      throw withAnswer(new PoppyError("approval_required", shown`${show.name(company.name)} returned terms that were already approved, so the request was not completed`, 200), 200);
     }
-    throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, result.proposed);
+    throw new TermsRequested(render(shown`${show.name(company.name)} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`), result.proposed);
   }
   return JSON.stringify(result);
 });
