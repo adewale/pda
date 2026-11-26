@@ -124,7 +124,6 @@ const urlOrKind = (value: unknown): Shown => (typeof value === "string" ? show.u
 /** A response body, quoted and cut short. */
 const body120 = (text: string): Shown => show.text(text, 120);
 /** Parts of one finding, as one phrase: "a; b; c". */
-const joined = (parts: readonly Shown[]): Shown => parts.reduce((all, part) => shown`${all}; ${part}`);
 
 const SIGNING = new Set(["ES256", "PS384"]);
 /** RFC 9449 acceptance window plus clock skew, as the mock allows. */
@@ -502,7 +501,7 @@ function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait
     else if (Array.isArray(events) && events.length > 0) problems.push(shown`cursor ${show.value(read.cursor)}, not a string, with events returned`);
     else if (read.cursor !== null) found.push(check("company.events-cursor", x, departure(ours("the cursor of a first read with no events"), ours("a string or null"), show.value(read.cursor))));
   }
-  if (problems.length > 0) found.unshift(check(id, x, departure(subject, expected, shown`${joined(problems)}: ${body120(x.responseBody)}`)));
+  if (problems.length > 0) found.unshift(check(id, x, departure(subject, expected, shown`${show.join(problems)}: ${body120(x.responseBody)}`)));
   return found;
 }
 
@@ -621,7 +620,7 @@ export function browserSessionResponseChecks(all: readonly Exchange[]): Check[] 
     if (x.status < 300) problems.push(shown`${show.status(x.status)}, not a redirect`);
     if (target === null) problems.push(ours("no Location"));
     if (cookies.length === 0) problems.push(ours("no Set-Cookie"));
-    if (problems.length > 0) found.push(check("company.browser-session-response", x, departure(ours("the answer to a browser join's form"), ours("a redirect with a Location and a Set-Cookie"), joined(problems))));
+    if (problems.length > 0) found.push(check("company.browser-session-response", x, departure(ours("the answer to a browser join's form"), ours("a redirect with a Location and a Set-Cookie"), show.join(problems))));
     for (const cookie of cookies) {
       const attributes = cookie.split(";").slice(1).map((part) => part.trim().toLowerCase());
       const name = cookie.split("=")[0]!.trim();
@@ -647,7 +646,7 @@ export function handoffChecks(all: readonly Exchange[]): Check[] {
     const problems: Shown[] = [];
     if (x.status !== 202) problems.push(shown`${show.status(x.status)}, not 202`);
     if (typeof body?.conversation_id !== "string") problems.push(ours("no conversation_id"));
-    if (problems.length) found.push(check("company.handoff-response", x, departure(ours("the answer to an accepted handoff"), ours("HTTP 202 with conversation_id"), shown`${joined(problems)}: ${body120(x.responseBody)}`)));
+    if (problems.length) found.push(check("company.handoff-response", x, departure(ours("the answer to an accepted handoff"), ours("HTTP 202 with conversation_id"), shown`${show.join(problems)}: ${body120(x.responseBody)}`)));
   }
   return found;
 }
