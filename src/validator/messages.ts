@@ -31,6 +31,7 @@
  * (scripts/check-requirements.mjs). A message whose ref is an RFC rests on
  * that RFC instead.
  */
+import type { Departure, Shown } from "../diagnostic.ts";
 import { levelOf, severityOf, type Basis, type Severity } from "./levels.ts";
 
 export type { Basis, Severity };
@@ -93,6 +94,13 @@ type Definition = {
   readonly requires?: string;
   /** It reports a fact, not a departure from anything: info, whatever its basis. */
   readonly note?: true;
+  /**
+   * Why an error or warning reports a fact rather than a departure: nothing
+   * was got to compare with what was expected. Without it, every message
+   * that isn't a note is a departure, and its report must say what was
+   * expected and what was got (`ProblemFor`, src/diagnostic.ts).
+   */
+  readonly fact?: string;
   /** Whether our client refuses a Company over it, when that differs from "it's an error". */
   readonly refuses?: boolean;
   readonly title: string;
@@ -185,6 +193,7 @@ export const MESSAGES = define({
   },
   "http-failed": {
     basis: "Guides",
+    fact: "The request got no answer from the site, or an answer from something other than the site, so there is nothing of the site's to compare.",
     requires: "Set limits: … a timeout of a few seconds",
     refuses: true,
     title: "Couldn't fetch the document",
@@ -202,6 +211,15 @@ export const MESSAGES = define({
       "The Guides recommend capping what is read from another party's URL, such as at 100 KB; the draft sets no size. Our client, and this validator, stop at 100 KB.",
     fix: "Keep the document under 100 KB.",
     ref: guides("Fetching metadata safely", "both-fetching")
+  },
+  "http-web-page": {
+    basis: "MUST",
+    requires: "A Company MUST publish its poppy.json document at https://{domain}/.well-known/poppy.json over HTTPS",
+    title: "A web page instead of the document",
+    explain:
+      "The URL answered HTTP 200 with a page for people, such as a sign-in page, a single-page app's index or a site's catch-all route, often after redirects, so the document isn't there. Agents read only the document, so they treat the URL as answering nothing they can use, and nothing in it was checked. The report says where any redirects led; their query is left out, since it can carry one-time values, and the full URL is in the report's finalUrl.",
+    fix: "Serve the JSON document at this URL. Where there is no document, answer HTTP 404 instead of redirecting to a page: a 404 for the domain's protected resource metadata is how a Company says it has no OAuth issuer (3.2). Exclude /.well-known/ from catch-all routes and sign-in redirects.",
+    ref: spec("3", "discovery")
   },
   "http-content-type": {
     basis: "Reading",
@@ -601,6 +619,15 @@ export const MESSAGES = define({
     fix: "Set resource to https://{organization.domain}.",
     ref: spec("3.2", "oauth-server")
   },
+  "prm-unsettled": {
+    basis: "Rule",
+    note: true,
+    title: "Agents can't tell whether there is an issuer",
+    explain:
+      "poppy.json lists something that uses Sessions, so agents need the Company's identifier: its OAuth issuer, or https:// and organization.domain when it has none (3.2). They learn which from the domain's protected resource metadata, and only a 404, or metadata whose authorization_servers is absent or empty, says there is no issuer. After any other answer, such as a timeout, another status or a page that isn't metadata, a Personal Agent MUST NOT fall back to the domain, so it can't open Sessions with the Company. The message above says what came back.",
+    fix: "If you offer no sign-in, answer HTTP 404 at https://{organization.domain}/.well-known/oauth-protected-resource, or serve metadata whose resource is https://{organization.domain} with no authorization_servers. If you have an issuer, serve metadata whose authorization_servers names it.",
+    ref: spec("3.2", "oauth-server")
+  },
   "prm-no-issuer": {
     basis: "Rule",
     note: true,
@@ -978,3 +1005,13 @@ export const MESSAGES = define({
 });
 
 export type MessageId = keyof typeof MESSAGES;
+
+/** The messages that report a fact: the notes, and the errors and warnings that say why (`fact`). */
+export type FactId = { readonly [K in MessageId]: (typeof MESSAGES)[K] extends { readonly note: true } | { readonly fact: string } ? K : never }[MessageId];
+
+/**
+ * What a report of these messages takes: a fact for facts, and for every
+ * other message a departure, with what was expected and what was got. A
+ * report naming one of several ids takes a departure unless all are facts.
+ */
+export type ProblemFor<Id extends MessageId> = [Id] extends [FactId] ? Shown : Departure;

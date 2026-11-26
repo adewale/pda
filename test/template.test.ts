@@ -294,8 +294,8 @@ describe("the committed template", () => {
 
   it("is unconfigured: it names who must be set, and where the agent lives", () => {
     const problems = deploymentProblems(templateVars());
-    expect(problems.some((problem) => problem.startsWith("OWNERS is empty"))).toBe(true);
-    expect(problems).toContain("Missing required setting PUBLIC_ORIGIN");
+    expect(problems).toContain("OWNERS: expected at least one operator (an email or a GitHub id), got nobody. Name this deployment's operators");
+    expect(problems).toContain("PUBLIC_ORIGIN: expected a value (a required setting), got an empty value");
     expect(templateVars().SIGNUP).toBe("allowlist");
   });
 
@@ -314,7 +314,7 @@ describe("the committed template", () => {
     }
     const configured = { ...template, OWNERS: { emails: ["op@example.com"], github: {} } } as unknown as Partial<Env>;
     const noOrigin = await fetchWorker(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } }), configured);
-    expect(await noOrigin.text()).toBe("Missing required setting PUBLIC_ORIGIN");
+    expect(await noOrigin.text()).toBe("PUBLIC_ORIGIN: expected a value (a required setting), got an empty value");
   });
 
   it("is configured by the example file's shape", () => {
@@ -327,6 +327,6 @@ describe("the committed template", () => {
   it("refuses a build whose SIGNIN_PROVIDERS a config merge appended to, before anything is uploaded", () => {
     const vars = { ...templateVars(), ...(JSON.parse(deploymentExample) as DeploymentEnv) };
     const appended = { ...vars, SIGNIN_PROVIDERS: ["github", "google", "github"] } as unknown as DeploymentEnv;
-    expect(deploymentProblems(appended)).toEqual(["SIGNIN_PROVIDERS lists a provider twice"]);
+    expect(deploymentProblems(appended)).toEqual(['SIGNIN_PROVIDERS: expected each provider once, got "github" twice']);
   });
 });

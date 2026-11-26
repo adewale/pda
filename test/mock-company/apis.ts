@@ -7,6 +7,7 @@ import {
   type Inbound,
   type ResourceContext
 } from "./core";
+import { departure, ours, show, shown } from "../../src/diagnostic";
 import { parseApprovalHeader, type Operations } from "./operations";
 import type { McpExchange, McpVersion } from "./types";
 
@@ -381,14 +382,14 @@ export class Apis {
     if (!/^multipart\/form-data\b/i.test(type)) return json({ error: "invalid_request", message: "Send the photo as multipart/form-data." }, 415);
     const boundary = /;\s*boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(type);
     if (!boundary) {
-      co.violation("upload.boundary", `multipart/form-data without a boundary: ${JSON.stringify(type)}`);
+      co.violation("upload.boundary", departure(ours("the upload's Content-Type"), ours("multipart/form-data with a boundary"), show.text(type)));
       return json({ error: "invalid_request", message: "multipart/form-data needs a boundary" }, 400);
     }
     const parts = parseMultipart(inbound.bodyBytes, boundary[1] ?? boundary[2]!);
     if (!parts) return json({ error: "invalid_request", message: "The multipart body doesn't parse" }, 400);
     for (const part of parts) {
       if (!part.name) {
-        co.violation("upload.part-name", `multipart part without a form-data name (Content-Disposition: ${JSON.stringify(part.disposition)})`);
+        co.violation("upload.part-name", departure(ours("each multipart part's Content-Disposition"), ours("form-data with a name"), part.disposition === "" ? ours("none") : show.text(part.disposition)));
         return json({ error: "invalid_request", message: "Each part needs a Content-Disposition: form-data name" }, 400);
       }
     }
@@ -416,7 +417,7 @@ export class Apis {
     if (!co.config.operations || !co.operationsVersion(context)) throw this.#extensionRequired("operations");
     const key = inbound.request.headers.get("Idempotency-Key");
     if (!key) {
-      co.violation("idempotency.key-missing", `POST /prints without the Idempotency-Key its description requires`);
+      co.violation("idempotency.key-missing", departure(ours("POST /prints"), ours("the Idempotency-Key its description requires"), ours("none")));
       return json({ error: "idempotency_key_required", message: "Send an Idempotency-Key of 16 to 128 characters." }, 400);
     }
     const header = inbound.request.headers.get("Poppy-Approval");
@@ -425,14 +426,14 @@ export class Apis {
     const seen = this.#idempotency.get(scoped);
     if (seen) {
       if (seen.hash !== inbound.bodyText) {
-        co.violation("idempotency.key-reused", `Idempotency-Key ${key} reused with a different body`);
+        co.violation("idempotency.key-reused", departure(shown`Idempotency-Key ${show.value(key)}`, ours("the body it was first sent with"), ours("a different body")));
         return json({ error: "idempotency_conflict" }, 409);
       }
       return this.#printOrder(seen);
     }
     const first = `${firstRequestScope(context)}|${key}`;
     if (header === null) this.#unapprovedKeys.add(first);
-    else if (this.#unapprovedKeys.has(first)) co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
+    else if (this.#unapprovedKeys.has(first)) co.violation("approval.idempotency-key-reused", departure(ours("the approved request's Idempotency-Key"), ours("a new key"), shown`the first request's, ${show.value(key)}`));
     let order: PrintOrder;
     try {
       order = JSON.parse(inbound.bodyText || "null") as PrintOrder;
@@ -537,13 +538,13 @@ export class Apis {
     const header = inbound.request.headers.get("Poppy-Approval");
     const approval = header === null ? null : parseApprovalHeader(header);
     if (header !== null && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
-      co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
+      co.violation("approval.header", departure(ours("Poppy-Approval"), ours("an RFC 9651 Dictionary with operation_id and revision Strings"), show.text(header)));
     }
     const key = inbound.request.headers.get("Idempotency-Key");
     const scoped = key ? `${idempotencyScope(context)}|${key}|${header ?? ""}` : null;
     if (key && header === null) this.#unapprovedKeys.add(`${firstRequestScope(context)}|${key}`);
     else if (key && this.#unapprovedKeys.has(`${firstRequestScope(context)}|${key}`)) {
-      co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
+      co.violation("approval.idempotency-key-reused", departure(ours("the approved request's Idempotency-Key"), ours("a new key"), shown`the first request's, ${show.value(key)}`));
     }
     const seen = scoped ? this.#idempotency.get(scoped) : undefined;
     if (seen) return json(seen.body, seen.status);
@@ -644,7 +645,7 @@ export class Apis {
     const headers = inbound.request.headers;
     const accept = headers.get("Accept") ?? "";
     if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
-      co.violation("mcp.accept", `MCP request must Accept application/json and text/event-stream, got ${JSON.stringify(accept)}`);
+      co.violation("mcp.accept", departure(ours("the MCP request's Accept"), ours("application/json and text/event-stream"), accept === "" ? ours("none") : show.text(accept)));
     }
     // MCP clients discover OAuth before they have a Poppy identity (spec 7).
     // A token we issued to a Personal Agent still requires its Session header.
@@ -733,25 +734,26 @@ export class Apis {
     // A legacy request (its session's version) at a server that dropped that version.
     if (versionHeader !== null && versionHeader !== MCP_MODERN && (metaVersion === undefined || metaVersion === versionHeader)) return unsupported();
     if (typeof metaVersion !== "string" || record(meta[MCP_META.clientCapabilities]) === null) {
-      co.violation("mcp.modern-meta", `${rpc.method}: _meta lacks ${typeof metaVersion !== "string" ? MCP_META.protocolVersion : MCP_META.clientCapabilities}`);
+      co.violation("mcp.modern-meta", departure(shown`${show.name(rpc.method)}'s _meta`, ours("protocolVersion and clientCapabilities"), shown`no ${typeof metaVersion !== "string" ? ours(MCP_META.protocolVersion) : ours(MCP_META.clientCapabilities)}`));
       return failure(400, -32602, "Invalid params: missing required _meta fields");
     }
     if (versionHeader !== metaVersion) {
-      co.violation("mcp.modern-version-header", `${rpc.method}: MCP-Protocol-Version ${JSON.stringify(versionHeader)}, _meta ${JSON.stringify(metaVersion)}`);
+      co.violation("mcp.modern-version-header", departure(shown`${show.name(rpc.method)}'s MCP-Protocol-Version`, shown`its _meta protocolVersion, ${show.value(metaVersion)}`, versionHeader === null ? ours("none") : show.value(versionHeader)));
       return failure(400, -32020, "Header mismatch: MCP-Protocol-Version");
     }
     if (metaVersion !== MCP_MODERN) return unsupported();
-    if (record(meta[MCP_META.clientInfo]) === null) co.violation("mcp.modern-client-info", `${rpc.method} without ${MCP_META.clientInfo}`);
+    if (record(meta[MCP_META.clientInfo]) === null) co.violation("mcp.modern-client-info", departure(shown`${show.name(rpc.method)}'s _meta`, shown`${ours(MCP_META.clientInfo)}, an object`, show.kind(meta[MCP_META.clientInfo])));
     const method = headers.get("Mcp-Method");
     if (method !== rpc.method) {
-      co.violation("mcp.modern-method-header", `${rpc.method}: Mcp-Method ${JSON.stringify(method)}`);
+      co.violation("mcp.modern-method-header", departure(shown`${show.name(rpc.method)}'s Mcp-Method`, shown`its method, ${show.value(rpc.method)}`, method === null ? ours("none") : show.value(method)));
       return failure(400, -32020, "Header mismatch: Mcp-Method");
     }
     if (rpc.method === "tools/call") {
       const params = record(rpc.params) ?? {};
       const name = headerValue(headers.get("Mcp-Name"));
       if (name !== params.name) {
-        co.violation("mcp.modern-name-header", `tools/call ${JSON.stringify(params.name)}: Mcp-Name ${JSON.stringify(headers.get("Mcp-Name"))}`);
+        const sentName = headers.get("Mcp-Name");
+        co.violation("mcp.modern-name-header", departure(ours("tools/call's Mcp-Name"), shown`its tool, ${show.value(params.name)}`, sentName === null ? ours("none") : show.value(sentName)));
         return failure(400, -32020, "Header mismatch: Mcp-Name");
       }
       const tool = this.#mcpTools().find((item) => item.name === params.name);
@@ -761,13 +763,13 @@ export class Apis {
         const sent = headers.get(`Mcp-Param-${header}`);
         const expected = value === undefined || value === null ? null : String(value);
         if (headerValue(sent) !== expected) {
-          co.violation("mcp.modern-param-header", `tools/call ${String(params.name)}: Mcp-Param-${header} ${JSON.stringify(sent)} for ${JSON.stringify(value ?? null)}`);
+          co.violation("mcp.modern-param-header", departure(shown`Mcp-Param-${show.name(header)} on tools/call ${show.value(params.name)}`, shown`its argument, ${show.value(value ?? null)}`, sent === null ? ours("none") : show.value(sent)));
           return failure(400, -32020, `Header mismatch: Mcp-Param-${header}`);
         }
       }
     }
     // Servers ignore it (MCP 2026-07-28 Streamable HTTP, "Backward Compatibility"); a client of this version has none to send.
-    if (headers.has("Mcp-Session-Id")) co.violation("mcp.modern-session-id", `${rpc.method} with Mcp-Session-Id`);
+    if (headers.has("Mcp-Session-Id")) co.violation("mcp.modern-session-id", departure(shown`${show.name(rpc.method)} in 2026-07-28`, ours("no Mcp-Session-Id"), ours("one")));
     return null;
   }
 
@@ -776,19 +778,19 @@ export class Apis {
     const co = this.company;
     const sessionId = headers.get("Mcp-Session-Id");
     if (sessionId === null) {
-      co.violation("mcp.legacy-session", `${rpc.method} without Mcp-Session-Id`);
+      co.violation("mcp.legacy-session", departure(shown`${show.name(rpc.method)} after initialize`, ours("the server's Mcp-Session-Id"), ours("none")));
       return failure(400, -32000, "Bad Request: No valid session ID provided");
     }
     const session = this.#mcpSessions.get(sessionId);
     if (!session) return failure(404, -32001, "Session not found");
     if (versionHeader !== session.version) {
-      co.violation("mcp.legacy-version-header", `${rpc.method}: MCP-Protocol-Version ${JSON.stringify(versionHeader)} in a ${session.version} session`);
+      co.violation("mcp.legacy-version-header", departure(shown`${show.name(rpc.method)}'s MCP-Protocol-Version`, shown`the version its session negotiated, ${show.value(session.version)}`, versionHeader === null ? ours("none") : show.value(versionHeader)));
       // 2025-06-18: a server that gets no header assumes 2025-03-26 and goes on; a wrong one is a bad request.
       if (versionHeader !== null) return failure(400, -32000, `Bad Request: Unsupported protocol version: ${versionHeader}`);
     }
     if (rpc.method === "notifications/initialized") session.initialized = true;
     else if (!session.initialized && rpc.method !== "ping" && !rpc.method.startsWith("notifications/")) {
-      co.violation("mcp.legacy-initialized", `${rpc.method} before notifications/initialized`);
+      co.violation("mcp.legacy-initialized", departure(shown`${show.name(rpc.method)} in a session`, ours("notifications/initialized first"), ours("this request before it")));
     }
     return null;
   }
@@ -849,7 +851,7 @@ export class Apis {
         const given = meta["personalagentprotocol.org/approval"];
         const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, unknown>) : null;
         if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
-          co.violation("approval.mcp-meta", "the approval in _meta isn't an object with operation_id and revision strings");
+          co.violation("approval.mcp-meta", departure(ours("the approval in _meta"), ours("an object with operation_id and revision strings"), approval ? shown`operation_id as ${show.kind(approval.operation_id)} and revision as ${show.kind(approval.revision)}` : show.kind(given)));
         }
         const result = this.operations.exchange(context, `tools/call exchange_item ${JSON.stringify(args)}`, args, approval);
         if ("operation" in result) {

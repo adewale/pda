@@ -6,7 +6,10 @@
  * firing fails a named row. The catalog test there also checks that every id
  * here is used in the mock's source and every id has a row.
  *
- * A recorded check reads `[id] detail`.
+ * A recorded check reads `[id] detail`. The detail is a diagnostic
+ * (src/diagnostic.ts): what the check expected and what the request carried,
+ * apart, as "subject: expected X, got Y", with the request's values shown,
+ * never raw, and no key, token or signature at all.
  *
  * Each description starts with what the check rests on, then where: spec
  * sections bare (`5.2`), `Ops n` for the Operations extension,

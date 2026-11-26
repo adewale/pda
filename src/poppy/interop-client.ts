@@ -1,4 +1,5 @@
 import { ConfigError } from "../config.ts";
+import { departure, ours, show, shown } from "../diagnostic.ts";
 import { readIdentity, readSigningKeys } from "./keys.ts";
 
 /**
@@ -64,17 +65,17 @@ export function readInteropKeys(env: InteropClientEnv): InteropPublicKey[] | nul
     try {
       value = JSON.parse(value);
     } catch {
-      throw new ConfigError('INTEROP_LIVE_JWKS must be a JWKS, {"keys": [...]}, or empty');
+      throw new ConfigError(departure(ours("INTEROP_LIVE_JWKS"), ours('a JWKS, {"keys": [...]}, or empty'), ours("text that isn't JSON")));
     }
   }
   if (!isRecord(value) || !Array.isArray(value.keys) || value.keys.length === 0) {
-    throw new ConfigError('INTEROP_LIVE_JWKS must be a JWKS with at least one key, {"keys": [...]}, or empty');
+    throw new ConfigError(departure(ours("INTEROP_LIVE_JWKS"), ours('a JWKS with at least one key, {"keys": [...]}, or empty'), isRecord(value) && Array.isArray(value.keys) ? ours("no keys") : show.kind(value)));
   }
   const kids = new Set<string>();
   return value.keys.map((entry: unknown) => {
-    if (!isRecord(entry)) throw new ConfigError("INTEROP_LIVE_JWKS keys must be JWK objects");
+    if (!isRecord(entry)) throw new ConfigError(departure(ours("an INTEROP_LIVE_JWKS key"), ours("a JWK object"), show.kind(entry)));
     if (PRIVATE_MEMBERS.some((member) => member in entry)) {
-      throw new ConfigError("INTEROP_LIVE_JWKS holds a private key; it takes only the public key set that scripts/interop-live-identity.mjs prints");
+      throw new ConfigError(departure(ours("an INTEROP_LIVE_JWKS key"), ours("a public key, as scripts/interop-live-identity.mjs prints"), ours("a private one")));
     }
     const { kty, crv, x, y, kid } = entry;
     if (
@@ -87,9 +88,9 @@ export function readInteropKeys(env: InteropClientEnv): InteropPublicKey[] | nul
       typeof kid !== "string" ||
       kid === ""
     ) {
-      throw new ConfigError("INTEROP_LIVE_JWKS keys must be public P-256 EC JWKs with a kid");
+      throw new ConfigError(departure(ours("an INTEROP_LIVE_JWKS key"), ours("a public P-256 EC JWK with a kid"), shown`kty ${show.value(kty)}, crv ${show.value(crv)}${typeof kid === "string" && kid !== "" ? ours("") : ours(", no kid")}`));
     }
-    if (kids.has(kid)) throw new ConfigError(`INTEROP_LIVE_JWKS has a duplicate kid ${kid}`);
+    if (kids.has(kid)) throw new ConfigError(departure(ours("INTEROP_LIVE_JWKS's kids"), ours("each kid once"), shown`${show.value(kid)} twice`));
     kids.add(kid);
     return { kty, crv, x, y, kid, alg: "ES256", use: "sig" };
   });
@@ -132,9 +133,9 @@ export async function handleInteropClientRoute(request: Request, env: InteropCli
   }
   const client = readInteropClient(env);
   if (!client || url.origin !== readIdentity(env).origin) return notFound();
-  const ours = new Set((await readSigningKeys(env)).map((key) => `${key.publicJwk.x}.${key.publicJwk.y}`));
-  if (client.keys.some((key) => ours.has(`${key.x}.${key.y}`))) {
-    throw new ConfigError("INTEROP_LIVE_JWKS shares a key with POPPY_SIGNING_JWKS; the interop client needs its own");
+  const signing = new Set((await readSigningKeys(env)).map((key) => `${key.publicJwk.x}.${key.publicJwk.y}`));
+  if (client.keys.some((key) => signing.has(`${key.x}.${key.y}`))) {
+    throw new ConfigError(departure(ours("INTEROP_LIVE_JWKS"), ours("keys of its own"), ours("one POPPY_SIGNING_JWKS also holds")));
   }
   const body = url.pathname === INTEROP_CLIENT_PATH ? interopClientMetadata(client) : { keys: client.keys };
   return Response.json(body, { headers: { "Cache-Control": "public, max-age=3600" } });

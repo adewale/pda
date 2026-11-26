@@ -12,6 +12,7 @@ import { secretProblem } from "./memory-store";
 import { literal } from "../decode";
 import { integer, nullable, one, rows, table, text, textOf, type RowOf } from "../rows";
 import { readTaskAccess, type TaskAccess } from "../task-access";
+import { departure, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /** Most reminders and tasks waiting to run, per agent. */
 export const MAX_ACTIVE_SCHEDULES = 20;
@@ -92,8 +93,11 @@ export type ScheduleRun = {
 };
 
 /** A refusal, worded for the model or the page. */
-export class ScheduleError extends Error {
+export class ScheduleError extends ProblemError {
   override name = "ScheduleError";
+  constructor(problem: Problem) {
+    super(problem);
+  }
 }
 
 const SCHEDULES = `CREATE TABLE IF NOT EXISTS schedules (
@@ -158,7 +162,7 @@ export function migrateSchedules(sql: SqlStorage): void {
 export function parseLocalTime(time: unknown): { hour: number; minute: number } {
   const match = typeof time === "string" ? /^(\d{1,2}):(\d{2})$/.exec(time.trim()) : null;
   if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
-    throw new ScheduleError(`${JSON.stringify(time)} isn't a time of day on a 24-hour clock, such as 09:00 or 17:30`);
+    throw new ScheduleError(departure(ours("the time of day"), ours("a time on a 24-hour clock, such as 09:00 or 17:30"), show.value(time)));
   }
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
@@ -186,7 +190,7 @@ export function nextOccurrence(recurrence: Exclude<Recurrence, { repeat: "none" 
     const at = instantOf({ ...date, hour, minute, second: 0, millisecond: 0 }, zone);
     if (at > after) return at;
   }
-  throw new ScheduleError("No time matches that repeat");
+  throw new ScheduleError(ours("No time matches that repeat"));
 }
 
 export type EveryInput = { readonly repeat?: unknown; readonly time?: unknown; readonly weekday?: unknown };
@@ -200,19 +204,19 @@ export type WhenInput = { readonly at?: unknown; readonly in?: unknown; readonly
  */
 export function resolveWhen(input: WhenInput, now: number, zone: string): { nextRun: number; recurrence: Recurrence } {
   const given = (["at", "in", "every"] as const).filter((key) => input[key] !== undefined && input[key] !== null);
-  if (given.length !== 1) throw new ScheduleError("Give exactly one of at (a local date and time), in (a duration such as PT2H) or every (a repeat)");
+  if (given.length !== 1) throw new ScheduleError(departure(ours("when"), ours("exactly one of at (a local date and time), in (a duration such as PT2H) or every (a repeat)"), given.length === 0 ? ours("none of them") : show.list(given.map((key) => ours(key)))));
   try {
     if (given[0] === "every") {
       const every = input.every!;
       const repeat = every.repeat;
       if (repeat !== "daily" && repeat !== "weekdays" && repeat !== "weekly") {
-        throw new ScheduleError("every.repeat is daily, weekdays or weekly; nothing repeats more often than daily");
+        throw new ScheduleError(departure(ours("every.repeat"), ours("daily, weekdays or weekly"), show.value(repeat), ours("Nothing repeats more often than daily")));
       }
       const time = formatLocalTime(parseLocalTime(every.time));
       let recurrence: Recurrence;
       if (repeat === "weekly") {
         const weekday = typeof every.weekday === "string" ? WEEKDAYS.find((name) => name.toLowerCase() === (every.weekday as string).trim().toLowerCase()) : undefined;
-        if (!weekday) throw new ScheduleError("A weekly repeat needs every.weekday, such as Monday");
+        if (!weekday) throw new ScheduleError(departure(ours("every.weekday"), ours("a day of the week, such as Monday, for a weekly repeat"), show.value(every.weekday)));
         recurrence = { repeat, time, weekday };
       } else {
         recurrence = { repeat, time };
@@ -221,21 +225,21 @@ export function resolveWhen(input: WhenInput, now: number, zone: string): { next
     }
     let at: number;
     if (given[0] === "at") {
-      if (typeof input.at !== "string") throw new ScheduleError("at is a date and time, such as 2026-10-12T17:00");
+      if (typeof input.at !== "string") throw new ScheduleError(departure(ours("at"), ours("a date and time, such as 2026-10-12T17:00"), show.kind(input.at)));
       const moment = parseMoment(input.at, zone, now);
       if (moment.kind !== "instant" || /^(now|today)$/i.test(input.at.trim())) {
-        throw new ScheduleError(`at needs a date and a time, such as ${input.at.trim().slice(0, 10)}T09:00`);
+        throw new ScheduleError(departure(ours("at"), shown`a date and a time, such as ${show.name(input.at.trim().slice(0, 10))}T09:00`, show.value(input.at)));
       }
       at = moment.instant;
     } else {
       const duration = parseDuration(input.in);
       at = addToInstant(now, duration, zone);
     }
-    if (at <= now) throw new ScheduleError(`That time has passed: it was ${viewMoment(at, zone).iso}. Give a time in the future`);
-    if (at - now > MAX_AHEAD_MS) throw new ScheduleError("That's more than a year away; reminders and tasks go at most a year ahead");
+    if (at <= now) throw new ScheduleError(departure(ours("the time"), ours("a time in the future"), shown`${show.name(viewMoment(at, zone).iso)}, which has passed`));
+    if (at - now > MAX_AHEAD_MS) throw new ScheduleError(departure(ours("the time"), ours("at most a year ahead"), shown`${show.name(viewMoment(at, zone).iso)}, more than a year away`, ours("Reminders and tasks go at most a year ahead")));
     return { nextRun: at, recurrence: { repeat: "none" } };
   } catch (error) {
-    if (error instanceof TimeError) throw new ScheduleError(error.message);
+    if (error instanceof TimeError) throw new ScheduleError(error.problem);
     throw error;
   }
 }
@@ -390,21 +394,21 @@ export class ScheduleStore {
     const existing = one(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE created_from = ?`, input.createdFrom);
     if (existing) return { schedule: toSchedule(existing), created: false };
     const text = typeof input.text === "string" ? input.text.trim() : "";
-    const what = input.kind === "task" ? "A task's instruction" : "A reminder";
-    if (!text) throw new ScheduleError(`${what} needs some text`);
-    if (text.length > MAX_SCHEDULE_CHARS) throw new ScheduleError(`${what} is at most ${MAX_SCHEDULE_CHARS} characters; this one is ${text.length}`);
+    const what = input.kind === "task" ? ours("the task's instruction") : ours("the reminder");
+    if (!text) throw new ScheduleError(departure(what, ours("some text"), ours("nothing")));
+    if (text.length > MAX_SCHEDULE_CHARS) throw new ScheduleError(departure(what, shown`at most ${MAX_SCHEDULE_CHARS} characters`, show.count(text.length, ours("character"), ours("characters"))));
     const problem = secretProblem(text);
-    if (problem) throw new ScheduleError(`Not set: ${problem}. Reminders and tasks never keep passwords, codes, keys, tokens or card numbers; say it without the secret`);
+    if (problem) throw new ScheduleError(shown`Not set: ${problem}. Reminders and tasks never keep passwords, codes, keys, tokens or card numbers; say it without the secret`);
     let zone: string;
     try {
       zone = checkZone(input.timeZone);
     } catch (error) {
-      throw new ScheduleError(error instanceof Error ? error.message : String(error));
+      throw new ScheduleError(error instanceof TimeError ? error.problem : show.text(error instanceof Error ? error.message : String(error)));
     }
     const now = this.#now();
     const { nextRun, recurrence } = resolveWhen(input.when, now, zone);
     if (this.activeCount() >= MAX_ACTIVE_SCHEDULES) {
-      throw new ScheduleError(`There are already ${MAX_ACTIVE_SCHEDULES} reminders and tasks waiting, the most an agent keeps. Cancel one first`);
+      throw new ScheduleError(shown`There are already ${MAX_ACTIVE_SCHEDULES} reminders and tasks waiting, the most an agent keeps. Cancel one first`);
     }
     const row = one(
       this.#sql,

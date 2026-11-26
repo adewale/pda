@@ -10,6 +10,7 @@
  * The API allows any origin and sends no cookies. Callers can limit input
  * work separately from the quota for URL checks that fetch from the network.
  */
+import { departure, isDeparture, ours, sentence, show, shown, type Problem } from "../diagnostic.ts";
 import { withUserAgent, type Fetcher } from "./fetch.ts";
 import { formPage, messagesPage, resultPage } from "./html.ts";
 import type { DocumentKind } from "./primitives.ts";
@@ -49,6 +50,11 @@ function html(body: string, status = 200): Response {
   });
 }
 
+/** An error answer: the sentence in `error`, and a departure's two sides apart, as a report's messages have them. */
+function problem(said: Problem, status: number): Response {
+  return json({ error: sentence(said), ...(isDeparture(said) ? { expected: said.expected, got: said.got } : {}) }, status);
+}
+
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 }
@@ -66,7 +72,7 @@ async function readInput(request: Request): Promise<Input> {
     try {
       textBody = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      throw new BadInput("The request body isn't UTF-8.");
+      throw new BadInput(departure(ours("the request body"), ours("UTF-8"), ours("bytes that aren't UTF-8")));
     }
     // The envelope adds one level to a document supplied as an object.
     checkJsonWork(textBody, HTTP_INPUT_LIMITS.depth + 1);
@@ -74,13 +80,13 @@ async function readInput(request: Request): Promise<Input> {
     try {
       body = JSON.parse(textBody);
     } catch {
-      throw new BadInput('The request body isn\'t JSON. Send {"url": "example.com"} or {"document": "…", "kind": "poppy"}.');
+      throw new BadInput(departure(ours("the request body"), ours('JSON, such as {"url": "example.com"} or {"document": "…", "kind": "poppy"}'), ours("something else")));
     }
-    if (typeof body !== "object" || body === null || Array.isArray(body)) throw new BadInput("The request body must be a JSON object.");
+    if (typeof body !== "object" || body === null || Array.isArray(body)) throw new BadInput(departure(ours("the request body"), ours("a JSON object"), show.kind(body)));
     const b = body as Record<string, unknown>;
     const text = (key: string) => {
       const value = typeof b[key] === "string" ? b[key] : undefined;
-      if (value !== undefined && value.length > 2048) throw new BadInput(`${key} is too long.`, 413);
+      if (value !== undefined && value.length > 2048) throw new BadInput(departure(show.code(key), ours("at most 2048 characters"), shown`${value.length}`), 413);
       return value;
     };
     // A document may be sent as a JSON string (checked exactly as written) or as an object.
@@ -98,12 +104,12 @@ async function readInput(request: Request): Promise<Input> {
   try {
     form = await new Response(bytes, { headers: { "Content-Type": type } }).formData();
   } catch {
-    throw new BadInput("Send JSON or a valid form.");
+    throw new BadInput(departure(ours("the request body"), ours("JSON or a form"), ours("neither")));
   }
-  if ([...form.keys()].length > HTTP_INPUT_LIMITS.formFields) throw new BadInput("The form contains too many fields.", 413);
+  if ([...form.keys()].length > HTTP_INPUT_LIMITS.formFields) throw new BadInput(departure(ours("the form"), shown`at most ${HTTP_INPUT_LIMITS.formFields} fields`, shown`${[...form.keys()].length}`), 413);
   const field = (key: string) => {
     const value = form.get(key);
-    if (key !== "document" && typeof value === "string" && value.length > 2048) throw new BadInput(`${key} is too long.`, 413);
+    if (key !== "document" && typeof value === "string" && value.length > 2048) throw new BadInput(departure(show.code(key), ours("at most 2048 characters"), shown`${value.length}`), 413);
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
   };
   return {
@@ -118,29 +124,29 @@ async function readInput(request: Request): Promise<Input> {
 async function run(input: Input, request: Request, options: ValidatorHttpOptions): Promise<Report> {
   if (input.document !== undefined) {
     if (new TextEncoder().encode(input.document).byteLength > MAX_INPUT_BYTES) {
-      throw new BadInput("The document is larger than 100 KB, which agents won't read.", 413);
+      throw new BadInput(departure(ours("the document"), ours("at most 100 KB"), ours("more"), ours("Agents won't read it")), 413);
     }
     checkJsonWork(input.document);
     const kind = (input.kind ?? "poppy") as DocumentKind;
-    if (!KINDS.includes(kind)) throw new BadInput(`kind must be one of ${KINDS.join(", ")}.`);
+    if (!KINDS.includes(kind)) throw new BadInput(departure(ours("kind"), shown`one of ${show.list(KINDS.map((k) => show.code(k)), "or")}`, show.value(kind)));
     const report = validateText(kind, input.document, {
       ...(input.domain ? { domain: input.domain } : {}),
       ...(input.fetchedFrom ? { fetchedFrom: input.fetchedFrom } : {}),
       ...(input.protocolVersion ? { protocolVersion: input.protocolVersion } : {})
     });
-    if (report.messages.some(message => message.id === "json-resource-limit")) throw new BadInput("The document exceeds the validator's JSON location metadata allowance.", 413);
+    if (report.messages.some(message => message.id === "json-resource-limit")) throw new BadInput(departure(ours("the document"), ours("member paths within the validator's JSON location allowance"), ours("more")), 413);
     return report;
   }
   if (input.url) {
-    if (input.url.length > 2048) throw new BadInput("The URL is too long.");
-    if (!(await options.allowFetch(request))) throw new BadInput("Too many checks from your address; wait a minute.", 429);
+    if (input.url.length > 2048) throw new BadInput(departure(ours("url"), ours("at most 2048 characters"), shown`${input.url.length}`));
+    if (!(await options.allowFetch(request))) throw new BadInput(ours("Too many checks from your address; wait a minute"), 429);
     // The validator names itself, with this deployment's own page.
     const about = `${new URL(request.url).origin}/validator`;
     return validateTarget(withUserAgent(options.fetcher, validatorUserAgent(about)), input.url, {
       ...(input.protocolVersion ? { protocolVersion: input.protocolVersion } : {})
     });
   }
-  throw new BadInput("Give a url to check, or a document.");
+  throw new BadInput(departure(ours("the request"), ours("a url to check, or a document"), ours("neither")));
 }
 
 /** Handle `/validator` and below; null for other paths. */
@@ -150,7 +156,7 @@ export async function handleValidator(request: Request, options: ValidatorHttpOp
   const admit = async () => {
     if (options.allowRequest && !(await options.allowRequest(request))) {
       void request.body?.cancel().catch(() => undefined);
-      throw new BadInput("Too many checks from your address; wait a minute.", 429);
+      throw new BadInput(ours("Too many checks from your address; wait a minute"), 429);
     }
   };
   if (path === "/validator/messages") {
@@ -158,12 +164,12 @@ export async function handleValidator(request: Request, options: ValidatorHttpOp
   }
   if (path === "/validator/api") {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-    if (request.method !== "GET" && request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    if (request.method !== "GET" && request.method !== "POST") return problem(departure(ours("the method"), ours("GET or POST"), show.code(request.method)), 405);
     try {
       await admit();
       return json(await run(await readInput(request), request, options));
     } catch (error) {
-      if (error instanceof BadInput) return json({ error: error.message }, error.status);
+      if (error instanceof BadInput) return problem(error.problem, error.status);
       throw error;
     }
   }
@@ -184,7 +190,7 @@ export async function handleValidator(request: Request, options: ValidatorHttpOp
       return html(resultPage(await run(input, request, options), input));
     } catch (error) {
       if (error instanceof BadInput) {
-        return html(formPage(url.origin).replace("</h1>", `</h1><p role="alert" class="outcome invalid"><strong>${error.message.replace(/[&<>"']/g, "")}</strong></p>`), error.status);
+        return html(formPage(url.origin).replace("</h1>", `</h1><p role="alert" class="outcome invalid"><strong>${error.message.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</strong></p>`), error.status);
       }
       throw error;
     }

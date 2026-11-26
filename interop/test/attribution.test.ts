@@ -369,6 +369,9 @@ describe("reading compatibility", () => {
     expect(s1("token-endpoint")).toEqual([2]);
     expect(s1("issuer")).toEqual([1, 2, 3]);
     expect(s1("either")).toEqual([]);
+    expect(readingChecks(trace, { S1: "endpoint" }).map((check) => check.detail)).toEqual([
+      'the client assertion\'s aud at https://auth.x.company.interop.test/revoke: expected what the agent\'s declared S1 reading, endpoint, wants there: "https://auth.x.company.interop.test/revoke", got "https://auth.x.company.interop.test/token"'
+    ]);
   });
 
   it("finds refusals a Company's declared S1 or S2 reading explains", () => {
@@ -403,6 +406,10 @@ describe("reading compatibility", () => {
     expect(ids({ S1: "token-endpoint", S2: "any" })).toEqual([]);
     expect(ids({ S1: "either" })).toEqual([]);
     expect(refusedReadingChecks(trace, { S1: "endpoint" }).every((check) => check.severity === "warning")).toBe(true);
+    expect(refusedReadingChecks(trace, { S1: "endpoint", S2: "jwt-60s" }).map((check) => check.detail)).toEqual([
+      'the client assertion\'s aud, refused with invalid_client at https://x.company.interop.test/poppy/device: expected what the Company\'s S1 reading, endpoint, wants there: "https://x.company.interop.test/poppy/device", got "https://x.company.interop.test/poppy/token"',
+      "the client assertion, refused with invalid_client at https://x.company.interop.test/poppy/token: expected what the Company's S2 reading, jwt-60s, accepts, got one with no typ and a 60 s lifetime"
+    ]);
   });
 
   it("rule 3, before rule 2: a refusal the Company's declared reading explains, between incompatible readings", () => {

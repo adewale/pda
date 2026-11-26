@@ -108,8 +108,8 @@ describe("trace checks", () => {
     const send = (url: string) => ({ url, headers: { authorization: "DPoP at_token_1", dpop: proof("GET", url, { token: "at_token_1" }) } });
     const checks = unlistedHostChecks(recording(...DISCOVERY, sessionStart(), send(`${API}/orders`), send("https://cdn.acme.company.interop.test/x"), send("https://evil.company.interop.test/x")));
     expect(checks.map((check) => check.detail)).toEqual([
-      "a token from acme sent to cdn.acme.company.interop.test",
-      "a token from acme sent to evil.company.interop.test"
+      "a token from acme: expected a host its Company's documents list: auth.acme.company.interop.test or api.acme.company.interop.test, got cdn.acme.company.interop.test",
+      "a token from acme: expected a host its Company's documents list: auth.acme.company.interop.test or api.acme.company.interop.test, got evil.company.interop.test"
     ]);
   });
 
@@ -118,7 +118,7 @@ describe("trace checks", () => {
     const description = { url: `${API}/openapi.json`, response: { openapi: "3.1.0", info: { title: "Acme", version: "1" }, servers: [{ url: "https://orders.partner.company.interop.test/v1" }], paths: {} } };
     const unlisted = { url: "https://other.company.interop.test/openapi.json", response: { openapi: "3.1.0", info: { title: "Other", version: "1" }, servers: [{ url: "https://evil.company.interop.test" }], paths: {} } };
     const checks = unlistedHostChecks(recording(...DISCOVERY, description, unlisted, sessionStart(), send("https://orders.partner.company.interop.test/v1/orders"), send("https://evil.company.interop.test/x")));
-    expect(checks.map((check) => check.detail)).toEqual(["a token from acme sent to evil.company.interop.test"]);
+    expect(checks.map((check) => check.detail)).toEqual(["a token from acme: expected a host its Company's documents list: auth.acme.company.interop.test, api.acme.company.interop.test or orders.partner.company.interop.test, got evil.company.interop.test"]);
   });
 
   it("finds a redirect followed with credentials", () => {
@@ -197,14 +197,14 @@ describe("trace checks", () => {
     it("fails a read with events and a cursor but no has_more or state", () => {
       const checks = checksOf(`${events}?cursor=e1`, { conversation_id: "c1", events: [event], cursor: "e2" });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
-      expect(checks[0]!.detail).toMatch(/^no has_more; no working; no handoff; no responder; no closed: /);
+      expect(checks[0]!.detail).toMatch(/^the events read: expected a read's body: conversation_id, events, cursor, has_more, working, handoff, responder and closed, each of its type, got no has_more; no working; no handoff; no responder; no closed: "/);
     });
 
     it("fails a read without conversation_id, which 8.5 added to the MUST", () => {
       const { conversation_id: _omitted, ...withoutId } = complete;
       const checks = checksOf(`${events}?cursor=e1`, withoutId);
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
-      expect(checks[0]!.detail).toMatch(/^no string conversation_id: /);
+      expect(checks[0]!.detail).toMatch(/, got no string conversation_id: "/);
     });
 
     it("passes a complete read, with or without events", () => {
@@ -235,7 +235,7 @@ describe("trace checks", () => {
       const { working: _working, handoff: _handoff, closed: _closed, ...older } = complete;
       const missing = checksOf(`${events}?cursor=e1`, { ...older, status: "idle" });
       expect(ids(missing)).toEqual(["company.events-shape:error"]);
-      expect(missing[0]!.detail).toMatch(/^no working; no handoff; no closed: /);
+      expect(missing[0]!.detail).toMatch(/, got no working; no handoff; no closed: "/);
     });
 
     it("takes a working stream event without an id, as a text-delta (8.6)", () => {
@@ -263,6 +263,8 @@ describe("trace checks", () => {
       []
     );
     expect(ids(checks)).toEqual(["company.iss-missing:error"]);
+    // The callback's query, which can carry a code and a state, isn't shown.
+    expect(checks[0]!.detail).toBe("the authorization response to https://pda.agent.interop.test/poppy/callback?…: expected an iss parameter, got none");
   });
 
   it("ignores the runner's own probes", () => {

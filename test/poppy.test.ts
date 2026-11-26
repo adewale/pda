@@ -22,6 +22,7 @@ import { agent, cards, company, compareViolations, requests, signInDirect, tool,
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
 import { named } from "./named-fetcher.ts";
+import { departure, ours, shown } from "../src/diagnostic";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
@@ -61,7 +62,7 @@ describe("the violation check after each test", () => {
 
   it("lets a test that breaks the protocol on purpose say so", async () => {
     const c = await company();
-    c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
+    c.expectViolations(/^\[secret\.token-in-url\] the request URL: expected no token in its query, got access_token= in https:\/\/api\.\w+\.shop\.test\/products\?…$/);
     const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
     expect(response.status).toBe(400);
   });
@@ -113,8 +114,9 @@ describe("3 discovery", () => {
     const a = await agent();
     const result = await tool(a, "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`but the document was served by cdn.${c.domain}`);
-    expect(result.text).toContain("with a query, not /.well-known/poppy.json");
+    expect(result.text).toContain(`organization.domain: expected "cdn.${c.domain}", the host that served the document, got "${c.domain}"`);
+    // Where the redirect led is shown without its query.
+    expect(result.text).toContain(`where the redirects led: expected /.well-known/poppy.json, on any host, with no query, got https://cdn.${c.domain}/poppy.json?…`);
     const seen = (await requests(c)).map((request) => `${request.status} ${request.method} ${request.url}`);
     expect(seen).toContain(`302 GET https://${c.domain}/.well-known/poppy.json`);
     expect(seen).toContain(`200 GET https://cdn.${c.domain}/poppy.json?for=${c.domain}`);
@@ -126,14 +128,14 @@ describe("3 discovery", () => {
     const c = await company({ wellKnownRedirect: "http" });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/HTTPS/);
+    expect(result.text).toMatch(/: expected an https URL, got http:\/\//);
   });
 
   it("refuses an unsupported major version", async () => {
     const c = await company({ protocolVersion: "2.0" });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/version 2.0/);
+    expect(result.text).toMatch(/protocol_version: expected a version this validator supports \(0\.4 or 1\.0\), got "2\.0"/);
   });
 
   it("refuses a document whose organization.domain doesn't match", async () => {
@@ -230,15 +232,27 @@ describe("3 discovery: reusing poppy.json for its cache lifetime", () => {
 describe("Guides: fetching metadata safely", () => {
   const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
 
-  it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
+  it("refuses a web page where a JSON document should be, as the validator does (http-web-page)", async () => {
+    const page = async () => new Response("<!DOCTYPE html><html><body>Sign in</body></html>", { headers: { "Content-Type": "text/html" } });
+    await expect(fetchJson(named(page), "https://public.example/openapi.json")).rejects.toThrow(
+      new PoppyFetchError(departure(ours("https://public.example/openapi.json"), ours("a JSON document"), ours("a web page")))
+    );
+    // A JSON document mislabelled as HTML is still read.
+    const mislabelled = async () => new Response('{"openapi":"3.1.0"}', { headers: { "Content-Type": "text/html" } });
+    await expect(fetchJson(named(mislabelled), "https://public.example/openapi.json")).resolves.toMatchObject({ json: { openapi: "3.1.0" } });
+  });
+
+  it("refuses a redirect to something that isn't a URL as a PoppyFetchError, saying what came", async () => {
     const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
-    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(
+      new PoppyFetchError(departure(ours("the redirect from https://public.example/openapi.json (HTTP 302)"), ours("a Location that is a URL"), ours('"https://[bad"')))
+    );
   });
 
   // docs/readings.md#success-status: the same rule as the validator's, so discovery and later reads agree.
   it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
     const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
-    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(departure(ours("https://public.example/openapi.json"), ours("HTTP 200"), shown`HTTP ${status}`)));
   });
 
   it("never sends a request, on Workers, to a port a Worker would quietly swap for 443", async () => {
@@ -271,10 +285,10 @@ describe("Guides: fetching metadata safely", () => {
       fetched.push(request.url);
       return response();
     };
-    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/^the host to fetch: expected a public host name, got .+\. Nothing was fetched$/);
     expect(fetched).toEqual([]);
     const redirect = answer(() => new Response(null, { status: 302, headers: { Location: target } }));
-    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/^the host to fetch: expected a public host name, got .+\. Nothing was fetched$/);
     expect(fetched).toEqual(["https://public.example/openapi.json"]);
   });
 
@@ -282,7 +296,7 @@ describe("Guides: fetching metadata safely", () => {
     const result = await tool(await agent(), "poppy_discover", { domain: host });
     expect(result.isError).toBe(true);
     // Rejected as no domain at all, or as a host that isn't public.
-    expect(result.text).toMatch(/isn't a domain name|isn't a public host/);
+    expect(result.text).toMatch(/: expected a domain name, got|: expected a public host name, got/);
   });
 
   it("gives up on a document whose body stalls, within the time limit, and cancels it", async () => {
@@ -301,7 +315,7 @@ describe("Guides: fetching metadata safely", () => {
           { headers: { "Content-Type": "application/json" } }
         );
       const pending = fetchJson(named(stalling), "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
-      const settled = expect(pending).rejects.toThrow(new PoppyFetchError("https://api.shop.example/openapi.json: timed out after 5 seconds"));
+      const settled = expect(pending).rejects.toThrow(new PoppyFetchError(ours("https://api.shop.example/openapi.json: timed out after 5 seconds")));
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
       expect(cancelled).toBe(true);
@@ -366,7 +380,7 @@ describe("Guides: fetching metadata safely", () => {
     const a = await agent();
     const described = await tool(a, "poppy_api_describe", { domain: c.domain });
     expect(described.isError).toBe(true);
-    expect(described.text).toMatch(/non-public host 10\.0\.0\.1/);
+    expect(described.text).toMatch(/the host to fetch: expected a public host name, got 10\.0\.0\.1\. Nothing was fetched/);
   });
 });
 
@@ -1383,7 +1397,7 @@ describe("6 web browsing", () => {
     const via = (to: string) => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: `/go?to=${encodeURIComponent(to)}` });
     const offDomain = await via("https://elsewhere.test/");
     expect(offDomain.isError).toBe(true);
-    expect(offDomain.text).toContain(`limited to ${c.domain}`);
+    expect(offDomain.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test`);
     const plain = await via(`http://${c.domain}/orders`);
     expect(plain.isError).toBe(true);
     expect(plain.text).toContain("only loads HTTPS pages");
@@ -1394,7 +1408,7 @@ describe("6 web browsing", () => {
     for (let hop = 0; hop < 6; hop++) chain = `/go?to=${encodeURIComponent(chain)}`;
     const long = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: chain });
     expect(long.isError).toBe(true);
-    expect(long.text).toContain("Too many redirects");
+    expect(long.text).toContain(`the redirects from https://${c.domain}/go?…: expected at most 5, got 6`);
     const requested = (await requests(c)).map((request) => request.url);
     expect(requested.some((url) => url.startsWith("http:") || url.includes("/oauth/authorize"))).toBe(false);
     expect(requested.some((url) => url.endsWith("/orders"))).toBe(false);
@@ -1407,7 +1421,7 @@ describe("6 web browsing", () => {
     expect(small.isError).toBe(false);
     const big = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/big?kb=1100" });
     expect(big.isError).toBe(true);
-    expect(big.text).toContain("larger than 1000000 bytes [too_large]");
+    expect(big.text).toContain(`https://${c.domain}/big?…: expected a page of at most 1000000 bytes, got a larger one. [too_large]`);
   });
 
   it("reads a page's title, text, links and forms, and never its scripts or styles", async () => {
@@ -1442,7 +1456,7 @@ describe("6 web browsing", () => {
       expect(JSON.parse(result.details), selector).toMatchObject({ error: "refused" });
       expect(result.text, selector).toContain("submit, which waits for the User's approval");
     }
-    expect((await browse({ action: "click", selector: "#nowhere" })).text).toContain("No link #nowhere");
+    expect((await browse({ action: "click", selector: "#nowhere" })).text).toContain('the selector "#nowhere": expected a link on this page, got none. Use a selector from the page\'s links');
     expect((await c.stub.state()).formPosts).toEqual([]);
     expect((await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/account/address"))).toEqual([]);
   });
@@ -1457,7 +1471,7 @@ describe("6 web browsing", () => {
     expect((await fill("#f7")).text).toContain("never types credentials");
     expect((await fill("confirm")).text).toContain("never types credentials");
     expect((await fill("csrf")).text).toContain("which the website sets itself");
-    expect((await fill("#save")).text).toContain("is a button");
+    expect((await fill("#save")).text).toContain('the field "#save": expected a field to fill, got a button');
   });
 
   it("sends a form only after the User approves exactly what it sends, hidden fields included", async () => {
@@ -1467,7 +1481,7 @@ describe("6 web browsing", () => {
     const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/account/address" });
     // A fill without a value is refused, not taken as an empty one.
-    expect((await browse({ action: "fill", selector: "#line1" })).text).toContain("fill needs a value");
+    expect((await browse({ action: "fill", selector: "#line1" })).text).toBe('fill\'s value: expected the text to fill in, got nothing. To clear a field, give value "". [invalid_request]');
     expect((await browse({ action: "fill", selector: "#line1", value: "1 High St" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: '[name="city"]', value: "Leeds" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: "country", value: "France" })).isError).toBe(false);
@@ -1511,7 +1525,7 @@ describe("6 web browsing", () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: "https://elsewhere.test/" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`limited to ${c.domain}`);
+    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test. [refused]`);
   });
 
   it("never opens the Company's sign-in pages", async () => {
@@ -1656,7 +1670,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const before = (await requests(c)).length;
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders/{order_id}/items/{item_id}", params: { order_id: "ord_7Hk2" } });
     expect(result.isError).toBe(true);
-    expect(result.text).toBe("GET /orders/{order_id}/items/{item_id} needs the path parameter item_id, which the call doesn't give [invalid_request]");
+    expect(result.text).toBe("GET /orders/{order_id}/items/{item_id}: expected a value for the path parameter item_id, got none in the call. [invalid_request]");
     // Only the description was fetched: no token request, and nothing sent to the operation's path.
     const after = (await requests(c)).slice(before);
     expect(after.filter((request) => request.grant !== null || request.url.startsWith(`${c.hosts.api}/orders`))).toEqual([]);
@@ -1665,7 +1679,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const plain = await company({ operations: false });
     await signInDirect(a, plain);
     const write = await tool(a, "poppy_api_call", { domain: plain.domain, operation: "exchangeItem", body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    expect(write.text).toContain("Missing parameter order_id [invalid_request]");
+    expect(write.text).toBe("parameter order_id of POST /orders/{order_id}/exchanges: expected a value, since it is required, got nothing. [invalid_request]");
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
@@ -1840,7 +1854,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(missing.text).toContain("Nothing was sent.");
     const wrong = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
     expect(JSON.parse(wrong.details)).toMatchObject({ error: "invalid_args" });
-    expect(wrong.text).toContain("args/query");
+    expect(wrong.text).toContain(`got args.query: "Instance type 'number' is invalid. Expected 'string'". See it in poppy_mcp_list. Nothing was sent. [invalid_args]`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
     // The tools were listed once, before: nothing since.
     expect((await requests(c)).length).toBe(before);
@@ -1917,7 +1931,8 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     it("refuses a stored row that was tampered with: a call that no longer makes the URL approved, or one that isn't well formed", async () => {
       const moved = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: { order_id: "ord_other" } } }));
       expect(moved.after.status).toBe("failed");
-      expect(moved.after.result).toContain(`not the POST ${moved.c.hosts.api}/orders/ord_7Hk2/exchanges you approved`);
+      // Both requests, apart: the one approved, and the one the description makes now.
+      expect(moved.after.result).toContain(`expected the POST ${moved.c.hosts.api}/orders/ord_7Hk2/exchanges you approved, got POST ${moved.c.hosts.api}/orders/ord_other/exchanges. Not sent.`);
       expect(moved.after.result).toContain("[approval_changed]");
 
       const malformed = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: "order_id=ord_7Hk2" } }));
@@ -1945,7 +1960,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
     expect(refused.isError).toBe(true);
     expect(refused.text).toBe(
-      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id} isn't protected by its Poppy Session: its description lists no OAuth, Bearer or DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
+      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id}: expected an operation its Poppy Session protects, with OAuth, Bearer or DPoP security in its description, got one whose description lists none, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
     );
     // No card, no token request, nothing sent to the endpoint.
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
@@ -2099,7 +2114,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     await signInDirect(a, c);
     const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    expect(result.text).toContain(`the authorization servers in ${c.hosts.mcpUrl}'s metadata: expected a list naming "${c.hosts.issuer}", got an empty list`);
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
@@ -2119,7 +2134,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const before = (await requests(c)).length;
     const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    expect(result.text).toContain(`the authorization servers in ${c.hosts.mcpUrl}'s metadata: expected a list naming "${c.hosts.issuer}", got an empty list`);
     const after = (await requests(c)).slice(before);
     expect(after.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
     // No token was asked for the server, whose metadata doesn't name the issuer.
@@ -2943,8 +2958,9 @@ describe("8.5 an event whose handling fails", () => {
     // As if the card had shown other terms under the same revision: the Company's offer no longer matches it.
     await a.stub.poppySql("UPDATE poppy_approvals SET terms = json_set(terms, '$.highlights', json('[\"Free\"]')) WHERE id = ?", card.approvalId);
     await ask();
-    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("other terms under a revision"))));
-    expect(notice.text).toContain("Nothing was done.");
+    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("terms under a revision it had already sent"))));
+    // What it sent first, and what changed, by name.
+    expect(notice.text).toBe(`Mock Shop ${c.id}'s terms under a revision it had already sent: expected the terms it sent first under that revision, got terms whose highlights changed. They weren't used. The earlier card stands. Nothing was done.`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true })]);
     expect(await a.stub.poppyReadNow(first.conversationId)).not.toBeNull();
     expect((await c.stub.state()).performs).toBe(0);
@@ -3160,7 +3176,7 @@ describe("8.13 conversation errors", () => {
         () => "read",
         (error: unknown) => String(error)
       );
-      expect(failed).toContain("events answer isn't a JSON object");
+      expect(failed).toContain("'s events answer: expected a JSON object, got null");
       expect(failed).not.toContain("TypeError");
     } finally {
       await release();
@@ -3284,7 +3300,7 @@ describe("8.13 conversation errors", () => {
   it("reports a request id the Company already has with other content as the agent's bug, and never sends it under a new id (request_id_conflict)", async () => {
     const { c, a, id, release } = await started();
     // Our bug, simulated: the replayed call's stored message changed after it was sent.
-    c.expectViolations(/^\[request\.id-reused\] request id \S+ reused with a different path or body$/);
+    c.expectViolations(/^\[request\.id-reused\] request id "\S+": expected the path and body it was first sent with, got a different path or body$/);
     try {
       expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
       await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE 'message|%|call-2'");
@@ -3340,7 +3356,7 @@ describe("8.13 conversation errors", () => {
   ])("sends a message whose reply can't start at the saved cursor once, reading from the start ($code)", async ({ code, status, notice }) => {
     const { c, a, id, release } = await started();
     // The message names the cursor it last handled (8.4), here one the Company never gave.
-    if (code === "invalid_cursor") c.expectViolations(/^\[message\.as-of-cursor\] conversation message: as_of_cursor "evt_nothing_like_it"/);
+    if (code === "invalid_cursor") c.expectViolations(/^\[message\.as-of-cursor\] the message's as_of_cursor: expected a cursor of this conversation, got "evt_nothing_like_it"$/);
     try {
       if (code === "cursor_expired") {
         // The agent last read up to an event the Company then stops keeping.
@@ -3387,7 +3403,7 @@ describe("8.13 conversation errors", () => {
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       const said = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Are you there?" });
       expect(said.isError).toBe(true);
-      expect(said.text).toBe(`Mock Shop ${c.id}: insufficient_scope [insufficient_scope]`);
+      expect(said.text).toBe(`Mock Shop ${c.id}: insufficient_scope. [insufficient_scope]`);
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       expect((await posts(c, id)).started).toBe(1);
       // Signed in again, the same conversation goes on.
@@ -3600,6 +3616,13 @@ describe("parsed once at the edge", () => {
     expect(refused(() => checkParams(shop, op({ enum: ["small", "large"] }), { n: "huge" }))).toMatchObject({ code: "invalid_params", message: expect.stringContaining("Nothing was sent") });
     // A schema it can't read refuses nothing; the Company decides.
     expect(refused(() => checkParams(shop, op({ $ref: "#/nowhere" }), { n: "x" }))).toBeNull();
+  });
+
+  it("says what the params' schemas allow and what each refused, apart", () => {
+    expect(refused(() => checkParams(shop, op({ type: "integer", minimum: 1 }), { n: 0 }))).toEqual({
+      code: "invalid_params",
+      message: `the params for listOrders at Shop: expected values their schemas allow, got params.n: "0 is less than 1". See its parameters in poppy_api_describe. Nothing was sent`
+    });
   });
 
   it("sends the header parameters a call gives, checked like any parameter, and never a reserved one", async () => {

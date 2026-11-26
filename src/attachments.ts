@@ -1,6 +1,7 @@
 import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 import { base64url } from "./base64url";
 import { SUMMARY_MESSAGE_PREFIX } from "./summary-format";
+import { departure, ours, ProblemError, shown, type Problem, type Shown } from "./diagnostic";
 
 /**
  * Photos the User attaches to a chat message, kept in their own agent's
@@ -76,13 +77,13 @@ export type AttachmentInfo = {
 };
 
 /** A refusal to keep an attachment, worded for the User, with the HTTP status the page gets. */
-export class AttachmentError extends Error {
+export class AttachmentError extends ProblemError {
   override name = "AttachmentError";
   constructor(
     readonly status: 400 | 413 | 415 | 507,
-    message: string
+    problem: Problem
   ) {
-    super(message);
+    super(problem);
   }
 }
 
@@ -116,9 +117,18 @@ export function cleanName(name: string | null | undefined, type: AttachmentType)
 }
 
 /** "2.4 MB", "820 KB": how big, for people. */
-export function humanSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+export function humanSize(bytes: number): Shown {
+  if (bytes >= 1024 * 1024) {
+    const tenths = Math.round((bytes * 10) / (1024 * 1024));
+    return shown`${Math.floor(tenths / 10)}.${tenths % 10} MB`;
+  }
+  return shown`${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** A size over `limit`, as got: "more than 10.0 MB" when rounding would show it equal to the limit, so expected and got never read the same. */
+export function sizeOver(bytes: number, limit: number): Shown {
+  const size = humanSize(bytes);
+  return size === humanSize(limit) ? shown`more than ${size}` : size;
 }
 
 function writeChunks(sql: SqlStorage, id: string, part: "file" | "preview", bytes: Uint8Array): void {
@@ -177,19 +187,19 @@ export function saveAttachment(
   input: { readonly name?: string | null; readonly bytes: Uint8Array; readonly preview?: Uint8Array | null; readonly now?: number }
 ): AttachmentInfo {
   const now = input.now ?? Date.now();
-  if (input.bytes.byteLength === 0) throw new AttachmentError(400, "The file is empty.");
+  if (input.bytes.byteLength === 0) throw new AttachmentError(400, ours("The file is empty."));
   if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new AttachmentError(413, `That photo is ${humanSize(input.bytes.byteLength)}; the most your agent takes is ${humanSize(MAX_ATTACHMENT_BYTES)}.`);
+    throw new AttachmentError(413, departure(ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, sizeOver(input.bytes.byteLength, MAX_ATTACHMENT_BYTES)));
   }
   const type = sniffImage(input.bytes);
-  if (!type) throw new AttachmentError(415, "Attach a photo: JPEG, PNG, WebP or GIF.");
+  if (!type) throw new AttachmentError(415, ours("Attach a photo: JPEG, PNG, WebP or GIF."));
   pruneAttachments(sql, now);
   const offered = input.preview && input.preview.byteLength <= MAX_PREVIEW_BYTES ? input.preview : null;
   const previewType = offered ? sniffImage(offered) : null;
   const preview = previewType ? offered : null;
   const held = heldBytes(sql);
   if (held + input.bytes.byteLength + (preview?.byteLength ?? 0) > MAX_TOTAL_BYTES) {
-    throw new AttachmentError(507, `Your agent already keeps ${humanSize(held)} of photos, the most it holds; older ones are deleted 30 days after you attached them.`);
+    throw new AttachmentError(507, shown`Your agent already keeps ${humanSize(held)} of photos, the most it holds; older ones are deleted 30 days after you attached them.`);
   }
   const id = `att_${base64url(crypto.getRandomValues(new Uint8Array(16)))}`;
   const name = cleanName(input.name, type);

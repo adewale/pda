@@ -10,6 +10,12 @@ import { type RequestInit } from "./outgoing";
 import { approvalHeader, type ApprovalToSend } from "./operations-v2";
 import { isObject, type Json } from "./json";
 import { checkParams, checkBody } from "./api-schema";
+import { departure, ours, show, shown, type Shown } from "../diagnostic";
+
+/** An operation as a call names it: its method and path template, from the Company's description. */
+function operationName(op: OpenApiOperation): Shown {
+  return shown`${show.name(op.method)} ${show.name(op.path)}`;
+}
 
 /**
  * A write outside the Company's Poppy Session is refused before a card, a
@@ -17,9 +23,15 @@ import { checkParams, checkBody } from "./api-schema";
  */
 function refuseOutsidePoppy(company: Company, op: OpenApiOperation): void {
   if (!op.outsidePoppy) return;
+  const name = show.name(company.name);
   throw new PoppyError(
     "outside_poppy_session",
-    `${op.method} ${op.path} (${op.operationId}) at ${company.name} isn't protected by its Poppy Session: its description lists no OAuth, Bearer or DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to ${company.name} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent.`,
+    departure(
+      shown`${operationName(op)} (${show.name(op.operationId)}) at ${name}`,
+      ours("an operation its Poppy Session protects, with OAuth, Bearer or DPoP security in its description"),
+      ours("one whose description lists none, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint"),
+      shown`The agent can't use it: its only access to ${name} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent`
+    ),
     0
   );
 }
@@ -54,7 +66,7 @@ export function given(params: OpenApiCall["params"], name: string): OpenApiCall[
 export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   for (const parameter of op.parameters) {
     if (parameter.required && given(params, parameter.name) === undefined) {
-      throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
+      throw new PoppyError("invalid_request", departure(shown`parameter ${show.name(parameter.name)} of ${operationName(op)}`, ours("a value, since it is required"), ours("nothing")), 0);
     }
   }
   const filled = op.path.replace(/\{([^{}/]+)\}/g, (template, name: string) => {
@@ -63,9 +75,10 @@ export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): st
   });
   const unfilled = [...filled.matchAll(/\{([^{}/]*)\}/g)].map((match) => match[1]);
   if (unfilled.length) {
+    const names = show.list(unfilled.map((name) => show.name(name ?? "")));
     throw new PoppyError(
       "invalid_request",
-      `${op.method} ${op.path} needs the path parameter${unfilled.length > 1 ? "s" : ""} ${unfilled.join(", ")}, which the call doesn't give`,
+      departure(operationName(op), unfilled.length > 1 ? shown`values for the path parameters ${names}` : shown`a value for the path parameter ${names}`, ours("none in the call")),
       0
     );
   }
@@ -76,7 +89,12 @@ export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): st
     if (/\{[^{}/]+\}/.test(templated[index] ?? "") && (segment === "" || segment === "." || segment === "..")) {
       throw new PoppyError(
         "invalid_request",
-        `${op.method} ${op.path}: ${JSON.stringify(segment)} can't fill the path segment ${templated[index]}; it would reach another resource`,
+        departure(
+          shown`the path segment ${show.name(templated[index] ?? "")} of ${operationName(op)}`,
+          ours('a value that stays one segment, not empty, "." or ".."'),
+          show.value(segment),
+          ours("That would reach another resource")
+        ),
         0
       );
     }
@@ -92,12 +110,16 @@ export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): st
  * loopback, private or link-local address (3).
  */
 function refuseServer(company: Company, api: Api, url: URL): void {
-  if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+  if (url.protocol !== "https:") throw new PoppyError("invalid_request", departure(shown`${show.url(api.url)}'s server`, ours("an https:// URL"), show.url(url)), 0);
   if (tokenHostAllowed(company, url)) return;
   try {
     assertPublicHost(url);
   } catch {
-    throw new PoppyError("untrusted_server", `${api.url} names the server ${url.origin}, which isn't a public host, so the agent won't send it its Session header or tokens`, 0);
+    throw new PoppyError(
+      "untrusted_server",
+      departure(shown`${show.url(api.url)}'s server`, ours("a public host, or one of the Company's own"), show.name(url.host), ours("The agent won't send it its Session header or tokens")),
+      0
+    );
   }
 }
 
@@ -111,7 +133,12 @@ function refuseProtocolEndpoint(company: Company, url: URL): void {
   if (endpoint) {
     throw new PoppyError(
       "protocol_endpoint",
-      `${url.origin}${url.pathname} is ${company.name}'s Poppy endpoint ${endpoint}, which only the agent's own code calls: operations are confirmed or cancelled by the User on their card, messages go through poppy_message, and sign-in through poppy_sign_in`,
+      departure(
+        ours("the API call's URL"),
+        ours("one that isn't a Poppy endpoint"),
+        shown`${show.url(url)}, ${show.name(company.name)}'s Poppy endpoint ${show.url(endpoint)}`,
+        ours("Only the agent's own code calls it: operations are confirmed or cancelled by the User on their card, messages go through poppy_message, and sign-in through poppy_sign_in")
+      ),
       0
     );
   }
@@ -126,22 +153,30 @@ function refuseProtocolEndpoint(company: Company, url: URL): void {
 function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperation, files: Readonly<Record<string, string>>): AttachmentInfo[] {
   const upload = op.upload;
   if (!upload) {
-    throw new PoppyError("invalid_request", `${op.method} ${op.path} at ${company.name} takes no file: its request body isn't multipart/form-data`, 0);
+    throw new PoppyError(
+      "invalid_request",
+      departure(shown`${operationName(op)} at ${show.name(company.name)}`, ours("an operation that takes files, with a multipart/form-data request body"), ours("one whose request body isn't multipart/form-data")),
+      0
+    );
   }
   const attached: AttachmentInfo[] = [];
   for (const [field, id] of Object.entries(files)) {
     if (upload.files.length && !upload.files.includes(field)) {
-      throw new PoppyError("invalid_request", `${op.method} ${op.path} has no file field ${field}; its file fields are ${upload.files.join(", ")}`, 0);
+      const fields = show.list(upload.files.map((name) => show.name(name)), "or");
+      throw new PoppyError("invalid_request", departure(shown`a file field of ${operationName(op)}`, upload.files.length > 1 ? shown`one of ${fields}` : fields, show.value(field)), 0);
     }
-    if (typeof id !== "string") throw new PoppyError("invalid_request", `files.${field} must be an attachment id (att_…)`, 0);
+    if (typeof id !== "string") throw new PoppyError("invalid_request", departure(shown`files.${show.name(field)}`, ours("an attachment id (att_…)"), show.kind(id)), 0);
     const info = attachmentInfo(client.sql, id, client.host.now());
     if (!info) {
-      throw new PoppyError("no_attachment", `No attachment ${id}: name one the User attached (att_…, in their message)`, 0);
+      throw new PoppyError("no_attachment", departure(shown`files.${show.name(field)}`, ours("the id of an attachment the User attached (att_…, in their message)"), show.value(id)), 0);
     }
     attached.push(info);
   }
   const missing = upload.required.filter((name) => upload.files.includes(name) && !(name in files));
-  if (missing.length) throw new PoppyError("invalid_request", `${op.method} ${op.path} needs the file field${missing.length > 1 ? "s" : ""} ${missing.join(", ")}`, 0);
+  if (missing.length) {
+    const names = show.list(missing.map((name) => show.name(name)));
+    throw new PoppyError("invalid_request", departure(operationName(op), missing.length > 1 ? shown`files for the file fields ${names}` : shown`a file for the file field ${names}`, ours("none in the call")), 0);
+  }
   return attached;
 }
 
@@ -230,7 +265,7 @@ export class CheckedApiRequest {
     }
     for (const [field, id] of Object.entries(this.call.files ?? {})) {
       const found = readAttachment(this.#sql, id, this.#now());
-      if (!found) throw new PoppyError("no_attachment", `The User's attachment ${id} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
+      if (!found) throw new PoppyError("no_attachment", shown`The User's attachment ${show.name(id)} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
       form.append(field, new Blob([found.bytes], { type: found.info.type }), found.info.name);
     }
     return { method: this.method, url: this.url, form, ...headers };

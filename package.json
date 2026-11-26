@@ -19,6 +19,7 @@
     "types": "wrangler types env.d.ts --include-runtime false",
     "test": "node scripts/run-tests.mjs",
     "test:tooling": "node --test scripts/*.test.mjs",
+    "test:node-runtime": "node --test scripts/node-runtime.check.mjs",
     "test:ui": "vitest run --config test/ui/vitest.config.ts",
     "test:properties": "vitest run --config test/properties/vitest.config.ts",
     "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",

@@ -17,6 +17,7 @@ import { stateForModel, type ModelState } from "./conversation-state";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
+import { departure, ours, sentence, show, shown, type Departure, type Shown } from "../diagnostic";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -61,7 +62,7 @@ function remoteConversation(client: PoppyClient, company: Company, remoteId: str
 }
 
 function requireCompany(company: Company, row: ConversationRow): void {
-  if (row.issuer !== company.issuer) throw new PoppyError("conversation_not_found", `That conversation doesn't belong to ${company.name}`, 404);
+  if (row.issuer !== company.issuer) throw new PoppyError("conversation_not_found", shown`That conversation doesn't belong to ${show.name(company.name)}`, 404);
 }
 
 /**
@@ -81,7 +82,7 @@ async function continuing(client: PoppyClient, row: ConversationRow): Promise<{ 
     client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
     throw new PoppyError(
       "version_mismatch",
-      `Conversation ${row.id} started in Poppy ${row.protocol_version}, which this Company no longer serves, so it can't continue and nothing was sent. Start a new conversation (poppy_message without conversation) if the task still needs one, say again what the Company needs, and tell the User if they were waiting on something in the old one.`,
+      shown`Conversation ${show.code(row.id)} started in Poppy ${show.code(row.protocol_version)}, which this Company no longer serves, so it can't continue and nothing was sent. Start a new conversation (poppy_message without conversation) if the task still needs one, say again what the Company needs, and tell the User if they were waiting on something in the old one.`,
       0
     );
   }
@@ -100,7 +101,7 @@ export function openConversations(client: PoppyClient): ConversationRow[] {
 
 function endpointOf(company: Company): string {
   if (!company.conversations) {
-    throw new PoppyError("no_company_agent", `${company.name} doesn't offer a conversation with its agent`, 0);
+    throw new PoppyError("no_company_agent", shown`${show.name(company.name)} doesn't offer a conversation with its agent`, 0);
   }
   return company.conversations.endpoint.replace(/\/+$/, "");
 }
@@ -183,17 +184,17 @@ export async function sendMessage(
   }
 ): Promise<SendResult> {
   if (request.text !== undefined && looksLikeJson(request.text)) {
-    throw new PoppyError("invalid_request", "Put structured details in data, not JSON in text", 0);
+    throw new PoppyError("invalid_request", departure(ours("text"), ours("words"), ours("JSON"), ours("Put structured details in data, not JSON in text")), 0);
   }
   const existing = request.conversationId ? conversation(client, request.conversationId) : undefined;
   if (request.conversationId && !existing) {
-    throw new PoppyError("conversation_not_found", `No conversation ${request.conversationId}`, 404);
+    throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(request.conversationId)}`, 404);
   }
   if (existing) requireCompany(company, existing);
-  if (existing && baseLabel(existing.label) !== request.label) throw new PoppyError("invalid_request", "That conversation belongs to another Session", 0);
+  if (existing && baseLabel(existing.label) !== request.label) throw new PoppyError("invalid_request", ours("That conversation belongs to another Session"), 0);
   const parent = request.parentConversationId ? conversation(client, request.parentConversationId) : undefined;
   if (request.parentConversationId && (!parent || parent.direct || parent.status === "closed")) {
-    throw new PoppyError("conversation_not_found", "No open parent conversation for this Direct Conversation", 404);
+    throw new PoppyError("conversation_not_found", ours("No open parent conversation for this Direct Conversation"), 404);
   }
   if (parent) requireCompany(company, parent);
   // A Direct Conversation starts in its parent's versions and Session.
@@ -205,11 +206,11 @@ export async function sendMessage(
   if (existing?.direct && request.sender === "agent" && !request.contextOnly && (request.text !== undefined || request.data !== undefined)) {
     throw new PoppyError(
       "invalid_request",
-      `${existing.id} is the User's Direct Conversation: only their own words go there. Continue in its parent once it closes.`,
+      departure(shown`Direct Conversation ${show.code(existing.id)}`, ours("only the User's own words"), ours("a message from the agent"), ours("Continue in its parent once it closes")),
       0
     );
   }
-  if (request.userRequestedEventId !== undefined && !parent) throw new PoppyError("invalid_request", "Accepting a Company's invitation needs its parent conversation", 0);
+  if (request.userRequestedEventId !== undefined && !parent) throw new PoppyError("invalid_request", ours("Accepting a Company's invitation needs its parent conversation"), 0);
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
       const id = randomId("msg_");
@@ -227,14 +228,14 @@ export async function sendMessage(
       if (context) message.context = context;
       // 8.4: extension content only to a Company that lists the extension with the same version.
       if (request.approval) {
-        if (!company.extensions.operations) throw new PoppyError("extension_required", `${company.name} doesn't list the Operations extension, so an approval can't be sent there`, 0);
+        if (!company.extensions.operations) throw new PoppyError("extension_required", shown`${show.name(company.name)} doesn't list the Operations extension, so an approval can't be sent there`, 0);
         message.extensions = { operations: { approval: request.approval } };
       }
       // 8.4: which of the Company's messages ours had seen, as a hint; only on a message the agent wrote.
       const cursor = request.sender === "agent" && existing ? conversation(client, existing.id)?.cursor : null;
       if (cursor) message.as_of_cursor = cursor;
       if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
-        throw new PoppyError("invalid_request", "A message needs text, data, context or extensions", 0);
+        throw new PoppyError("invalid_request", departure(ours("the message"), ours("text, data, context or extensions"), ours("none of them")), 0);
       }
       return JSON.stringify({
         ...requestId,
@@ -249,7 +250,7 @@ export async function sendMessage(
   // 3 November text moved to `extensions.operations` (8.4). Resending it under its id with a new shape
   // would conflict, and in the old shape a current Company ignores it, so it is refused: the User asks again.
   if (body.message && Object.hasOwn(body.message, "approval")) {
-    throw new PoppyError("approval_changed", `This approval was saved by an earlier version of the agent in a form ${company.name} no longer reads. Nothing was sent; ask ${company.name} for current terms and approve them again.`, 0);
+    throw new PoppyError("approval_changed", shown`This approval was saved by an earlier version of the agent in a form ${show.name(company.name)} no longer reads. Nothing was sent; ask ${show.name(company.name)} for current terms and approve them again.`, 0);
   }
   if (body.message && messageId !== undefined) {
     client.sql.exec(
@@ -294,18 +295,24 @@ export async function sendMessage(
     throw error;
   }
   if (!isObject(response) || typeof response.conversation_id !== "string" || !ID.test(response.conversation_id)) {
-    throw new PoppyError("invalid_response", `${company.name} returned no conversation_id`, 0);
+    throw new PoppyError(
+      "invalid_response",
+      isObject(response)
+        ? departure(shown`${show.name(company.name)}'s conversation_id`, ours("an ID of 1 to 256 letters, digits, _ or -"), show.value(response.conversation_id))
+        : departure(shown`${show.name(company.name)}'s answer`, ours("a JSON object with a conversation_id"), show.kind(response)),
+      0
+    );
   }
   const remoteId = response.conversation_id;
   if (existing && remoteId !== existing.remote_id) {
-    throw new PoppyError("invalid_response", `${company.name} answered for a different conversation`, 0);
+    throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s conversation_id`, shown`the conversation the message went to, ${show.code(existing.remote_id)}`, show.code(remoteId)), 0);
   }
   const mapped = existing ?? remoteConversation(client, company, remoteId);
   if (mapped && baseLabel(mapped.label) !== request.label) {
-    throw new PoppyError("invalid_response", `${company.name} reused a conversation ID from another Session`, 0);
+    throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s conversation_id ${show.code(remoteId)}`, ours("a new ID or one of this Session's"), ours("the ID of a conversation in another Session")), 0);
   }
   if (mapped && (mapped.parent !== (parent?.id ?? null) || mapped.direct !== (parent ? 1 : 0)) && !existing) {
-    throw new PoppyError("invalid_response", `${company.name} reused a conversation ID for an unrelated conversation`, 0);
+    throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s conversation_id ${show.code(remoteId)}`, ours("a new conversation's ID"), ours("the ID of an unrelated conversation")), 0);
   }
   // Keep existing local handles compatible. A remote collision gets a fresh local handle;
   // every later lookup uses the mapping, never an assumption that remote IDs are global.
@@ -335,7 +342,7 @@ export async function sendMessage(
   }
   const bound = conversation(client, id);
   if (!bound || bound.issuer !== company.issuer || bound.remote_id !== remoteId) {
-    throw new PoppyError("invalid_response", "The conversation identity could not be bound", 0);
+    throw new PoppyError("invalid_response", ours("The conversation identity could not be bound"), 0);
   }
   if (body.message?.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
   // The first message is saved before its conversation has a local ID.
@@ -429,7 +436,7 @@ async function sendRefused(
   messageId: string,
   error: PoppyError
 ): Promise<PoppyError> {
-  const restart = "Start a new conversation (poppy_message without conversation) if the task still needs one.";
+  const restart = ours("Start a new conversation (poppy_message without conversation) if the task still needs one.");
   // Over the draft's codes only, so a case naming a code it doesn't define is a type error.
   switch (isProtocolErrorCode(error.code) ? error.code : null) {
     case "conversation_closed":
@@ -437,17 +444,17 @@ async function sendRefused(
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
       if (row.direct) pushDirect(client, company, row.id);
       await endInvitations(client, company, row);
-      const what = error.is("conversation_closed") ? "has closed" : "no longer has";
+      const what = ours(error.is("conversation_closed") ? "has closed" : "no longer has");
       return new PoppyError(
         error.code,
-        `${company.name} ${what} conversation ${row.id}, so the message wasn't sent. ${restart}`,
+        shown`${show.name(company.name)} ${what} conversation ${show.code(row.id)}, so the message wasn't sent. ${restart}`,
         error.status
       );
     }
     case "direct_conversation_open":
       return new PoppyError(
         error.code,
-        `The User is talking with ${company.name} directly, so conversation ${row.id} takes no messages until that Direct Conversation ends; you'll be told when it does.`,
+        shown`The User is talking with ${show.name(company.name)} directly, so conversation ${show.code(row.id)} takes no messages until that Direct Conversation ends; you'll be told when it does.`,
         error.status
       );
     case "version_mismatch":
@@ -455,15 +462,15 @@ async function sendRefused(
       // It may still be read, so it stays open here; nothing is re-sent in a new one (readings.md, v04-conversations).
       return new PoppyError(
         error.code,
-        `${company.name} won't continue conversation ${row.id} in this protocol version, so the message wasn't sent. ${restart} Nothing from this conversation is carried over: say what the Company needs again.`,
+        shown`${show.name(company.name)} won't continue conversation ${show.code(row.id)} in this protocol version, so the message wasn't sent. ${restart} Nothing from this conversation is carried over: say what the Company needs again.`,
         error.status
       );
     case "request_id_conflict":
       // Our ids are fixed per call with their content (8.3), so this is our bug: never "fixed" with a new id.
-      reportError(new PoppyError(error.code, `${error.code}: our own message id was refused`, error.status), { source: literal("poppy.conversation_send"), code: literal(error.code) });
+      reportError(new PoppyError(error.code, shown`${show.code(error.code)}: our own message id was refused`, error.status), { source: literal("poppy.conversation_send"), code: literal(error.code) });
       return new PoppyError(
         error.code,
-        `${company.name} already has message ${messageId} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived.`,
+        shown`${show.name(company.name)} already has message ${show.code(messageId)} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived.`,
         error.status
       );
     default:
@@ -483,7 +490,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
     return;
   }
   const session = client.session(company.issuer, row.label);
-  if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
+  if (!session) throw new PoppyError("approval_changed", ours("No Session for this approval"), 0);
   try { const proposed = await proposeLocal(
     client,
     company,
@@ -503,7 +510,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
     // Other terms under a revision already shown (Ops 3): told, and reading goes on past it.
     if (hasCode(error, "unusable_proposal")) {
-      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${error.message} Nothing was done.` });
+      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${sentence(error.problem)} Nothing was done.` });
       return;
     }
     if (!(error instanceof ActionOutcomePending)) throw error;
@@ -551,14 +558,14 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     execution.beforeDispatch();
     const session = client.session(company.issuer, label);
     if (!sameAuthority(approval.binding, sessionAuthority(session), approvesAcrossSessions(company))) {
-      throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
+      throw new PoppyError("approval_changed", ours("The account or Session changed. Review a fresh request before sending it."), 0);
     }
     if (!approvable(approval.approval, Date.now())) {
-      throw new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
+      throw new PoppyError("approval_changed", shown`Not sent: ${show.name(company.name)}'s terms expired before they were approved. Ask ${show.name(company.name)} again for current terms.`, 0);
     }
   };
   const row = conversation(client, approval.conversationId);
-  if (!row || row.issuer !== company.issuer || row.label !== label) throw new PoppyError("conversation_not_found", "The conversation this approval is for is gone", 0);
+  if (!row || row.issuer !== company.issuer || row.label !== label) throw new PoppyError("conversation_not_found", ours("The conversation this approval is for is gone"), 0);
   beforeDispatch();
   await sendMessage(client, company, {
     label,
@@ -570,7 +577,8 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     approval: approvalJson(toSend(company, approval.approval, execution)),
     beforeDispatch
   });
-  throw new OperationOutcomeUnknown(`Sent the User's approval to ${company.name} in conversation ${row.id}. The message was accepted, but the action's outcome has not been confirmed. Check with ${company.name} before asking for the same action again.`);
+  const name = show.name(company.name);
+  throw new OperationOutcomeUnknown(shown`Sent the User's approval to ${name} in conversation ${show.code(row.id)}. The message was accepted, but the action's outcome has not been confirmed. Check with ${name} before asking for the same action again.`);
 });
 
 /** When to read a conversation next: soon while the Company is busy, rarely when idle. */
@@ -871,7 +879,8 @@ export async function readConversation(
         await restartFromBeginning(client, company, id, body.error);
         continue;
       }
-      throw new PoppyError(companyErrorCode(body?.error, response.status), `${company.name} refused the read`, response.status);
+      const got = typeof body?.error === "string" ? shown`${show.status(response.status)} with ${show.code(body.error)}` : show.status(response.status);
+      throw new PoppyError(companyErrorCode(body?.error, response.status), departure(shown`${show.name(company.name)}'s answer to the read`, ours("the conversation's events"), got), response.status);
     }
     if (response.status === 404) {
       // `conversation_not_found` (8.13): nothing more will come. The model is
@@ -887,7 +896,7 @@ export async function readConversation(
       return null;
     }
     if (!response.ok) {
-      throw new PoppyError(`http_${response.status}`, `${company.name} refused the read`, response.status);
+      throw new PoppyError(`http_${response.status}`, departure(shown`${show.name(company.name)}'s answer to the read`, ours("the conversation's events"), show.status(response.status)), response.status);
     }
     const type = response.headers.get("Content-Type") ?? "";
     hasMore = false;
@@ -896,8 +905,9 @@ export async function readConversation(
     } else {
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
-      if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || !hasState(body))) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
+      if (!isObject(body)) throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s events answer`, ours("a JSON object"), show.kind(body)), response.status);
+      const departed = readDeparture(company, row, body, current.cursor);
+      if (departed) throw new PoppyError("invalid_response", departed, response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);
@@ -931,9 +941,20 @@ export async function readConversation(
 }
 
 /** Whether a read has every state field (8.5, 8.7). */
-function hasState(body: { readonly [key: string]: Json }): boolean {
-  if (typeof body.responder !== "string") return false;
-  return typeof body.working === "boolean" && typeof body.handoff === "string" && typeof body.closed === "boolean";
+/** The first member of a conversation read's answer that isn't as 8.5 requires, or null when none is. */
+function readDeparture(company: Company, row: ConversationRow, body: { readonly [key: string]: Json }, cursor: string | null): Departure | null {
+  const member = (name: Shown) => shown`${show.name(company.name)}'s events answer's ${name}`;
+  if (body.conversation_id !== row.remote_id) return departure(member(ours("conversation_id")), shown`this conversation's ID, ${show.code(row.remote_id)}`, show.value(body.conversation_id));
+  if (!Array.isArray(body.events)) return departure(member(ours("events")), ours("an array"), show.kind(body.events));
+  if (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !cursor)) {
+    return departure(member(ours("cursor")), ours("a string, or null for no events before any cursor"), show.value(body.cursor));
+  }
+  if (typeof body.has_more !== "boolean") return departure(member(ours("has_more")), ours("true or false"), show.value(body.has_more));
+  if (typeof body.responder !== "string") return departure(member(ours("responder")), ours("a string"), show.kind(body.responder));
+  if (typeof body.working !== "boolean") return departure(member(ours("working")), ours("true or false"), show.value(body.working));
+  if (typeof body.handoff !== "string") return departure(member(ours("handoff")), ours("a string"), show.kind(body.handoff));
+  if (typeof body.closed !== "boolean") return departure(member(ours("closed")), ours("true or false"), show.value(body.closed));
+  return null;
 }
 
 /** How long a busy conversation is read every second after its last activity. */
@@ -1008,7 +1029,7 @@ async function readStream(
       if (isObject(payload) && typeof payload.message_id === "string" && typeof payload.text === "string") {
         const previous = partial?.messageId === payload.message_id ? partial.text : "";
         if (previous.length + payload.text.length > MAX_SSE_CHARS) {
-          throw new PoppyError("invalid_response", "The Company's unfinished streamed message is too large", 0);
+          throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s unfinished streamed message`, shown`at most ${MAX_SSE_CHARS} characters`, shown`${previous.length + payload.text.length}`), 0);
         }
         partial = { messageId: payload.message_id, text: previous + payload.text };
         const row = conversation(client, id);
@@ -1027,12 +1048,12 @@ async function readStream(
       buffer += lineEndings.normalize(next.value);
       let split: number;
       while ((split = buffer.indexOf("\n\n")) !== -1) {
-        if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's stream event is too large", 0);
+        if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s stream event`, shown`at most ${MAX_SSE_CHARS} characters`, shown`${split}`), 0);
         const block = buffer.slice(0, split);
         buffer = buffer.slice(split + 2);
         await dispatch(block);
       }
-      if (buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's unfinished stream event is too large", 0);
+      if (buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s unfinished stream event`, shown`at most ${MAX_SSE_CHARS} characters`, shown`${buffer.length}`), 0);
     }
   } finally {
     // Pieces of a message we didn't receive in full are dropped (8.6).
@@ -1100,7 +1121,7 @@ export async function handoff(
   callKey: string
 ): Promise<ModelState> {
   const row = conversation(client, id);
-  if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  if (!row) throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(id)}`, 404);
   requireCompany(company, row);
   let label: string;
   ({ company, label } = await continuing(client, row));
@@ -1134,7 +1155,7 @@ const closeWhenDone = (id: string) => `close-when-done|${id}`;
  */
 export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<{ readonly status: string; readonly waiting: boolean }> {
   const row = conversation(client, id);
-  if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  if (!row) throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(id)}`, 404);
   requireCompany(company, row);
   let label: string;
   ({ company, label } = await continuing(client, row));
@@ -1173,7 +1194,7 @@ async function sendClose(client: PoppyClient, company: Company, label: string, r
  */
 export async function cancelHandoff(client: PoppyClient, company: Company, id: string, callKey: string): Promise<ModelState> {
   const row = conversation(client, id);
-  if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  if (!row) throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(id)}`, 404);
   requireCompany(company, row);
   let label: string;
   ({ company, label } = await continuing(client, row));
@@ -1228,7 +1249,7 @@ export async function startDirectConversation(
   eventId?: string
 ): Promise<string> {
   const parent = conversation(client, parentId);
-  if (!parent) throw new PoppyError("conversation_not_found", `No conversation ${parentId}`, 404);
+  if (!parent) throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(parentId)}`, 404);
   const { company } = await continuing(client, parent);
   // 8.10: accepting the Company's invitation names its user_requested event, so a retry returns the same
   // Direct Conversation; with no words from the User, the Company speaks first. The invitation is the one
@@ -1236,7 +1257,7 @@ export async function startDirectConversation(
   // invitation already accepted, opens a new Direct Conversation with the User's words.
   const invitation = eventId === undefined ? undefined : one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", invitationKey(parentId, eventId))?.value;
   const words = text.trim() ? text : undefined;
-  if (!invitation && !words) throw new PoppyError("invalid_request", "Write a first message to start talking with the company", 0);
+  if (!invitation && !words) throw new PoppyError("invalid_request", ours("Write a first message to start talking with the company"), 0);
   const result = await sendMessage(client, company, {
     label: baseLabel(parent.label),
     callKey: invitation ? `direct-accept|${parentId}|${invitation}|${words === undefined ? "" : randomId()}` : `direct|${randomId()}`,
@@ -1265,7 +1286,7 @@ export async function startDirectConversation(
 /** The User's own words in a Direct Conversation: sent as written, `author.type` `human` (8.8). */
 export async function sayInDirect(client: PoppyClient, id: string, text: string): Promise<void> {
   const row = conversation(client, id);
-  if (!row || !row.direct) throw new PoppyError("conversation_not_found", `No Direct Conversation ${id}`, 404);
+  if (!row || !row.direct) throw new PoppyError("conversation_not_found", shown`No Direct Conversation ${show.code(id)}`, 404);
   const { company } = await continuing(client, row);
   await sendMessage(client, company, {
     label: baseLabel(row.label),
@@ -1283,7 +1304,7 @@ export async function sayInDirect(client: PoppyClient, id: string, text: string)
  */
 export async function inviteUser(client: PoppyClient, id: string, reason: string): Promise<void> {
   const row = conversation(client, id);
-  if (!row || row.direct) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  if (!row || row.direct) throw new PoppyError("conversation_not_found", shown`No conversation ${show.code(id)}`, 404);
   const { company } = await continuing(client, row);
   await client.host.showCard({
     id: `direct-invite-${id}`,

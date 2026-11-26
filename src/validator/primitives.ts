@@ -3,8 +3,9 @@
  * version) combines these into rules; a new version reuses them and changes
  * only the rules that differ.
  */
+import { departure, isDeparture, ours, sentence, show, shown, type Shown } from "../diagnostic.ts";
 import { pointer, type Position } from "./json.ts";
-import { MESSAGES, type Basis, type MessageId, type Ref, type Severity } from "./messages.ts";
+import { MESSAGES, type Basis, type MessageId, type ProblemFor, type Ref, type Severity } from "./messages.ts";
 
 /** Which document a message is about. */
 export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks" | "protected-resource";
@@ -21,7 +22,12 @@ export type Message = {
   readonly pointer: string;
   readonly line?: number;
   readonly column?: number;
-  readonly text: string;
+  /** The message as a sentence: for a departure, "subject: expected X, got Y." */
+  readonly text: Shown;
+  /** For a departure (every error and warning but a few the catalog marks `fact`): what the rule wants, in its words. */
+  readonly expected?: Shown;
+  /** For a departure: what the document or the fetch gave, quoted and bounded as src/diagnostic.ts shows values. */
+  readonly got?: Shown;
   readonly ref: Ref;
 };
 
@@ -48,7 +54,12 @@ export class Checker {
     }
   }
 
-  report(id: MessageId, at: string, text: string, ref?: Ref, position: Position | undefined = this.#position(at)): void {
+  /**
+   * Reports `id` at `at`. What it takes follows from the catalog
+   * (`ProblemFor`): a departure, with what was expected and what was got,
+   * for every message but the facts, so a report can't leave a side out.
+   */
+  report<Id extends MessageId>(id: Id, at: string, problem: ProblemFor<Id>, ref?: Ref, position: Position | undefined = this.#position(at)): void {
     const definition = MESSAGES[id];
     this.messages.push({
       id,
@@ -58,7 +69,8 @@ export class Checker {
       document: this.document,
       pointer: at,
       ...(position ? { line: position.line, column: position.column } : {}),
-      text,
+      text: sentence(problem),
+      ...(isDeparture(problem) ? { expected: problem.expected, got: problem.got } : {}),
       ref: ref ?? definition.ref
     });
   }
@@ -79,13 +91,19 @@ export function label(at: string): string {
   return at === "" ? "the document" : at.slice(1).split("/").map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~")).join(".");
 }
 
-function typeName(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "an array";
-  return typeof value === "object" ? "an object" : `a ${typeof value}`;
+type Expected = "object" | "string" | "array" | "boolean";
+
+const AN: Readonly<Record<Expected, Shown>> = { object: ours("an object"), string: ours("a string"), array: ours("an array"), boolean: ours("a boolean") };
+
+/** The member at `at`, as a message names it: `agent.protocols[0].type`. */
+export function subject(at: string): Shown {
+  return show.path(at);
 }
 
-type Expected = "object" | "string" | "array" | "boolean";
+/** A missing member: a value expected (with why, when it is required only sometimes), none got. */
+function missing(at: string, required: true | Shown): ReturnType<typeof departure> {
+  return departure(subject(at), required === true ? ours("a value") : shown`a value, ${required}`, ours("none"));
+}
 
 function hasType(value: unknown, expected: Expected): boolean {
   if (expected === "object") return isObject(value);
@@ -95,7 +113,7 @@ function hasType(value: unknown, expected: Expected): boolean {
 
 /**
  * A member of `parent` of the expected type. Missing: reported if
- * `required` (a string says when it's required), else undefined. Wrong type:
+ * `required` (shown text says why, when it's required only sometimes), else undefined. Wrong type:
  * reported, and undefined.
  */
 export function member<T>(
@@ -104,21 +122,17 @@ export function member<T>(
   parentAt: string,
   key: string,
   expected: Expected,
-  required: boolean | string,
+  required: boolean | Shown,
   ref?: Ref
 ): T | undefined {
   const at = pointer(parentAt, key);
   if (!(key in parent)) {
-    if (required) {
-      const when = typeof required === "string" ? ` ${required}` : "";
-      c.report("missing-member", at, `${label(at)} is required${when}.`, ref);
-    }
+    if (required) c.report("missing-member", at, missing(at, required), ref);
     return undefined;
   }
   const value = parent[key];
   if (!hasType(value, expected)) {
-    const article = expected === "array" || expected === "object" ? "an" : "a";
-    c.report("wrong-type", at, `${label(at)} must be ${article} ${expected}, not ${typeName(value)}.`, ref);
+    c.report("wrong-type", at, departure(subject(at), AN[expected], show.kind(value)), ref);
     return undefined;
   }
   return value as T;
@@ -128,7 +142,7 @@ export function member<T>(
 export function unknownMembers(c: Checker, value: Obj, at: string, known: readonly string[]): void {
   for (const key of Object.keys(value)) {
     if (!known.includes(key)) {
-      c.report("unknown-member", pointer(at, key), `${label(pointer(at, key))} isn't defined in this version; agents ignore it.`);
+      c.report("unknown-member", pointer(at, key), shown`${subject(pointer(at, key))} isn't defined in this version; agents ignore it`);
     }
   }
 }
@@ -143,28 +157,28 @@ export type UrlRules = { readonly fragment?: "unstated" };
 /** An absolute HTTPS URL with no fragment, or undefined after reporting why not. */
 export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref, rules: UrlRules = {}): URL | undefined {
   if (typeof value !== "string") {
-    c.report("wrong-type", at, `${label(at)} must be a URL string, not ${typeName(value)}.`, ref);
+    c.report("wrong-type", at, departure(subject(at), ours("a URL string"), show.kind(value)), ref);
     return undefined;
   }
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    c.report("not-a-url", at, `${label(at)} isn't an absolute URL: ${JSON.stringify(value)}.`, ref);
+    c.report("not-a-url", at, departure(subject(at), ours("an absolute URL"), show.value(value)), ref);
     return undefined;
   }
   if (url.protocol !== "https:") {
-    c.report("not-https-url", at, `${label(at)} must be an HTTPS URL, not ${url.protocol.replace(":", "")}: ${value}.`, ref);
+    c.report("not-https-url", at, departure(subject(at), ours("an https URL"), show.url(url)), ref);
     return undefined;
   }
   // The URL parser accepts hosts such as "." (https://.) or "a..b", which name no server.
   const host = url.hostname.replace(/\.$/, "");
   if (host === "" || host.split(".").some((part) => part === "")) {
-    c.report("not-a-url", at, `${label(at)} has no usable host name: ${JSON.stringify(value)}.`, ref);
+    c.report("not-a-url", at, departure(subject(at), ours("a URL with a host name"), show.value(value)), ref);
     return undefined;
   }
   if (value.includes("#")) {
-    c.report(rules.fragment === "unstated" ? "url-has-fragment-unstated" : "url-has-fragment", at, `${label(at)} can't contain a #fragment: ${value}.`, ref);
+    c.report(rules.fragment === "unstated" ? "url-has-fragment-unstated" : "url-has-fragment", at, departure(subject(at), ours("a URL without a #fragment"), ours("a URL with one")), ref);
     return undefined;
   }
   return url;
@@ -176,16 +190,13 @@ export function httpsMember(
   parent: Obj,
   parentAt: string,
   key: string,
-  required: boolean | string,
+  required: boolean | Shown,
   ref?: Ref,
   rules: UrlRules = {}
 ): URL | undefined {
   const at = pointer(parentAt, key);
   if (!(key in parent)) {
-    if (required) {
-      const when = typeof required === "string" ? ` ${required}` : "";
-      c.report("missing-member", at, `${label(at)} is required${when}.`, ref);
-    }
+    if (required) c.report("missing-member", at, missing(at, required), ref);
     return undefined;
   }
   return httpsUrl(c, parent[key], at, ref, rules);
@@ -196,7 +207,7 @@ export function stringList(c: Checker, value: unknown[], at: string, ref?: Ref):
   const out: string[] = [];
   value.forEach((item, index) => {
     if (typeof item === "string") out.push(item);
-    else c.report("wrong-type", pointer(at, index), `${label(pointer(at, index))} must be a string, not ${typeName(item)}.`, ref);
+    else c.report("wrong-type", pointer(at, index), departure(subject(pointer(at, index)), ours("a string"), show.kind(item)), ref);
   });
   return out;
 }

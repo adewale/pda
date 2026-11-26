@@ -6,7 +6,8 @@
  * Keep the built behavior and the operator's commitments current. Provider
  * retention depends on deployment and account settings, not this application's logger.
  */
-import { ConfigError } from "./config.ts";
+import { ConfigError, missingSetting } from "./config.ts";
+import { departure, ours } from "./diagnostic.ts";
 
 /** Bumped whenever the policy's text changes. */
 export const PRIVACY_UPDATED = "11 November 2026";
@@ -22,7 +23,9 @@ export function readPrivacyContact(env: PrivacyEnv): { readonly text: string; re
   const value = typeof env.PRIVACY_CONTACT === "string" ? env.PRIVACY_CONTACT.trim() : "";
   if (/^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$/.test(value)) return { text: value, href: `mailto:${value}` };
   if (/^https:\/\/[^\s<>"]+$/.test(value)) return { text: value, href: value };
-  throw new ConfigError("PRIVACY_CONTACT must be an email address or an https:// URL");
+  if (!value) throw new ConfigError(missingSetting(ours("PRIVACY_CONTACT"), env.PRIVACY_CONTACT));
+  // Its shape, not the value: this answer is served to whoever asked, and the value can hold markup.
+  throw new ConfigError(departure(ours("PRIVACY_CONTACT"), ours("an email address or an https:// URL"), value.startsWith("https://") ? ours('a URL with a space, <, > or " in it') : ours("text that is neither")));
 }
 
 const escape = (text: string) =>
