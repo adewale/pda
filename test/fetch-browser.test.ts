@@ -147,7 +147,7 @@ describe("the fetch browser", () => {
         { headers: { "Content-Type": "text/html" } }
       );
     const context = await new FetchBrowser(async () => endless(), { maxBytes: 10_000 }).newContext(allowAll);
-    await expect(context.goto("https://shop.example/")).rejects.toThrow("https://shop.example/: expected a page of at most 10000 bytes, got a larger one");
+    await expect(context.goto("https://shop.example/")).rejects.toThrow("https://shop.example: expected a page of at most 10000 bytes, got a larger one");
     expect(pulled).toBeLessThan(20);
   });
 

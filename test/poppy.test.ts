@@ -1394,7 +1394,7 @@ describe("6 web browsing", () => {
     const via = (to: string) => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: `/go?to=${encodeURIComponent(to)}` });
     const offDomain = await via("https://elsewhere.test/");
     expect(offDomain.isError).toBe(true);
-    expect(offDomain.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test/`);
+    expect(offDomain.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test`);
     const plain = await via(`http://${c.domain}/orders`);
     expect(plain.isError).toBe(true);
     expect(plain.text).toContain("only loads HTTPS pages");
@@ -1522,7 +1522,7 @@ describe("6 web browsing", () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: "https://elsewhere.test/" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test/ [refused]`);
+    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test [refused]`);
   });
 
   it("never opens the Company's sign-in pages", async () => {
