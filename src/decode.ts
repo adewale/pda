@@ -1,5 +1,5 @@
 import type { Json } from "./poppy/json";
-import { departure, ours, ProblemError, show, type Problem, type ProblemOrText, type Shown } from "./diagnostic";
+import { departure, ours, ProblemError, show, type Problem, type ProblemOrText, render, type Shown } from "./diagnostic";
 
 /**
  * Decoders for data that crosses a boundary into typed code: rows read back
@@ -149,11 +149,12 @@ export function tagged<K extends string, M extends Record<string, Decoder<unknow
 }
 
 /** A value decoded, or why not, for a caller that refuses rather than throws. */
-export function tryDecode<T>(decoder: Decoder<T>, value: unknown, what: string): { ok: true; value: T } | { ok: false; problem: string } {
+/** The decoded value, or what was wrong, rendered: shown text, since a departure interpolated into a template would print as an object. */
+export function tryDecode<T>(decoder: Decoder<T>, value: unknown, what: string): { ok: true; value: T } | { ok: false; problem: Shown } {
   try {
     return { ok: true, value: decoder(value, what) };
   } catch (error) {
-    if (error instanceof DecodeError) return { ok: false, problem: error.message };
+    if (error instanceof DecodeError) return { ok: false, problem: render(error.problem) };
     throw error;
   }
 }

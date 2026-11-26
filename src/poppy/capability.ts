@@ -40,7 +40,7 @@ import { array, jsonText, object, optional, string, tryDecode } from "../decode"
 import { isDiagnosticFlowId } from "./approval-outcome";
 import { writeCard, type CardWriteOptions } from "./cards";
 import { approvalDecisions } from "./approval-decisions";
-import { ours } from "../diagnostic";
+import { ours, shown } from "../diagnostic";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -552,7 +552,7 @@ export class PoppyCapability extends LifecycleCapability {
         // From the User's page only; the model has no way to send this frame.
         const decoded = tryDecode(newInstructionDecoder, { issuer: frame.issuer, account: frame.account ?? null, text: frame.text, conditions: frame.conditions, budget: frame.budget ?? null }, "instruction");
         try {
-          if (!decoded.ok) throw new InstructionRefused(`That instruction can't be used: ${decoded.problem}.`);
+          if (!decoded.ok) throw new InstructionRefused(shown`That instruction can't be used: ${decoded.problem}`);
           addInstruction(client, decoded.value);
         } catch (error) {
           if (!(error instanceof InstructionRefused)) throw error;

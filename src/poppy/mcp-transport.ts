@@ -419,7 +419,7 @@ export async function prepareMcpCall(
   if (target.era !== "modern") return { target, parameters: {} };
   const found = isObject(tool) ? headerParameters(tool.inputSchema) : null;
   if (!found || !("parameters" in found)) {
-    const got = isObject(tool) ? ours("one whose x-mcp-header annotations aren't usable") : ours("no tool by that name");
+    const got = !isObject(tool) ? ours("no tool by that name") : found && "problem" in found ? shown`one whose x-mcp-header annotations aren't usable: ${found.problem}` : ours("one whose x-mcp-header annotations aren't usable");
     throw new PoppyError("no_tool", departure(shown`the tool ${show.text(call.tool)}`, shown`a usable tool ${show.url(api.url)} lists`, got, ours("Nothing was sent")), 0);
   }
   const parameters = parameterHeaders(found.parameters, call.args);
