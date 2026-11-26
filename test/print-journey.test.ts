@@ -169,7 +169,7 @@ describe("composer authority cannot be inferred from prose", () => {
     const c = await company({ printShop: true });
     const a = await agent();
     await chat(a.socket, a.client, `Print my photo at Mock Shop. ${obey("poppy_request_company", { domain: c.domain, photos: ["att_0000000000000000000000"] })}`, undefined, { companies: [], uploads: [] });
-    expect(await a.stub.poppyTranscript()).toContain("isn't a photo the User attached");
+    expect(await a.stub.poppyTranscript()).toContain("photos: expected ids of photos the User attached, not yet expired, got");
     expect((await cards(a)).filter((item) => item.kind === "company_access")).toEqual([]);
   });
 
@@ -755,7 +755,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const approval = (await cards(a)).find((card) => card.kind === "approval" && card.open)!;
     await a.stub.poppyAdvance(KEEP_MS + 60_000);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain(`No attachment ${late.id}`);
+    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain(`files.photo: expected the id of an attachment the User attached (att_…, in their message), got "${late.id}". [no_attachment]`);
     expect(await photoRequests(c)).toEqual([]);
   });
 
@@ -786,9 +786,9 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(unknown.isError).toBe(true);
     expect(JSON.parse(unknown.details)).toMatchObject({ error: "no_attachment" });
     const field = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { avatar: info.id } });
-    expect(field.text).toContain("has no file field avatar; its file fields are photo");
+    expect(field.text).toBe('a file field of POST /photos: expected photo, got "avatar". [invalid_request]');
     const none = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder("pho_x"), files: { photo: info.id } });
-    expect(none.text).toContain("takes no file");
+    expect(none.text).toContain("expected an operation that takes files, with a multipart/form-data request body, got one whose request body isn't multipart/form-data. [invalid_request]");
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
     expect(await photoRequests(c)).toEqual([]);
   });
@@ -850,7 +850,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const a = await poppyAgent();
     const both = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder("pho_1"), bodyValue: null });
     expect(JSON.parse(both.details)).toMatchObject({ error: "invalid_body" });
-    expect(both.text).toContain("Pass either body or bodyValue, not both. Nothing was sent.");
+    expect(both.text).toBe("body and bodyValue: expected one of them, got both. Nothing was sent. [invalid_body]");
     // bodyValue is for a body that isn't an object; an order is one, so a string of it is refused as body's would be.
     const value = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", bodyValue: JSON.stringify(printOrder("pho_1")) });
     expect(JSON.parse(value.details)).toMatchObject({ error: "invalid_body" });
