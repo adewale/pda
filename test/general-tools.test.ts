@@ -12,6 +12,7 @@ import { MAX_MEMORIES, PROMPT_MEMORIES, PROMPT_MEMORY_CHARS, promptNotes, secret
 import { DEFAULT_QUESTION, NO_RENDERER } from "../src/tools/extensions";
 import { allowBrowserRequest, EMPTY_SHELL_CHARS, needsJavaScript, RENDER_LIMITS, renderAvailability, renderPage } from "../src/tools/render";
 import { READ_LIMITS, readableText, readUrl, ReadError, USER_AGENT } from "../src/tools/web";
+import { ours } from "../src/diagnostic";
 import { agent, chat, connect, fetchWorker, ORIGIN, person, sessionCookie, testEnv, until, wideEvents } from "./agent-helpers";
 import { fakeBrowserWeb, fakeLauncher } from "./fake-browser";
 import { obey } from "./worker";
@@ -102,8 +103,8 @@ describe("read_url", () => {
 
     await stub.webServe("https://c.example.com/", { status: 302, headers: { Location: "http://c.example.com/plain" } });
     await stub.webServe("https://d.example.com/", { status: 307, headers: { Location: "https://localhost/admin" } });
-    expect((await read(stub, "https://c.example.com/")).text).toContain("Only https:// pages are read");
-    expect((await read(stub, "https://d.example.com/")).text).toContain("localhost isn't a public host");
+    expect((await read(stub, "https://c.example.com/")).text).toBe("the redirect from https://c.example.com/ to http://c.example.com/plain: expected https, got http. Only https:// pages are read");
+    expect((await read(stub, "https://d.example.com/")).text).toBe("the redirect from https://d.example.com/ to https://localhost/admin: expected a public host, got localhost");
 
     for (let hop = 0; hop <= READ_LIMITS.maxRedirects; hop++) {
       await stub.webServe(`https://loop.example.com/${hop}`, { status: 302, headers: { Location: `/${hop + 1}` } });
@@ -133,10 +134,10 @@ describe("read_url", () => {
       await stub.webServe(url, { headers: { "Content-Type": type }, body: "{\"a\": 1}" });
       const result = await read(stub, url);
       expect(result.isError, type).toBe(!readable);
-      if (!readable) expect(result.text, type).toContain("only HTML, plain text, JSON and XML pages are read");
+      if (!readable) expect(result.text, type).toBe(`the Content-Type of ${url}: expected HTML, plain text, JSON or XML, got ${type}. Only those pages are read`);
     }
     await stub.webServe("https://files.example.com/none", { headers: {}, body: "x" });
-    expect((await read(stub, "https://files.example.com/none")).text).toContain("served without a Content-Type");
+    expect((await read(stub, "https://files.example.com/none")).text).toBe("the Content-Type of https://files.example.com/none: expected HTML, plain text, JSON or XML, got no Content-Type. Only those pages are read");
     await stub.webServe("https://files.example.com/missing", { status: 404, headers: HTML, body: "<p>Not here</p>" });
     const missing = await read(stub, "https://files.example.com/missing");
     expect(missing).toMatchObject({ isError: true, text: "https://files.example.com/missing answered HTTP 404" });
@@ -159,7 +160,7 @@ describe("read_url", () => {
   it("gives up after its time limit, even when the body never ends", async () => {
     const stall = async () =>
       new Response(new ReadableStream<Uint8Array>({ start: (controller) => controller.enqueue(new TextEncoder().encode("<p>")) }), { headers: HTML });
-    await expect(readUrl(stall, "https://slow.example.com/", { timeoutMs: 50 })).rejects.toThrow(new ReadError("slow.example.com took longer than 0.05 seconds"));
+    await expect(readUrl(stall, "https://slow.example.com/", { timeoutMs: 50 })).rejects.toThrow(new ReadError(ours("slow.example.com took longer than 0.05 seconds")));
     const hang = () => new Promise<Response>(() => undefined);
     await expect(readUrl(hang, "https://slow.example.com/", { timeoutMs: 50 })).rejects.toBeInstanceOf(ReadError);
   });
@@ -328,13 +329,13 @@ describe("read_url rendering in Browser Run", () => {
       ["GET", "wss://example.com/socket", /Only https/],
       ["GET", "ftp://example.com/file", /Only https/],
       ["GET", "file:///etc/passwd", /Only https/],
-      ["GET", "https://localhost/admin", /isn't a public host/],
-      ["GET", "https://127.0.0.1/", /isn't a public host/],
-      ["GET", "https://169.254.169.254/latest/meta-data", /isn't a public host/],
-      ["GET", "https://[::1]/", /isn't a public host/],
-      ["GET", "https://metadata.internal/", /isn't a public host/],
-      ["GET", "https://printer.local/", /isn't a public host/],
-      ["GET", "https://example.com:8443/", /standard HTTPS port/],
+      ["GET", "https://localhost/admin", /^the URL's host: expected a public host, got localhost$/],
+      ["GET", "https://127.0.0.1/", /expected a public host, got 127\.0\.0\.1$/],
+      ["GET", "https://169.254.169.254/latest/meta-data", /expected a public host/],
+      ["GET", "https://[::1]/", /expected a public host, got \[::1\]$/],
+      ["GET", "https://metadata.internal/", /expected a public host/],
+      ["GET", "https://printer.local/", /expected a public host/],
+      ["GET", "https://example.com:8443/", /^the URL's port: expected the standard HTTPS port, got 8443$/],
       ["GET", "https://user:pass@example.com/", /user name or password/],
       ["GET", "not a url", /not a URL/]
     ];
@@ -369,8 +370,8 @@ describe("read_url rendering in Browser Run", () => {
     expect(renderAvailability({ BROWSER_RUN: "on", BROWSER: {} })).toBe("on");
     expect(renderAvailability({ BROWSER_RUN: "off", BROWSER: {} })).toBe("off");
     expect(renderAvailability({ BROWSER_RUN: "on" })).toBe("no binding");
-    expect(() => renderAvailability({ BROWSER_RUN: "yes", BROWSER: {} })).toThrow("BROWSER_RUN must be on or off");
-    expect(() => renderAvailability({ BROWSER: {} })).toThrow("Missing required setting BROWSER_RUN");
+    expect(() => renderAvailability({ BROWSER_RUN: "yes", BROWSER: {} })).toThrow('BROWSER_RUN: expected on or off, got "yes"');
+    expect(() => renderAvailability({ BROWSER: {} })).toThrow("BROWSER_RUN: expected a value (a required setting), got nothing");
     // Nothing in the tests can reach Browser Run: test/wrangler.jsonc declares no binding.
     expect(renderAvailability(testEnv)).toBe("no binding");
   });
@@ -485,7 +486,7 @@ describe("read_url rendering in Browser Run", () => {
     await stub.webServe("https://127.0.0.1.nip.example.com/", { headers: HTML, body: SHELL });
     await stub.webRender("https://127.0.0.1.nip.example.com/", { html: "<p>router admin secrets</p>", remoteIp: "127.0.0.1" });
     const result = await readRendered(stub, "https://127.0.0.1.nip.example.com/");
-    expect(result.text).toContain("Note: Rendering failed: 127.0.0.1.nip.example.com (127.0.0.1) isn't a public address, so the rendered page isn't read.");
+    expect(result.text).toContain("Note: Rendering failed: the rendered page's address: expected a public address, got 127.0.0.1.nip.example.com (127.0.0.1). The rendered page isn't read.");
     expect(result.text).toContain("Read: a plain fetch; no JavaScript ran");
     expect(result.text).not.toContain("router admin secrets");
     expect((await stub.webRenders()).logs[0]!.closed).toBe(true);
@@ -494,7 +495,7 @@ describe("read_url rendering in Browser Run", () => {
   it("gives up after its time limit and closes the browser, and closes a browser that starts too late", async () => {
     const web = fakeBrowserWeb();
     web.pages.set("https://slow.example.com/", { hang: true });
-    await expect(renderPage(fakeLauncher(web), "https://slow.example.com/", { timeoutMs: 50 })).rejects.toThrow(new ReadError("Rendering slow.example.com took longer than 0.05 seconds"));
+    await expect(renderPage(fakeLauncher(web), "https://slow.example.com/", { timeoutMs: 50 })).rejects.toThrow(new ReadError(ours("Rendering slow.example.com took longer than 0.05 seconds")));
     expect(web.logs).toHaveLength(1);
     expect(web.logs[0]!.closed).toBe(true);
 
@@ -706,7 +707,7 @@ describe("memory", () => {
     const { stub } = await agent();
     const long = await stub.generalTool("remember", { text: "a".repeat(501), source: "agent" });
     expect(long).toMatchObject({ isError: true });
-    expect(long.text).toContain("at most 500 characters");
+    expect(long.text).toBe("the note: expected at most 500 characters, got 501 characters. Keep one short fact per note");
     // Fill the store directly: 200 notes.
     await stub.poppySql(
       `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${MAX_MEMORIES}) INSERT INTO memories (text, source, created_at) SELECT 'Note ' || i, 'agent', 0 FROM n`
@@ -859,7 +860,7 @@ describe("time and maths", () => {
     });
     expect(JSON.parse((await stub.generalTool("now", { time_zone: "America/Los_Angeles" })).text)).toMatchObject({ time: "05:00:00", utc_offset: "-07:00", zone_from: "given" });
     const bad = await stub.generalTool("now", { time_zone: "Mars/Olympus" });
-    expect(bad).toMatchObject({ isError: true, text: '"Mars/Olympus" isn\'t an IANA time zone name, such as Europe/London' });
+    expect(bad).toMatchObject({ isError: true, text: 'the time zone: expected an IANA time zone name, such as Europe/London, got "Mars/Olympus"' });
   });
 
   it("adds and subtracts calendar time, and counts the days between dates", async () => {
@@ -885,11 +886,14 @@ describe("time and maths", () => {
     const hours = await math({ start: "2026-10-12T09:00", until: "2026-10-13T17:30" });
     expect(hours.difference).toEqual({ total_seconds: 117_000, days: 1, hours: 8, minutes: 30, seconds: 0 });
     for (const [args, message] of [
-      [{ start: "2026-02-30", add: "P1D" }, "is a date that doesn't exist"],
-      [{ start: "2026-10-12", add: "P1H" }, "isn't an ISO 8601 duration"],
-      [{ start: "2026-10-12" }, "Give add or subtract, or until"],
-      [{ start: "next tuesday", add: "P1D" }, "isn't a date"],
-      [{ start: "9999-12-31", add: "P1D" }, "Dates go from year 1 to 9999"]
+      [{ start: "2026-02-30", add: "P1D" }, 'the date: expected a month from 01 to 12 and a day in that month, got "2026-02-30"'],
+      [{ start: "2026-10-12", add: "P1H" }, 'the duration: expected an ISO 8601 duration such as P1D, P2W, P1M or PT3H30M, got "P1H"'],
+      [{ start: "2026-10-12" }, "the arguments: expected add or subtract, or until, or both, got none of them"],
+      [{ start: "next tuesday", add: "P1D" }, 'the date: expected a date (2026-10-12), a date and time (2026-10-12T09:30, optionally with Z or +01:00), "today" or "now", got "next tuesday"'],
+      [{ start: "9999-12-31", add: "P1D" }, "the year: expected a year from 1 to 9999, got 10000"],
+      [{ start: "2026-10-12T25:00", add: "P1D" }, 'the time: expected a time of day from 00:00 to 23:59:59, got "2026-10-12T25:00"'],
+      [{ start: "2026-10-12", add: { fortnights: 1 } }, 'the duration\'s units: expected some of years, months, weeks, days, hours, minutes and seconds, got "fortnights"'],
+      [{ start: "2026-10-12", add: { days: 1.5 } }, "days: expected a whole number, got 1.5"]
     ] as const) {
       const result = await stub.generalTool("date_math", args);
       expect(result.isError, JSON.stringify(args)).toBe(true);
@@ -923,13 +927,15 @@ describe("time and maths", () => {
     expect(await calc("max(1, 2.5, -3) + min(4, 2) + abs(-1) + floor(-1.5) + ceil(1.2)")).toMatchObject({ result: "5.5" });
     for (const [expression, message] of [
       ["1/0", "Division by zero"],
-      ["process.exit()", "Unexpected"],
-      ["constructor", "Unknown name"],
+      ["process.exit()", 'position 8: expected a digit, a letter, an operator or a parenthesis, got "."'],
+      ["constructor", 'position 1: expected a function (round, floor, ceil, min, max, sqrt or abs) or a constant (pi or e), got "constructor"'],
+      ["2 3", 'position 3: expected the end of the expression, got "3"'],
+      ["round(1, 2, 3)", "round: expected 1 to 2 arguments, got 3 arguments"],
       ["2 +", "ends too soon"],
-      ["(1", 'Expected ")"'],
-      ["9^9^9", "Exponents go up to 1000"],
+      ["(1", 'the end of the expression: expected ")", got nothing'],
+      ["9^9^9", "the exponent: expected a whole number from -1000 to 1000, got 387420489"],
       ["(".repeat(60) + "1" + ")".repeat(60), "nested more than 50 deep"],
-      ["1+".repeat(300) + "1", "longer than 500 characters"],
+      ["1+".repeat(300) + "1", "the expression: expected at most 500 characters, got 601 characters"],
       ["sqrt(-1)", "isn't a real number"],
       ["(-1e-400)^0.5", "isn't a real number"],
       ["(1e-1000)^4.5", "too large or too small"]

@@ -20,7 +20,7 @@
  * and thin spaces are skipped. Pure: no Worker APIs, so the property tests
  * run it in Node.
  */
-import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
 
 /** Longest expression, in characters. */
 export const MAX_EXPRESSION = 500;
@@ -62,7 +62,7 @@ function bits(x: bigint): number {
 }
 
 function q(n: bigint, d: bigint = 1n, exact = true): Q {
-  if (d === 0n) throw new CalcError("Division by zero");
+  if (d === 0n) throw new CalcError(ours("Division by zero"));
   if (d < 0n) {
     n = -n;
     d = -d;
@@ -72,7 +72,7 @@ function q(n: bigint, d: bigint = 1n, exact = true): Q {
     n /= g;
     d /= g;
   }
-  if (bits(n) > MAX_BITS || bits(d) > MAX_BITS) throw new CalcError("A number in the calculation is too large");
+  if (bits(n) > MAX_BITS || bits(d) > MAX_BITS) throw new CalcError(ours("A number in the calculation is too large"));
   return { n, d, exact };
 }
 
@@ -80,7 +80,7 @@ const add = (a: Q, b: Q) => q(a.n * b.d + b.n * a.d, a.d * b.d, a.exact && b.exa
 const sub = (a: Q, b: Q) => q(a.n * b.d - b.n * a.d, a.d * b.d, a.exact && b.exact);
 const mul = (a: Q, b: Q) => q(a.n * b.n, a.d * b.d, a.exact && b.exact);
 function div(a: Q, b: Q): Q {
-  if (b.n === 0n) throw new CalcError("Division by zero");
+  if (b.n === 0n) throw new CalcError(ours("Division by zero"));
   return q(a.n * b.d, a.d * b.n, a.exact && b.exact);
 }
 const compare = (a: Q, b: Q) => {
@@ -97,13 +97,13 @@ function floorInt(x: Q): bigint {
 
 /** Remainder with the sign of the divisor, as in most calculators: -7 mod 3 is 2. */
 function mod(a: Q, b: Q): Q {
-  if (b.n === 0n) throw new CalcError("Division by zero (mod 0)");
+  if (b.n === 0n) throw new CalcError(ours("Division by zero (mod 0)"));
   return sub(a, mul(b, q(floorInt(div(a, b)))));
 }
 
 /** A double, as the exact rational it is in decimal, marked approximate. */
 function fromFloat(x: number): Q {
-  if (!Number.isFinite(x)) throw new CalcError(Number.isNaN(x) ? "The result isn't a number" : "A number in the calculation is too large");
+  if (!Number.isFinite(x)) throw new CalcError(Number.isNaN(x) ? ours("The result isn't a number") : ours("A number in the calculation is too large"));
   const parsed = parseDecimal(String(x));
   return { ...parsed, exact: false };
 }
@@ -161,7 +161,7 @@ function exactDouble(v: number): { n: bigint; d: bigint } {
   return shift >= 0 ? { n: significand << BigInt(shift), d: 1n } : { n: significand, d: 1n << BigInt(-shift) };
 }
 
-const TOO_FAR = "A number in the calculation is too large or too small";
+const TOO_FAR = ours("A number in the calculation is too large or too small");
 
 /** x·2^k, marked approximate, refused when it is beyond the calculator's limits. */
 function timesPowerOfTwo(x: Q, k: number): Q {
@@ -172,11 +172,11 @@ function timesPowerOfTwo(x: Q, k: number): Q {
 /** A decimal literal (`12`, `0.5`, `.5`, `1.5e3`) as an exact rational. */
 function parseDecimal(text: string): Q {
   const match = /^([+-])?(\d*)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(text);
-  if (!match || (match[2] === "" && (match[3] ?? "") === "")) throw new CalcError(`${text} isn't a number`);
+  if (!match || (match[2] === "" && (match[3] ?? "") === "")) throw new CalcError(departure(ours("a number"), ours("a decimal such as 12, 0.5 or 1.5e3"), show.text(text)));
   const whole = match[2] ?? "";
   const fraction = match[3] ?? "";
   const exponent = Number(match[4] ?? "0");
-  if (Math.abs(exponent) > MAX_EXPONENT) throw new CalcError(`${text} is too large or too small`);
+  if (Math.abs(exponent) > MAX_EXPONENT) throw new CalcError(departure(shown`the exponent of ${show.text(text)}`, shown`from -${MAX_EXPONENT} to ${MAX_EXPONENT}`, shown`${exponent}`, ours("The number is too large or too small")));
   let n = BigInt(`${whole}${fraction}` || "0");
   if (match[1] === "-") n = -n;
   const scale = exponent - fraction.length;
@@ -221,7 +221,7 @@ function tokenize(source: string): Token[] {
     const op = ({ "+": "+", "-": "-", "−": "-", "*": "*", "×": "*", "⋅": "*", "/": "/", "÷": "/", "^": "^", "%": "%", "(": "(", ")": ")", ",": "," } as const)[
       char as "+"
     ];
-    if (!op) throw new CalcError(`Unexpected ${JSON.stringify(char)} at position ${i + 1}`);
+    if (!op) throw new CalcError(departure(shown`position ${i + 1}`, ours("a digit, a letter, an operator or a parenthesis"), show.text(char)));
     tokens.push({ kind: "op", text: op, at: i });
     i++;
   }
@@ -252,17 +252,18 @@ class Parser {
   }
 
   #expect(text: string): void {
-    if (!this.#isOp(text)) throw new CalcError(`Expected ${JSON.stringify(text)} ${this.#where()}`);
+    if (!this.#isOp(text)) throw new CalcError(this.#instead(show.text(text)));
     this.#at++;
   }
 
-  #where(): string {
+  /** What came where `expected` should have: the token at its position, or nothing at the end. */
+  #instead(expected: Shown): Problem {
     const token = this.#peek();
-    return token ? `at position ${token.at + 1}` : "at the end";
+    return token ? departure(shown`position ${token.at + 1}`, expected, show.text(token.text)) : departure(ours("the end of the expression"), expected, ours("nothing"));
   }
 
   #nest<T>(run: () => T): T {
-    if (++this.#depth > MAX_DEPTH) throw new CalcError(`The expression is nested more than ${MAX_DEPTH} deep`);
+    if (++this.#depth > MAX_DEPTH) throw new CalcError(shown`The expression is nested more than ${MAX_DEPTH} deep`);
     try {
       return run();
     } finally {
@@ -271,9 +272,9 @@ class Parser {
   }
 
   parse(): Q {
-    if (this.#tokens.length === 0) throw new CalcError("The expression is empty");
+    if (this.#tokens.length === 0) throw new CalcError(ours("The expression is empty"));
     const value = this.#expression();
-    if (this.#peek()) throw new CalcError(`Unexpected ${JSON.stringify(this.#peek()!.text)} ${this.#where()}`);
+    if (this.#peek()) throw new CalcError(this.#instead(ours("the end of the expression")));
     return value;
   }
 
@@ -340,7 +341,7 @@ class Parser {
 
   #primary(): Q {
     const token = this.#peek();
-    if (!token) throw new CalcError("The expression ends too soon");
+    if (!token) throw new CalcError(ours("The expression ends too soon"));
     if (token.kind === "number") {
       this.#at++;
       return parseDecimal(token.text);
@@ -356,7 +357,7 @@ class Parser {
       if (token.text === "pi") return fromFloat(Math.PI);
       if (token.text === "e") return fromFloat(Math.E);
       if (!(FUNCTIONS as readonly string[]).includes(token.text)) {
-        throw new CalcError(`Unknown name ${JSON.stringify(token.text)}; the functions are ${FUNCTIONS.join(", ")}, and the constants pi and e`);
+        throw new CalcError(departure(shown`position ${token.at + 1}`, shown`a function (${show.list(FUNCTIONS.map((name) => ours(name)), "or")}) or a constant (pi or e)`, show.text(token.text)));
       }
       this.#expect("(");
       const args = this.#nest(() => {
@@ -370,8 +371,14 @@ class Parser {
       this.#expect(")");
       return call(token.text as FunctionName, args);
     }
-    throw new CalcError(`Unexpected ${JSON.stringify(token.text)} ${this.#where()}`);
+    throw new CalcError(this.#instead(ours("a number, a name or an opening parenthesis")));
   }
+}
+
+/** A whole number as written, or its size when it is too long to show. */
+function whole(n: bigint): Shown {
+  const digits = abs(n).toString().length;
+  return digits <= 15 ? shown`${Number(n)}` : shown`a number of ${digits} digits`;
 }
 
 function isInteger(x: Q): boolean {
@@ -391,19 +398,19 @@ function squareRoot(v: bigint): bigint {
 
 function power(base: Q, exponent: Q): Q {
   if (isInteger(exponent) && exponent.exact) {
-    if (abs(exponent.n) > BigInt(MAX_EXPONENT)) throw new CalcError(`Exponents go up to ${MAX_EXPONENT}`);
+    if (abs(exponent.n) > BigInt(MAX_EXPONENT)) throw new CalcError(departure(ours("the exponent"), shown`a whole number from -${MAX_EXPONENT} to ${MAX_EXPONENT}`, whole(exponent.n)));
     const k = exponent.n;
-    if (k < 0n && base.n === 0n) throw new CalcError("Division by zero (0 to a negative power)");
+    if (k < 0n && base.n === 0n) throw new CalcError(ours("Division by zero (0 to a negative power)"));
     // Refuse before computing a power that couldn't fit.
-    if (Number(abs(k)) * Math.max(bits(base.n), bits(base.d)) > MAX_BITS + 64) throw new CalcError("A number in the calculation is too large");
+    if (Number(abs(k)) * Math.max(bits(base.n), bits(base.d)) > MAX_BITS + 64) throw new CalcError(ours("A number in the calculation is too large"));
     const up = abs(k);
     const result = q(base.n ** up, base.d ** up, base.exact);
     return k < 0n ? div(q(1n), result) : result;
   }
   const y = toFloat(exponent);
-  if (!Number.isFinite(y)) throw new CalcError("A number in the calculation is too large");
+  if (!Number.isFinite(y)) throw new CalcError(ours("A number in the calculation is too large"));
   if (base.n === 0n) return fromFloat(Math.pow(0, y));
-  if (base.n < 0n && !Number.isInteger(y)) throw new CalcError("A negative number to a fractional power isn't a real number");
+  if (base.n < 0n && !Number.isInteger(y)) throw new CalcError(ours("A negative number to a fractional power isn't a real number"));
   // |base| = m·2^e with m near 1, so |base|^y = m^y·2^(y·e), and y·e splits exactly into a whole k and a fraction f.
   // Nothing passes through a double whose range the answer might leave.
   const { m, e } = binary(abs(base.n), base.d);
@@ -434,14 +441,15 @@ function power(base: Q, exponent: Q): Q {
 function call(name: FunctionName, args: Q[]): Q {
   const count = (min: number, max: number) => {
     if (args.length < min || args.length > max) {
-      throw new CalcError(`${name} takes ${min === max ? min : `${min} to ${max === Infinity ? "any number of" : max}`} argument${max === 1 ? "" : "s"}`);
+      const takes = min === max ? show.count(min, ours("argument"), ours("arguments")) : max === Infinity ? shown`${min} or more arguments` : shown`${min} to ${max} arguments`;
+      throw new CalcError(departure(ours(name), takes, show.count(args.length, ours("argument"), ours("arguments"))));
     }
   };
   switch (name) {
     case "round": {
       count(1, 2);
       const places = args[1] ?? q(0n);
-      if (!isInteger(places) || abs(places.n) > 100n) throw new CalcError("round's second argument is a whole number of decimal places, up to 100");
+      if (!isInteger(places) || abs(places.n) > 100n) throw new CalcError(departure(ours("round's second argument"), ours("a whole number of decimal places, up to 100"), shown`${toFloat(places)}`));
       const scale = 10n ** abs(places.n);
       const factor = places.n >= 0n ? q(scale) : q(1n, scale);
       // Half away from zero, as people round money: round(2.5) is 3, round(-2.5) is -3.
@@ -470,7 +478,7 @@ function call(name: FunctionName, args: Q[]): Q {
     case "sqrt": {
       count(1, 1);
       const x = args[0]!;
-      if (x.n < 0n) throw new CalcError("The square root of a negative number isn't a real number");
+      if (x.n < 0n) throw new CalcError(ours("The square root of a negative number isn't a real number"));
       // A square over a square has an exact root, at any size: sqrt(1.44e-30) is 1.2e-15.
       const exactRoot = (v: bigint) => {
         const r = squareRoot(v);
@@ -556,16 +564,16 @@ export type Calculation = {
 
 /** Evaluate `expression`. Throws only `CalcError`. */
 export function calculate(expression: string): Calculation {
-  if (typeof expression !== "string") throw new CalcError("The expression is text");
-  if (expression.length > MAX_EXPRESSION) throw new CalcError(`The expression is longer than ${MAX_EXPRESSION} characters`);
+  if (typeof expression !== "string") throw new CalcError(departure(ours("the expression"), ours("text"), show.kind(expression)));
+  if (expression.length > MAX_EXPRESSION) throw new CalcError(departure(ours("the expression"), shown`at most ${MAX_EXPRESSION} characters`, show.count(expression.length, ours("character"), ours("characters"))));
   let value: Q;
   try {
     value = new Parser(tokenize(expression)).parse();
   } catch (error) {
     if (error instanceof CalcError) throw error;
     // A RangeError from BigInt on a size the checks above missed, or a stack overflow: still a clean refusal.
-    throw new CalcError("The expression couldn't be worked out: it is too large or too deep");
+    throw new CalcError(ours("The expression couldn't be worked out: it is too large or too deep"));
   }
-  const shown = decimal(value);
-  return { expression: expression.trim(), result: shown.text, exact: shown.exact, value: toFloat(value) };
+  const answer = decimal(value);
+  return { expression: expression.trim(), result: answer.text, exact: answer.exact, value: toFloat(value) };
 }

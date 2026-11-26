@@ -6,6 +6,7 @@ import { isAllowed, maySignIn, readOwners } from "./allowlist";
 import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
 import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
+import { ours, sentence, shown } from "./diagnostic";
 import { withPagePolicy } from "./csp";
 import { agentId, code, configureLog, currentEvent, id, inScope, literal, wideEvent, type Safe } from "./log";
 import { privacyPage } from "./privacy";
@@ -52,9 +53,9 @@ async function signedIn(request: Request, env: Env, allowDeleting = false): Prom
   const identity = await verifySession(request, readSessionSecret(env));
   const event = currentEvent();
   event?.set({ sign_in_provider: literal(identity.provider) });
-  if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
+  if (!maySignIn(identity, env)) throw new AuthError(ours("Not allowed to sign in"));
   const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
-  if (!await agent.admitBrowserSession(identity, allowDeleting)) throw new AuthError("Session revoked");
+  if (!await agent.admitBrowserSession(identity, allowDeleting)) throw new AuthError(ours("Session revoked"));
   // Pseudonymous: never the email or provider id.
   event?.set({ signed_in: true, agent_id: agentId(agent.id), is_owner: isAllowed(identity, readOwners(env)) });
   const requestId = id(event?.fields.request_id);
@@ -64,7 +65,7 @@ async function signedIn(request: Request, env: Env, allowDeleting = false): Prom
 /** Recheck admission after asynchronous request-body reads, before selecting the person's own agent. */
 async function agentFor(identity: BrowserIdentity, env: Env): Promise<DurableObjectStub<PersonalAgent>> {
   const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
-  if (!await agent.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+  if (!await agent.admitBrowserSession(identity)) throw new AuthError(ours("Session revoked"));
   return agent;
 }
 
@@ -143,7 +144,7 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
   const identity = await signedIn(request, env);
   const agent = await agentFor(identity, env);
   const expectedWorkspace = new URL(request.url).searchParams.get("workspace");
-  if (!expectedWorkspace || expectedWorkspace !== agent.id.toString()) throw new AuthError("This tab belongs to another workspace");
+  if (!expectedWorkspace || expectedWorkspace !== agent.id.toString()) throw new AuthError(ours("This tab belongs to another workspace"));
   // Who this agent belongs to, for the demo check on its model calls.
   await agent.recordIdentity(identity);
   // Drop the query string so the client cannot pick a pi session; name this request, for the turns its messages start.
@@ -254,7 +255,7 @@ async function handleAttachments(request: Request, env: Env): Promise<Response> 
     const identity = await signedIn(request, env);
     const length = Number(request.headers.get("Content-Length") ?? "NaN");
     if (!Number.isFinite(length)) return json(411, { error: "Send the photo with a Content-Length." });
-    if (length > MAX_ATTACH_BODY) return json(413, { error: `The most your agent takes is ${humanSize(MAX_ATTACHMENT_BYTES)} a photo.` });
+    if (length > MAX_ATTACH_BODY) return json(413, { error: sentence(shown`The most your agent takes is ${humanSize(MAX_ATTACHMENT_BYTES)} a photo.`) });
     let form: FormData;
     try {
       form = await request.formData();

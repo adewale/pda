@@ -13,7 +13,7 @@
  */
 import { decodeEntities } from "../poppy/fetch-browser";
 import { isPublicHost, raceAbort, withDeadline } from "../validator/fetch";
-import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, isDeparture, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
 
 export type Fetcher = (request: Request) => Promise<Response>;
 
@@ -57,12 +57,18 @@ export function pageKind(contentType: string): PageKind | null {
 }
 
 /** Why the agent won't fetch `url`, or null. Checked for the URL given and for every redirect. */
-export function urlProblem(url: URL): string | null {
-  if (url.protocol !== "https:") return `Only https:// pages are read, not ${url.protocol.replace(/:$/, "")}:`;
-  if (url.username || url.password) return "A URL with a user name or password in it isn't read";
-  if (url.port !== "") return `Only the standard HTTPS port is used, not ${url.port}`;
-  if (!isPublicHost(url)) return `${url.hostname} isn't a public host`;
+export function urlProblem(url: URL): Problem | null {
+  if (url.protocol !== "https:") return departure(ours("the URL's scheme"), ours("https"), show.name(url.protocol.replace(/:$/, "")), ours("Only https:// pages are read"));
+  // Never shown: they are credentials.
+  if (url.username || url.password) return ours("A URL with a user name or password in it isn't read");
+  if (url.port !== "") return departure(ours("the URL's port"), ours("the standard HTTPS port"), show.name(url.port));
+  if (!isPublicHost(url)) return departure(ours("the URL's host"), ours("a public host"), show.name(url.hostname));
   return null;
+}
+
+/** A URL's problem, said of where it was met instead (a redirect, where a browser ended). */
+export function problemAt(where: Shown, problem: Problem): Problem {
+  return isDeparture(problem) ? departure(where, problem.expected, problem.got, problem.then) : shown`${problem} (${where})`;
 }
 
 export type PageRead = {
@@ -158,7 +164,7 @@ export async function readUrl(
   try {
     start = new URL(typeof raw === "string" ? raw.trim() : "");
   } catch {
-    throw new ReadError(`${JSON.stringify(raw)} isn't a URL; give a full https:// address`);
+    throw new ReadError(departure(ours("the URL"), ours("a full https:// address"), show.value(raw)));
   }
   start.hash = "";
   const problem = urlProblem(start);
@@ -183,40 +189,38 @@ export async function readUrl(
           );
         } catch (error) {
           if (signal.aborted) throw error;
-          throw new ReadError(`Couldn't reach ${current.host}`);
+          throw new ReadError(shown`Couldn't reach ${show.name(current.host)}`);
         }
         const location = response.headers.get("Location");
         if (response.status >= 300 && response.status < 400 && location) {
           await response.body?.cancel().catch(() => undefined);
-          if (hop >= READ_LIMITS.maxRedirects) throw new ReadError(`More than ${READ_LIMITS.maxRedirects} redirects from ${start.href}`);
+          if (hop >= READ_LIMITS.maxRedirects) throw new ReadError(shown`More than ${READ_LIMITS.maxRedirects} redirects from ${show.url(start, start)}`);
           let next: URL;
           try {
             next = new URL(location, current);
           } catch {
-            throw new ReadError(`${current.href} redirected to something that isn't a URL`);
+            throw new ReadError(shown`${show.url(current, start)} redirected to something that isn't a URL`);
           }
           next.hash = "";
           const refused = urlProblem(next);
-          if (refused) throw new ReadError(`${current.href} redirected to ${next.href}, which isn't read: ${refused}`);
+          if (refused) throw new ReadError(problemAt(shown`the redirect from ${show.url(current, start)} to ${show.url(next)}`, refused));
           current = next;
           continue;
         }
         if (response.status < 200 || response.status > 299) {
           await response.body?.cancel().catch(() => undefined);
-          throw new ReadError(`${current.href} answered HTTP ${response.status}`);
+          throw new ReadError(shown`${show.url(current, start)} answered ${show.status(response.status)}`);
         }
         const contentType = response.headers.get("Content-Type") ?? "";
         const kind = pageKind(contentType);
         if (!kind) {
           await response.body?.cancel().catch(() => undefined);
-          throw new ReadError(
-            `${current.href} is ${contentType ? `a ${contentType.split(";")[0]!.trim()} file` : "served without a Content-Type"}; only HTML, plain text, JSON and XML pages are read`
-          );
+          throw new ReadError(departure(shown`the Content-Type of ${show.url(current, start)}`, ours("HTML, plain text, JSON or XML"), show.type(contentType), ours("Only those pages are read")));
         }
         const { bytes, cut } = await readPrefix(response, maxBytes, signal);
         const source = decode(bytes, contentType);
         const page = kind === "html" ? await readableText(source, current) : { title: "", text: source.trim(), textChars: source.trim().length, scripts: 0 };
-        const shown = cutText(page.text, maxChars);
+        const kept = cutText(page.text, maxChars);
         return {
           url: start.href,
           finalUrl: current.href,
@@ -225,9 +229,9 @@ export async function readUrl(
           bytes: bytes.byteLength,
           bytesCut: cut,
           title: page.title,
-          text: shown.text,
+          text: kept.text,
           characters: page.text.length,
-          truncated: shown.truncated || cut,
+          truncated: kept.truncated || cut,
           textChars: page.textChars,
           scripts: page.scripts,
           via: "fetch"
@@ -236,8 +240,8 @@ export async function readUrl(
     });
   } catch (error) {
     if (error instanceof ReadError) throw error;
-    if (error instanceof Error && error.name === "TimeoutError") throw new ReadError(`${current.host} took longer than ${timeoutMs / 1000} seconds`);
-    throw new ReadError(`Couldn't read ${current.href}`);
+    if (error instanceof Error && error.name === "TimeoutError") throw new ReadError(shown`${show.name(current.host)} took longer than ${timeoutMs / 1000} seconds`);
+    throw new ReadError(shown`Couldn't read ${show.url(current, start)}`);
   }
 }
 

@@ -1,3 +1,4 @@
+import { departure, isDeparture, show, shown, type Problem } from "./diagnostic";
 import { DecodeError, integer as wholeNumber, object, string, type Decoded, type Decoder, type ObjectOf } from "./decode";
 
 /**
@@ -83,6 +84,14 @@ export function newestRows(table: string, columns: string, time: string, limit: 
   ];
 }
 
+/** A row's problem, saying which row of which query: the query is ours, but shown as text, bounded. */
+function inRow(problem: Problem, index: number, query: string): Problem {
+  const text = show.text(query.replace(/\s+/g, " "), 120);
+  if (!isDeparture(problem)) return shown`${problem} (row ${index} of ${text})`;
+  const where = shown`Row ${index} of ${text}`;
+  return departure(problem.subject, problem.expected, problem.got, problem.then === undefined ? where : shown`${problem.then}. ${where}`);
+}
+
 /** The rows of a query, each decoded. */
 export function rows<T>(sql: SqlStorage, decoder: Decoder<T>, query: string, ...bindings: unknown[]): T[] {
   return sql
@@ -92,7 +101,7 @@ export function rows<T>(sql: SqlStorage, decoder: Decoder<T>, query: string, ...
       try {
         return decoder(row, source(query));
       } catch (error) {
-        if (error instanceof DecodeError) throw new DecodeError(`${error.message} (row ${index} of: ${query.replace(/\s+/g, " ").slice(0, 120)})`);
+        if (error instanceof DecodeError) throw new DecodeError(inRow(error.problem, index, query));
         throw error;
       }
     });
