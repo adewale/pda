@@ -1,6 +1,6 @@
 {
-  "source_sha": "a9f8cd94c986dbb7179fee0b081446028c43e2c1",
-  "source_has_uncommitted_changes_in_src": true,
+  "source_sha": "ff4bd2ee07f56e3bdee2f4e1020829c57762edd0",
+  "source_has_uncommitted_changes_in_src": false,
   "browser": "Google Chrome for Testing 158.0.8127.36",
   "fixture": "docs/evidence/app-long-values/fixture.tsx",
   "artifacts": [
