@@ -117,9 +117,13 @@ export const show = {
     } catch {
       return show.text(String(url), 200);
     }
-    if (asked !== undefined && at.href === new URL(String(asked)).href) return made(bounded(at.href, 300));
+    // javascript:, data: and other URLs without an origin: their scheme alone, since the rest is content.
+    if (at.origin === "null") return made(`${bounded(at.protocol, 40)}…`);
+    // Never a user name or password: `origin` has neither. A bare origin is shown without the root path's slash.
+    const where = at.pathname === "/" && !at.search && !at.hash ? at.origin : `${at.origin}${at.pathname}`;
+    if (asked !== undefined && at.href === new URL(String(asked)).href) return made(bounded(`${where}${at.search}${at.hash}`, 300));
     const elided = at.search || at.hash ? "?…" : "";
-    return made(bounded(`${at.origin}${at.pathname}`, 200) + elided);
+    return made(bounded(where, 200) + elided);
   },
   /** An HTTP status: "HTTP 503". */
   status(status: number): Shown {
@@ -169,17 +173,22 @@ export function isDeparture(problem: Problem): problem is Departure {
   return typeof problem === "object";
 }
 
-/** The diagnostic as text, without a closing full stop: "subject: expected X, got Y. Then." */
-export function render(problem: Problem): string {
+/** The diagnostic as text, without a closing full stop: "subject: expected X, got Y. Then." Shown, since every part is. */
+export function render(problem: Problem): Shown {
   if (!isDeparture(problem)) return problem;
-  const said = `${problem.subject}: expected ${problem.expected}, got ${problem.got}`;
-  return problem.then === undefined ? said : `${said}. ${problem.then}`;
+  const said = shown`${problem.subject}: expected ${problem.expected}, got ${problem.got}`;
+  return problem.then === undefined ? said : shown`${said}. ${problem.then}`;
 }
 
 /** The diagnostic as a sentence, with one closing full stop. */
-export function sentence(problem: Problem): string {
+export function sentence(problem: Problem): Shown {
   const text = render(problem);
-  return /[.!?…]$/.test(text) ? text : `${text}.`;
+  return /[.!?…]$/.test(text) ? text : shown`${text}.`;
+}
+
+/** Shown text without its closing full stop, to join sentences into one line. */
+export function withoutStop(text: Shown): Shown {
+  return made(text.replace(/\.$/, ""));
 }
 
 /**

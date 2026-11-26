@@ -31,6 +31,7 @@
  * (scripts/check-requirements.mjs). A message whose ref is an RFC rests on
  * that RFC instead.
  */
+import type { Departure, Shown } from "../diagnostic.ts";
 import { levelOf, severityOf, type Basis, type Severity } from "./levels.ts";
 
 export type { Basis, Severity };
@@ -93,6 +94,13 @@ type Definition = {
   readonly requires?: string;
   /** It reports a fact, not a departure from anything: info, whatever its basis. */
   readonly note?: true;
+  /**
+   * Why an error or warning reports a fact rather than a departure: nothing
+   * was got to compare with what was expected. Without it, every message
+   * that isn't a note is a departure, and its report must say what was
+   * expected and what was got (`ProblemFor`, src/diagnostic.ts).
+   */
+  readonly fact?: string;
   /** Whether our client refuses a Company over it, when that differs from "it's an error". */
   readonly refuses?: boolean;
   readonly title: string;
@@ -185,6 +193,7 @@ export const MESSAGES = define({
   },
   "http-failed": {
     basis: "Guides",
+    fact: "The request got no answer from the site, or an answer from something other than the site, so there is nothing of the site's to compare.",
     requires: "Set limits: … a timeout of a few seconds",
     refuses: true,
     title: "Couldn't fetch the document",
@@ -996,3 +1005,13 @@ export const MESSAGES = define({
 });
 
 export type MessageId = keyof typeof MESSAGES;
+
+/** The messages that report a fact: the notes, and the errors and warnings that say why (`fact`). */
+export type FactId = { readonly [K in MessageId]: (typeof MESSAGES)[K] extends { readonly note: true } | { readonly fact: string } ? K : never }[MessageId];
+
+/**
+ * What a report of these messages takes: a fact for facts, and for every
+ * other message a departure, with what was expected and what was got. A
+ * report naming one of several ids takes a departure unless all are facts.
+ */
+export type ProblemFor<Id extends MessageId> = [Id] extends [FactId] ? Shown : Departure;

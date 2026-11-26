@@ -5,6 +5,8 @@
  * message can point at a line and column as well as a JSON Pointer.
  */
 
+import { ours, show, type Shown } from "../diagnostic.ts";
+
 export type Position = { readonly line: number; readonly column: number };
 
 export type Duplicate = { readonly pointer: string; readonly name: string; readonly position: Position };
@@ -18,15 +20,34 @@ export type Parsed =
       readonly duplicates: readonly Duplicate[];
       readonly bom: boolean;
     }
-  | { readonly ok: false; readonly error: string; readonly position: Position; readonly resourceLimit?: true };
+  | {
+      readonly ok: false;
+      /** What the parser needed at `position`, and what it found there (`got`). */
+      readonly expected: Shown;
+      readonly got: Shown;
+      readonly position: Position;
+      readonly resourceLimit?: true;
+    };
 
 /** RFC 6901: `~` becomes `~0` and `/` becomes `~1`. */
 export function pointer(parent: string, key: string | number): string {
   return `${parent}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
 
-class SyntaxProblem extends Error {}
+class SyntaxProblem extends Error {
+  constructor(
+    readonly expected: Shown,
+    readonly got?: Shown
+  ) {
+    super(expected);
+  }
+}
 class ResourceProblem extends SyntaxProblem {}
+
+/** What the text holds at `i`: its next character, quoted, or the end. */
+function found(text: string, i: number): Shown {
+  return i >= text.length ? ours("the end of the document") : show.value(text[i]!);
+}
 
 /**
  * Position keys can repeat a long ancestor name for every child. Count
@@ -61,15 +82,15 @@ export function parseJson(input: string): Parsed {
   const duplicates: Duplicate[] = [];
   let pointerCharacters = 0;
   let i = 0;
-  const fail = (message: string): never => {
-    throw new SyntaxProblem(message);
+  const fail = (expected: Shown, got?: Shown): never => {
+    throw new SyntaxProblem(expected, got);
   };
   const childPointer = (parent: string, key: string | number): string => {
     const name = String(key);
     let length = parent.length + 1 + name.length;
     for (const char of name) if (char === "~" || char === "/") length++;
     if (pointerCharacters + length > JSON_PARSE_LIMITS.pointerCharacters) {
-      throw new ResourceProblem("The document exceeds the validator's cumulative JSON-pointer allocation allowance");
+      throw new ResourceProblem(ours("member paths of at most 1000000 characters in all, the validator's allowance"), ours("more"));
     }
     pointerCharacters += length;
     return pointer(parent, name);
@@ -78,13 +99,13 @@ export function parseJson(input: string): Parsed {
     while (i < text.length && " \t\n\r".includes(text[i]!)) i++;
   };
   const literal = (word: string, value: unknown) => {
-    if (!text.startsWith(word, i)) fail("Unexpected character");
+    if (!text.startsWith(word, i)) fail(show.code(word));
     i += word.length;
     return value;
   };
 
   const value = (path: string, depth: number): unknown => {
-    if (depth > MAX_DEPTH) fail("Nesting too deep");
+    if (depth > MAX_DEPTH) fail(ours("at most 64 levels of nesting"), ours("more"));
     space();
     positions.set(path, at(i));
     const char = text[i];
@@ -94,7 +115,7 @@ export function parseJson(input: string): Parsed {
     if (char === "t") return literal("true", true);
     if (char === "f") return literal("false", false);
     if (char === "n") return literal("null", null);
-    if (char === undefined) fail("Unexpected end of input");
+    if (char === undefined) fail(ours("a JSON value"));
     return number();
   };
 
@@ -109,14 +130,14 @@ export function parseJson(input: string): Parsed {
     }
     for (;;) {
       space();
-      if (text[i] !== '"') fail("Expected a member name in double quotes");
+      if (text[i] !== '"') fail(ours("a member name in double quotes"));
       const keyStart = i;
       const key = string();
       const child = childPointer(path, key);
       if (seen.has(key)) duplicates.push({ pointer: child, name: key, position: at(keyStart) });
       seen.add(key);
       space();
-      if (text[i] !== ":") fail("Expected ':' after a member name");
+      if (text[i] !== ":") fail(ours('":" after a member name'));
       i++;
       // `defineProperty`, so a member named `__proto__` is kept as data.
       Object.defineProperty(result, key, {
@@ -134,7 +155,7 @@ export function parseJson(input: string): Parsed {
         i++;
         return result;
       }
-      fail("Expected ',' or '}'");
+      fail(ours('"," or "}"'));
     }
   };
 
@@ -157,7 +178,7 @@ export function parseJson(input: string): Parsed {
         i++;
         return result;
       }
-      fail("Expected ',' or ']'");
+      fail(ours('"," or "]"'));
     }
   };
 
@@ -166,15 +187,15 @@ export function parseJson(input: string): Parsed {
     i++;
     while (i < text.length && text[i] !== '"') {
       if (text[i] === "\\") i++;
-      else if (text.charCodeAt(i) < 0x20) fail("Control character in a string");
+      else if (text.charCodeAt(i) < 0x20) fail(ours("a string without control characters"), ours("a control character"));
       i++;
     }
-    if (text[i] !== '"') fail("Unterminated string");
+    if (text[i] !== '"') fail(ours('a closing "'));
     i++;
     try {
       return JSON.parse(text.slice(start, i)) as string;
     } catch {
-      return fail("Bad escape in a string");
+      return fail(ours("a string with valid escapes"), ours("an escape that isn't one"));
     }
   };
 
@@ -183,7 +204,7 @@ export function parseJson(input: string): Parsed {
     // a number of any length is read whole.
     NUMBER.lastIndex = i;
     const match = NUMBER.exec(text);
-    if (!match) fail("Unexpected character");
+    if (!match) fail(ours("a JSON value"));
     i += match![0].length;
     return Number(match![0]);
   };
@@ -191,10 +212,17 @@ export function parseJson(input: string): Parsed {
   try {
     const result = value("", 0);
     space();
-    if (i !== text.length) fail("Unexpected characters after the JSON value");
+    if (i !== text.length) fail(ours("the end of the document after the JSON value"));
     return { ok: true, value: result, positions, duplicates, bom };
   } catch (error) {
     if (!(error instanceof SyntaxProblem)) throw error;
-    return { ok: false, error: error.message, position: at(Math.min(i, text.length)), ...(error instanceof ResourceProblem ? { resourceLimit: true as const } : {}) };
+    const where = Math.min(i, text.length);
+    return {
+      ok: false,
+      expected: error.expected,
+      got: error.got ?? found(text, where),
+      position: at(where),
+      ...(error instanceof ResourceProblem ? { resourceLimit: true as const } : {})
+    };
   }
 }

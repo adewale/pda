@@ -113,8 +113,9 @@ describe("3 discovery", () => {
     const a = await agent();
     const result = await tool(a, "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`but the document was served by cdn.${c.domain}`);
-    expect(result.text).toContain("with a query, not /.well-known/poppy.json");
+    expect(result.text).toContain(`organization.domain: expected "cdn.${c.domain}", the host that served the document, got "${c.domain}"`);
+    // Where the redirect led is shown without its query.
+    expect(result.text).toContain(`where the redirects led: expected /.well-known/poppy.json, on any host, with no query, got https://cdn.${c.domain}/poppy.json?…`);
     const seen = (await requests(c)).map((request) => `${request.status} ${request.method} ${request.url}`);
     expect(seen).toContain(`302 GET https://${c.domain}/.well-known/poppy.json`);
     expect(seen).toContain(`200 GET https://cdn.${c.domain}/poppy.json?for=${c.domain}`);
@@ -126,14 +127,14 @@ describe("3 discovery", () => {
     const c = await company({ wellKnownRedirect: "http" });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/HTTPS/);
+    expect(result.text).toMatch(/: expected an https URL, got http:\/\//);
   });
 
   it("refuses an unsupported major version", async () => {
     const c = await company({ protocolVersion: "2.0" });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/version 2.0/);
+    expect(result.text).toMatch(/protocol_version: expected a version this validator supports \(0\.4 or 1\.0\), got "2\.0"/);
   });
 
   it("refuses a document whose organization.domain doesn't match", async () => {
@@ -292,7 +293,7 @@ describe("Guides: fetching metadata safely", () => {
     const result = await tool(await agent(), "poppy_discover", { domain: host });
     expect(result.isError).toBe(true);
     // Rejected as no domain at all, or as a host that isn't public.
-    expect(result.text).toMatch(/isn't a domain name|isn't a public host/);
+    expect(result.text).toMatch(/: expected a domain name, got|: expected a public host name, got/);
   });
 
   it("gives up on a document whose body stalls, within the time limit, and cancels it", async () => {

@@ -52,8 +52,30 @@ const ids = (report: Report) => report.messages.map((m) => m.id);
 const declaredIds = (fixture: Fixture): readonly MessageId[] =>
   "contains" in fixture.ids ? fixture.ids.contains : (fixture.ids as readonly MessageId[]);
 
+/**
+ * Every message a departure is (every one but the notes and the `fact`s)
+ * says what was expected and what was got, as fields and in its text; a
+ * fact has neither. The types require it at each report (ProblemFor); this
+ * holds it for every message every fixture produces.
+ */
+function sidesMatchCatalog(report: Report) {
+  for (const message of report.messages) {
+    const definition = MESSAGES[message.id] as { readonly note?: true; readonly fact?: string };
+    const fact = definition.note === true || definition.fact !== undefined;
+    if (fact) {
+      expect(message, message.id).not.toHaveProperty("expected");
+      expect(message, message.id).not.toHaveProperty("got");
+    } else {
+      expect(message.expected, message.id).toBeTruthy();
+      expect(message.got, message.id).toBeTruthy();
+      expect(message.text, message.id).toContain(`: expected ${message.expected}, got ${message.got}`);
+    }
+  }
+}
+
 async function check(fixture: Fixture) {
   const report = await fixture.run();
+  sidesMatchCatalog(report);
   if ("contains" in fixture.ids) {
     expect(ids(report)).toEqual(expect.arrayContaining([...fixture.ids.contains]));
   } else {
@@ -548,7 +570,7 @@ const POPPY_04: readonly Fixture[] = [
     ids: ["supported-version-unusable", "version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[1]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4, 1.0.");
+      expect(report.messages[1]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.3".');
       expect(report.refused).toBe(true);
     }
   },
@@ -603,7 +625,7 @@ const POPPY_JSON: readonly Fixture[] = [
     name: "chooses rules by protocol_version: an unsupported major version",
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "2.0"))),
     ids: ["version-unsupported-major"],
-    also: (report) => expect(report.messages[0]!.text).toMatch(/version 2\.0/)
+    also: (report) => expect(report.messages[0]!.text).toMatch(/got "2\.0"/)
   },
   {
     name: "refuses a newer pre-1.0 version before checking its fields",
@@ -622,7 +644,7 @@ const POPPY_JSON: readonly Fixture[] = [
     ids: ["version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4, 1.0.");
+      expect(report.messages[0]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.3".');
       expect(report.refused).toBe(true);
     }
   },
@@ -631,7 +653,7 @@ const POPPY_JSON: readonly Fixture[] = [
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "0.2"))),
     ids: ["version-unsupported"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.4, 1.0.")
+    also: (report) => expect(report.messages[0]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.2".')
   },
   {
     name: "chooses rules by protocol_version: none given",
@@ -751,7 +773,7 @@ const POPPY_JSON: readonly Fixture[] = [
     name: "checks Mediated Sign-In's fields: none",
     run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].fields = []))),
     ids: ["mediated-fields-empty"],
-    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in.0.fields is empty.")
+    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in[0].fields: expected at least one field, got none.")
   },
   {
     name: "checks Mediated Sign-In's fields: secret missing, looks secret, duplicate",
@@ -878,7 +900,7 @@ const DISCOVERY: readonly Fixture[] = [
       }),
     ids: ["organization-domain-mismatch"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("organization.domain is example.com, but the document was served by www.example.com.")
+    also: (report) => expect(report.messages[0]!.text).toBe('organization.domain: expected "www.example.com", the host that served the document, got "example.com".')
   },
   {
     name: "refuses protected resource metadata for another resource",
@@ -972,7 +994,7 @@ const DISCOVERY: readonly Fixture[] = [
       const [page, note] = report.messages;
       expect(page).toMatchObject({ document: "protected-resource", severity: "error", refuses: true });
       expect(page!.text).toBe(
-        "https://example.com/.well-known/oauth-protected-resource redirected to https://login.example-idp.com/sso/saml?…, on another host, which answered with a web page (text/html), not a JSON document."
+        "https://example.com/.well-known/oauth-protected-resource: expected HTTP 404 (no issuer), or protected resource metadata as application/json, got a web page (HTTP 200, text/html) at https://login.example-idp.com/sso/saml?…, on another host, after redirects."
       );
       // The redirect's query can carry one-time values, and this text reaches the agent's model (summarize); the data keeps it.
       expect(summarize(report)).toBe(page!.text.replace(/\.$/, ""));
@@ -1277,7 +1299,7 @@ const CLIENT: readonly Fixture[] = [
     ] }),
     ids: [...Array(6).fill("jwks-key-material"), "jwks-rsa-small"],
     outcome: "invalid",
-    also: report => expect(report.messages.at(-1)?.text).toContain("2041-bit")
+    also: report => expect(report.messages.at(-1)?.text).toContain("expected at least 2048 bits, got 2041 bits")
   },
   {
     name: "rejects supported algorithms paired with the wrong key type or curve",
@@ -1374,7 +1396,7 @@ const FETCHING: readonly Fixture[] = [
     run: () => fetchOne(() => new Response(null, { status: 302, headers: { Location: "https://[bad" } })),
     ids: ["http-status"],
     outcome: "indeterminate",
-    also: (report) => expect(report.messages[0]!.text).toBe(`${wellKnown} redirects (HTTP 302) to "https://[bad", which isn't a URL.`)
+    also: (report) => expect(report.messages[0]!.text).toBe(`${wellKnown}'s redirect (HTTP 302): expected a Location that is a URL, got "https://[bad".`)
   },
   {
     name: "reports a Cloudflare challenge as bot protection, not the site's status",
@@ -1418,7 +1440,7 @@ const FETCHING: readonly Fixture[] = [
     ids: ["http-status"],
     outcome: "indeterminate",
     also: (report) => expect(report.messages[0]!.text).toBe(
-      `${wellKnown} answered HTTP 403. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
+      `${wellKnown}: expected HTTP 200 with a JSON document, got HTTP 403. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
     )
   },
   {
@@ -1426,28 +1448,28 @@ const FETCHING: readonly Fixture[] = [
     run: () => fetchOne(() => new Response(null, { status: 429, headers: { "Retry-After": "120" } })),
     ids: ["http-failed"],
     outcome: "indeterminate",
-    also: (report) => expect(report.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server is limiting how often it's asked (HTTP 429) and asks to wait 120 seconds. Try again later.`)
+    also: (report) => expect(report.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server is limiting how often it's asked (HTTP 429), and asks to wait 120 seconds. Try again later.`)
   },
   {
     name: "says a server error is often temporary, with its Retry-After",
     run: async () => {
       const plain = await fetchOne(() => new Response(null, { status: 500 }));
-      expect(plain.messages[0]!.text).toBe(`${wellKnown} answered HTTP 500, a server error. Server errors are often temporary; try again later.`);
+      expect(plain.messages[0]!.text).toBe(`${wellKnown}: expected HTTP 200 with a JSON document, got HTTP 500, a server error. Server errors are often temporary; try again later.`);
       return fetchOne(() => new Response(null, { status: 503, headers: { "Retry-After": new Date(Date.now() + 60_000).toUTCString() } }));
     },
     ids: ["http-status"],
     outcome: "indeterminate",
-    also: (report) => expect(report.messages[0]!.text).toMatch(/answered HTTP 503, a server error and asks to wait (59|60) seconds\. Server errors are often temporary/)
+    also: (report) => expect(report.messages[0]!.text).toMatch(/: expected HTTP 200 with a JSON document, got HTTP 503, a server error, and asks to wait (59|60) seconds\. Server errors are often temporary/)
   },
   {
     name: "says why a fetch failed when the fetcher knows: DNS, refusal, certificate, impossible status",
     run: async () => {
-      const failing = (code: string, message = code) => validateCompany(named(async () => {
-        throw Object.assign(new Error(message), { code });
+      const failing = (code: string, message = code, status?: number) => validateCompany(named(async () => {
+        throw Object.assign(new Error(message), { code, ...(status === undefined ? {} : { status }) });
       }), "example.com");
       expect((await failing("ENOTFOUND")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the host name doesn't resolve.`);
       expect((await failing("ECONNREFUSED")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server refused the connection.`);
-      expect((await failing(INVALID_STATUS, "the server answered with HTTP status 999, which isn't a valid status")).messages[0]!.text)
+      expect((await failing(INVALID_STATUS, "the server answered with HTTP status 999, which isn't a valid status", 999)).messages[0]!.text)
         .toBe(`Fetching ${wellKnown} failed: the server answered with HTTP status 999, which isn't a valid status.`);
       // undici puts the code on the cause.
       const viaCause = await validateCompany(named(async () => {
@@ -1488,7 +1510,7 @@ const FETCHING: readonly Fixture[] = [
       });
       const direct = await validateTarget(named(behind), "https://api.example.com:9443/openapi.json");
       expect(direct.messages[0]!.text).toBe(
-        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096, 8443), so https://api.example.com:9443 wasn't fetched."
+        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096 and 8443), so it wasn't fetched."
       );
       // A port on the list goes through.
       await validateTarget(named(behind), "https://api.example.com:8443/openapi.json");
@@ -1529,7 +1551,7 @@ const FETCHING: readonly Fixture[] = [
     // Like a 404: the document isn't there, so nothing in it was checked.
     outcome: "indeterminate",
     also: (report) => {
-      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json answered with a web page (text/html), not a JSON document.");
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html).");
       expect(report.refused).toBe(true);
     }
   },
@@ -1538,7 +1560,7 @@ const FETCHING: readonly Fixture[] = [
     run: () => fetchOne(() => new Response("\uFEFF\n  <HTML><body>Moved</body></HTML>", { headers: { "Content-Type": "text/plain" } })),
     ids: ["http-web-page"],
     outcome: "indeterminate",
-    also: (report) => expect(report.messages[0]!.text).toContain("with a web page (text/plain)")
+    also: (report) => expect(report.messages[0]!.text).toContain("got a web page (HTTP 200, text/plain).")
   },
   {
     name: "names a same-host redirect that ends at a web page, without calling it another host",
@@ -1552,7 +1574,7 @@ const FETCHING: readonly Fixture[] = [
       ),
     ids: ["http-web-page"],
     also: (report) =>
-      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json redirected to https://example.com/home, which answered with a web page (text/html), not a JSON document.")
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html) at https://example.com/home, after redirects.")
   },
   {
     // Only markup that is a page: other markup is reported as what it is, a document that isn't JSON.
@@ -1604,7 +1626,7 @@ const FETCHING: readonly Fixture[] = [
     also: (report) => {
       expect(report.refused).toBe(true);
       expect(report.messages[0]!.text).toBe(
-        "169.254.169.254.nip.io resolves to 169.254.169.254, which isn't a public address, so https://169.254.169.254.nip.io/.well-known/poppy.json wasn't fetched."
+        "169.254.169.254.nip.io's address: expected a public address, got 169.254.169.254. So https://169.254.169.254.nip.io/.well-known/poppy.json wasn't fetched."
       );
     }
   },
@@ -1948,7 +1970,11 @@ describe("over HTTP", () => {
     expect(preflight.status).toBe(204);
     const bad = await call("/validator/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: "{}", kind: "feed" }) });
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: string }).error).toMatch(/kind must be/);
+    expect(await bad.json()).toEqual({
+      error: 'kind: expected one of poppy, protected-resource, oauth-metadata, client-metadata or jwks, got "feed".',
+      expected: "one of poppy, protected-resource, oauth-metadata, client-metadata or jwks",
+      got: '"feed"'
+    });
   });
 
   it("answers the form with an escaped results page", async () => {
@@ -1973,6 +1999,15 @@ describe("over HTTP", () => {
 });
 
 describe("the message catalog", () => {
+  it("marks as a fact only an error or warning that says why it has nothing to compare", () => {
+    for (const [id, definition] of Object.entries(MESSAGES) as [string, { note?: true; fact?: string }][]) {
+      if (definition.fact === undefined) continue;
+      expect(definition.note, id).toBeUndefined();
+      expect(definition.fact.length, id).toBeGreaterThan(40);
+    }
+    expect(Object.entries(MESSAGES).filter(([, d]) => (d as { fact?: string }).fact !== undefined).map(([id]) => id)).toEqual(["http-failed"]);
+  });
+
   const fixtures = [...VALID, ...POPPY_JSON, ...POPPY_04, ...POPPY_10_FIXTURES, ...DISCOVERY, ...METADATA, ...CLIENT, ...FETCHING];
 
   it("has a fixture that produces every message", () => {

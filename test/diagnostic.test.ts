@@ -31,6 +31,8 @@ describe("diagnostics", () => {
     expect(show.url("https://example.com/a#token=1")).toBe("https://example.com/a?…");
     expect(show.url("https://example.com/x?q=1", "https://example.com/x?q=1")).toBe("https://example.com/x?q=1");
     expect(show.url("not a url")).toBe('"not a url"');
+    expect([show.url("https://example.com"), show.url("https://u:p@example.com/a")]).toEqual(["https://example.com", "https://example.com/a"]);
+    expect(show.url("javascript:alert(document.cookie)")).toBe("javascript:…");
   });
 
   it("shows statuses, types, paths, codes, counts and lists", () => {

@@ -20,6 +20,7 @@
  * version can import the ones that still apply and replace the ones that
  * changed.
  */
+import { departure, ours, show, shown, type Shown } from "../../diagnostic.ts";
 import { pointer } from "../json.ts";
 import { base64url, fromBase64url } from "../../base64url.ts";
 import { extension, mediatedExt, rfc, spec, type Ref } from "../messages.ts";
@@ -29,10 +30,10 @@ import {
   isHostname,
   isObject,
   isScopeToken,
-  label,
   member,
   sameDomain,
   stringList,
+  subject,
   unknownMembers,
   type Checker,
   type Obj,
@@ -70,9 +71,9 @@ export function checkOrganization(c: Checker, doc: Obj, rules: PoppyRules = {}):
   if (!organization) return undefined;
   const name = member<string>(c, organization, "/organization", "name", "string", false);
   if (!("name" in organization)) {
-    c.report("organization-name-missing", "/organization/name", "organization.name, the Company's display name, is missing.");
+    c.report("organization-name-missing", "/organization/name", departure(ours("organization.name"), ours("the Company's display name"), ours("none")));
   } else if (name !== undefined && name.trim() === "") {
-    c.report("organization-name-missing", "/organization/name", "organization.name is blank, so there is no display name to show.");
+    c.report("organization-name-missing", "/organization/name", departure(ours("organization.name"), ours("the Company's display name"), ours("a blank one")));
   }
   const domain = member<string>(c, organization, "/organization", "domain", "string", true);
   httpsMember(c, organization, "/organization", "logo_uri", false, spec("3.1", "fields"));
@@ -82,8 +83,8 @@ export function checkOrganization(c: Checker, doc: Obj, rules: PoppyRules = {}):
   const port = rules.domainPort ? /^(.+):([1-9][0-9]{0,4})$/.exec(domain) : null;
   const host = port ? port[1]! : domain;
   if (!isHostname(host) || (port && (Number(port[2]) > 65535 || port[2] === "443"))) {
-    const what = rules.domainPort ? "a host name, with a port only when it isn't 443" : "a bare host name";
-    c.report("domain-invalid", "/organization/domain", `organization.domain must be ${what}, not ${JSON.stringify(domain)}.`);
+    const what = rules.domainPort ? ours("a host name, with a port only when it isn't 443") : ours("a bare host name");
+    c.report("domain-invalid", "/organization/domain", departure(ours("organization.domain"), what, show.value(domain)));
     return undefined;
   }
   return domain;
@@ -95,11 +96,11 @@ export function checkScopes(c: Checker, value: unknown[], at: string): string[] 
   const seen = new Set<string>();
   scopes.forEach((scope, index) => {
     const here = pointer(at, index);
-    if (!isScopeToken(scope)) c.report("scope-syntax", here, `${JSON.stringify(scope)} isn't a valid OAuth scope.`);
-    if (seen.has(scope)) c.report("scope-duplicate", here, `${scope} is listed twice in ${label(at)}.`);
+    if (!isScopeToken(scope)) c.report("scope-syntax", here, departure(subject(here), ours("an OAuth scope token (RFC 6749 §3.3)"), show.value(scope)));
+    if (seen.has(scope)) c.report("scope-duplicate", here, departure(subject(at), ours("each scope once"), shown`${show.value(scope)} twice`));
     seen.add(scope);
   });
-  if (value.length === 0) c.report("scopes-empty", at, `${label(at)} is empty, so Mediated Sign-In can't grant anything.`);
+  if (value.length === 0) c.report("scopes-empty", at, departure(subject(at), ours("at least one scope"), ours("none"), ours("Mediated Sign-In can't grant anything")));
   return scopes;
 }
 
@@ -108,24 +109,24 @@ export function checkMediatedFields(c: Checker, mediated: Obj, at: string): void
   const ref = mediatedExt("2", "support");
   const fields = member<unknown[]>(c, mediated, at, "fields", "array", true, ref);
   if (!fields) return;
-  if (fields.length === 0) c.report("mediated-fields-empty", `${at}/fields`, `${label(`${at}/fields`)} is empty.`);
+  if (fields.length === 0) c.report("mediated-fields-empty", `${at}/fields`, departure(subject(`${at}/fields`), ours("at least one field"), ours("none")));
   const names = new Set<string>();
   fields.forEach((field, index) => {
     const fieldAt = `${at}/fields/${index}`;
     if (!isObject(field)) {
-      c.report("wrong-type", fieldAt, `${label(fieldAt)} must be an object with name, label and secret.`, ref);
+      c.report("wrong-type", fieldAt, departure(subject(fieldAt), ours("an object with name, label and secret"), show.kind(field)), ref);
       return;
     }
     const name = member<string>(c, field, fieldAt, "name", "string", true, ref);
     const fieldLabel = member<string>(c, field, fieldAt, "label", "string", true, ref);
     const secret = member<boolean>(c, field, fieldAt, "secret", "boolean", false, ref);
-    if (!("secret" in field)) c.report("mediated-secret-missing", `${fieldAt}/secret`, `${label(fieldAt)} doesn't say whether ${name ?? "it"} is secret.`);
+    if (!("secret" in field)) c.report("mediated-secret-missing", `${fieldAt}/secret`, departure(subject(`${fieldAt}/secret`), ours("true or false, saying whether the field is secret"), ours("none")));
     if (secret === false && LOOKS_SECRET.test(`${name ?? ""} ${fieldLabel ?? ""}`)) {
-      c.report("mediated-looks-secret", `${fieldAt}/secret`, `${name ?? label(fieldAt)} looks like a secret but has secret: false.`);
+      c.report("mediated-looks-secret", `${fieldAt}/secret`, departure(shown`${name === undefined ? subject(fieldAt) : show.value(name)}'s secret`, ours("true, for a field whose name or label looks like a secret"), ours("false")));
     }
     if (name !== undefined) {
-      if (RESERVED_FIELDS.includes(name)) c.report("mediated-field-reserved", `${fieldAt}/name`, `A Mediated Sign-In field can't be named ${name}: the grant uses that parameter.`);
-      if (names.has(name)) c.report("mediated-field-duplicate", `${fieldAt}/name`, `Two fields are named ${JSON.stringify(name)}.`);
+      if (RESERVED_FIELDS.includes(name)) c.report("mediated-field-reserved", `${fieldAt}/name`, departure(subject(`${fieldAt}/name`), ours("a name the grant doesn't use as a parameter"), show.value(name)));
+      if (names.has(name)) c.report("mediated-field-duplicate", `${fieldAt}/name`, departure(ours("the fields' names"), ours("each name once"), shown`${show.value(name)} twice`));
       names.add(name);
     }
     unknownMembers(c, field, fieldAt, ["name", "label", "secret"]);
@@ -157,7 +158,7 @@ export function checkAgent(c: Checker, agent: Obj, rules: PoppyRules = {}): bool
   protocols.forEach((entry, index) => {
     const at = `/agent/protocols/${index}`;
     if (!isObject(entry)) {
-      c.report("wrong-type", at, `${label(at)} must be an object with type and endpoint.`, ref);
+      c.report("wrong-type", at, departure(subject(at), ours("an object with type and endpoint"), show.kind(entry)), ref);
       return;
     }
     const type = member<string>(c, entry, at, "type", "string", true, ref);
@@ -165,19 +166,19 @@ export function checkAgent(c: Checker, agent: Obj, rules: PoppyRules = {}): bool
     const described = rules.protocolDescriptions;
     if (described) {
       const description = member<string>(c, entry, at, "description", "string", true, described.ref);
-      if (description !== undefined && description.trim() === "") c.report("protocol-description-empty", `${at}/description`, `${label(at)} has an empty description.`);
+      if (description !== undefined && description.trim() === "") c.report("protocol-description-empty", `${at}/description`, departure(subject(`${at}/description`), ours("a description"), ours("an empty one")));
     }
     if (type === "poppy") {
       poppy = true;
       // 3.2: an advance hint, session (the default) or signed_in; agents ignore other values.
       const access = member<string>(c, entry, at, "access", "string", false, spec("3.2", "oauth-server"));
       if (access === "signed_in") signedIn = true;
-      else if (access !== undefined && !ACCESS.includes(access)) c.report("access-unknown", `${at}/access`, `access is ${JSON.stringify(access)}, which agents ignore, as if there were no hint.`);
-    } else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, `Agents that don't know ${JSON.stringify(type)} skip this entry.`);
+      else if (access !== undefined && !ACCESS.includes(access)) c.report("access-unknown", `${at}/access`, shown`access is ${show.value(access)}, which agents ignore, as if there were no hint`);
+    } else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, shown`Agents that don't know ${show.value(type)} skip this entry`);
     // No `resource` since 0.3 (4.5): a service that takes only its own tokens says so in its protected resource metadata.
     unknownMembers(c, entry, at, [...(type === "poppy" ? ["type", "endpoint", "access"] : ["type", "endpoint"]), ...(described ? ["description"] : [])]);
   });
-  if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
+  if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", departure(ours("agent.protocols"), ours("an entry of type poppy"), ours("none")));
   return signedIn;
 }
 
@@ -187,17 +188,17 @@ export function checkApis(c: Checker, apis: unknown[]): void {
   apis.forEach((entry, index) => {
     const at = `/apis/${index}`;
     if (!isObject(entry)) {
-      c.report("wrong-type", at, `${label(at)} must be an object with type, url and description.`, ref);
+      c.report("wrong-type", at, departure(subject(at), ours("an object with type, url and description"), show.kind(entry)), ref);
       return;
     }
     const type = member<string>(c, entry, at, "type", "string", true, ref);
     if (type !== undefined && !API_TYPES.includes(type)) {
-      c.report("api-type-unknown", `${at}/type`, `${JSON.stringify(type)} isn't an API type this version defines (openapi or mcp); agents that don't know it skip it.`);
+      c.report("api-type-unknown", `${at}/type`, shown`${show.value(type)} isn't an API type this version defines (openapi or mcp); agents that don't know it skip it`);
     }
     httpsMember(c, entry, at, "url", true, ref, OURS);
     const description = member<string>(c, entry, at, "description", "string", false, spec("3.1", "fields"));
     if (!("description" in entry) || description === "") {
-      c.report("api-description-missing", `${at}/description`, `${label(at)} has no description to help agents choose it.`);
+      c.report("api-description-missing", `${at}/description`, departure(subject(`${at}/description`), ours("a description to help agents choose the API"), "description" in entry ? ours("an empty one") : ours("none")));
     }
     // No `resource` since 0.3 (4.5), as for agent.protocols.
     unknownMembers(c, entry, at, ["type", "url", "description"]);
@@ -218,27 +219,27 @@ export function checkWeb(c: Checker, web: Obj): { browserSession: boolean; disab
 export function checkAuth(c: Checker, auth: Obj): { issuer?: string; disabled: boolean; described: string[] } {
   const issuerUrl = httpsMember(c, auth, "/auth", "issuer", false, spec("3.1", "fields"));
   const disabled = member<boolean>(c, auth, "/auth", "disabled", "boolean", false, spec("3.2", "oauth-server")) === true;
-  if (issuerUrl?.search) c.report("issuer-query", "/auth/issuer", `auth.issuer can't have a query: ${issuerUrl.href}.`);
+  if (issuerUrl?.search) c.report("issuer-query", "/auth/issuer", departure(ours("auth.issuer"), ours("an issuer URL without a query"), ours("one with a query")));
   const described: string[] = [];
   const scopes = member<Obj>(c, auth, "/auth", "scopes", "object", false, spec("4.7", "scopes"));
   for (const [scope, description] of Object.entries(scopes ?? {})) {
     const at = pointer("/auth/scopes", scope);
-    if (!isScopeToken(scope)) c.report("scope-syntax", at, `${JSON.stringify(scope)} isn't a valid OAuth scope.`);
-    if (typeof description !== "string") c.report("wrong-type", at, `The description of ${scope} must be a string.`, spec("3.1", "fields"));
+    if (!isScopeToken(scope)) c.report("scope-syntax", at, departure(ours("a scope in auth.scopes"), ours("an OAuth scope token (RFC 6749 §3.3)"), show.value(scope)));
+    if (typeof description !== "string") c.report("wrong-type", at, departure(subject(at), ours("a description, as a string"), show.kind(description)), spec("3.1", "fields"));
     described.push(scope);
   }
   const hints = member<Obj>(c, auth, "/auth", "scope_hints", "object", false, spec("4.7", "scopes"));
   for (const [scope, hint] of Object.entries(hints ?? {})) {
     const at = pointer("/auth/scope_hints", scope);
-    if (!isScopeToken(scope)) c.report("scope-syntax", at, `${JSON.stringify(scope)} isn't a valid OAuth scope.`);
+    if (!isScopeToken(scope)) c.report("scope-syntax", at, departure(ours("a scope in auth.scope_hints"), ours("an OAuth scope token (RFC 6749 §3.3)"), show.value(scope)));
     if (!isObject(hint)) {
-      c.report("scope-hint-invalid", at, `The hint for ${scope} must be an object with changes and personal_data.`);
+      c.report("scope-hint-invalid", at, departure(subject(at), ours("an object with changes and personal_data"), show.kind(hint)));
       continue;
     }
     if (typeof hint.changes !== "string" || typeof hint.personal_data !== "boolean") {
-      c.report("scope-hint-invalid", at, `The hint for ${scope} needs both changes, a string, and personal_data, a boolean.`);
+      c.report("scope-hint-invalid", at, departure(subject(at), ours("changes, a string, and personal_data, a boolean"), shown`changes as ${show.kind(hint.changes)} and personal_data as ${show.kind(hint.personal_data)}`));
     } else if (!CHANGES.includes(hint.changes)) {
-      c.report("scope-hint-changes-unknown", pointer(at, "changes"), `changes is ${JSON.stringify(hint.changes)}, which agents read as irreversible.`);
+      c.report("scope-hint-changes-unknown", pointer(at, "changes"), shown`changes is ${show.value(hint.changes)}, which agents read as irreversible`);
     }
     unknownMembers(c, hint, at, ["changes", "personal_data"]);
   }
@@ -256,22 +257,22 @@ export function checkExtensions(c: Checker, extensions: Obj): Extensions {
     const at = pointer("/extensions", name);
     const slash = name.indexOf("/");
     if (slash === -1) {
-      if (!(name in EXTENSIONS)) c.report("extension-plain-unknown", at, `${name} has a plain name, but the protocol defines no such extension.`);
+      if (!(name in EXTENSIONS)) c.report("extension-plain-unknown", at, departure(ours("an extension with a plain name"), shown`one the protocol defines (${show.list(Object.keys(EXTENSIONS).map((known) => show.code(known)))})`, show.value(name)));
     } else if (!isHostname(name.slice(0, slash)) || slash === name.length - 1) {
-      c.report("extension-name", at, `${JSON.stringify(name)} must start with a domain, such as example.com/gift-wrap.`);
+      c.report("extension-name", at, departure(ours("an extension's name"), ours("a domain, then a name, such as example.com/gift-wrap"), show.value(name)));
     }
     if (!Array.isArray(entries)) {
-      c.report("extension-entries", at, `The ${name} extension must be a list of version entries, such as [{ "version": "1" }], not ${isObject(entries) ? "a single object, as in 0.3" : JSON.stringify(entries)}.`);
+      c.report("extension-entries", at, departure(shown`the ${show.value(name)} extension`, ours('a list of version entries, such as [{ "version": "1" }]'), isObject(entries) ? ours("a single object, as in 0.3") : show.value(entries)));
       continue;
     }
     entries.forEach((entry, index) => {
       const entryAt = `${at}/${index}`;
       if (!isObject(entry)) {
-        c.report("wrong-type", entryAt, `Each entry of the ${name} extension must be an object with a version.`, ref);
+        c.report("wrong-type", entryAt, departure(subject(entryAt), ours("an object with a version"), show.kind(entry)), ref);
         return;
       }
       if (typeof entry.version === "number") {
-        c.report("extension-version-number", `${entryAt}/version`, `The ${name} extension's version is the number ${entry.version}; write it as a string, such as "${entry.version}".`);
+        c.report("extension-version-number", `${entryAt}/version`, departure(subject(`${entryAt}/version`), shown`a string, such as ${show.value(String(entry.version))}`, shown`the number ${entry.version}`));
         return;
       }
       const version = member<string>(c, entry, entryAt, "version", "string", true, ref);
@@ -279,7 +280,7 @@ export function checkExtensions(c: Checker, extensions: Obj): Extensions {
       const known = EXTENSIONS[name];
       if (!known) return;
       if (!known.includes(version)) {
-        c.report("extension-version-unknown", `${entryAt}/version`, `${name} version ${version} isn't one this validator knows (${known.join(", ")}).`);
+        c.report("extension-version-unknown", `${entryAt}/version`, shown`${show.value(name)} version ${show.value(version)} isn't one this validator knows (${show.list(known.map((v) => show.value(v)), "or")})`);
         return;
       }
       if (name === "operations") {
@@ -303,13 +304,13 @@ export function checkExtensions(c: Checker, extensions: Obj): Extensions {
 export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?: string }, rules: PoppyRules = {}): PoppyFacts {
   const facts: PoppyFacts = { signIn: { direct: false, device: false, mediated: false } };
   if (!isObject(doc)) {
-    c.report("wrong-type", "", "poppy.json must be a JSON object.", spec("3.1", "fields"));
+    c.report("wrong-type", "", departure(ours("poppy.json"), ours("a JSON object"), show.kind(doc)), spec("3.1", "fields"));
     return facts;
   }
   facts.domain = checkOrganization(c, doc, rules);
   // The host that served the document, after redirects, ignoring case only (3.1).
   if (facts.domain && context.requestedDomain && facts.domain.toLowerCase() !== context.requestedDomain.toLowerCase()) {
-    c.report("organization-domain-mismatch", "/organization/domain", `organization.domain is ${facts.domain}, but the document was served by ${context.requestedDomain}.`);
+    c.report("organization-domain-mismatch", "/organization/domain", departure(ours("organization.domain"), shown`${show.value(context.requestedDomain)}, the host that served the document`, show.value(facts.domain)));
   }
   const agent = member<Obj>(c, doc, "", "agent", "object", false);
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
@@ -317,12 +318,12 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const signedInAccess = agent ? checkAgent(c, agent, rules) : false;
   if (apis) checkApis(c, apis);
   const checkedWeb = web ? checkWeb(c, web) : { browserSession: false, disabled: false, unscoped: false };
-  if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");
+  if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) c.report("nothing-offered", "", departure(ours("poppy.json"), ours("at least one of agent, apis or web"), ours("none")));
   if (checkedWeb.browserSession) facts.browserSession = true;
-  if (checkedWeb.unscoped && !checkedWeb.browserSession) c.report("web-unscoped-without-join", "/web/unscoped", "web.unscoped is true, but web.browser_session_endpoint isn't listed.");
+  if (checkedWeb.unscoped && !checkedWeb.browserSession) c.report("web-unscoped-without-join", "/web/unscoped", departure(ours("web.browser_session_endpoint, with web.unscoped true"), ours("an endpoint"), ours("none")));
   if (checkedWeb.disabled) {
-    if (checkedWeb.browserSession) c.report("web-disabled-browser-session", "/web/browser_session_endpoint", "web.disabled is true, so web.browser_session_endpoint must not be listed.");
-    if (!("agent" in doc) && !("apis" in doc)) c.report("web-disabled-no-alternative", "/web/disabled", "web.disabled is true, but poppy.json lists neither agent nor apis for agents to use instead.");
+    if (checkedWeb.browserSession) c.report("web-disabled-browser-session", "/web/browser_session_endpoint", departure(ours("web.browser_session_endpoint, with web.disabled true"), ours("none"), ours("an endpoint")));
+    if (!("agent" in doc) && !("apis" in doc)) c.report("web-disabled-no-alternative", "/web/disabled", departure(ours("poppy.json, with web.disabled true"), ours("agent or apis, for agents to use instead"), ours("neither")));
   }
   const tasks = member<Obj>(c, doc, "", "tasks", "object", false, spec("9", "task-coverage"));
   if (tasks) {
@@ -331,7 +332,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   }
   // 0.3's places for these; a Company moving to 0.4 may still list them.
   for (const moved of ["feedback", "excluded_tasks", "skill_index"]) {
-    if (moved in doc) c.report("member-moved-to-tasks", `/${moved}`, `${moved} is 0.3's; 0.4 agents read it from the response at tasks.endpoint, and ignore it here.`);
+    if (moved in doc) c.report("member-moved-to-tasks", `/${moved}`, shown`${show.path(`/${moved}`)} is 0.3's; 0.4 agents read it from the response at tasks.endpoint, and ignore it here`);
   }
   const auth = member<Obj>(c, doc, "", "auth", "object", false);
   const checkedAuth = auth ? checkAuth(c, auth) : undefined;
@@ -347,26 +348,26 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
     facts.signIn.mediated = true;
   }
   if (found.operationsEndpoint && !checkedWeb.browserSession) {
-    c.report("operations-endpoint-without-join", "/extensions/operations", "The operations entry lists an endpoint for website operations, but web.browser_session_endpoint isn't listed.");
+    c.report("operations-endpoint-without-join", "/extensions/operations", departure(ours("web.browser_session_endpoint, with an operations endpoint for website operations"), ours("an endpoint"), ours("none")));
   }
   if (found.browserControl && !checkedWeb.browserSession) {
-    c.report("browser-control-without-join", "/extensions/browser-control", "browser-control is listed, but web.browser_session_endpoint isn't.");
+    c.report("browser-control-without-join", "/extensions/browser-control", departure(ours("web.browser_session_endpoint, with browser-control listed"), ours("an endpoint"), ours("none")));
   }
   // 3.2: these use Sessions, so the Company's identifier matters: its issuer, or its domain when it has none.
   facts.usesSessions = !!(agent || apis || tasks || checkedWeb.browserSession || found.mediated || (extensions && Object.keys(extensions).length > 0));
   // 3.2: a Company that offers sign-in MUST have an issuer.
-  const needsIssuer = [
-    ...(checkedAuth?.issuer ? ["auth.issuer"] : []),
-    ...(found.mediated ? ["the Mediated Sign-In extension"] : []),
-    ...(signedInAccess ? ["signed_in access"] : [])
+  const needsIssuer: Shown[] = [
+    ...(checkedAuth?.issuer ? [ours("auth.issuer")] : []),
+    ...(found.mediated ? [ours("the Mediated Sign-In extension")] : []),
+    ...(signedInAccess ? [ours("signed_in access")] : [])
   ];
   if (needsIssuer.length) facts.needsIssuer = needsIssuer;
   // 3.2: auth.disabled offers no sign-in, so nothing may promise one.
   if (checkedAuth?.disabled) {
-    if (found.mediated) c.report("auth-disabled-sign-in", "/extensions/mediated-sign-in", "auth.disabled is true, but poppy.json lists the Mediated Sign-In extension.");
-    if (signedInAccess) c.report("auth-disabled-sign-in", "/agent/protocols", "auth.disabled is true, but a poppy conversation entry declares signed_in access.");
+    if (found.mediated) c.report("auth-disabled-sign-in", "/extensions/mediated-sign-in", departure(ours("poppy.json, with auth.disabled true"), ours("nothing that offers sign-in"), ours("the Mediated Sign-In extension")));
+    if (signedInAccess) c.report("auth-disabled-sign-in", "/agent/protocols", departure(ours("poppy.json, with auth.disabled true"), ours("nothing that offers sign-in"), ours("a poppy conversation entry with signed_in access")));
   }
-  if (!facts.usesSessions && !auth) c.report("website-only", "", "Nothing here uses Sessions: agents can only browse this Company's website, signed out.");
+  if (!facts.usesSessions && !auth) c.report("website-only", "", ours("Nothing here uses Sessions: agents can only browse this Company's website, signed out"));
   unknownMembers(c, doc, "", ["protocol_version", "supported_versions", "organization", "auth", "agent", "apis", "web", "tasks", "extensions", "feedback", "excluded_tasks", "skill_index"]);
   return facts;
 }
@@ -375,12 +376,12 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
 export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFacts): string | null | undefined {
   const ref = spec("3.2", "oauth-server");
   if (!isObject(doc)) {
-    c.report("wrong-type", "", "The protected resource metadata must be a JSON object.", ref);
+    c.report("wrong-type", "", departure(ours("the protected resource metadata"), ours("a JSON object"), show.kind(doc)), ref);
     return undefined;
   }
   const resource = member<string>(c, doc, "", "resource", "string", true, ref);
   if (resource !== undefined && poppy.domain !== undefined && resource !== `https://${poppy.domain}` && resource.toLowerCase() !== `https://${poppy.domain.toLowerCase()}`) {
-    c.report("prm-resource-mismatch", "/resource", `resource is ${JSON.stringify(resource)}, not https://${poppy.domain}.`);
+    c.report("prm-resource-mismatch", "/resource", departure(ours("resource"), show.value(`https://${poppy.domain}`), show.value(resource)));
   }
   if (Array.isArray(doc.scopes_supported)) undescribedScopes(c, doc.scopes_supported, poppy.describedScopes);
   // 3.2: absent or empty, the Company has no issuer; a value of the wrong type settles nothing.
@@ -399,13 +400,13 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
   }
   if (poppy.issuer !== undefined) {
     if (!list.includes(poppy.issuer)) {
-      c.report("issuer-not-listed", "/authorization_servers", `auth.issuer ${poppy.issuer} isn't in authorization_servers.`);
+      c.report("issuer-not-listed", "/authorization_servers", departure(ours("authorization_servers"), shown`a list including ${show.value(poppy.issuer)}, poppy.json's auth.issuer`, show.count(list.length, ours("server without it"), ours("servers without it"))));
       return undefined;
     }
     return usable.has(poppy.issuer) ? poppy.issuer : undefined;
   }
   if (list.length > 1) {
-    c.report("issuer-ambiguous", "/authorization_servers", `authorization_servers lists ${list.length} servers, and poppy.json has no auth.issuer to say which one agents use.`);
+    c.report("issuer-ambiguous", "/authorization_servers", departure(ours("the issuer"), ours("one authorization server, or auth.issuer in poppy.json to say which one agents use"), shown`${show.count(list.length, ours("server"), ours("servers"))} and no auth.issuer`));
     return undefined;
   }
   return usable.has(list[0]!) ? list[0] : undefined;
@@ -420,7 +421,7 @@ function undescribedScopes(c: Checker, scopes: unknown[] | undefined, described:
   if (!scopes || !described) return;
   scopes.forEach((scope, index) => {
     if (typeof scope === "string" && !described.includes(scope)) {
-      c.report("scope-undescribed", `/scopes_supported/${index}`, `${scope} is in scopes_supported, but poppy.json's auth.scopes doesn't describe it, and poppy.json lists no OpenAPI description that could.`);
+      c.report("scope-undescribed", `/scopes_supported/${index}`, departure(shown`the description of ${show.value(scope)}`, ours("one in poppy.json's auth.scopes, or an OpenAPI description that could have one"), ours("neither")));
     }
   });
 }
@@ -432,12 +433,13 @@ function undescribedScopes(c: Checker, scopes: unknown[] | undefined, described:
  * nothing in poppy.json offers sign-in.
  */
 export function noIssuer(c: Checker, poppy: PoppyFacts, how: "not-found" | "empty"): void {
-  const where = how === "not-found" ? "The domain publishes no protected resource metadata (HTTP 404)" : "The domain's protected resource metadata lists no authorization server";
+  const where = how === "not-found" ? ours("The domain publishes no protected resource metadata (HTTP 404)") : ours("The domain's protected resource metadata lists no authorization server");
+  const said = how === "not-found" ? ours("no protected resource metadata (HTTP 404)") : ours("protected resource metadata that lists no authorization server");
   const at = how === "not-found" ? "" : "/authorization_servers";
-  const identifier = poppy.domain === undefined ? "https://{organization.domain}" : `https://${poppy.domain.toLowerCase()}`;
-  c.report("prm-no-issuer", at, `${where}, so the Company has no issuer: it offers signed-out Sessions only, and its identifier is ${identifier}.`);
+  const identifier = poppy.domain === undefined ? ours("https://{organization.domain}") : show.url(`https://${poppy.domain.toLowerCase()}`, `https://${poppy.domain.toLowerCase()}`);
+  c.report("prm-no-issuer", at, shown`${where}, so the Company has no issuer: it offers signed-out Sessions only, and its identifier is ${identifier}`);
   if (poppy.needsIssuer?.length) {
-    c.report("issuer-required", at, `poppy.json offers sign-in through ${poppy.needsIssuer.join(" and ")}, which needs an issuer, but ${where.charAt(0).toLowerCase()}${where.slice(1)}.`);
+    c.report("issuer-required", at, departure(shown`the issuer, for sign-in through ${show.list(poppy.needsIssuer)}`, ours("protected resource metadata that names one"), said));
   }
 }
 
@@ -452,12 +454,12 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
   const ref = spec("3.2", "oauth-server");
   const resourceScopes = poppy?.resourceScopes;
   if (!isObject(doc)) {
-    c.report("wrong-type", "", "The OAuth server metadata must be a JSON object.", ref);
+    c.report("wrong-type", "", departure(ours("the OAuth server metadata"), ours("a JSON object"), show.kind(doc)), ref);
     return;
   }
   const issuer = member<string>(c, doc, "", "issuer", "string", true, ref);
   if (issuer !== undefined && poppy?.issuer !== undefined && issuer !== poppy.issuer) {
-    c.report("metadata-issuer-mismatch", "/issuer", `The metadata's issuer ${JSON.stringify(issuer)} isn't exactly ${JSON.stringify(poppy.issuer)}, the issuer the domain names.`);
+    c.report("metadata-issuer-mismatch", "/issuer", departure(ours("issuer"), shown`exactly ${show.value(poppy.issuer)}, the issuer the domain names`, show.value(issuer)));
   }
   httpsMember(c, doc, "", "token_endpoint", true, ref);
   httpsMember(c, doc, "", "revocation_endpoint", true, ref);
@@ -477,36 +479,36 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
       }
     };
     if (wanted !== undefined && !list.some(matches)) {
-      c.report("metadata-protected-resources", "/protected_resources", `protected_resources doesn't include https://${poppy!.domain}.`);
+      c.report("metadata-protected-resources", "/protected_resources", departure(ours("protected_resources"), shown`a list including ${show.value(`https://${poppy!.domain}`)}`, show.count(list.length, ours("entry without it"), ours("entries without it"))));
     }
   }
   const grants = member<unknown[]>(c, doc, "", "grant_types_supported", "array", true, ref);
   const list = grants ? stringList(c, grants, "/grant_types_supported", ref) : [];
-  if (grants && !list.includes("refresh_token")) c.report("metadata-refresh-grant", "/grant_types_supported", "grant_types_supported doesn't include refresh_token.");
+  if (grants && !list.includes("refresh_token")) c.report("metadata-refresh-grant", "/grant_types_supported", departure(ours("grant_types_supported"), ours("a list including refresh_token"), shown`${show.list(list.map((grant) => show.value(grant)))}`));
   const direct = list.includes("authorization_code");
   const device = list.includes(DEVICE_CODE);
-  httpsMember(c, doc, "", "authorization_endpoint", direct ? "because grant_types_supported includes authorization_code" : false, ref);
-  httpsMember(c, doc, "", "device_authorization_endpoint", device ? `because grant_types_supported includes ${DEVICE_CODE}` : false, ref);
+  httpsMember(c, doc, "", "authorization_endpoint", direct ? ours("since grant_types_supported includes authorization_code") : false, ref);
+  httpsMember(c, doc, "", "device_authorization_endpoint", device ? ours("since grant_types_supported includes the device code grant") : false, ref);
   // RFC 9126 §5: Pushed Authorization Requests, which a Personal Agent then uses for Direct Sign-In (1.0: 4.2).
   const par = rfc(9126, "5");
   httpsMember(c, doc, "", "pushed_authorization_request_endpoint", false, par);
   const requirePushed = member<boolean>(c, doc, "", "require_pushed_authorization_requests", "boolean", false, par);
   if (requirePushed === true && !("pushed_authorization_request_endpoint" in doc)) {
-    c.report("par-endpoint-missing", "/require_pushed_authorization_requests", "require_pushed_authorization_requests is true, but the metadata lists no pushed_authorization_request_endpoint, so no Personal Agent can sign in directly.");
+    c.report("par-endpoint-missing", "/require_pushed_authorization_requests", departure(ours("pushed_authorization_request_endpoint, with require_pushed_authorization_requests true"), ours("an endpoint"), ours("none"), ours("No Personal Agent can sign in directly")));
   }
   if (poppy?.signIn.mediated && grants && !list.includes(MEDIATED_GRANT)) {
-    c.report("mediated-grant-missing", "/grant_types_supported", `poppy.json lists Mediated Sign-In, but grant_types_supported doesn't include ${MEDIATED_GRANT}.`);
+    c.report("mediated-grant-missing", "/grant_types_supported", departure(ours("grant_types_supported, with Mediated Sign-In in poppy.json"), shown`a list including ${show.value(MEDIATED_GRANT)}`, ours("a list without it")));
   }
   const signsIn = (direct || device || !!poppy?.signIn.mediated) && !poppy?.disabled;
   // 3.2: a Company that offers sign-in SHOULD publish scopes_supported (RFC 8414 §2 makes it optional).
   const scopes = member<unknown[]>(c, doc, "", "scopes_supported", "array", false, ref);
   if (signsIn && !("scopes_supported" in doc) && resourceScopes === undefined) {
-    c.report("scopes-supported-missing", "/scopes_supported", "The issuer's metadata has no scopes_supported, so agents learn the scopes only from the Company's API descriptions and auth.scopes.");
+    c.report("scopes-supported-missing", "/scopes_supported", departure(ours("scopes_supported, in the issuer's or the protected resource metadata"), ours("a list of the scopes agents can request"), ours("none"), ours("Agents learn the scopes only from the Company's API descriptions and auth.scopes")));
   }
   const supported = scopes ? stringList(c, scopes, "/scopes_supported", ref) : [];
   const listed = [...new Set([...supported, ...(resourceScopes ?? [])])];
   for (const scope of poppy?.mediatedScopes ?? []) {
-    if ((scopes || resourceScopes) && !listed.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", `Mediated Sign-In offers ${scope}, which isn't in scopes_supported.`);
+    if ((scopes || resourceScopes) && !listed.includes(scope)) c.report("mediated-scope-unsupported", "/scopes_supported", departure(ours("scopes_supported"), shown`a list including ${show.value(scope)}, which Mediated Sign-In offers`, ours("a list without it")));
   }
   // The domain's own list, when it has one, names the scopes it offers Personal Agents (docs/readings.md#v04-scope-descriptions).
   if (!resourceScopes?.length) undescribedScopes(c, scopes, poppy?.describedScopes);
@@ -515,31 +517,31 @@ export function checkOAuthMetadata(c: Checker, doc: unknown, poppy: PoppyFacts |
     const listed = algs ? stringList(c, algs, "/token_endpoint_auth_signing_alg_values_supported", rules.assertionAlgs.ref) : null;
     const missing = listed ? ["ES256", "PS384"].filter((alg) => !listed.includes(alg)) : [];
     if (missing.length > 0) {
-      c.report("metadata-assertion-algs", "/token_endpoint_auth_signing_alg_values_supported", `token_endpoint_auth_signing_alg_values_supported doesn't include ${missing.join(" or ")}, which 1.0 Companies must accept for client assertions.`);
+      c.report("metadata-assertion-algs", "/token_endpoint_auth_signing_alg_values_supported", departure(ours("token_endpoint_auth_signing_alg_values_supported"), ours("a list including ES256 and PS384, which 1.0 Companies must accept for client assertions"), shown`a list without ${show.list(missing.map((alg) => show.code(alg)))}`));
     }
   }
   const dpop = member<unknown[]>(c, doc, "", "dpop_signing_alg_values_supported", "array", false, rfc(9449, "5.1"));
   if (dpop && !stringList(c, dpop, "/dpop_signing_alg_values_supported", rfc(9449, "5.1")).includes("ES256")) {
-    c.report("metadata-dpop-alg", "/dpop_signing_alg_values_supported", "dpop_signing_alg_values_supported doesn't include ES256, so agents that sign proofs only with ES256 send none.");
+    c.report("metadata-dpop-alg", "/dpop_signing_alg_values_supported", ours("dpop_signing_alg_values_supported doesn't include ES256, so agents that sign proofs only with ES256 send none"));
   }
   if (direct) {
     const pkce = member<unknown[]>(c, doc, "", "code_challenge_methods_supported", "array", false, rfc(8414, "2"));
-    if (pkce && !pkce.includes("S256")) c.report("metadata-pkce", "/code_challenge_methods_supported", "code_challenge_methods_supported doesn't include S256.");
+    if (pkce && !pkce.includes("S256")) c.report("metadata-pkce", "/code_challenge_methods_supported", departure(ours("code_challenge_methods_supported"), ours("a list including S256"), ours("a list without it")));
     if (doc.authorization_response_iss_parameter_supported !== true) {
-      c.report("metadata-iss-parameter", "/authorization_response_iss_parameter_supported", "authorization_response_iss_parameter_supported isn't true.");
+      c.report("metadata-iss-parameter", "/authorization_response_iss_parameter_supported", ours("authorization_response_iss_parameter_supported isn't true"));
     }
   }
-  if ("poppy_domains" in doc) c.report("unknown-member", "/poppy_domains", `${label("/poppy_domains")} is 0.2's; protected_resources replaced it, and agents ignore it.`);
+  if ("poppy_domains" in doc) c.report("unknown-member", "/poppy_domains", ours("poppy_domains is 0.2's; protected_resources replaced it, and agents ignore it"));
   // Other members are standard RFC 8414 fields or the Company's own; agents ignore them (3.2).
   if (poppy?.disabled) return;
   // 6: browser join with sign-in needs poppy:browser-sign-in, in either list of scopes.
   const lists = [doc.scopes_supported, resourceScopes].filter(Array.isArray);
   if (poppy?.browserSession && lists.length && !lists.some((scopeList) => scopeList.includes(BROWSER_SIGN_IN))) {
-    c.report("browser-sign-in-unsupported", "/scopes_supported", `poppy.json lists web.browser_session_endpoint, but neither scopes_supported in the issuer's metadata nor in the protected resource metadata includes ${BROWSER_SIGN_IN}.`);
+    c.report("browser-sign-in-unsupported", "/scopes_supported", departure(ours("scopes_supported, with web.browser_session_endpoint in poppy.json"), shown`a list including ${show.code(BROWSER_SIGN_IN)}, in the issuer's or the protected resource metadata`, ours("lists without it")));
   }
   // 4: Direct Sign-In is the preferred type.
   if (device && !direct) {
-    c.report("direct-sign-in-preferred", "/grant_types_supported", "The issuer offers Device Sign-In but not Direct Sign-In, the preferred type.");
+    c.report("direct-sign-in-preferred", "/grant_types_supported", departure(ours("the sign-in types the issuer offers"), ours("Direct Sign-In (authorization_code), the preferred type"), ours("Device Sign-In alone")));
   }
 }
 
@@ -560,43 +562,41 @@ export function checkClientMetadata(c: Checker, doc: unknown, context: { fetched
   const facts: ClientFacts = {};
   const ref = spec("4.1", "agent-identity");
   if (!isObject(doc)) {
-    c.report("wrong-type", "", "Client metadata must be a JSON object.", ref);
+    c.report("wrong-type", "", departure(ours("the client metadata"), ours("a JSON object"), show.kind(doc)), ref);
     return facts;
   }
   const clientId = httpsMember(c, doc, "", "client_id", true, ref, OURS);
   if (clientId && context.fetchedFrom !== undefined && doc.client_id !== context.fetchedFrom) {
-    c.report("client-id-mismatch", "/client_id", `client_id is ${String(doc.client_id)}, but the document was fetched from ${context.fetchedFrom}.`);
+    c.report("client-id-mismatch", "/client_id", departure(ours("client_id"), shown`${show.value(context.fetchedFrom)}, the URL the document was fetched from`, show.value(doc.client_id)));
   }
   member<string>(c, doc, "", "client_name", "string", false, ref);
   if ("logo_uri" in doc) httpsMember(c, doc, "", "logo_uri", false, ref, OURS);
   const jwksUri = httpsMember(c, doc, "", "jwks_uri", true, ref, OURS);
   if (jwksUri && clientId && !sameDomain(jwksUri.hostname, clientId.hostname)) {
-    c.report("client-other-domain", "/jwks_uri", `jwks_uri is on ${jwksUri.hostname}, not client_id's domain ${clientId.hostname}.`);
+    c.report("client-other-domain", "/jwks_uri", departure(ours("jwks_uri"), shown`a URL on ${show.name(clientId.hostname)}, client_id's domain`, shown`one on ${show.name(jwksUri.hostname)}`));
   }
   if (jwksUri) facts.jwksUri = jwksUri.href;
   const redirects = member<unknown[]>(c, doc, "", "redirect_uris", "array", false, ref);
   if (!("redirect_uris" in doc) || redirects?.length === 0) {
-    c.report("client-no-redirects", "/redirect_uris", "No redirect_uris, so this agent can't use Direct Sign-In.");
+    c.report("client-no-redirects", "/redirect_uris", ours("No redirect_uris, so this agent can't use Direct Sign-In"));
   }
   redirects?.forEach((value, index) => {
     const at = `/redirect_uris/${index}`;
     // An app on the User's computer may use a loopback redirect URI, the one exception to HTTPS (3, 4.1).
     if (isLoopbackRedirect(value)) {
-      if (value.includes("#")) c.report("url-has-fragment", at, `${label(at)} can't contain a #fragment: ${value}.`, rfc(6749, "3.1.2"));
+      if (value.includes("#")) c.report("url-has-fragment", at, departure(subject(at), ours("a URL without a #fragment"), ours("a URL with one")), rfc(6749, "3.1.2"));
       return;
     }
     const url = httpsUrl(c, value, at, ref);
     if (url && clientId && !sameDomain(url.hostname, clientId.hostname)) {
-      c.report("client-other-domain", at, `Redirect URI ${url.href} isn't on client_id's domain ${clientId.hostname}.`);
+      c.report("client-other-domain", at, departure(subject(at), shown`a URL on ${show.name(clientId.hostname)}, client_id's domain`, shown`one on ${show.name(url.hostname)}`));
     }
   });
   if (doc.token_endpoint_auth_method !== "private_key_jwt") {
     c.report(
       "client-auth-method",
       "/token_endpoint_auth_method",
-      "token_endpoint_auth_method" in doc
-        ? `token_endpoint_auth_method is ${JSON.stringify(doc.token_endpoint_auth_method)}, not "private_key_jwt".`
-        : 'token_endpoint_auth_method is missing; it must be "private_key_jwt".'
+      departure(ours("token_endpoint_auth_method"), ours('"private_key_jwt"'), "token_endpoint_auth_method" in doc ? show.value(doc.token_endpoint_auth_method) : ours("none"))
     );
   }
   // Client metadata is an OAuth dynamic registration document (RFC 7591), so other members are normal.
@@ -637,48 +637,51 @@ function rsaInteger(value: unknown): Uint8Array | undefined {
 export function checkJwks(c: Checker, doc: unknown): void {
   const ref = spec("4.1", "agent-identity");
   if (!isObject(doc)) {
-    c.report("wrong-type", "", "The key set must be a JSON object with keys.", ref);
+    c.report("wrong-type", "", departure(ours("the key set"), ours("a JSON object with keys"), show.kind(doc)), ref);
     return;
   }
   const keys = member<unknown[]>(c, doc, "", "keys", "array", true, rfc(7517, "5"));
   if (!keys) return;
-  if (keys.length === 0) c.report("jwks-empty", "/keys", "The key set has no keys.");
+  if (keys.length === 0) c.report("jwks-empty", "/keys", departure(ours("keys"), ours("at least one key"), ours("none")));
   const kids = new Set<string>();
   keys.forEach((key, index) => {
     const at = `/keys/${index}`;
     if (!isObject(key)) {
-      c.report("wrong-type", at, `${label(at)} must be a JWK object.`, rfc(7517, "4"));
+      c.report("wrong-type", at, departure(subject(at), ours("a JWK object"), show.kind(key)), rfc(7517, "4"));
       return;
     }
     const leaked = PRIVATE_MEMBERS.filter((name) => name in key);
-    if (leaked.length > 0) c.report("jwks-private-key", at, `Key ${index} publishes private members: ${leaked.join(", ")}.`);
+    const name = shown`key ${index}`;
+    // Never a private member's value: their names are enough.
+    if (leaked.length > 0) c.report("jwks-private-key", at, departure(shown`${name}'s members`, ours("public members only"), shown`private ones too: ${show.list(leaked.map((member) => show.code(member)))}`));
     if (key.kty === "EC") {
-      if (key.crv !== "P-256") c.report("jwks-key-type", at, `Key ${index} is EC on ${String(key.crv)}; only P-256 (ES256) is supported.`);
+      if (key.crv !== "P-256") c.report("jwks-key-type", at, departure(shown`${name}'s curve`, ours("P-256 (ES256)"), show.value(key.crv)));
       else {
         const x = keyBytes(key.x), y = keyBytes(key.y);
-        if (x?.length !== 32) c.report("jwks-key-material", `${at}/x`, `Key ${index} needs an x coordinate of exactly 32 bytes, encoded as unpadded base64url.`, rfc(7518, "6.2.1.2"));
-        if (y?.length !== 32) c.report("jwks-key-material", `${at}/y`, `Key ${index} needs a y coordinate of exactly 32 bytes, encoded as unpadded base64url.`, rfc(7518, "6.2.1.3"));
-        if (x?.length === 32 && y?.length === 32 && !p256Point(x, y)) c.report("jwks-key-material", at, `Key ${index}'s coordinates do not identify a point on P-256.`, rfc(7518, "6.2.1"));
+        const length = (bytes: Uint8Array | undefined) => (bytes ? shown`${bytes.length} bytes` : ours("no unpadded base64url value"));
+        if (x?.length !== 32) c.report("jwks-key-material", `${at}/x`, departure(shown`${name}'s x coordinate`, ours("exactly 32 bytes, as unpadded base64url"), length(x)), rfc(7518, "6.2.1.2"));
+        if (y?.length !== 32) c.report("jwks-key-material", `${at}/y`, departure(shown`${name}'s y coordinate`, ours("exactly 32 bytes, as unpadded base64url"), length(y)), rfc(7518, "6.2.1.3"));
+        if (x?.length === 32 && y?.length === 32 && !p256Point(x, y)) c.report("jwks-key-material", at, departure(shown`${name}'s coordinates`, ours("a point on P-256"), ours("coordinates off the curve")), rfc(7518, "6.2.1"));
       }
     } else if (key.kty === "RSA") {
       const n = rsaInteger(key.n), e = rsaInteger(key.e);
-      if (!n) c.report("jwks-key-material", `${at}/n`, `Key ${index} needs a positive odd modulus, encoded as Base64urlUInt without leading zero bytes.`, rfc(7518, "6.3.1.1"));
+      if (!n) c.report("jwks-key-material", `${at}/n`, departure(shown`${name}'s modulus`, ours("a positive odd integer, as Base64urlUInt without leading zero bytes"), ours("something else")), rfc(7518, "6.3.1.1"));
       else {
         const bits = (n.length - 1) * 8 + 32 - Math.clz32(n[0]!);
-        if (bits < 2048) c.report("jwks-rsa-small", at, `Key ${index} is a ${bits}-bit RSA key.`);
+        if (bits < 2048) c.report("jwks-rsa-small", at, departure(shown`${name}'s modulus`, ours("at least 2048 bits"), shown`${bits} bits`));
       }
-      if (!e || (e.length === 1 && e[0]! < 3)) c.report("jwks-key-material", `${at}/e`, `Key ${index} needs an odd public exponent of at least 3, encoded as Base64urlUInt without leading zero bytes.`, rfc(7518, "6.3.1.2"));
+      if (!e || (e.length === 1 && e[0]! < 3)) c.report("jwks-key-material", `${at}/e`, departure(shown`${name}'s exponent`, ours("an odd integer of at least 3, as Base64urlUInt without leading zero bytes"), ours("something else")), rfc(7518, "6.3.1.2"));
     } else {
-      c.report("jwks-key-type", at, `Key ${index} has kty ${JSON.stringify(key.kty)}; use EC (P-256) or RSA.`);
+      c.report("jwks-key-type", at, departure(shown`${name}'s kty`, ours("EC (P-256) or RSA"), show.value(key.kty)));
     }
-    if ("alg" in key && (typeof key.alg !== "string" || !KEY_ALGS.includes(key.alg))) c.report("jwks-alg", `${at}/alg`, `Key ${index} has alg ${JSON.stringify(key.alg)}, not ES256 or PS384.`);
+    if ("alg" in key && (typeof key.alg !== "string" || !KEY_ALGS.includes(key.alg))) c.report("jwks-alg", `${at}/alg`, departure(shown`${name}'s alg`, ours("ES256 or PS384"), show.value(key.alg)));
     if ((key.alg === "ES256" && (key.kty !== "EC" || key.crv !== "P-256")) || (key.alg === "PS384" && key.kty !== "RSA")) {
-      c.report("jwks-key-material", `${at}/alg`, `Key ${index}'s ${String(key.alg)} algorithm does not match its key type or curve.`, rfc(7518, key.alg === "ES256" ? "3.4" : "3.5"));
+      c.report("jwks-key-material", `${at}/alg`, departure(shown`${name}'s alg`, key.alg === "ES256" ? ours("ES256 with an EC key on P-256") : ours("PS384 with an RSA key"), shown`${show.value(key.alg)} with kty ${show.value(key.kty)}`), rfc(7518, key.alg === "ES256" ? "3.4" : "3.5"));
     }
-    if ("use" in key && key.use !== "sig") c.report("jwks-use", `${at}/use`, `Key ${index} has use ${JSON.stringify(key.use)}.`);
-    if (typeof key.kid !== "string" || key.kid === "") c.report("jwks-no-kid", at, `Key ${index} has no kid.`);
+    if ("use" in key && key.use !== "sig") c.report("jwks-use", `${at}/use`, departure(shown`${name}'s use`, ours('"sig", or no use'), show.value(key.use)));
+    if (typeof key.kid !== "string" || key.kid === "") c.report("jwks-no-kid", at, departure(shown`${name}'s kid`, ours("a key ID"), "kid" in key ? show.value(key.kid) : ours("none")));
     else {
-      if (kids.has(key.kid)) c.report("jwks-kid-duplicate", `${at}/kid`, `Two keys have kid ${JSON.stringify(key.kid)}.`);
+      if (kids.has(key.kid)) c.report("jwks-kid-duplicate", `${at}/kid`, departure(ours("the keys' kids"), ours("each kid once"), shown`${show.value(key.kid)} twice`));
       kids.add(key.kid);
     }
   });

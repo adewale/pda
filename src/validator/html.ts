@@ -38,6 +38,7 @@ button{margin-top:14px;font:inherit;font-weight:600;color:#fff;background:var(--
 .outcome.valid strong{color:var(--ok)}.outcome.invalid strong{color:var(--error)}.outcome.indeterminate strong{color:var(--warn)}
 ul.messages{list-style:none;padding:0;margin:0}
 ul.messages li{border-top:1px solid var(--line);padding:10px 0}
+dl.sides{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:6px 0 0;font-size:.95em}dl.sides dt{color:var(--muted,inherit);font-weight:600}dl.sides dd{margin:0;overflow-wrap:anywhere}
 .sev{font-weight:600}
 .sev.error{color:var(--error)}.sev.warning{color:var(--warn)}.sev.info{color:var(--info)}
 .where{color:var(--muted);font-size:.9rem}
@@ -115,7 +116,9 @@ function messageItem(message: Message, source: string | undefined): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return `<li><span class="sev ${message.severity}">${SEVERITY_NAMES[message.severity]}</span> ${escape(message.text)}
+  // A departure's two sides, apart: what the rule wants, and what came.
+  const sides = message.expected !== undefined && message.got !== undefined ? `<dl class="sides"><dt>Expected</dt><dd>${escape(message.expected)}</dd><dt>Got</dt><dd>${escape(message.got)}</dd></dl>` : "";
+  return `<li><span class="sev ${message.severity}">${SEVERITY_NAMES[message.severity]}</span> ${escape(message.text)}${sides}
 <div class="where">${where ? `${where} · ` : ""}${escape(basisLabel(message))} · <a href="${escape(message.ref.url)}">${escape(message.ref.label)}</a> · <a href="/validator/messages#${message.id}">${escape(message.id)}</a></div>${excerpt(source, message)}</li>`;
 }
 
@@ -204,7 +207,7 @@ export function messagesPage(): string {
 <dt>refused</dt><dd>Whether our Personal Agent refuses these documents: an error it doesn't tolerate, a warning it refuses, or a document it couldn't check.</dd>
 <dt>checkedAgainst</dt><dd>The protocol version whose rules were applied, chosen from poppy.json's protocol_version.</dd>
 <dt>documents</dt><dd>Each document checked: kind, url, finalUrl after redirects, status, contentType, maxAgeSeconds, and the parsed value.</dd>
-<dt>messages</dt><dd>id, basis (MUST, RFC, Rule, SHOULD, Guides or Reading), severity, refuses (whether our agent refuses the documents over it), document, pointer (a JSON Pointer), line and column (1-based) when known, text, and ref (the section of the specification or RFC).</dd>
+<dt>messages</dt><dd>id, basis (MUST, RFC, Rule, SHOULD, Guides or Reading), severity, refuses (whether our agent refuses the documents over it), document, pointer (a JSON Pointer), line and column (1-based) when known, text, expected and got, and ref (the section of the specification or RFC). For a departure, which is every error and warning but a few that report a fact (such as a fetch that got no answer), text reads "subject: expected X, got Y." and expected and got hold the two sides apart: what the rule wants, in its words, and what the document or the fetch gave, with values quoted and bounded and a URL a redirect led to shown without its query. Notes have neither.</dd>
 <dt>skipped</dt><dd>Checks that needed something the input didn't give, such as the domain a pasted poppy.json was served from.</dd>
 </dl>
 <h2>Messages</h2>${entries}`

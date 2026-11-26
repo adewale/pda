@@ -161,7 +161,7 @@ describe("both JSON parsers agree with JSON.parse", () => {
       const text = tc.draw(gs.sampledFrom(layouts))(tc.draw(jsonValues()));
       const expected = JSON.parse(text) as Json;
       const parsed = parseJson(text);
-      if (!parsed.ok) throw new Error(`refused a valid document: ${parsed.error}`);
+      if (!parsed.ok) throw new Error(`refused a valid document: expected ${parsed.expected}, got ${parsed.got}`);
       expect([...parsed.positions.keys()].sort()).toEqual(pointers(expected).sort());
       const lines = text.split("\n");
       for (const [at, { line, column }] of parsed.positions) {

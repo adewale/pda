@@ -39,7 +39,7 @@ describe("PR review: validator allocation boundaries", () => {
   it("accepts the exact cumulative location allowance and refuses its first additional path", () => {
     const document: Record<string, unknown> = { ["x".repeat(4_000)]: Array(240).fill(0) };
     const initial = parseJson(JSON.stringify(document));
-    if (!initial.ok) throw new Error(initial.error);
+    if (!initial.ok) throw new Error(`expected ${initial.expected}, got ${initial.got}`);
     const used = [...initial.positions.keys()].reduce((sum, path) => sum + path.length, 0);
     const padding = JSON_PARSE_LIMITS.pointerCharacters - used;
     document["y".repeat(padding - 1)] = null;
@@ -47,7 +47,7 @@ describe("PR review: validator allocation boundaries", () => {
     expect(text.length).toBeLessThan(100_000);
     const accepted = parseJson(text);
     expect(accepted.ok).toBe(true);
-    if (!accepted.ok) throw new Error(accepted.error);
+    if (!accepted.ok) throw new Error(`expected ${accepted.expected}, got ${accepted.got}`);
     expect(accepted.value).toEqual(JSON.parse(text));
     expect([...accepted.positions.keys()].reduce((sum, path) => sum + path.length, 0)).toBe(JSON_PARSE_LIMITS.pointerCharacters);
     document.z = 0;
