@@ -495,6 +495,6 @@ export async function validateTarget(fetcher: IdentifiedFetcher, target: string,
 /** One line per message our client refuses the documents over (every error but the tolerated ones, and the refusing warnings), for exceptions and logs. */
 export function summarize(result: Report, limit = 3): Shown {
   const errors = result.messages.filter((m) => m.refuses);
-  const said = errors.slice(0, limit).reduce<Shown>((line, m, index) => shown`${line}${index === 0 ? ours("") : ours("; ")}${withoutStop(m.text)}`, ours(""));
+  const said = show.join(errors.slice(0, limit).map((m) => withoutStop(m.text)));
   return errors.length > limit ? shown`${said} (and ${errors.length - limit} more)` : said;
 }

@@ -10,7 +10,7 @@ import { prepareMcpCall, mcpRequest, listMcpTools } from "./mcp-transport";
 import { intent } from "./store";
 import { randomId } from "./jwt";
 import { dispatchTaskRequest, registerExecutor, TermsRequested } from "./operations";
-import { type SchemaDraft, schemaErrors, serialisedJson, leafErrors } from "./api-schema";
+import { type SchemaDraft, schemaErrors, serialised, leaves } from "./api-schema";
 import { isTaskRequest } from "./approval-outcome";
 import { readDecline } from "./declines";
 import { departure, ours, render, show, shown, type Shown } from "../diagnostic";
@@ -109,12 +109,12 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
   const draft: SchemaDraft = /draft-0[34]/.test(dialect) ? "4" : /draft-0[67]/.test(dialect) ? "7" : /2019-09/.test(dialect) ? "2019-09" : "2020-12";
   const errors = schemaErrors(inputSchema, args, draft);
   if (!errors || errors.length === 0) return;
-  const context = `for ${name} at ${company.name}`;
-  const serialised = serialisedJson(errors, args, "args", context);
-  if (serialised) throw new PoppyError("invalid_args", `${serialised} Nothing was sent.`, 0);
+  const context = shown`for ${show.code(name)} at ${show.name(company.name)}`;
+  const refused = serialised(errors, args, ours("args"), context);
+  if (refused) throw new PoppyError("invalid_args", refused, 0);
   throw new PoppyError(
     "invalid_args",
-    `args ${context} don't match the tool's inputSchema: ${leafErrors(errors, "args").join("; ")}. See it in poppy_mcp_list. Nothing was sent.`,
+    departure(shown`the args ${context}`, ours("values the tool's inputSchema allows"), show.join(leaves(errors, ours("args"))), ours("See it in poppy_mcp_list. Nothing was sent")),
     0
   );
 }

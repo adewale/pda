@@ -105,7 +105,7 @@ export function checkBody(company: Company, op: OpenApiOperation, body: Json | u
   if (refused) throw new PoppyError("invalid_body", refused, 0);
   throw new PoppyError(
     "invalid_body",
-    departure(shown`the body ${context}`, ours("a value its request schema allows"), joined(leaves(errors, ours("body"))), ours("See its requestBody in poppy_api_describe. Nothing was sent")),
+    departure(shown`the body ${context}`, ours("a value its request schema allows"), show.join(leaves(errors, ours("body"))), ours("See its requestBody in poppy_api_describe. Nothing was sent")),
     0
   );
 }
@@ -118,10 +118,6 @@ function place(where: Shown, pointer: string): Shown {
 }
 
 /** Problems one after another: "a; b; c". */
-function joined(problems: readonly Shown[]): Shown {
-  return problems.reduce((all, problem) => shown`${all}; ${problem}`);
-}
-
 /**
  * Where a schema refused a string of serialised JSON (an object or array),
  * a correction naming each such place; null when there is none.
@@ -234,27 +230,9 @@ export function checkParams(company: Pick<Company, "name">, op: OpenApiOperation
     departure(
       shown`the params for ${show.code(op.operationId)} at ${show.name(company.name)}`,
       ours("values their schemas allow"),
-      joined(problems.slice(0, 5)),
+      show.join(problems.slice(0, 5)),
       ours("See its parameters in poppy_api_describe. Nothing was sent")
     ),
     0
   );
-}
-
-/**
- * Transitional, for src/poppy/mcp-dispatch.ts until it builds its problems
- * with `serialised` and `leaves`: the same corrections as text. Removed then.
- */
-export function serialisedJson(errors: readonly OutputUnit[], value: Json, where: string, context: string): string | null {
-  const found = serialisedPlaces(errors, value);
-  if (found.size === 0) return null;
-  const names = [...found.keys()].map((pointer) => `${where}${pointer}`).join(", ");
-  const as = found.size === 1 ? `a structured ${[...found.values()][0]}` : "structured values";
-  return `${names} ${context} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass ${names} as ${as}.`;
-}
-
-/** Transitional, as `serialisedJson` is: `leaves` as text. */
-export function leafErrors(errors: readonly OutputUnit[], where: string, limit = 5): string[] {
-  const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
-  return (leaves.length ? leaves : errors).slice(0, limit).map((unit) => `${unit.instanceLocation.replace(/^#/, where) || where}: ${unit.error}`);
 }

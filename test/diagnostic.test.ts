@@ -42,6 +42,7 @@ describe("diagnostics", () => {
     expect([show.code("invalid_grant"), show.code("two words")]).toEqual(["invalid_grant", '"two words"']);
     expect([show.count(1, ours("server"), ours("servers")), show.count(3, ours("server"), ours("servers"))]).toEqual(["1 server", "3 servers"]);
     expect([show.list([]), show.list([ours("a")]), show.list([ours("a"), ours("b"), ours("c")], "or")]).toEqual(["nothing", "a", "a, b or c"]);
+    expect([show.join([ours("a"), ours("b")]), show.join([ours("a"), ours("b")], ", "), show.join([])]).toEqual(["a; b", "a, b", ""]);
     expect(shown`${show.value("x")} isn't a scope (${2} tries)`).toBe('"x" isn\'t a scope (2 tries)');
   });
 

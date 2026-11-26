@@ -146,6 +146,10 @@ export const show = {
   count(count: number, one: Shown, many: Shown): Shown {
     return made(`${count} ${count === 1 ? one : many}`);
   },
+  /** Separate items in one line, such as several problems: "a; b; c". */
+  join(items: readonly Shown[], separator: "; " | ", " = "; "): Shown {
+    return made(items.join(separator));
+  },
   /** "a", "a and b", "a, b or c". */
   list(items: readonly Shown[], conjunction: "and" | "or" = "and"): Shown {
     if (items.length <= 1) return made(items[0] ?? "nothing");
