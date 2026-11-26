@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { JsonError, parseStrictJson } from "../../src/poppy/json";
 import { parseJson } from "../../src/validator/json";
+import { departure, ours, show } from "../../src/diagnostic";
 import { gs, jsonValues, property, type Json } from "./hegel";
 
 /**
@@ -212,10 +213,10 @@ describe("both JSON parsers agree with JSON.parse", () => {
 
 describe("duplicate member names", () => {
   it(
-    "are refused by the client parser, which names the duplicate",
+    "are refused by the client parser, which names the duplicate and where it starts",
     property((tc) => {
-      const { text, name } = tc.draw(duplicated);
-      expect(() => parseStrictJson(text)).toThrow(new RegExp(`^Duplicate member name ${JSON.stringify(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} at position \\d+$`));
+      const { text, name, offset } = tc.draw(duplicated);
+      expect(() => parseStrictJson(text)).toThrow(`position ${offset}: expected a member name not already in this object, got ${show.value(name)}`);
       expect(() => parseStrictJson(text)).toThrow(JsonError);
     })
   );
@@ -229,10 +230,10 @@ describe("duplicate member names", () => {
   );
 
   it("make the client parser throw, at any depth", () => {
-    expect(() => parseStrictJson('{"a":1,"a":2}')).toThrow(new JsonError('Duplicate member name "a" at position 10'));
-    expect(() => parseStrictJson('{"a":1,"b":{"c":[{"d":true,"d":true}]}}')).toThrow(/Duplicate member name "d"/);
+    expect(() => parseStrictJson('{"a":1,"a":2}')).toThrow(new JsonError(departure(ours("position 7"), ours("a member name not already in this object"), ours('"a"'))));
+    expect(() => parseStrictJson('{"a":1,"b":{"c":[{"d":true,"d":true}]}}')).toThrow(new JsonError(departure(ours("position 27"), ours("a member name not already in this object"), ours('"d"'))));
     // Equal after unescaping is equal.
-    expect(() => parseStrictJson('{"a":1,"\\u0061":2}')).toThrow(/Duplicate member name "a"/);
+    expect(() => parseStrictJson('{"a":1,"\\u0061":2}')).toThrow(new JsonError(departure(ours("position 7"), ours("a member name not already in this object"), ours('"a"'))));
     expect(parseStrictJson('{"a":1,"b":{"a":2}}')).toEqual({ a: 1, b: { a: 2 } });
   });
 
@@ -297,9 +298,29 @@ describe("malformed input", () => {
     }
   });
 
+  it("says where the client parser stopped, what it expected and what it got", () => {
+    const said = (text: string): string | undefined => {
+      try {
+        parseStrictJson(text);
+        return undefined;
+      } catch (error) {
+        return error instanceof JsonError ? error.message : undefined;
+      }
+    };
+    expect(said("")).toBe("position 0: expected a JSON value, got the end of the text");
+    expect(said("[1,]")).toBe('position 3: expected a JSON value, got "]"');
+    expect(said("[1 2]")).toBe(`position 3: expected ',' or ']', got "2"`);
+    expect(said('{"a" 1}')).toBe(`position 5: expected ':' after the member name, got "1"`);
+    expect(said("{a:1}")).toBe('position 1: expected a member name in double quotes, got "a"');
+    expect(said('"abc')).toBe(`position 4: expected '"' to close the string, got the end of the text`);
+    expect(said('"\t"')).toBe('position 1: expected a control character only as an escape, got "\\t"');
+    expect(said('"\\x"')).toBe('position 1: expected an escape JSON defines (\\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t, or \\u and four hex digits), got "\\\\x"');
+    expect(said("{}{}")).toBe('position 2: expected the end of the text, got "{"');
+  });
+
   it("refuses a value nested more than 64 deep without overflowing the stack", () => {
-    for (const text of ["[".repeat(100_000), `${"[".repeat(65)}1${"]".repeat(65)}`, `${'{"a":'.repeat(65)}1${"}".repeat(65)}`]) {
-      expect(() => parseStrictJson(text)).toThrow(/Nesting too deep/);
+    for (const [text, at] of [["[".repeat(100_000), ours("position 65")], [`${"[".repeat(65)}1${"]".repeat(65)}`, ours("position 65")], [`${'{"a":'.repeat(65)}1${"}".repeat(65)}`, ours("position 325")]] as const) {
+      expect(() => parseStrictJson(text)).toThrow(new JsonError(departure(at, ours("nesting at most 64 deep"), ours("a 65th level"))));
       expect(parseJson(text)).toMatchObject({ ok: false, error: "Nesting too deep" });
     }
     for (const deepest of [`${"[".repeat(64)}1${"]".repeat(64)}`, `${'{"a":'.repeat(64)}1${"}".repeat(64)}`]) {

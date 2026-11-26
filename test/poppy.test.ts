@@ -22,6 +22,7 @@ import { agent, cards, company, compareViolations, requests, signInDirect, tool,
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
 import { named } from "./named-fetcher.ts";
+import { departure, ours, shown } from "../src/diagnostic";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
@@ -233,22 +234,24 @@ describe("Guides: fetching metadata safely", () => {
   it("refuses a web page where a JSON document should be, as the validator does (http-web-page)", async () => {
     const page = async () => new Response("<!DOCTYPE html><html><body>Sign in</body></html>", { headers: { "Content-Type": "text/html" } });
     await expect(fetchJson(named(page), "https://public.example/openapi.json")).rejects.toThrow(
-      new PoppyFetchError("https://public.example/openapi.json answered with a web page, not a JSON document")
+      new PoppyFetchError(departure(ours("https://public.example/openapi.json"), ours("a JSON document"), ours("a web page")))
     );
     // A JSON document mislabelled as HTML is still read.
     const mislabelled = async () => new Response('{"openapi":"3.1.0"}', { headers: { "Content-Type": "text/html" } });
     await expect(fetchJson(named(mislabelled), "https://public.example/openapi.json")).resolves.toMatchObject({ json: { openapi: "3.1.0" } });
   });
 
-  it("refuses a redirect to something that isn't a URL as a PoppyFetchError", async () => {
+  it("refuses a redirect to something that isn't a URL as a PoppyFetchError, saying what came", async () => {
     const redirect: Fetcher = async () => new Response(null, { status: 302, headers: { Location: "https://[bad" } });
-    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(PoppyFetchError);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(
+      new PoppyFetchError(departure(ours("the redirect from https://public.example/openapi.json (HTTP 302)"), ours("a Location that is a URL"), ours('"https://[bad"')))
+    );
   });
 
   // docs/readings.md#success-status: the same rule as the validator's, so discovery and later reads agree.
   it.each([201, 203, 204, 206])("refuses a document served with HTTP %i, as the validator does", async (status) => {
     const served: Fetcher = async () => new Response(status === 204 ? null : "{}", { status, headers: { "Content-Type": "application/json" } });
-    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(`https://public.example/openapi.json returned HTTP ${status}`));
+    await expect(fetchJson(named(served), "https://public.example/openapi.json")).rejects.toThrow(new PoppyFetchError(departure(ours("https://public.example/openapi.json"), ours("HTTP 200"), shown`HTTP ${status}`)));
   });
 
   it("never sends a request, on Workers, to a port a Worker would quietly swap for 443", async () => {
@@ -281,10 +284,10 @@ describe("Guides: fetching metadata safely", () => {
       fetched.push(request.url);
       return response();
     };
-    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(answer(() => Response.json({}))), target)).rejects.toThrow(/^the host to fetch: expected a public host name, got .+\. Nothing was fetched$/);
     expect(fetched).toEqual([]);
     const redirect = answer(() => new Response(null, { status: 302, headers: { Location: target } }));
-    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
+    await expect(fetchJson(named(redirect), "https://public.example/openapi.json")).rejects.toThrow(/^the host to fetch: expected a public host name, got .+\. Nothing was fetched$/);
     expect(fetched).toEqual(["https://public.example/openapi.json"]);
   });
 
@@ -311,7 +314,7 @@ describe("Guides: fetching metadata safely", () => {
           { headers: { "Content-Type": "application/json" } }
         );
       const pending = fetchJson(named(stalling), "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
-      const settled = expect(pending).rejects.toThrow(new PoppyFetchError("https://api.shop.example/openapi.json: timed out after 5 seconds"));
+      const settled = expect(pending).rejects.toThrow(new PoppyFetchError(ours("https://api.shop.example/openapi.json: timed out after 5 seconds")));
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
       expect(cancelled).toBe(true);
@@ -376,7 +379,7 @@ describe("Guides: fetching metadata safely", () => {
     const a = await agent();
     const described = await tool(a, "poppy_api_describe", { domain: c.domain });
     expect(described.isError).toBe(true);
-    expect(described.text).toMatch(/non-public host 10\.0\.0\.1/);
+    expect(described.text).toMatch(/the host to fetch: expected a public host name, got 10\.0\.0\.1\. Nothing was fetched/);
   });
 });
 
@@ -3610,6 +3613,13 @@ describe("parsed once at the edge", () => {
     expect(refused(() => checkParams(shop, op({ enum: ["small", "large"] }), { n: "huge" }))).toMatchObject({ code: "invalid_params", message: expect.stringContaining("Nothing was sent") });
     // A schema it can't read refuses nothing; the Company decides.
     expect(refused(() => checkParams(shop, op({ $ref: "#/nowhere" }), { n: "x" }))).toBeNull();
+  });
+
+  it("says what the params' schemas allow and what each refused, apart", () => {
+    expect(refused(() => checkParams(shop, op({ type: "integer", minimum: 1 }), { n: 0 }))).toEqual({
+      code: "invalid_params",
+      message: `the params for listOrders at Shop: expected values their schemas allow, got params.n: "0 is less than 1". See its parameters in poppy_api_describe. Nothing was sent`
+    });
   });
 
   it("sends the header parameters a call gives, checked like any parameter, and never a reserved one", async () => {

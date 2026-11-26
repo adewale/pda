@@ -2,6 +2,7 @@
 import { type Json, isObject, toJson } from "./json";
 import { type SchemaDraft, resolveRef, foldNullable, inlineRefs, jsonBodyOf, pointerPart } from "./api-schema";
 import { PoppyClient, PoppyError } from "./client";
+import { departure, ours, show } from "../diagnostic";
 import { type Company, boundedCacheSeconds } from "./discovery";
 import { type Api, findApi } from "./api-authority";
 import { fetchJson } from "./fetch";
@@ -198,7 +199,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
   if (cached && cached.expiresAt > Date.now()) return cached.document;
   const { json, finalUrl, maxAgeSeconds } = await fetchJson(client.host.fetcher, api.url, { maxBytes: 1_000_000 });
   if (!isObject(json) || typeof json.openapi !== "string" || !/^3\.[01]\./.test(json.openapi)) {
-    throw new PoppyError("bad_api", "The API description isn't OpenAPI 3.0 or 3.1", 0);
+    throw new PoppyError("bad_api", isObject(json) ? departure(ours("the API description's openapi"), ours("an OpenAPI 3.0 or 3.1 version, such as \"3.1.0\""), show.value(json.openapi)) : departure(ours("the API description"), ours("a JSON object"), show.kind(json)), 0);
   }
   const server = Array.isArray(json.servers) && isObject(json.servers[0]) && typeof json.servers[0].url === "string" ? json.servers[0].url : "/";
   const base = new URL(server, finalUrl).href.replace(/\/+$/, "");
@@ -262,7 +263,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
 
 export function findOperation(document: OpenApiDocument, name: string): OpenApiOperation {
   const found = document.operations.find((op) => op.operationId === name || `${op.method} ${op.path}` === name);
-  if (!found) throw new PoppyError("no_operation", `The API has no operation ${name}`, 0);
+  if (!found) throw new PoppyError("no_operation", departure(ours("the operation"), ours("an operationId the API describes, or its method and path"), show.text(name)), 0);
   return found;
 }
 
