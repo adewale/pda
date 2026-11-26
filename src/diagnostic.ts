@@ -121,7 +121,8 @@ export const show = {
     if (at.origin === "null") return made(`${bounded(at.protocol, 40)}…`);
     // Never a user name or password: `origin` has neither. A bare origin is shown without the root path's slash.
     const where = at.pathname === "/" && !at.search && !at.hash ? at.origin : `${at.origin}${at.pathname}`;
-    if (asked !== undefined && at.href === new URL(String(asked)).href) return made(bounded(`${where}${at.search}${at.hash}`, 300));
+    // An `asked` that isn't a URL is simply not the URL shown: building a message must never throw.
+    if (asked !== undefined && URL.canParse(String(asked)) && at.href === new URL(String(asked)).href) return made(bounded(`${where}${at.search}${at.hash}`, 300));
     const elided = at.search || at.hash ? "?…" : "";
     return made(bounded(where, 200) + elided);
   },

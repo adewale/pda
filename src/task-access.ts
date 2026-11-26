@@ -1,5 +1,14 @@
-import { departure, ours, sentence, show, shown, type Problem, type Shown } from "./diagnostic";
+import { departure, ours, ProblemError, sentence, show, shown, type Problem, type Shown } from "./diagnostic";
 import { isPublicHost } from "./validator/fetch";
+
+/** A selection the composer can't use; its message is a sentence, for the page, and `problem` keeps the parts for a tool that reports it. */
+export class TaskAccessError extends ProblemError {
+  override name = "TaskAccessError";
+  constructor(problem: Problem) {
+    super(problem);
+    this.message = sentence(problem);
+  }
+}
 
 /** Authority selected in the authenticated composer, never inferred from prose or model arguments. */
 export type TaskAccess = {
@@ -11,8 +20,8 @@ export const NO_TASK_ACCESS: TaskAccess = { companies: [], uploads: [] };
 const ATTACHMENT = /^att_[A-Za-z0-9_-]{22}$/;
 
 /** An error the composer shows the User: the diagnostic as a sentence. */
-function refused(problem: Problem): Error {
-  return new Error(sentence(problem));
+function refused(problem: Problem): TaskAccessError {
+  return new TaskAccessError(problem);
 }
 
 const DOMAIN = ours("a public HTTPS Company domain, without a path, query or credentials");

@@ -145,3 +145,11 @@ describe("validator input resource limits", () => {
     expect(calls).toEqual(["input", "input", "fetch"]);
   });
 });
+
+describe("the form's error banner", () => {
+  it("escapes the refusal's quotes and apostrophes instead of dropping them", async () => {
+    const request = new Request(`${origin}/validator`, { method: "POST", body: new URLSearchParams({ document: "{}", kind: 'x"y' }) });
+    const page = await (await handleValidator(request, options()))!.text();
+    expect(page).toContain("<strong>kind: expected one of poppy, protected-resource, oauth-metadata, client-metadata or jwks, got &#34;x\\&#34;y&#34;.</strong>");
+  });
+});

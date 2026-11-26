@@ -44,6 +44,12 @@ describe("parseAllowlist", () => {
       expect(() => parseAllowlist("DEMO_ALLOWLIST", value)).toThrow(/^DEMO_ALLOWLIST/);
     }
   });
+
+  it("names a bad address by its position, never the address, since a configuration error is served to whoever asked", () => {
+    const bad = () => parseAllowlist("DEMO_ALLOWLIST", { emails: ["ada@example.com", "alice@corp"], domains: [], github: {} });
+    expect(bad).toThrow("DEMO_ALLOWLIST.emails: expected email addresses, got entry 1, which isn't one");
+    expect(bad).not.toThrow(/alice/);
+  });
 });
 
 describe("OWNERS", () => {

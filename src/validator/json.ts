@@ -101,7 +101,8 @@ export function parseJson(input: string): Parsed {
     while (i < text.length && " \t\n\r".includes(text[i]!)) i++;
   };
   const literal = (word: string, value: unknown) => {
-    if (!text.startsWith(word, i)) fail(show.code(word));
+    // What came where the word should be, not just its first letter, which matched.
+    if (!text.startsWith(word, i)) fail(show.code(word), show.value(text.slice(i, i + word.length)));
     i += word.length;
     return value;
   };

@@ -31,9 +31,9 @@ import { sendAgentMessage } from "./agent-message";
 import { stateForModel } from "./conversation-state";
 import { instructionForModel, instructions } from "./instructions";
 import { operationsVersion } from "./operations-v2";
-import { NO_TASK_ACCESS, companyDomain } from "../task-access";
+import { NO_TASK_ACCESS, TaskAccessError, companyDomain } from "../task-access";
 import { attachmentInfo } from "../attachments";
-import { departure, ours, ProblemError, render, sentence, show, shown } from "../diagnostic";
+import { departure, isDeparture, ours, ProblemError, render, sentence, show, shown } from "../diagnostic";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Company access comes from the Companies selected in the composer, not domain names in prose. When the User's request names a company that isn't selected, call poppy_request_company with its domain, and the attached photos the task would send it, then end your turn: the User allows it on a card. Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -222,8 +222,10 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           let host: string;
           try {
             host = companyDomain(domain);
-          } catch {
-            throw new PoppyError("invalid_request", departure(ours("domain"), ours("a public HTTPS Company domain, without a path, query or credentials"), show.value(domain)), 0);
+          } catch (error) {
+            // What the domain was instead, as companyDomain says it: never its credentials, path or query.
+            const said = error instanceof TaskAccessError && isDeparture(error.problem) ? error.problem : null;
+            throw new PoppyError("invalid_request", departure(ours("domain"), said?.expected ?? ours("a public HTTPS Company domain, without a path, query or credentials"), said?.got ?? show.value(domain)), 0);
           }
           const task = await taskOf(invocation);
           if (task?.active() && task.access.companies.includes(host)) return { domain: host, selected: true, note: "Already selected; go ahead." };

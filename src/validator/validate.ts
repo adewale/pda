@@ -418,7 +418,7 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
         prmChecker.report(
           "prm-unsettled",
           "",
-          shown`Agents can't tell from ${show.url(prmFetched.url, prmFetched.url)} whether the Company has an OAuth issuer, so they don't fall back to ${show.url(`https://${facts.domain.toLowerCase()}`, `https://${facts.domain.toLowerCase()}`)} as its identifier and can't open Sessions with it`
+          shown`Agents can't tell from ${show.url(prmFetched.url, prmFetched.url)} whether the Company has an OAuth issuer, so they don't fall back to ${show.url(`https://${facts.domain.toLowerCase()}`, `https://${facts.domain.toLowerCase()}`)} as its identifier and can't ${facts.usesSessions ? ours("open Sessions with it") : ours("sign in with it")}`
         );
       }
     }

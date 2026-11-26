@@ -33,6 +33,8 @@ describe("diagnostics", () => {
     expect(show.url("not a url")).toBe('"not a url"');
     expect([show.url("https://example.com"), show.url("https://u:p@example.com/a")]).toEqual(["https://example.com", "https://example.com/a"]);
     expect(show.url("javascript:alert(document.cookie)")).toBe("javascript:…");
+    // Building a message never throws: an asked-for value that isn't a URL is simply not this one.
+    expect(show.url("https://a.example/x?q=1", "not a url")).toBe("https://a.example/x?…");
   });
 
   it("shows statuses, types, paths, codes, counts and lists", () => {

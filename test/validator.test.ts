@@ -965,6 +965,21 @@ const DISCOVERY: readonly Fixture[] = [
     }
   },
   {
+    // Nothing here uses Sessions, so an unknown issuer stops sign-in, not Sessions.
+    name: "says an unsettled issuer stops sign-in for a Company that names one but uses no Sessions",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": jsonResponse({ protocol_version: "1.0", organization: { name: "Example Company", domain: "example.com" }, web: {}, auth: { issuer: "https://auth.example.com" } }),
+          "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 503 })
+        }),
+        "example.com"
+      ),
+    ids: ["http-status", "prm-unsettled"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[1]!.text).toMatch(/as its identifier and can't sign in with it\.$/)
+  },
+  {
     // The reported case: a signed-out Company whose site sends every unknown path, /.well-known/ included, to a sign-in page elsewhere.
     name: "reports a sign-in page where the protected resource metadata should be as a web page, and what it means for the issuer",
     run: () =>
@@ -1575,6 +1590,13 @@ const FETCHING: readonly Fixture[] = [
     ids: ["http-web-page"],
     also: (report) =>
       expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html) at https://example.com/home, after redirects.")
+  },
+  {
+    // The text where the word should be, not just its first letter, which matched.
+    name: "says what stood where true, false or null should be",
+    run: () => text("poppy", '{"a": trux}'),
+    ids: ["json-syntax"],
+    also: (report) => expect(report.messages[0]!.text).toBe('line 1, column 7: expected true, got "trux".')
   },
   {
     // Only markup that is a page: other markup is reported as what it is, a document that isn't JSON.

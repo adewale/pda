@@ -190,7 +190,7 @@ export async function handleValidator(request: Request, options: ValidatorHttpOp
       return html(resultPage(await run(input, request, options), input));
     } catch (error) {
       if (error instanceof BadInput) {
-        return html(formPage(url.origin).replace("</h1>", `</h1><p role="alert" class="outcome invalid"><strong>${error.message.replace(/[&<>"']/g, "")}</strong></p>`), error.status);
+        return html(formPage(url.origin).replace("</h1>", `</h1><p role="alert" class="outcome invalid"><strong>${error.message.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</strong></p>`), error.status);
       }
       throw error;
     }

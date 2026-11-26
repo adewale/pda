@@ -874,9 +874,9 @@ export class Company {
     const where = requestAt(inbound);
     /** The DPoP proof's `part` on this request, as a check's subject. */
     const onProof = (part: Shown): Shown => shown`${part} on ${where}`;
-    /** Records `detail` under `id` when there is one, and refuses with `why` as the error_description. */
+    /** Records `detail` under `id` when there is one (never dropped: `why` stands in for a missing detail), and refuses with `why` as the error_description. */
     const fail = (error: string, why: string, id: ViolationId | null, detail?: Problem): HttpError => {
-      if (id && detail) this.violation(id, detail);
+      if (id) this.violation(id, detail ?? show.text(why));
       const headers: Record<string, string> = { "WWW-Authenticate": `DPoP error="${error}"` };
       if (error === "use_dpop_nonce") headers["DPoP-Nonce"] = this.nonceFor(origin);
       return atTokenEndpoint

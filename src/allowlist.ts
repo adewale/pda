@@ -68,9 +68,10 @@ export function parseAllowlist(name: string, raw: unknown, options: { domains?: 
   if (unknown.length > 0) fail(departure(setting, keys, shown`one with ${show.list(unknown.map((key) => show.value(key)))} too`));
 
   const emailList = strings(name, emails, "emails");
-  for (const email of emailList) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(departure(shown`${setting}.emails`, ours("email addresses"), show.value(email)));
-  }
+  emailList.forEach((email, index) => {
+    // Its position, not the address: a config error is served to whoever asked (above).
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(departure(shown`${setting}.emails`, ours("email addresses"), shown`entry ${index}, which isn't one`));
+  });
   const domainList = withDomains ? strings(name, domains, "domains") : [];
   for (const domain of domainList) {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) fail(departure(shown`${setting}.domains`, ours("domain names, such as example.com"), show.value(domain)));

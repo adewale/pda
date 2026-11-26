@@ -28,7 +28,9 @@ const flowId: Decoder<string> = (value, at) => {
 const linkChecks: Decoder<Extract<PoppyClientFrame, { type: "poppy.result_links.checked" }>["checks"]> = (value, at) => {
   if (!Array.isArray(value) || value.length > 12) refuse(at, ours("a list of at most 12 link checks"), value);
   const checks = array(object({ index: integer, attribute_equal: boolean, resolved_equal: boolean }))(value, at);
-  if (checks.some(check => check.index < 0 || check.index >= 12) || new Set(checks.map(check => check.index)).size !== checks.length) refuse(at, ours("link checks with distinct indexes from 0 to 11"), ours("others"));
+  // The index that breaks the rule, as the value got: out of range, or repeated.
+  const stray = checks.find((check, position) => check.index < 0 || check.index >= 12 || checks.findIndex(other => other.index === check.index) !== position);
+  if (stray !== undefined) refuse(at, ours("link checks with distinct indexes from 0 to 11"), stray.index);
   return checks;
 };
 
