@@ -34,12 +34,14 @@ export function pointer(parent: string, key: string | number): string {
   return `${parent}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
 
+// Fields assigned in the body: Node runs this file by stripping types, which can't hold parameter properties.
 class SyntaxProblem extends Error {
-  constructor(
-    readonly expected: Shown,
-    readonly got?: Shown
-  ) {
+  readonly expected: Shown;
+  readonly got: Shown | undefined;
+  constructor(expected: Shown, got?: Shown) {
     super(expected);
+    this.expected = expected;
+    this.got = got;
   }
 }
 class ResourceProblem extends SyntaxProblem {}
