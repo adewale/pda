@@ -40,6 +40,7 @@ import { array, jsonText, object, optional, string, tryDecode } from "../decode"
 import { isDiagnosticFlowId } from "./approval-outcome";
 import { writeCard, type CardWriteOptions } from "./cards";
 import { approvalDecisions } from "./approval-decisions";
+import { ours } from "../diagnostic";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -413,7 +414,7 @@ export class PoppyCapability extends LifecycleCapability {
     const frame = decoded.value;
     if (frame.type !== "poppy.result_links.checked") this.#lastActivity = Date.now();
     try {
-      if (this.#options.framesRefused?.()) throw new PoppyError("refused", "Your agent is being deleted.", 0);
+      if (this.#options.framesRefused?.()) throw new PoppyError("refused", ours("Your agent is being deleted."), 0);
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
       else await this.#units.frame(code(frame.type) ?? literal("poppy.unknown"), frameFields(frame), () => this.#handleFrame(socket, frame));
       if (!QUIET_FRAMES.has(frame.type)) this.#sendActivity();

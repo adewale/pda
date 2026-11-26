@@ -2,6 +2,7 @@ import { PoppyError } from "./client";
 import { protocolEndpoint, type Company } from "./discovery";
 import type { Json } from "./json";
 import { isPublicHost } from "../validator/fetch.ts";
+import { departure, ours, show, shown } from "../diagnostic";
 
 /** What one request to a Company carries, before the client adds its token and proof. */
 export type RequestInit = {
@@ -43,7 +44,7 @@ export class EndpointRequest {
   static to(company: Company, init: RequestInit): EndpointRequest {
     const url = new URL(init.url);
     if (!protocolEndpoint(company, url)) {
-      throw new PoppyError("invalid_request", `${url.origin}${url.pathname} isn't one of ${company.name}'s Poppy endpoints`, 0);
+      throw new PoppyError("invalid_request", departure(ours("the request's address"), shown`one of ${show.name(company.name)}'s Poppy endpoints, or a path under one`, show.url(url)), 0);
     }
     return new EndpointRequest(init);
   }
@@ -57,7 +58,7 @@ export class EndpointRequest {
    */
   static listed(endpoint: string, init: RequestInit): EndpointRequest {
     if (init.url !== endpoint || !URL.canParse(endpoint) || new URL(endpoint).protocol !== "https:" || !isPublicHost(new URL(endpoint))) {
-      throw new PoppyError("invalid_request", `${init.url} isn't the endpoint the Company named`, 0);
+      throw new PoppyError("invalid_request", departure(ours("the request's address"), ours("exactly the endpoint the Company named, on a public HTTPS host"), show.url(init.url)), 0);
     }
     return new EndpointRequest(init, true);
   }
@@ -65,7 +66,7 @@ export class EndpointRequest {
   /** A JSON-RPC request to an MCP server the Company lists, at exactly its `url`. */
   static mcp(company: Company, init: RequestInit): EndpointRequest {
     if (!company.apis.some((api) => api.type === "mcp" && api.url === init.url)) {
-      throw new PoppyError("no_api", `${company.name} lists no MCP API at ${init.url}`, 0);
+      throw new PoppyError("no_api", departure(ours("the MCP request's address"), shown`exactly the URL of an MCP API ${show.name(company.name)} lists`, show.url(init.url)), 0);
     }
     return new EndpointRequest(init);
   }
