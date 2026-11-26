@@ -25,6 +25,7 @@ Use Node 24 (`.nvmrc`) and `npm ci --legacy-peer-deps`.
 - `npm test`: five offline Vitest projects. Use a targeted Vitest command during development; run the full suite for code changes.
 - `npm run typecheck`: types, for the Workers program and for `scripts/` with Node's types (`tsconfig.scripts.json`); the optional `.githooks/pre-push` runs this too.
 - `npm run check:docs`: dependency-free documentation file/scenario references, independent of test titles.
+- `npm run test:tooling`: dependency-free Node tests of `scripts/`, the validator CLI under Node's type stripping included; CI runs them before `npm ci`. `npm run test:node-runtime` loads the deploy check under Node after `npm ci`.
 - `npm run check:spec`: pinned specification integrity and generated requirement ledger.
 - `npm run test:properties`: ordinary property cases; deep runs stay local.
 - `npm run test:hypothesis`: occasional independent Python check after protocol or major mock changes; not a feature-by-feature maintenance obligation.

@@ -1,10 +1,12 @@
 /**
  * The TypeScript that Node runs by stripping types (Node 22.18+, 23.6+ and
- * 24, as package.json's scripts do): the validator CLI and the deploy
- * check's module chain. Vite, which runs the other tests, accepts syntax that
- * stripping refuses, such as a constructor's parameter properties or an
- * enum, so only running them under Node catches it. Offline: the CLI checks
- * a document on standard input.
+ * 24, as package.json's scripts do): the validator CLI. Vite, which runs the
+ * other tests, accepts syntax that stripping refuses, such as a
+ * constructor's parameter properties or an enum, so only running it under
+ * Node catches it. Offline and dependency-free, as test:tooling is (CI runs
+ * it before npm ci): the CLI checks a document on standard input. The deploy
+ * check's chain needs packages, so scripts/node-runtime.check.mjs covers it
+ * after npm ci.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,11 +27,4 @@ test("the validator CLI runs under Node and says what it expected and what it go
   const valid = validate(JSON.stringify({ protocol_version: "1.0", organization: { name: "Example", domain: "example.com" }, web: {} }), "--domain", "example.com");
   assert.equal(valid.stderr, "");
   assert.equal(valid.status, 0);
-});
-
-test("the deploy check's modules load under Node, and a setting's problem names both sides", async () => {
-  const { deploymentProblems } = await import("../src/deployment.ts");
-  const problems = deploymentProblems({});
-  assert.ok(problems.length > 0);
-  assert.ok(problems.some((problem) => /: expected .+, got /.test(problem)), problems.join("\n"));
 });
