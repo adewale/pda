@@ -38,7 +38,7 @@ button{margin-top:14px;font:inherit;font-weight:600;color:#fff;background:var(--
 .outcome.valid strong{color:var(--ok)}.outcome.invalid strong{color:var(--error)}.outcome.indeterminate strong{color:var(--warn)}
 ul.messages{list-style:none;padding:0;margin:0}
 ul.messages li{border-top:1px solid var(--line);padding:10px 0}
-dl.sides{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:6px 0 0;font-size:.95em}dl.sides dt{color:var(--muted,inherit);font-weight:600}dl.sides dd{margin:0;overflow-wrap:anywhere}
+dl.sides{display:grid;grid-template-columns:max-content 1fr;align-items:baseline;gap:2px 12px;margin:6px 0 0;font-size:.95em}dl.sides dt{margin:0;color:var(--muted);font-weight:600}dl.sides dd{margin:0;color:inherit;overflow-wrap:anywhere}
 .sev{font-weight:600}
 .sev.error{color:var(--error)}.sev.warning{color:var(--warn)}.sev.info{color:var(--info)}
 .where{color:var(--muted);font-size:.9rem}

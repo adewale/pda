@@ -717,8 +717,10 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "checks the issuer: http",
-    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com"))),
-    ids: ["not-https-url"]
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com/?tenant=1"))),
+    ids: ["not-https-url"],
+    // The URL itself is what was got, without its query.
+    also: (report) => expect(report.messages[0]!.text).toBe("auth.issuer: expected an https URL, got http://auth.example.com/?…")
   },
   {
     name: "checks the issuer: a query",

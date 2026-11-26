@@ -168,7 +168,7 @@ export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref, rule
     return undefined;
   }
   if (url.protocol !== "https:") {
-    c.report("not-https-url", at, departure(subject(at), ours("an https URL"), shown`a ${show.code(url.protocol.replace(":", ""))} URL`), ref);
+    c.report("not-https-url", at, departure(subject(at), ours("an https URL"), show.url(url)), ref);
     return undefined;
   }
   // The URL parser accepts hosts such as "." (https://.) or "a..b", which name no server.
