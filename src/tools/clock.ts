@@ -16,7 +16,7 @@
  *   forward) moves forward by the gap; one that happens twice takes the
  *   earlier, as Temporal's "compatible" choice does.
  */
-import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText } from "../diagnostic";
 
 export class TimeError extends ProblemError {
   override name = "TimeError";
@@ -75,7 +75,7 @@ export function formatDate(date: CalendarDate): string {
 }
 
 function checkYear(date: CalendarDate): CalendarDate {
-  if (date.year < MIN_YEAR || date.year > MAX_YEAR) throw new TimeError(`Dates go from year ${MIN_YEAR} to ${MAX_YEAR}`);
+  if (date.year < MIN_YEAR || date.year > MAX_YEAR) throw new TimeError(departure(ours("the year"), shown`a year from ${MIN_YEAR} to ${MAX_YEAR}`, shown`${date.year}`));
   return date;
 }
 
@@ -117,12 +117,12 @@ function formatter(zone: string): Intl.DateTimeFormat {
 /** An IANA time zone name, as the runtime spells it, or a TimeError. */
 export function checkZone(zone: string): string {
   if (typeof zone !== "string" || zone.length === 0 || zone.length > 64 || !/^[A-Za-z0-9_+\-/]+$/.test(zone)) {
-    throw new TimeError(`${JSON.stringify(zone)} isn't an IANA time zone name, such as Europe/London`);
+    throw new TimeError(departure(ours("the time zone"), ours("an IANA time zone name, such as Europe/London"), show.value(zone)));
   }
   try {
     return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
   } catch {
-    throw new TimeError(`${JSON.stringify(zone)} isn't an IANA time zone name, such as Europe/London`);
+    throw new TimeError(departure(ours("the time zone"), ours("an IANA time zone name, such as Europe/London"), show.value(zone)));
   }
 }
 
@@ -188,7 +188,7 @@ export type MomentView = {
 };
 
 export function viewMoment(instant: number, zone: string): MomentView {
-  if (!Number.isFinite(instant)) throw new TimeError("That's outside the dates this can work with");
+  if (!Number.isFinite(instant)) throw new TimeError(ours("That's outside the dates this can work with"));
   const wall = wallAt(instant, zone);
   checkYear(wall);
   const offset = formatOffset(offsetSeconds(instant, zone));
@@ -236,22 +236,22 @@ export function parseDuration(input: unknown): Duration {
   if (typeof input === "string") {
     const match = /^([+-])?P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.exec(input.trim());
     if (!match || input.trim().toUpperCase().endsWith("T") || match.slice(2).every((part) => part === undefined)) {
-      throw new TimeError(`${JSON.stringify(input)} isn't an ISO 8601 duration such as P1D, P2W, P1M or PT3H30M`);
+      throw new TimeError(departure(ours("the duration"), ours("an ISO 8601 duration such as P1D, P2W, P1M or PT3H30M"), show.value(input)));
     }
     const sign = match[1] === "-" ? -1 : 1;
     fields = Object.fromEntries(UNITS.map((unit, index) => [unit, sign * Number(match[index + 2] ?? 0)]));
   } else if (typeof input === "object" && input !== null && !Array.isArray(input)) {
     fields = input as Record<string, unknown>;
     const unknown = Object.keys(fields).filter((key) => !(UNITS as readonly string[]).includes(key));
-    if (unknown.length) throw new TimeError(`Unknown unit ${unknown.map((key) => JSON.stringify(key)).join(", ")}; the units are ${UNITS.join(", ")}`);
+    if (unknown.length) throw new TimeError(departure(ours("the duration's units"), shown`some of ${show.list(UNITS.map((unit) => ours(unit)))}`, show.list(unknown.map((key) => show.value(key)))));
   } else {
-    throw new TimeError("A duration is an ISO 8601 string (P1D) or an object such as { \"days\": 3 }");
+    throw new TimeError(departure(ours("the duration"), ours('an ISO 8601 string (P1D) or an object such as { "days": 3 }'), show.kind(input)));
   }
   const out: Record<string, number> = {};
   for (const unit of UNITS) {
     const value = fields[unit] ?? 0;
-    if (typeof value !== "number" || !Number.isInteger(value)) throw new TimeError(`${unit} must be a whole number`);
-    if (Math.abs(value) > UNIT_LIMIT[unit]) throw new TimeError(`${unit} goes up to ${UNIT_LIMIT[unit]}`);
+    if (typeof value !== "number" || !Number.isInteger(value)) throw new TimeError(departure(ours(unit), ours("a whole number"), show.value(value)));
+    if (Math.abs(value) > UNIT_LIMIT[unit]) throw new TimeError(departure(ours(unit), shown`from -${UNIT_LIMIT[unit]} to ${UNIT_LIMIT[unit]}`, show.value(value)));
     out[unit] = value === 0 ? 0 : value;
   }
   return out as Duration;
@@ -272,13 +272,13 @@ export function parseMoment(text: string, zone: string, now: number): Moment {
   if (date) return { kind: "date", date: checkDate(Number(date[1]), Number(date[2]), Number(date[3]), trimmed) };
   const moment = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(trimmed);
   if (!moment) {
-    throw new TimeError(`${JSON.stringify(text)} isn't a date (2026-10-12), a date and time (2026-10-12T09:30, optionally with Z or +01:00), "today" or "now"`);
+    throw new TimeError(departure(ours("the date"), ours('a date (2026-10-12), a date and time (2026-10-12T09:30, optionally with Z or +01:00), "today" or "now"'), show.value(text)));
   }
   const day = checkDate(Number(moment[1]), Number(moment[2]), Number(moment[3]), trimmed);
   const hour = Number(moment[4]);
   const minute = Number(moment[5]);
   const second = Number(moment[6] ?? 0);
-  if (hour > 23 || minute > 59 || second > 59) throw new TimeError(`${JSON.stringify(text)} has a time that doesn't exist`);
+  if (hour > 23 || minute > 59 || second > 59) throw new TimeError(departure(ours("the time"), ours("a time of day from 00:00 to 23:59:59"), show.value(text)));
   const wall: WallTime = { ...day, hour, minute, second, millisecond: Number((moment[7] ?? "0").padEnd(3, "0")) };
   const offset = moment[8];
   if (offset === undefined) return { kind: "instant", instant: instantOf(wall, zone) };
@@ -286,12 +286,12 @@ export function parseMoment(text: string, zone: string, now: number): Moment {
   const sign = offset[0] === "-" ? -1 : 1;
   const digits = offset.slice(1).replace(":", "");
   const minutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2));
-  if (minutes > 18 * 60) throw new TimeError(`${offset} isn't a UTC offset`);
+  if (minutes > 18 * 60) throw new TimeError(departure(ours("the UTC offset"), ours("from -18:00 to +18:00"), show.text(offset)));
   return { kind: "instant", instant: wallMs(wall) - sign * minutes * 60_000 };
 }
 
 function checkDate(year: number, month: number, day: number, text: string): CalendarDate {
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) throw new TimeError(`${JSON.stringify(text)} is a date that doesn't exist`);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) throw new TimeError(departure(ours("the date"), ours("a month from 01 to 12 and a day in that month"), show.value(text)));
   return checkYear({ year, month, day });
 }
 
@@ -300,7 +300,7 @@ function checkDate(year: number, month: number, day: number, text: string): Cale
 /** `date` plus a duration's calendar part. Time units on a date are refused: a date has no time. */
 export function addToDate(date: CalendarDate, duration: Duration): CalendarDate {
   if (duration.hours || duration.minutes || duration.seconds) {
-    throw new TimeError("A date has no time of day, so hours, minutes and seconds can't be added to it; give a date and time instead");
+    throw new TimeError(ours("A date has no time of day, so hours, minutes and seconds can't be added to it; give a date and time instead"));
   }
   return addDays(addMonths(date, duration.years * 12 + duration.months), duration.weeks * 7 + duration.days);
 }
@@ -409,7 +409,7 @@ export function dateMath(input: DateMathInput, zone: string, now: number): DateM
         ? dateDifference(from.date, until.date)
         : instantDifference(asInstant(from), asInstant(until));
   }
-  if (!result && !until) throw new TimeError("Give add or subtract, or until, or both");
+  if (!result && !until) throw new TimeError(departure(ours("the arguments"), ours("add or subtract, or until, or both"), ours("none of them")));
   return {
     time_zone: zone,
     start: view(start),

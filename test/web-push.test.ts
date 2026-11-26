@@ -192,9 +192,11 @@ describe("subscriptions", () => {
     expect((await api(cookie, "/api/push/subscription", { method: "POST", body: JSON.stringify(device.subscription) })).status).toBe(403);
     const elsewhere = await subscribe(cookie, { ...device.subscription, endpoint: "https://evil.example/push" });
     expect(elsewhere.status).toBe(400);
-    expect(await elsewhere.json()).toEqual({ error: "evil.example isn't a push service this agent sends to (Google, Mozilla, Apple or Microsoft)" });
+    expect(await elsewhere.json()).toEqual({ error: "the push endpoint's host: expected a push service this agent sends to (Google, Mozilla, Apple or Microsoft), got evil.example" });
     expect((await subscribe(cookie, { ...device.subscription, keys: { p256dh: "AAAA", auth: device.subscription.keys.auth } })).status).toBe(400);
-    expect((await subscribe(cookie, { ...device.subscription, keys: { p256dh: device.subscription.keys.p256dh, auth: "AAAA" } })).status).toBe(400);
+    const short = await subscribe(cookie, { ...device.subscription, keys: { p256dh: device.subscription.keys.p256dh, auth: "AAAA" } });
+    expect(short.status).toBe(400);
+    expect(await short.json()).toEqual({ error: "the subscription's auth secret: expected 16 bytes, got 3 bytes" });
     expect(await endpoints(stub)).toEqual([]);
 
     expect((await subscribe(cookie, device.subscription)).status).toBe(201);

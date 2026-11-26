@@ -168,8 +168,8 @@ describe("attaching a photo in the composer", () => {
     pick(photo("notes.txt", "text/plain"), photo("huge.jpg", "image/jpeg", MAX_ATTACHMENT_BYTES + 1));
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.map((alert) => alert.textContent)).toEqual([
-      "notes.txt isn't a JPEG, PNG, WebP or GIF photo.",
-      "huge.jpg is 10.0 MB; the most your agent takes is 10.0 MB."
+      '"notes.txt": expected a JPEG, PNG, WebP or GIF photo, got text/plain.',
+      '"huge.jpg"\'s size: expected at most 10.0 MB, the most your agent takes, got 10.0 MB.'
     ]);
     expect(calls).toEqual([]);
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { budgetDomain, isAllowed, maySignIn, onDemo, parseAllowlist, readOwners } from "../src/allowlist";
 import { ConfigError } from "../src/config";
+import { departure, ours } from "../src/diagnostic";
 
 const google = (email: string | null, domain: string | null = null) =>
   ({ provider: "google", sub: "g", email, domain }) as const;
@@ -47,9 +48,9 @@ describe("parseAllowlist", () => {
 
 describe("OWNERS", () => {
   it("must name at least one person, and never a domain", () => {
-    expect(() => readOwners({ OWNERS: { emails: [], github: {} } })).toThrow(/^OWNERS is empty/);
-    expect(() => readOwners({})).toThrow(/^OWNERS/);
-    expect(() => readOwners({ OWNERS: { emails: [], domains: ["corp.example"], github: {} } })).toThrow(/unknown keys: domains/);
+    expect(() => readOwners({ OWNERS: { emails: [], github: {} } })).toThrow(new ConfigError(departure(ours("OWNERS"), ours("at least one operator (an email or a GitHub id)"), ours("nobody"), ours("Name this deployment's operators"))));
+    expect(() => readOwners({})).toThrow(new ConfigError(departure(ours("OWNERS"), ours("an object with emails and github"), ours("nothing"))));
+    expect(() => readOwners({ OWNERS: { emails: [], domains: ["corp.example"], github: {} } })).toThrow(new ConfigError(departure(ours("OWNERS"), ours("an object with emails and github"), ours('one with "domains" too'))));
     expect(readOwners({ OWNERS: { emails: ["op@example.com"], github: {} } }).emails.has("op@example.com")).toBe(true);
   });
 });
@@ -78,7 +79,7 @@ describe("who may sign in, and who is on the demo", () => {
   it("fails closed, naming the setting, while OWNERS or SIGNUP isn't set", () => {
     expect(() => maySignIn(google("friend@example.com"), { ...base, SIGNUP: "allowlist", OWNERS: { emails: [], github: {} } })).toThrow(/^OWNERS/);
     expect(() => maySignIn(google("friend@example.com"), { ...base, SIGNUP: undefined })).toThrow(/SIGNUP/);
-    expect(() => maySignIn(google("friend@example.com"), { ...base, SIGNUP: "everyone" })).toThrow(/SIGNUP must be allowlist or open/);
+    expect(() => maySignIn(google("friend@example.com"), { ...base, SIGNUP: "everyone" })).toThrow(new ConfigError(departure(ours("SIGNUP"), ours("allowlist or open"), ours('"everyone"'))));
   });
 
   it("puts owners and the demo allowlist on the demo, and nobody else", () => {

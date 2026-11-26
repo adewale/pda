@@ -108,7 +108,7 @@ describe("own keys: the key never leaves the agent", () => {
     const answer = await saveKey(identity, "anthropic", key);
     expect(answer.status).toBe(400);
     const body = await answer.text();
-    expect(body).toContain("Anthropic answered 400 (invalid_request_error: Your credit balance is too low to access the Anthropic API (key [key]).); the key wasn't saved.");
+    expect(JSON.parse(body).error).toBe("Anthropic answered HTTP 400 (\"invalid_request_error: Your credit balance is too low to access the Anthropic API (key [key]).\"); the key wasn't saved.");
     expect(body).not.toContain("Try again");
     expect(body).not.toContain("sk-ant-test-broke");
     expect((await entitlement(identity)).key).toBeNull();

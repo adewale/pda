@@ -1,6 +1,6 @@
 import { literal } from "../decode";
 import { integer, one, rows, table, text, textOf, type RowOf } from "../rows";
-import { ProblemError, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
 /**
  * The agent's memory: short notes in the person's own Durable Object SQLite,
  * kept until they delete them in Settings; the model may also remove its
@@ -65,17 +65,17 @@ export function luhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-const KEY_PATTERNS: readonly (readonly [RegExp, string])[] = [
-  [/\bsk-[A-Za-z0-9_-]{16,}/, "an API key"],
-  [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/, "an API key"],
-  [/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/, "a GitHub token"],
-  [/\bxox[abpors]-[A-Za-z0-9-]{10,}/, "a Slack token"],
-  [/\bAKIA[0-9A-Z]{16}\b/, "an AWS key"],
-  [/\bAIza[0-9A-Za-z_-]{30,}/, "a Google API key"],
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/, "a token (a JWT)"],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "a private key"],
-  [/\b(?:bearer|basic)\s+[A-Za-z0-9._~+/-]{12,}=*/i, "an Authorization header's credentials"],
-  [/\b(?:acct|ses|tok|at|rt)_[A-Za-z0-9_-]{20,}/, "a token"]
+const KEY_PATTERNS: readonly (readonly [RegExp, Shown])[] = [
+  [/\bsk-[A-Za-z0-9_-]{16,}/, ours("an API key")],
+  [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}/, ours("an API key")],
+  [/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/, ours("a GitHub token")],
+  [/\bxox[abpors]-[A-Za-z0-9-]{10,}/, ours("a Slack token")],
+  [/\bAKIA[0-9A-Z]{16}\b/, ours("an AWS key")],
+  [/\bAIza[0-9A-Za-z_-]{30,}/, ours("a Google API key")],
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/, ours("a token (a JWT)")],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, ours("a private key")],
+  [/\b(?:bearer|basic)\s+[A-Za-z0-9._~+/-]{12,}=*/i, ours("an Authorization header's credentials")],
+  [/\b(?:acct|ses|tok|at|rt)_[A-Za-z0-9_-]{20,}/, ours("a token")]
 ];
 
 /** A word that names a credential: "password", "PIN", "pw", "OTP", "2FA code", "api key", "token". */
@@ -167,13 +167,13 @@ function namedSecret(text: string): boolean {
 const CODE = /(?<!\b(?:zip|post|postal|area|country|dial(?:l)?ing|sort|promo|discount|voucher|coupon|bar|qr|source|dress|colou?r|error|status|tax|product|style)\s?)\bcode\b\D{0,12}\d{4,8}\b/i;
 
 /** Recognizable credentials, without treating every opaque business identifier as a secret. */
-export function credentialProblem(text: string): string | null {
-  for (const [pattern, what] of KEY_PATTERNS) if (pattern.test(text)) return `It looks like ${what}`;
-  if (namedSecret(text)) return "It looks like a password, code, key or token";
-  if (CODE.test(text)) return "It looks like a one-time or security code";
+export function credentialProblem(text: string): Shown | null {
+  for (const [pattern, what] of KEY_PATTERNS) if (pattern.test(text)) return shown`It looks like ${what}`;
+  if (namedSecret(text)) return ours("It looks like a password, code, key or token");
+  if (CODE.test(text)) return ours("It looks like a one-time or security code");
   for (const match of text.matchAll(/(?<![\d+])\d(?:[ -]?\d){12,18}(?!\d)/g)) {
     const digits = match[0].replace(/[ -]/g, "");
-    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return "It looks like a payment card number";
+    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return ours("It looks like a payment card number");
   }
   return null;
 }
@@ -182,14 +182,14 @@ export function credentialProblem(text: string): string | null {
  * Why `text` isn't kept, or null. Memory also refuses unlabelled opaque values;
  * an outbound message may need those same shapes as ordinary business IDs.
  */
-export function secretProblem(text: string): string | null {
+export function secretProblem(text: string): Shown | null {
   const credential = credentialProblem(text);
   if (credential !== null) return credential;
   for (const match of text.matchAll(/[A-Za-z0-9+/_-]{32,}={0,2}/g)) {
     const run = match[0];
-    if (/[0-9]/.test(run) && /[A-Za-z]/.test(run)) return "It looks like a key, token or encoded secret";
+    if (/[0-9]/.test(run) && /[A-Za-z]/.test(run)) return ours("It looks like a key, token or encoded secret");
   }
-  if (/\b[0-9a-f]{32,}\b/i.test(text)) return "It looks like a key or hash";
+  if (/\b[0-9a-f]{32,}\b/i.test(text)) return ours("It looks like a key or hash");
   return null;
 }
 
@@ -239,16 +239,16 @@ export class MemoryStore {
    */
   add(raw: string, source: MemorySource): { memory: Memory; created: boolean } {
     const text = normalizeNote(typeof raw === "string" ? raw : "");
-    if (!text) throw new MemoryError("A note needs some text");
-    if (text.length > MAX_MEMORY_CHARS) throw new MemoryError(`A note is at most ${MAX_MEMORY_CHARS} characters; this one is ${text.length}. Keep one short fact per note`);
+    if (!text) throw new MemoryError(departure(ours("the note"), ours("some text"), ours("nothing")));
+    if (text.length > MAX_MEMORY_CHARS) throw new MemoryError(departure(ours("the note"), shown`at most ${MAX_MEMORY_CHARS} characters`, show.count(text.length, ours("character"), ours("characters")), ours("Keep one short fact per note")));
     const problem = secretProblem(text);
     if (problem) {
-      throw new MemoryError(`Not saved: ${problem}. Do not put secrets in memory; this check catches common patterns but cannot identify every credential. Say the fact without the secret`);
+      throw new MemoryError(shown`Not saved: ${problem}. Do not put secrets in memory; this check catches common patterns but cannot identify every credential. Say the fact without the secret`);
     }
     const existing = one(this.#sql, memoryRow, "SELECT id, text, source, created_at FROM memories WHERE text = ?", text);
     if (existing) return { memory: toMemory(existing), created: false };
     if (this.count() >= MAX_MEMORIES) {
-      throw new MemoryError(`Memory is full (${MAX_MEMORIES} notes). Nothing was dropped to make room: forget a note first, or ask the User which to remove`);
+      throw new MemoryError(shown`Memory is full (${MAX_MEMORIES} notes). Nothing was dropped to make room: forget a note first, or ask the User which to remove`);
     }
     const row = one(this.#sql, memoryRow, "INSERT INTO memories (text, source, created_at) VALUES (?, ?, ?) RETURNING id, text, source, created_at", text, source, this.#now())!;
     return { memory: toMemory(row), created: true };
@@ -269,7 +269,7 @@ export class MemoryStore {
     const found = this.get(id);
     if (!found) return false;
     if (found.source === "user") {
-      throw new MemoryError("Not deleted: this is a User said note. The User deletes it in Settings → Memory; a model tool cannot authorize that deletion.");
+      throw new MemoryError(ours("Not deleted: this is a User said note. The User deletes it in Settings → Memory; a model tool cannot authorize that deletion."));
     }
     this.#sql.exec("DELETE FROM memories WHERE id = ? AND source = 'agent'", id);
     return true;

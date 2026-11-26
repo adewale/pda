@@ -14,6 +14,7 @@ import { MAX_MEMORIES, MAX_MEMORY_CHARS, MemoryError, noteLine, promptNotes, typ
 import { needsJavaScript, RENDER_LIMITS, renderedRead, renderPage, type BrowserLauncher, type RenderLimiter } from "./render";
 import { fenced, pageForModel, pageHeader, pageKind, READ_LIMITS, readUrl, ReadError, type Fetcher, type PageRead, type ReadLimiter } from "./web";
 import type { TrustedTurnCheck } from "./turn-authority";
+import { shown } from "../diagnostic";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Result = { output: { type: "text"; text: string }[]; details: Json; isError?: true };
@@ -144,7 +145,7 @@ export async function pageRead(
   const wait = options.limiter.take();
   if (wait > 0) {
     // Not kept: a replay after the minute reads the page.
-    const result = failure(new ReadError(`Too many pages read in the last minute (the limit is ${READ_LIMITS.perMinute}); try again in ${wait} seconds`), { url, error: "rate_limited" });
+    const result = failure(new ReadError(shown`Too many pages read in the last minute (the limit is ${READ_LIMITS.perMinute}); try again in ${wait} seconds`), { url, error: "rate_limited" });
     return { text: result.output[0]!.text, header: "", details: result.details, isError: true };
   }
   let stored: StoredRead;

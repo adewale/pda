@@ -14,6 +14,7 @@
  */
 import { importJWK, SignJWT, type JWK } from "jose";
 import { base64url, fromBase64url } from "./base64url";
+import { departure, ours, render, show, shown, type Problem } from "./diagnostic";
 import { literal, reportError } from "./log";
 import { readPrivacyContact, type PrivacyEnv } from "./privacy";
 import { integer, nullable, rows, table, text } from "./rows";
@@ -33,26 +34,27 @@ const PUSH_HOST_SUFFIXES: readonly string[] = [".push.services.mozilla.com", ".p
 const MAX_ENDPOINT = 2048;
 
 /** Why `endpoint` isn't a push service we send to, or null when it is one. */
-export function pushEndpointProblem(endpoint: unknown): string | null {
+export function pushEndpointProblem(endpoint: unknown): Problem | null {
+  // An endpoint's path addresses one browser, so it is never shown: its kind or its host only.
   if (typeof endpoint !== "string" || endpoint.length === 0 || endpoint.length > MAX_ENDPOINT || !URL.canParse(endpoint)) {
-    return "The subscription's endpoint isn't a URL";
+    return departure(ours("the subscription's endpoint"), shown`a URL of at most ${MAX_ENDPOINT} characters`, typeof endpoint === "string" ? ours("text that isn't one") : show.kind(endpoint));
   }
   const url = new URL(endpoint);
-  if (url.protocol !== "https:" || url.port !== "" || url.username !== "" || url.password !== "") return "A push endpoint is https on the standard port";
+  if (url.protocol !== "https:" || url.port !== "" || url.username !== "" || url.password !== "") return ours("A push endpoint is https on the standard port");
   const host = url.hostname.toLowerCase();
   if (PUSH_HOSTS.includes(host) || PUSH_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix) && host.length > suffix.length)) return null;
-  return `${host} isn't a push service this agent sends to (Google, Mozilla, Apple or Microsoft)`;
+  return departure(ours("the push endpoint's host"), ours("a push service this agent sends to (Google, Mozilla, Apple or Microsoft)"), show.name(host));
 }
 
 /** A browser's push subscription, as `PushSubscription.toJSON()` gives it, checked. */
 export type Subscription = { readonly endpoint: string; readonly p256dh: string; readonly auth: string };
 
-/** The subscription in `body`, or why it isn't one. */
+/** The subscription in `body`, or why it isn't one, as text for the page. */
 export function parseSubscription(body: unknown): Subscription | string {
-  if (typeof body !== "object" || body === null) return "Send the browser's push subscription as JSON";
+  if (typeof body !== "object" || body === null) return render(departure(ours("the request"), ours("the browser's push subscription as a JSON object"), show.kind(body)));
   const { endpoint, keys } = body as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
   const problem = pushEndpointProblem(endpoint);
-  if (problem) return problem;
+  if (problem) return render(problem);
   const p256dh = typeof keys?.p256dh === "string" ? keys.p256dh : "";
   const auth = typeof keys?.auth === "string" ? keys.auth : "";
   let point: Uint8Array;
@@ -61,10 +63,12 @@ export function parseSubscription(body: unknown): Subscription | string {
     point = fromBase64url(p256dh);
     secret = fromBase64url(auth);
   } catch {
-    return "The subscription's keys aren't base64url";
+    return render(ours("The subscription's keys aren't base64url"));
   }
-  if (point.length !== 65 || point[0] !== 4) return "The subscription's p256dh isn't an uncompressed P-256 public key";
-  if (secret.length !== 16) return "The subscription's auth secret isn't 16 bytes";
+  const bytes = (count: number) => show.count(count, ours("byte"), ours("bytes"));
+  if (point.length !== 65 || point[0] !== 4) return render(departure(ours("the subscription's p256dh"), ours("an uncompressed P-256 public key: 65 bytes, the first 0x04"), point.length === 65 ? ours("65 bytes that don't start 0x04") : bytes(point.length)));
+  // The auth secret's length only, never its value.
+  if (secret.length !== 16) return render(departure(ours("the subscription's auth secret"), ours("16 bytes"), bytes(secret.length)));
   return { endpoint: endpoint as string, p256dh: base64url(point), auth: base64url(secret) };
 }
 
@@ -212,7 +216,7 @@ export const PUSH_TTL_SECONDS = 86_400;
  */
 export async function sendPush(fetcher: PushFetcher, subscription: Subscription, message: PushMessage, key: VapidKey, subject: string | undefined, now = Date.now()): Promise<number> {
   const problem = pushEndpointProblem(subscription.endpoint);
-  if (problem) throw new Error(problem);
+  if (problem) throw new Error(render(problem));
   const payload = encoder.encode(JSON.stringify({ title: message.title.slice(0, 100), body: message.body.slice(0, 300), tag: message.tag.slice(0, 100) }));
   const body = await encryptPayload(payload, subscription);
   const response = await fetcher(

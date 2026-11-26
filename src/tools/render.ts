@@ -19,7 +19,8 @@
 import { readBrowserControl, readBrowserRun } from "../config";
 import { isPublicAddress } from "../validator/address";
 import { raceAbort, withDeadline } from "../validator/fetch";
-import { cutText, READ_LIMITS, ReadError, readableText, urlProblem, type PageKind, type PageRead } from "./web";
+import { cutText, problemAt, READ_LIMITS, ReadError, readableText, urlProblem, type PageKind, type PageRead } from "./web";
+import { departure, ours, render, show, shown, type Shown } from "../diagnostic";
 import { integer, rows, table } from "../rows";
 
 export const RENDER_LIMITS = {
@@ -61,16 +62,16 @@ const LOCAL_SCHEMES = new Set(["data:", "blob:", "about:"]);
  */
 export function allowBrowserRequest(method: string, url: string): { readonly allowed: true } | { readonly allowed: false; readonly reason: string } {
   const verb = method.toUpperCase();
-  if (verb !== "GET" && verb !== "HEAD") return { allowed: false, reason: `${verb} isn't sent: rendering is read only` };
+  if (verb !== "GET" && verb !== "HEAD") return { allowed: false, reason: render(shown`${show.name(verb)} isn't sent: rendering is read only`) };
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return { allowed: false, reason: "not a URL" };
+    return { allowed: false, reason: render(ours("not a URL")) };
   }
   if (LOCAL_SCHEMES.has(parsed.protocol)) return { allowed: true };
   const problem = urlProblem(parsed);
-  return problem ? { allowed: false, reason: problem } : { allowed: true };
+  return problem ? { allowed: false, reason: render(problem) } : { allowed: true };
 }
 
 // ---------------------------------------------------------------- The browser, as much of it as a read uses
@@ -191,7 +192,7 @@ export async function renderPage(
   try {
     start = new URL(raw);
   } catch {
-    throw new ReadError(`${JSON.stringify(raw)} isn't a URL`);
+    throw new ReadError(departure(ours("the URL"), ours("a full https:// address"), show.value(raw)));
   }
   const problem = urlProblem(start);
   if (problem) throw new ReadError(problem);
@@ -205,13 +206,13 @@ export async function renderPage(
         // Close a browser that turns up after we stopped waiting for it.
         void launching.then((late) => late.close()).catch(() => undefined);
         if (signal.aborted) throw error;
-        throw new ReadError("Couldn't start a browser to render the page");
+        throw new ReadError(ours("Couldn't start a browser to render the page"));
       }
       try {
         const context = await raceAbort(browser.createBrowserContext(), signal);
         const page = await raceAbort(context.newPage(), signal);
         let blocked = 0;
-        let privateAddress: string | null = null;
+        let privateAddress: Shown | null = null;
         await raceAbort(page.setBypassServiceWorker(true), signal);
         const cdp = await raceAbort(page.createCDPSession(), signal);
         await raceAbort(cdp.send("Page.setDownloadBehavior", { behavior: "deny" }), signal);
@@ -229,7 +230,7 @@ export async function renderPage(
         page.on("response", (response) => {
           // A public name that resolved to a private address (DNS rebinding): nothing from it reaches the model.
           const ip = response.remoteAddress().ip;
-          if (ip && !isPublicAddress(ip) && privateAddress === null) privateAddress = `${new URL(response.url()).hostname} (${ip})`;
+          if (ip && !isPublicAddress(ip) && privateAddress === null) privateAddress = shown`${show.name(new URL(response.url()).hostname)} (${show.name(ip)})`;
         });
         page.on("dialog", (dialog) => void dialog.dismiss().catch(() => undefined));
         page.on("popup", (popup) => void popup?.close().catch(() => undefined));
@@ -241,7 +242,7 @@ export async function renderPage(
           response = await raceAbort(page.goto(start.href, { waitUntil: "domcontentloaded", timeout: timeoutMs }), signal);
         } catch (error) {
           if (signal.aborted) throw error;
-          throw new ReadError(`The browser couldn't load ${start.href}${blocked > 0 ? " (the page or a redirect wasn't one read_url may request)" : ""}`);
+          throw new ReadError(blocked > 0 ? shown`The browser couldn't load ${show.url(start, start)} (the page or a redirect wasn't one read_url may request)` : shown`The browser couldn't load ${show.url(start, start)}`);
         }
         // Wait for the scripts' requests to settle, but never long: a page that keeps polling is read as it is.
         await raceAbort(
@@ -249,17 +250,17 @@ export async function renderPage(
           signal
         );
         const status = response?.status() ?? 0;
-        if (status < 200 || status > 299) throw new ReadError(`${start.href} answered HTTP ${status} in the browser`);
-        if (privateAddress) throw new ReadError(`${privateAddress} isn't a public address, so the rendered page isn't read`);
+        if (status < 200 || status > 299) throw new ReadError(shown`${show.url(start, start)} answered ${show.status(status)} in the browser`);
+        if (privateAddress) throw new ReadError(departure(ours("the rendered page's address"), ours("a public address"), privateAddress, ours("The rendered page isn't read")));
         const finalUrl = page.url();
         let final: URL;
         try {
           final = new URL(finalUrl);
         } catch {
-          throw new ReadError(`The browser ended at ${finalUrl}, which isn't read`);
+          throw new ReadError(shown`The browser ended at ${show.text(finalUrl)}, which isn't read`);
         }
         const moved = urlProblem(final);
-        if (moved) throw new ReadError(`The browser ended at ${final.href}, which isn't read: ${moved}`);
+        if (moved) throw new ReadError(problemAt(shown`where the browser ended, ${show.url(final)}`, moved));
         const dom = await raceAbort(page.content(), signal);
         const htmlCut = dom.length > READ_LIMITS.maxBytes;
         return { url: start.href, finalUrl: final.href, status, html: htmlCut ? dom.slice(0, READ_LIMITS.maxBytes) : dom, htmlCut, blocked };
@@ -269,8 +270,8 @@ export async function renderPage(
     });
   } catch (error) {
     if (error instanceof ReadError) throw error;
-    if (error instanceof Error && error.name === "TimeoutError") throw new ReadError(`Rendering ${start.host} took longer than ${timeoutMs / 1000} seconds`);
-    throw new ReadError(`Couldn't render ${start.href}`);
+    if (error instanceof Error && error.name === "TimeoutError") throw new ReadError(shown`Rendering ${show.name(start.host)} took longer than ${timeoutMs / 1000} seconds`);
+    throw new ReadError(shown`Couldn't render ${show.url(start, start)}`);
   }
 }
 

@@ -17,7 +17,7 @@ import {
   type Identity
 } from "./session";
 import type { SignInErrorCode } from "./sign-in-errors";
-import { ProblemError, type Problem, type ProblemOrText } from "./diagnostic";
+import { ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "./diagnostic";
 
 /** Holds `state` and the PKCE verifier between the redirect and the callback. */
 const FLOW_COOKIE = "__Host-oauth";
@@ -36,6 +36,11 @@ class SignInError extends ProblemError {
   constructor(readonly code: SignInErrorCode, problem: ProblemOrText) {
     super(problem as Problem);
   }
+}
+
+/** A failed token exchange's answer: the provider's error code, or else its status. */
+function exchangeAnswer(error: unknown, status: number): Shown {
+  return error === undefined ? show.status(status) : show.code(error);
 }
 
 export const PROVIDERS: readonly Provider[] = ["google", "github"];
@@ -114,7 +119,7 @@ export async function finishSignIn(
   try {
     const url = new URL(request.url);
     const denied = url.searchParams.get("error");
-    if (denied) throw new SignInError("denied", `Provider returned ${denied}`);
+    if (denied) throw new SignInError("denied", shown`Provider returned ${show.code(denied)}`);
 
     const token = readCookie(request, FLOW_COOKIE);
     const flow = token ? await unsign<Flow>(token, secret) : null;
@@ -124,10 +129,10 @@ export async function finishSignIn(
       flow.exp * 1000 <= Date.now() ||
       url.searchParams.get("state") !== flow.state
     ) {
-      throw new SignInError("state", "Missing, expired or mismatched state");
+      throw new SignInError("state", ours("Missing, expired or mismatched state"));
     }
     const code = url.searchParams.get("code");
-    if (!code) throw new SignInError("code", "No authorization code");
+    if (!code) throw new SignInError("code", ours("No authorization code"));
 
     const redirectUri = callbackUrl(request, provider);
     const identity =
@@ -135,8 +140,8 @@ export async function finishSignIn(
         ? await googleIdentity(client, code, flow.verifier, redirectUri)
         : await githubIdentity(client, code, flow.verifier, redirectUri);
     if (!maySignIn(identity, env)) {
-      const who = provider === "github" ? `GitHub id ${identity.sub}` : identity.email ?? `Google ${identity.sub}`;
-      throw new SignInError("not_allowed", `${who} is not on the allowlist`);
+      const who = provider === "github" ? shown`GitHub id ${show.name(identity.sub)}` : identity.email !== null ? show.name(identity.email) : shown`Google ${show.name(identity.sub)}`;
+      throw new SignInError("not_allowed", shown`${who} is not on the allowlist`);
     }
     currentEvent()?.set({ sign_in_provider: literal(provider), sign_in: literal("success") });
     return redirect("/", [clearFlow, await createSession(identity, secret)]);
@@ -182,13 +187,13 @@ async function googleIdentity(
     error?: string;
   };
   if (!response.ok || !body.id_token) {
-    throw new SignInError("token", `Google token exchange failed: ${body.error ?? response.status}`);
+    throw new SignInError("token", shown`Google token exchange failed: ${exchangeAnswer(body.error, response.status)}`);
   }
   let claims: ReturnType<typeof decodeJwt>;
   try {
     claims = decodeJwt(body.id_token);
   } catch {
-    throw new SignInError("token", "Google returned an unreadable ID token");
+    throw new SignInError("token", ours("Google returned an unreadable ID token"));
   }
   const issuerOk =
     claims.iss === "https://accounts.google.com" || claims.iss === "accounts.google.com";
@@ -203,7 +208,7 @@ async function googleIdentity(
     typeof claims.exp !== "number" ||
     claims.exp * 1000 <= Date.now()
   ) {
-    throw new SignInError("token", "Google ID token failed its claim checks");
+    throw new SignInError("token", ours("Google ID token failed its claim checks"));
   }
   const email =
     claims.email_verified === true && typeof claims.email === "string"
@@ -233,7 +238,7 @@ async function githubIdentity(
     error?: string;
   };
   if (!response.ok || !body.access_token) {
-    throw new SignInError("token", `GitHub token exchange failed: ${body.error ?? response.status}`);
+    throw new SignInError("token", shown`GitHub token exchange failed: ${exchangeAnswer(body.error, response.status)}`);
   }
   const headers = {
     Accept: "application/vnd.github+json",
@@ -244,7 +249,7 @@ async function githubIdentity(
   const userResponse = await fetch("https://api.github.com/user", { headers });
   const user = (await userResponse.json().catch(() => ({}))) as { id?: unknown };
   if (!userResponse.ok || typeof user.id !== "number") {
-    throw new SignInError("profile", "GitHub did not return a user id");
+    throw new SignInError("profile", ours("GitHub did not return a user id"));
   }
   // The profile email can be hidden; the primary verified one is reliable.
   let email: string | null = null;
