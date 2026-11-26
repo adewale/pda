@@ -207,9 +207,3 @@ export class ProblemError extends Error {
   }
 }
 
-/**
- * Transitional, while call sites move to `Problem`: what an error class
- * takes until every site builds a problem. Removed then, so a free string is
- * a type error again (test/diagnostic-types.ts).
- */
-export type ProblemOrText = Problem | string;

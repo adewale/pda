@@ -17,7 +17,7 @@ import { stateForModel, type ModelState } from "./conversation-state";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
-import { departure, ours, show, shown, type Departure, type Shown } from "../diagnostic";
+import { departure, ours, sentence, show, shown, type Departure, type Shown } from "../diagnostic";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -510,7 +510,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
     // Other terms under a revision already shown (Ops 3): told, and reading goes on past it.
     if (hasCode(error, "unusable_proposal")) {
-      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${error.message} Nothing was done.` });
+      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${sentence(error.problem)} Nothing was done.` });
       return;
     }
     if (!(error instanceof ActionOutcomePending)) throw error;
@@ -577,7 +577,8 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     approval: approvalJson(toSend(company, approval.approval, execution)),
     beforeDispatch
   });
-  throw new OperationOutcomeUnknown(`Sent the User's approval to ${company.name} in conversation ${row.id}. The message was accepted, but the action's outcome has not been confirmed. Check with ${company.name} before asking for the same action again.`);
+  const name = show.name(company.name);
+  throw new OperationOutcomeUnknown(shown`Sent the User's approval to ${name} in conversation ${show.code(row.id)}. The message was accepted, but the action's outcome has not been confirmed. Check with ${name} before asking for the same action again.`);
 });
 
 /** When to read a conversation next: soon while the Company is busy, rarely when idle. */

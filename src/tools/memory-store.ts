@@ -1,6 +1,6 @@
 import { literal } from "../decode";
 import { integer, one, rows, table, text, textOf, type RowOf } from "../rows";
-import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type Shown } from "../diagnostic";
 /**
  * The agent's memory: short notes in the person's own Durable Object SQLite,
  * kept until they delete them in Settings; the model may also remove its
@@ -44,8 +44,8 @@ export function migrateMemories(sql: SqlStorage): void {
 /** A refusal, worded for the model or the page. */
 export class MemoryError extends ProblemError {
   override name = "MemoryError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 

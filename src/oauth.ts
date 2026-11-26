@@ -17,7 +17,7 @@ import {
   type Identity
 } from "./session";
 import type { SignInErrorCode } from "./sign-in-errors";
-import { ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "./diagnostic";
+import { ours, ProblemError, show, shown, type Problem, type Shown } from "./diagnostic";
 
 /** Holds `state` and the PKCE verifier between the redirect and the callback. */
 const FLOW_COOKIE = "__Host-oauth";
@@ -33,8 +33,8 @@ type Flow = {
 /** Why a sign-in stopped: `code` goes to the page as `?signin_error=` and to the request's event; `message` is for debugging, never logged. */
 class SignInError extends ProblemError {
   override name = "SignInError";
-  constructor(readonly code: SignInErrorCode, problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(readonly code: SignInErrorCode, problem: Problem) {
+    super(problem);
   }
 }
 

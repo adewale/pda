@@ -1,5 +1,5 @@
 import type { Json } from "./poppy/json";
-import { departure, ours, ProblemError, show, type Problem, type ProblemOrText, render, type Shown } from "./diagnostic";
+import { departure, ours, ProblemError, show, type Problem, render, type Shown } from "./diagnostic";
 
 /**
  * Decoders for data that crosses a boundary into typed code: rows read back
@@ -10,8 +10,8 @@ import { departure, ours, ProblemError, show, type Problem, type ProblemOrText, 
  */
 export class DecodeError extends ProblemError {
   override name = "DecodeError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 

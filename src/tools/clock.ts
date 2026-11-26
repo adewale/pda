@@ -16,12 +16,12 @@
  *   forward) moves forward by the gap; one that happens twice takes the
  *   earlier, as Temporal's "compatible" choice does.
  */
-import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 export class TimeError extends ProblemError {
   override name = "TimeError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 

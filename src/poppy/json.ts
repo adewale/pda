@@ -3,12 +3,12 @@
  * keeps the last of two members with the same name; the Guides ask both
  * sides to reject such objects ("Transport and JSON"), so this parser does.
  */
-import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type Shown } from "../diagnostic";
 
 export class JsonError extends ProblemError {
   override name = "JsonError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 

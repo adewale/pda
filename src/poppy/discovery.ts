@@ -3,7 +3,7 @@ import type { IdentifiedFetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
-import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /**
  * Extensions this client supports under each protocol version, with the
@@ -135,8 +135,8 @@ export class DiscoveryError extends ProblemError implements ForeignText {
   override name = "DiscoveryError";
   readonly [FOREIGN_TEXT] = true as const;
   /** The validator's report, when discovery refused what it read (for the protocol log). */
-  constructor(problem: ProblemOrText, readonly report?: CompanyReport) {
-    super(problem as Problem);
+  constructor(problem: Problem, readonly report?: CompanyReport) {
+    super(problem);
   }
 }
 

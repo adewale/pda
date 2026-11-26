@@ -23,7 +23,7 @@ import { linkedDecision, taskRequested } from "./approval-projection";
 import type { CardWriteOptions } from "./cards";
 import { inspectResultLinks } from "./result-links";
 import { currentEvent, currentTool, id as logId } from "../log";
-import { departure, ours, ProblemError, sentence, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
+import { departure, ours, ProblemError, sentence, show, shown, type Problem, type Shown } from "../diagnostic";
 
 /** Digits after the decimal point in a currency's amounts (ISO 4217): 2 for USD, 0 for JPY; null for a code this runtime doesn't know. */
 function minorDigits(currency: unknown): number | null {
@@ -268,16 +268,16 @@ export function approvalTerms(company: Company, operation: OperationV2, asked: J
 export class TermsRequested extends ProblemError {
   /** What the receipt says. */
   readonly result: string;
-  constructor(problem: ProblemOrText, readonly approvalId: string) {
-    super(problem as Problem);
+  constructor(problem: Problem, readonly approvalId: string) {
+    super(problem);
     this.result = this.message;
   }
 }
 
 /** An approval message was accepted, but that acknowledgement doesn't establish the action's outcome. */
 export class OperationOutcomeUnknown extends ProblemError {
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 
@@ -466,7 +466,7 @@ export async function proposeLocal(
       // A sentence's full stop closes it: a notice adds one of its own after it (conversations.ts).
       throw new PoppyError(
         "unusable_proposal",
-        departure(shown`${show.name(company.name)}'s terms under a revision it had already sent`, ours("the terms it sent first under that revision"), changedTerms(existing.terms, terms), ours("They weren't used. The earlier card stands.")),
+        departure(shown`${show.name(company.name)}'s terms under a revision it had already sent`, ours("the terms it sent first under that revision"), changedTerms(existing.terms, terms), ours("They weren't used. The earlier card stands")),
         0
       );
     }

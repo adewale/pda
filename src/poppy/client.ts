@@ -40,7 +40,7 @@ import { domainFromInput } from "../domain";
 import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 import { refusedBeforeSending } from "../validator/fetch.ts";
-import { departure, isDeparture, ours, ProblemError, show, shown, type Problem, type ProblemOrText } from "../diagnostic";
+import { departure, isDeparture, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -89,7 +89,7 @@ export class PoppyError extends ProblemError implements ForeignText {
   readonly [FOREIGN_TEXT] = true as const;
   constructor(
     readonly code: PoppyErrorCode,
-    problem: ProblemOrText,
+    problem: Problem,
     readonly status: number,
     readonly detail: {
       readonly scope?: string;
@@ -101,7 +101,7 @@ export class PoppyError extends ProblemError implements ForeignText {
       readonly poppyTask?: { readonly id: string; readonly result: import("./approval-outcome").ApprovalResult };
     } = {}
   ) {
-    super(problem as Problem);
+    super(problem);
   }
 
   /** Whether the code is one of these. Only codes we or the draft define can be named, so a misspelt one is a type error. */

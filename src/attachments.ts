@@ -1,7 +1,7 @@
 import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 import { base64url } from "./base64url";
 import { SUMMARY_MESSAGE_PREFIX } from "./summary-format";
-import { departure, ours, ProblemError, shown, type Problem, type ProblemOrText, type Shown } from "./diagnostic";
+import { departure, ours, ProblemError, shown, type Problem, type Shown } from "./diagnostic";
 
 /**
  * Photos the User attaches to a chat message, kept in their own agent's
@@ -81,9 +81,9 @@ export class AttachmentError extends ProblemError {
   override name = "AttachmentError";
   constructor(
     readonly status: 400 | 413 | 415 | 507,
-    problem: ProblemOrText
+    problem: Problem
   ) {
-    super(problem as Problem);
+    super(problem);
   }
 }
 

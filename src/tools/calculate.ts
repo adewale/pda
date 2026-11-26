@@ -20,7 +20,7 @@
  * and thin spaces are skipped. Pure: no Worker APIs, so the property tests
  * run it in Node.
  */
-import { departure, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
+import { departure, ours, ProblemError, show, shown, type Problem, type Shown } from "../diagnostic";
 
 /** Longest expression, in characters. */
 export const MAX_EXPRESSION = 500;
@@ -38,8 +38,8 @@ const MAX_PLACES = 20;
 /** A refusal or a mistake in the expression, worded for the model. */
 export class CalcError extends ProblemError {
   override name = "CalcError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 

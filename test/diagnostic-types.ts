@@ -7,6 +7,22 @@
  * constructors do with values at run time.
  */
 import { departure, ours, ProblemError, show, shown, type Departure, type Problem } from "../src/diagnostic";
+import { AttachmentError } from "../src/attachments";
+import { ConfigError } from "../src/config";
+import { DecodeError } from "../src/decode";
+import { PoppyError } from "../src/poppy/client";
+import { DiscoveryError } from "../src/poppy/discovery";
+import { PoppyFetchError } from "../src/poppy/fetch";
+import { JsonError } from "../src/poppy/json";
+import { InstructionRefused } from "../src/poppy/instructions";
+import { OperationOutcomeUnknown, TermsRequested } from "../src/poppy/operations";
+import { AuthError } from "../src/session";
+import { CalcError } from "../src/tools/calculate";
+import { TimeError } from "../src/tools/clock";
+import { MemoryError } from "../src/tools/memory-store";
+import { ScheduleError } from "../src/tools/schedule-store";
+import { ReadError } from "../src/tools/web";
+import { InputError } from "../src/validator/input";
 
 export function rawValuesAreTypeErrors(text: string, value: unknown): Problem[] {
   const problems: Problem[] = [];
@@ -47,5 +63,43 @@ export function errorsTakeProblems(text: string): Error[] {
   const errors: Error[] = [new ProblemError(ours("Nothing will be resent"))];
   // @ts-expect-error an error of ours takes a problem, not a free string
   errors.push(new ProblemError(text));
+  // Every diagnostic error class, the same.
+  const problem = ours("Nothing will be resent");
+  errors.push(new PoppyError("refused", problem, 0), new ConfigError(problem), new DecodeError(problem));
+  // @ts-expect-error a free string
+  errors.push(new PoppyError("refused", text, 0));
+  // @ts-expect-error a free string
+  errors.push(new DiscoveryError(text));
+  // @ts-expect-error a free string
+  errors.push(new PoppyFetchError(text));
+  // @ts-expect-error a free string
+  errors.push(new JsonError(text));
+  // @ts-expect-error a free string
+  errors.push(new ConfigError(text));
+  // @ts-expect-error a free string
+  errors.push(new DecodeError(text));
+  // @ts-expect-error a free string
+  errors.push(new AuthError(text));
+  // @ts-expect-error a free string
+  errors.push(new AttachmentError(400, text));
+  // @ts-expect-error a free string
+  errors.push(new InputError(text));
+  // @ts-expect-error a free string
+  errors.push(new InstructionRefused(text));
+  // @ts-expect-error a free string
+  errors.push(new TermsRequested(text, "apr_1"));
+  // @ts-expect-error a free string
+  errors.push(new OperationOutcomeUnknown(text));
+  errors.push(new TermsRequested(problem, "apr_1"), new CalcError(problem), new TimeError(problem), new MemoryError(problem), new ScheduleError(problem), new ReadError(problem));
+  // @ts-expect-error a free string
+  errors.push(new CalcError(text));
+  // @ts-expect-error a free string
+  errors.push(new TimeError(text));
+  // @ts-expect-error a free string
+  errors.push(new MemoryError(text));
+  // @ts-expect-error a free string
+  errors.push(new ScheduleError(text));
+  // @ts-expect-error a free string
+  errors.push(new ReadError(text));
   return errors;
 }

@@ -13,7 +13,7 @@
  */
 import { decodeEntities } from "../poppy/fetch-browser";
 import { isPublicHost, raceAbort, withDeadline } from "../validator/fetch";
-import { departure, isDeparture, ours, ProblemError, show, shown, type Problem, type ProblemOrText, type Shown } from "../diagnostic";
+import { departure, isDeparture, ours, ProblemError, show, shown, type Problem, type Shown } from "../diagnostic";
 
 export type Fetcher = (request: Request) => Promise<Response>;
 
@@ -39,8 +39,8 @@ const ACCEPT = "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,applicati
 /** A refusal or a failure, worded for the model. */
 export class ReadError extends ProblemError {
   override name = "ReadError";
-  constructor(problem: ProblemOrText) {
-    super(problem as Problem);
+  constructor(problem: Problem) {
+    super(problem);
   }
 }
 
