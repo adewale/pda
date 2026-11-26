@@ -1,4 +1,5 @@
-import { DecodeError, type Decoder } from "../decode";
+import { refuse, type Decoder } from "../decode";
+import { ours } from "../diagnostic";
 
 declare const ISSUER: unique symbol;
 declare const ORIGIN: unique symbol;
@@ -31,7 +32,7 @@ export function toIssuer(value: string): Issuer {
 
 export const issuerDecoder: Decoder<Issuer> = (value, at) => {
   const parsed = parseIssuer(value);
-  if (parsed === null) throw new DecodeError(`${at || "the value"}: expected an issuer (an https URL with no query or fragment)`);
+  if (parsed === null) refuse(at, ours("an issuer (an https URL with no query or fragment)"), value);
   return parsed;
 };
 

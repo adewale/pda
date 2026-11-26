@@ -103,8 +103,8 @@ describe("read_url", () => {
 
     await stub.webServe("https://c.example.com/", { status: 302, headers: { Location: "http://c.example.com/plain" } });
     await stub.webServe("https://d.example.com/", { status: 307, headers: { Location: "https://localhost/admin" } });
-    expect((await read(stub, "https://c.example.com/")).text).toBe("the redirect from https://c.example.com/ to http://c.example.com/plain: expected https, got http. Only https:// pages are read");
-    expect((await read(stub, "https://d.example.com/")).text).toBe("the redirect from https://d.example.com/ to https://localhost/admin: expected a public host, got localhost");
+    expect((await read(stub, "https://c.example.com/")).text).toBe("the redirect from https://c.example.com to http://c.example.com/plain: expected https, got http. Only https:// pages are read");
+    expect((await read(stub, "https://d.example.com/")).text).toBe("the redirect from https://d.example.com to https://localhost/admin: expected a public host, got localhost");
 
     for (let hop = 0; hop <= READ_LIMITS.maxRedirects; hop++) {
       await stub.webServe(`https://loop.example.com/${hop}`, { status: 302, headers: { Location: `/${hop + 1}` } });
@@ -515,7 +515,7 @@ describe("read_url rendering in Browser Run", () => {
     }
     expect(web.launches).toBe(0);
     web.pages.set("https://gone.example.com/", { status: 404, html: "<p>Not found</p>" });
-    await expect(renderPage(fakeLauncher(web), "https://gone.example.com/")).rejects.toThrow("https://gone.example.com/ answered HTTP 404 in the browser");
+    await expect(renderPage(fakeLauncher(web), "https://gone.example.com/")).rejects.toThrow("https://gone.example.com answered HTTP 404 in the browser");
     expect(web.logs[0]!.closed).toBe(true);
   });
 

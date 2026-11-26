@@ -34,6 +34,11 @@ function fail(at: string, expected: Shown, value: unknown): never {
   throw new DecodeError(departure(where(at), expected, got(value)));
 }
 
+/** For a decoder written elsewhere: fails as every decoder here does, "at: expected X, got Y". */
+export function refuse(at: string, expected: Shown, value: unknown): never {
+  return fail(at, expected, value);
+}
+
 export const string: Decoder<string> = (value, at) => (typeof value === "string" ? value : fail(at, ours("a string"), value));
 
 /** A finite number. */

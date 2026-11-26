@@ -9,12 +9,14 @@ import { approvalsTable, intent } from "./store";
 import { randomId } from "./jwt";
 import { proposeLocal, approvalTerms } from "./operations";
 import { considerAgentApproval } from "./instructions";
+import { show, shown } from "../diagnostic";
 
 export const UNUSABLE = "The Company asked for approval of an operation the agent can't show, so nothing was done and nothing can be approved; the User has been told.";
 
 /** An approval whose revision expired before the User decided is never sent (Ops 3, "Expiry"). */
 export function expired(company: Company): PoppyError {
-  return new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
+  const name = show.name(company.name);
+  return new PoppyError("approval_changed", shown`Not sent: ${name}'s terms expired before they were approved. Ask ${name} again for current terms.`, 0);
 }
 
 /**

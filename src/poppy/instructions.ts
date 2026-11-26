@@ -11,7 +11,8 @@
  * approval goes unused. Tools may read instructions; nothing but the page's
  * own frames writes them.
  */
-import { array, DecodeError, integer, jsonText, literal, nullable, object, optional, string, tagged, tryDecode, type Decoder } from "../decode";
+import { array, integer, jsonText, literal, nullable, object, optional, refuse as refuseValue, string, tagged, tryDecode, type Decoder } from "../decode";
+import { ours, type Shown } from "../diagnostic";
 import { one, rows } from "../rows";
 import { scopeSet, type PoppyClient } from "./client";
 import { BROWSER_SIGN_IN, type Company } from "./discovery";
@@ -48,22 +49,22 @@ export type Instruction = {
   readonly withdrawnAt: number | null;
 };
 
-function refuse(at: string, expected: string): never {
-  throw new DecodeError(`${at || "the value"}: expected ${expected}`);
+function refuse(at: string, expected: Shown, value?: unknown): never {
+  return refuseValue(at, expected, value);
 }
 const plain: Decoder<Plain> = (value, at) => typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
-  ? value : refuse(at, "a string, number or true or false");
+  ? value : refuse(at, ours("a string, number or true or false"), value);
 const path: Decoder<readonly string[]> = (value, at) => {
   const names = array(string)(value, at);
-  return names.length === 0 || names.length > 8 || names.some((name) => name.length === 0 || name.length > 128) ? refuse(at, "one to eight member names") : names;
+  return names.length === 0 || names.length > 8 || names.some((name) => name.length === 0 || name.length > 128) ? refuse(at, ours("one to eight member names"), value) : names;
 };
 const amount: Decoder<string> = (value, at) => {
   const text = string(value, at);
-  return DECIMAL.test(text) ? text : refuse(at, "a decimal amount such as 20.00");
+  return DECIMAL.test(text) ? text : refuse(at, ours("a decimal amount such as 20.00"), value);
 };
 const currency: Decoder<string> = (value, at) => {
   const text = string(value, at);
-  return /^[A-Z]{3}$/.test(text) ? text : refuse(at, "a three-letter currency code");
+  return /^[A-Z]{3}$/.test(text) ? text : refuse(at, ours("a three-letter currency code"), value);
 };
 export const conditionDecoder: Decoder<Condition> = tagged("kind", {
   at_most: object({ kind: literal("at_most"), path, amount, currency }),

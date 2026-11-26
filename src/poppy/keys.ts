@@ -1,5 +1,6 @@
 import { importJWK, type JWK } from "jose";
-import { ConfigError } from "../config.ts";
+import { ConfigError, missingSetting } from "../config.ts";
+import { departure, ours, show, shown } from "../diagnostic.ts";
 
 /** One of our ES256 signing keys: the private half for signing, the public half for the JWKS. */
 export type SigningKey = {
@@ -31,7 +32,7 @@ type IdentityEnv = {
 function required(env: IdentityEnv, name: keyof IdentityEnv): string {
   const value = env[name];
   if (typeof value !== "string" || value.trim() === "") {
-    throw new ConfigError(`Missing required setting ${name}`);
+    throw new ConfigError(missingSetting(ours(name), value));
   }
   return value.trim();
 }
@@ -42,14 +43,14 @@ export function readIdentity(env: IdentityEnv): AgentIdentity {
   try {
     url = new URL(origin);
   } catch {
-    throw new ConfigError("PUBLIC_ORIGIN must be an https:// origin");
+    throw new ConfigError(departure(ours("PUBLIC_ORIGIN"), ours("an https:// origin"), show.value(origin)));
   }
   if (url.protocol !== "https:" || url.origin !== origin) {
-    throw new ConfigError("PUBLIC_ORIGIN must be an https:// origin with no path");
+    throw new ConfigError(departure(ours("PUBLIC_ORIGIN"), ours("an https:// origin with no path"), show.value(origin)));
   }
   const logoUri = required(env, "POPPY_LOGO_URI");
   if (!logoUri.startsWith("https://")) {
-    throw new ConfigError("POPPY_LOGO_URI must be an https:// URL");
+    throw new ConfigError(departure(ours("POPPY_LOGO_URI"), ours("an https:// URL"), show.url(logoUri)));
   }
   return {
     origin,
@@ -86,10 +87,10 @@ async function parseKeys(source: string): Promise<SigningKey[]> {
   try {
     list = JSON.parse(source);
   } catch {
-    throw new ConfigError("POPPY_SIGNING_JWKS must be a JSON array of JWKs");
+    throw new ConfigError(departure(ours("POPPY_SIGNING_JWKS"), ours("a JSON array of JWKs"), ours("text that isn't JSON")));
   }
   if (!Array.isArray(list) || list.length === 0) {
-    throw new ConfigError("POPPY_SIGNING_JWKS must be a non-empty JSON array of JWKs");
+    throw new ConfigError(departure(ours("POPPY_SIGNING_JWKS"), ours("a non-empty JSON array of JWKs"), Array.isArray(list) ? ours("an empty array") : show.kind(list)));
   }
   const kids = new Set<string>();
   return Promise.all(
@@ -103,12 +104,11 @@ async function parseKeys(source: string): Promise<SigningKey[]> {
         typeof entry.kid !== "string" ||
         entry.kid === ""
       ) {
-        throw new ConfigError(
-          "POPPY_SIGNING_JWKS entries must be private P-256 EC JWKs with a kid"
-        );
+        // Never the entry itself: it is a private key.
+        throw new ConfigError(departure(ours("a POPPY_SIGNING_JWKS entry"), ours("a private P-256 EC JWK with a kid"), typeof entry === "object" && entry !== null ? shown`kty ${show.value(entry.kty)}, crv ${show.value(entry.crv)}${typeof entry.d === "string" ? ours("") : ours(", no private part")}${typeof entry.kid === "string" && entry.kid !== "" ? ours("") : ours(", no kid")}` : show.kind(entry)));
       }
       if (kids.has(entry.kid)) {
-        throw new ConfigError(`POPPY_SIGNING_JWKS has a duplicate kid ${entry.kid}`);
+        throw new ConfigError(departure(ours("POPPY_SIGNING_JWKS's kids"), ours("each kid once"), shown`${show.value(entry.kid)} twice`));
       }
       kids.add(entry.kid);
       const privateKey = (await importJWK({ ...entry, alg: "ES256" }, "ES256")) as CryptoKey;

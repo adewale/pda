@@ -77,10 +77,10 @@ describe("the interop test client, configured", () => {
   it("refuses a private key, so one pasted by mistake is never served", async () => {
     const { privateJwk } = await interopKey();
     const leaked = { keys: [privateJwk] };
-    expect(() => readInteropKeys({ INTEROP_LIVE_JWKS: leaked })).toThrow(/holds a private key/);
+    expect(() => readInteropKeys({ INTEROP_LIVE_JWKS: leaked })).toThrow("an INTEROP_LIVE_JWKS key: expected a public key, as scripts/interop-live-identity.mjs prints, got a private one");
     // The deploy check stops it before upload; a Worker that has it anyway fails closed.
     expect(deploymentProblems({ ...(env as unknown as DeploymentEnv), INTEROP_LIVE_JWKS: leaked })).toEqual([
-      "INTEROP_LIVE_JWKS holds a private key; it takes only the public key set that scripts/interop-live-identity.mjs prints"
+      "an INTEROP_LIVE_JWKS key: expected a public key, as scripts/interop-live-identity.mjs prints, got a private one"
     ]);
     const response = await fetchWorker(new Request(JWKS), configured(leaked));
     expect(response.status).toBe(500);
@@ -97,7 +97,7 @@ describe("the interop test client, configured", () => {
     const real = (await json(await fetchWorker(new Request(`${ORIGIN}/poppy/jwks.json`)))).keys as Record<string, unknown>[];
     const response = await fetchWorker(new Request(JWKS), configured({ keys: [real[0]] }));
     expect(response.status).toBe(500);
-    expect(await response.text()).toBe("INTEROP_LIVE_JWKS shares a key with POPPY_SIGNING_JWKS; the interop client needs its own");
+    expect(await response.text()).toBe("INTEROP_LIVE_JWKS: expected keys of its own, got one POPPY_SIGNING_JWKS also holds");
   });
 
   it("serves only on PUBLIC_ORIGIN, only GET and HEAD", async () => {

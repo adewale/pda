@@ -295,7 +295,7 @@ describe("the committed template", () => {
   it("is unconfigured: it names who must be set, and where the agent lives", () => {
     const problems = deploymentProblems(templateVars());
     expect(problems).toContain("OWNERS: expected at least one operator (an email or a GitHub id), got nobody. Name this deployment's operators");
-    expect(problems).toContain("Missing required setting PUBLIC_ORIGIN");
+    expect(problems).toContain("PUBLIC_ORIGIN: expected a value (a required setting), got an empty value");
     expect(templateVars().SIGNUP).toBe("allowlist");
   });
 
@@ -314,7 +314,7 @@ describe("the committed template", () => {
     }
     const configured = { ...template, OWNERS: { emails: ["op@example.com"], github: {} } } as unknown as Partial<Env>;
     const noOrigin = await fetchWorker(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } }), configured);
-    expect(await noOrigin.text()).toBe("Missing required setting PUBLIC_ORIGIN");
+    expect(await noOrigin.text()).toBe("PUBLIC_ORIGIN: expected a value (a required setting), got an empty value");
   });
 
   it("is configured by the example file's shape", () => {
