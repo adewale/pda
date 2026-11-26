@@ -219,6 +219,8 @@ describe("photos the User attaches", () => {
     expect((await attach(a, jpeg(2000), { cookie: null })).status).toBe(401);
     const big = await attach(a, jpeg(MAX_ATTACHMENT_BYTES + 1));
     expect(big.status).toBe(413);
+    // One byte over rounds to the limit, so what was got says "more than", never the same size as what was expected.
+    expect(((await big.json()) as { error: string }).error).toBe("that photo's size: expected at most 10.0 MB, the most your agent takes, got more than 10.0 MB.");
     const info = await attached(a);
     const removed = await fetchWorker(new Request(`${ORIGIN}/api/attachments/${info.id}`, { method: "DELETE", headers: { Cookie: a.cookie, Origin: ORIGIN } }));
     expect(removed.status).toBe(204);

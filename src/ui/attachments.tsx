@@ -1,5 +1,5 @@
 import { ImageIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
-import { ATTACHMENT_TYPES, attachmentMarker, humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../attachments";
+import { ATTACHMENT_TYPES, attachmentMarker, humanSize, sizeOver, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../attachments";
 import { IconAction } from "./controls";
 import { departure, ours, sentence, show, shown } from "../diagnostic";
 
@@ -27,7 +27,7 @@ export function attachProblem(file: File): string | null {
     return sentence(departure(file.name ? show.text(file.name, 80) : ours("that file"), ours("a JPEG, PNG, WebP or GIF photo"), file.type ? show.type(file.type) : ours("a file of unknown type")));
   }
   if (file.size > MAX_ATTACHMENT_BYTES) {
-    return sentence(departure(file.name ? shown`${show.text(file.name, 80)}'s size` : ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, humanSize(file.size)));
+    return sentence(departure(file.name ? shown`${show.text(file.name, 80)}'s size` : ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, sizeOver(file.size, MAX_ATTACHMENT_BYTES)));
   }
   return null;
 }

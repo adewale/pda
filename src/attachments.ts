@@ -125,6 +125,12 @@ export function humanSize(bytes: number): Shown {
   return shown`${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+/** A size over `limit`, as got: "more than 10.0 MB" when rounding would show it equal to the limit, so expected and got never read the same. */
+export function sizeOver(bytes: number, limit: number): Shown {
+  const size = humanSize(bytes);
+  return size === humanSize(limit) ? shown`more than ${size}` : size;
+}
+
 function writeChunks(sql: SqlStorage, id: string, part: "file" | "preview", bytes: Uint8Array): void {
   for (let seq = 0, offset = 0; offset < bytes.byteLength; seq++, offset += CHUNK_BYTES) {
     const chunk = bytes.slice(offset, offset + CHUNK_BYTES);
@@ -183,7 +189,7 @@ export function saveAttachment(
   const now = input.now ?? Date.now();
   if (input.bytes.byteLength === 0) throw new AttachmentError(400, ours("The file is empty."));
   if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new AttachmentError(413, departure(ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, humanSize(input.bytes.byteLength)));
+    throw new AttachmentError(413, departure(ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, sizeOver(input.bytes.byteLength, MAX_ATTACHMENT_BYTES)));
   }
   const type = sniffImage(input.bytes);
   if (!type) throw new AttachmentError(415, ours("Attach a photo: JPEG, PNG, WebP or GIF."));
