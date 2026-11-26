@@ -72,6 +72,16 @@ describe("the results page", () => {
     expect(item.match(/HTTP 503/g)).toHaveLength(1);
   });
 
+  it("offers the whole URL when a redirect's long path is cut, even without a query", async () => {
+    const long = `https://example.com/${"a".repeat(260)}`;
+    const fetcher = named(async (request) =>
+      request.url === "https://example.com/.well-known/poppy.json" ? new Response(null, { status: 302, headers: { Location: long } }) : new Response("{}", { headers: { "Content-Type": "application/json" } })
+    );
+    const page = resultPage(await validateCompany(fetcher, "example.com"), { url: "example.com" });
+    expect(page).toContain('<details class="full"><summary>The whole URL</summary>');
+    expect(page).toContain("a".repeat(260));
+  });
+
   it("lets a long line wrap instead of overflowing the page", () => {
     const page = resultPage(validateText("poppy", "{}"), { document: "{}" });
     expect(page).toContain("ul.messages li{border-top:1px solid var(--line);padding:10px 0;overflow-wrap:anywhere}");
@@ -110,6 +120,9 @@ describe("the report as Markdown", () => {
   it("sets each name GitHub would link even bare, a www. name or an email address, as code", () => {
     expect(markdownText("Ask www.evil.example, or write to help@evil.example.")).toBe("Ask `www.evil.example`, or write to `help@evil.example`.");
     expect(markdownText("see https://a.example/x and *www.b.example*")).toBe("see `https://a.example/x` and \\*`www.b.example`\\*");
+    expect(markdownText("Ask @octocat or @acme/support (see #12), or ftp://files.example/x.")).toBe("Ask `@octocat` or `@acme/support` (see `#12`), or `ftp://files.example/x`.");
+    // Not a mention or a reference: an address's @, a fragment's #, a word with # inside.
+    expect(markdownText("a@b and x#1 and C#")).toBe("a@b and x#1 and C#");
   });
 
   it("fences a code span with more backticks than its value holds", () => {

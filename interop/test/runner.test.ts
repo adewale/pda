@@ -336,6 +336,12 @@ describe("the report", () => {
     expect(markdown).toContain("### SD: Direct Sign-In\n\n| agent \\ Company | x |\n| --- | --- |\n| pda | fail · company (violation) |");
     expect(markdown.replace(/`[^`\n]*`/g, "")).not.toMatch(/(^|[^\\])\[here\]\(/m);
   });
+
+  it("marks an adversarial cell among the failures, since the counts and grids leave it out", () => {
+    const markdown = renderMarkdown({ ...summary, cells: [{ ...departing, company: "evil-company", security: true }] });
+    expect(markdown).toContain("- **SD pda × evil-company** (adversarial, not counted above): fail");
+    expect(markdown).not.toContain("1 fail");
+  });
 });
 
 /**

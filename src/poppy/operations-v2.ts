@@ -116,7 +116,7 @@ export function parseOperationV2(value: Json | undefined): OperationV2 | { reado
   if (typeof id !== "string" || !ID.test(id)) return { problem: departure(ours("its operation_id"), ids, length(id)) };
   if (typeof revision !== "string" || !ID.test(revision)) return { problem: departure(ours("its revision"), ids, length(revision)) };
   if (summary !== undefined && typeof summary !== "string") return { problem: departure(ours("its summary"), ours("a string"), show.kind(summary)) };
-  if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: departure(ours("its summary"), shown`at most ${SUMMARY_LIMIT} characters, to show in full`, shown`${summary.length}`) };
+  if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: departure(ours("its summary"), shown`at most ${SUMMARY_LIMIT} characters, to show in full`, shown`${summary.length} characters`) };
   if (terms === undefined) return { problem: departure(ours("its terms"), ours("an object"), ours("none")) };
   if (!isObject(terms)) return { problem: departure(ours("its terms"), ours("an object"), show.kind(terms)) };
   if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: departure(ours("its expires_at"), ours("an RFC 3339 time"), show.value(expiresAt)) };
@@ -124,7 +124,7 @@ export function parseOperationV2(value: Json | undefined): OperationV2 | { reado
   const told = typeof summary === "string" && summary.trim() !== "" ? summary : undefined;
   const operation: OperationV2 = { operation_id: id, revision, ...(told !== undefined ? { summary: told } : {}), terms, expires_at: expiresAt };
   if (told === undefined && described(operation).length > SUMMARY_LIMIT) {
-    return { problem: departure(ours("its terms, shown in place of a summary"), shown`at most ${SUMMARY_LIMIT} characters`, shown`${described(operation).length}`) };
+    return { problem: departure(ours("its terms, shown in place of a summary"), shown`at most ${SUMMARY_LIMIT} characters`, shown`${described(operation).length} characters`) };
   }
   return operation;
 }

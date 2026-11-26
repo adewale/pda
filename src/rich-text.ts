@@ -74,25 +74,34 @@ export function codeSpan(value: string): string {
   return `${fence}${pad}${value.replace(/\n+/g, " ")}${pad}${fence}`;
 }
 
-/** What GitHub's Markdown turns into a link without a scheme: a `www.` name, or an email address. */
-const AUTOLINK = /\bwww\.[^\s<>`"']+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+/**
+ * What GitHub turns into a link or a notification in Markdown even without
+ * an http(s) scheme: a `www.` name or an `ftp://` URL, an email address, and,
+ * after a space or punctuation, an `@mention` (or `@org/team`) or a `#123`
+ * reference. GitHub doesn't look inside code spans, so each becomes one. No
+ * lookbehind, which not every browser the app supports has: the character
+ * before a mention or a reference is matched as group 1 and kept as words.
+ */
+const AUTOLINK = /\b(?:www\.|ftp:\/\/)[^\s<>`"']+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(^|[^\w@./&])(@[A-Za-z0-9][A-Za-z0-9-]*(?:\/[A-Za-z0-9][\w.-]*)?|#\d+\b)/g;
 
 /** Words as Markdown, with each bare name GitHub would link set as a code span instead. */
 function linklessWords(text: string): string {
   let out = "";
   let last = 0;
   for (const match of text.matchAll(AUTOLINK)) {
-    const token = match[0].replace(TRAILING, "");
-    out += markdownWords(text.slice(last, match.index)) + codeSpan(token);
-    last = match.index + token.length;
+    const before = match[1] ?? "";
+    const start = match.index + before.length;
+    const token = (match[2] ?? match[0]).replace(TRAILING, "");
+    out += markdownWords(text.slice(last, start)) + codeSpan(token);
+    last = start + token.length;
   }
   return out + markdownWords(text.slice(last));
 }
 
 /**
  * Shown text as Markdown that renders as itself and links nowhere: its words
- * escaped, and each URL, `www.` name or email address in it a code span, since
- * GitHub's Markdown links those even bare.
+ * escaped, and each URL, `www.` name, email address, mention or issue
+ * reference in it a code span, since GitHub links those even bare.
  */
 export function markdownText(value: string): string {
   return pieces(value)

@@ -200,9 +200,9 @@ export function resultPage(
   const documents = result.documents
     .map((doc) => {
       const messages = result.messages.filter((m) => m.document === doc.kind);
-      // Where the redirects led, without its query, as messages show it; the whole URL is a click away, and in the JSON report.
+      // Where the redirects led, without its query, as messages show it; whenever that isn't the whole URL (a query cut, or a long path), the whole is a click away, and in the JSON report.
       const final = doc.finalUrl && doc.finalUrl !== doc.url ? show.url(doc.finalUrl, doc.url) : undefined;
-      const full = final !== undefined && final.endsWith("?…") ? `<details class="full"><summary>The whole URL</summary><code class="url">${breakable(doc.finalUrl!)}</code></details>` : "";
+      const full = final !== undefined && final !== doc.finalUrl ? `<details class="full"><summary>The whole URL</summary><code class="url">${breakable(doc.finalUrl!)}</code></details>` : "";
       const facts = [
         doc.url ? `<p>${urlHtml(show.url(doc.url, doc.url))}${final !== undefined ? ` → ${urlHtml(final)}` : ""}</p>${full}` : "",
         doc.status !== undefined ? `<p class="where">HTTP ${doc.status}${doc.contentType ? ` · ${escape(doc.contentType)}` : ""}${doc.maxAgeSeconds != null ? ` · cacheable for ${doc.maxAgeSeconds} s` : ""}</p>` : ""

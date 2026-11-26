@@ -175,16 +175,10 @@ export const REFUSED_READING = /^reading\.(S\d+)\.refused$/;
 export function refusedReadingChecks(all: readonly Exchange[], companyReadings: Readonly<Record<string, string>>): Check[] {
   const found: Check[] = [];
   const endpoints = assertionEndpoints(all);
-  const refused = (id: QuestionId, x: Exchange, detail: Problem): Check => ({
-    id: `reading.${id}.refused`,
-    side: "agent",
-    severity: "warning",
-    basis: "Reading",
-    exchange: x.index,
-    detail: render(detail),
-    ...(partsOf(detail) ? { parts: partsOf(detail)! } : {}),
-    source: "trace"
-  });
+  const refused = (id: QuestionId, x: Exchange, detail: Problem): Check => {
+    const parts = partsOf(detail);
+    return { id: `reading.${id}.refused`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
+  };
   for (const x of all) {
     if (x.direction !== "to-company" || x.probe || (x.status !== 400 && x.status !== 401)) continue;
     const error = (jsonBody(x.responseBody) as { error?: unknown } | undefined)?.error;

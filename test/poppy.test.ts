@@ -1797,7 +1797,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-"))!;
     // A sentence that stands alone, and what was wrong in its parts, which the page lays out as the validator does.
     expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval, but its terms couldn't be used, so nothing was done.`);
-    expect(notice.problem).toEqual({ subject: "its summary", expected: "at most 4000 characters, to show in full", got: expect.stringMatching(/^\d{4,}$/) });
+    expect(notice.problem).toEqual({ subject: "its summary", expected: "at most 4000 characters, to show in full", got: expect.stringMatching(/^\d{4,} characters$/) });
     // No card to approve the Company's operation, and nothing performed.
     expect((await cards(a)).filter((item) => item.kind === "approval" && item.open)).toEqual([]);
     expect((await c.stub.state()).performs).toBe(0);
@@ -3678,7 +3678,7 @@ describe("parsed once at the edge", () => {
     expect(parseOperationV2({ ...base, summary: "  " })).toEqual(unsummarized);
     expect(parseOperationV2(unsummarized)).toEqual(unsummarized);
     expect(said({ ...base, summary: 3 })).toBe("its summary: expected a string, got a whole number");
-    expect(said({ ...base, summary: "x".repeat(4_001) })).toBe("its summary: expected at most 4000 characters, to show in full, got 4001");
+    expect(said({ ...base, summary: "x".repeat(4_001) })).toBe("its summary: expected at most 4000 characters, to show in full, got 4001 characters");
     const { terms: _terms, ...termless } = base;
     expect(said(termless)).toBe("its terms: expected an object, got none");
     expect(said({ ...base, terms: ["70.00"] })).toBe("its terms: expected an object, got an array");

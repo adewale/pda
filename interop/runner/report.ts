@@ -197,7 +197,7 @@ export function renderMarkdown(summary: RunSummary): string {
       : `  - ${codeSpan(check.id)} (${markdownWords(check.severity)}, ${markdownWords(check.side)}): ${markdownText(check.detail)}`;
   const failed = summary.cells
     .filter((cell) => cell.outcome === "fail" || cell.outcome === "error")
-    .map((cell) => [`- **${markdownWords(`${cell.scenario} ${cell.agent} × ${cell.company}`)}**: ${markdownWords(label(cell))}${cell.reason ? `. ${markdownText(cell.reason)}` : ""}`, ...cell.checks.filter((check) => check.severity === "error").map(finding)].join("\n"));
+    .map((cell) => [`- **${markdownWords(`${cell.scenario} ${cell.agent} × ${cell.company}`)}**${cell.security ? " (adversarial, not counted above)" : ""}: ${markdownWords(label(cell))}${cell.reason ? `. ${markdownText(cell.reason)}` : ""}`, ...cell.checks.filter((check) => check.severity === "error").map(finding)].join("\n"));
   return [
     `# Poppy interop run ${markdownWords(summary.run)}`,
     `Lane ${markdownWords(summary.lane)} · ${markdownWords(summary.spec)} · ${[...counts].map(([outcome, n]) => `${n} ${markdownWords(outcome)}`).join(", ")}. Checks: ${levels.failure} failures, ${levels.warning} warnings, ${levels.tentative} tentative.`,
