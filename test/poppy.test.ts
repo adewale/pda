@@ -3170,7 +3170,7 @@ describe("8.13 conversation errors", () => {
         () => "read",
         (error: unknown) => String(error)
       );
-      expect(failed).toContain("events answer isn't a JSON object");
+      expect(failed).toContain("'s events answer: expected a JSON object, got null");
       expect(failed).not.toContain("TypeError");
     } finally {
       await release();

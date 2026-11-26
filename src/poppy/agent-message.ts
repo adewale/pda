@@ -7,6 +7,7 @@ import type { Json } from "./json";
 import { classifyMessage, latestCompanyMessage, MESSAGE_POLICIES, messageHasCredential, REQUEST_AUTHORIZATION } from "./model-policy";
 import type { AgentMessageResult } from "./message-result";
 import { intent, intentsTable } from "./store";
+import { ours } from "../diagnostic";
 
 const policy = literal(...MESSAGE_POLICIES);
 
@@ -22,7 +23,7 @@ export async function sendAgentMessage(client: PoppyClient, company: Company, re
   // Decisions saved before the typed policy had these two names.
   const decision = policy(saved === "authorization" ? "request_authorization" : saved === "message" ? "send" : saved, "saved message policy");
   // The old tool saved "message" even for a credential it subsequently refused.
-  if (decision === "reject" || (saved === "message" && messageHasCredential(request.text, request.data))) throw new PoppyError("invalid_request", "The message was not sent because it appears to contain a credential or verification code. Ask the Company for an authorization event instead.", 0);
+  if (decision === "reject" || (saved === "message" && messageHasCredential(request.text, request.data))) throw new PoppyError("invalid_request", ours("The message was not sent because it appears to contain a credential or verification code. Ask the Company for an authorization event instead."), 0);
   const authorizationKey = decision === "request_authorization" ? intent(client.sql, `message-authorization|${request.callKey}`, () => {
     // A replay of a pre-upgrade call still uses its original message and acknowledgement.
     const legacy = `verification-authorization|${id}`;

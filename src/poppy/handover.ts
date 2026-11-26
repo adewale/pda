@@ -30,6 +30,7 @@ import { object } from "../decode";
 import { handoversTable, type HandoverRow } from "./store";
 import { isObject, parseStrictJson } from "./json";
 import { usesBrowserControl } from "./declaration";
+import { ours, show, shown } from "../diagnostic";
 
 /** A real browser the User drives: Browser Run in production (browser-run.ts), a fake in tests. */
 export interface HandoverBrowser {
@@ -139,7 +140,7 @@ export function refuseWhileUserHasControl(client: PoppyClient, company: Company,
   if (!userControl(client, company.issuer, label)) return;
   throw new PoppyError(
     "user_has_control",
-    `The User has control of the browser at ${company.name}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
+    shown`The User has control of the browser at ${show.name(company.name)}, so the agent doesn't use it. Don't wait for them: carry on with other work, and you'll be told when they hand it back.`,
     0
   );
 }
@@ -154,7 +155,7 @@ export function beforeModelAction(client: PoppyClient, company: Company, label: 
   refuseWhileUserHasControl(client, company, label);
   const back = one(client.sql, handoversTable.row, "SELECT * FROM poppy_handovers WHERE issuer = ? AND label = ? AND looked = 0 AND state IN ('returned', 'cancelled')", company.issuer, label);
   if (!back) return;
-  if (!opening) throw new PoppyError("invalid_request", `The User used the browser at ${company.name}. Open the page again (poppy_browse with open) to see it as it is now before doing anything else there.`, 0);
+  if (!opening) throw new PoppyError("invalid_request", shown`The User used the browser at ${show.name(company.name)}. Open the page again (poppy_browse with open) to see it as it is now before doing anything else there.`, 0);
   client.sql.exec("UPDATE poppy_handovers SET looked = 1 WHERE id = ?", back.id);
 }
 
@@ -211,7 +212,7 @@ function companyOf(client: PoppyClient, value: HandoverRow): Company {
 
 function launcherOf(client: PoppyClient): HandoverLauncher {
   const launcher = client.host.handover?.();
-  if (!launcher) throw new PoppyError("refused", "This agent can't hand over a browser: Browser Run is off here.", 0);
+  if (!launcher) throw new PoppyError("refused", ours("This agent can't hand over a browser: Browser Run is off here."), 0);
   return launcher;
 }
 
@@ -282,10 +283,10 @@ export async function takeControl(client: PoppyClient, start: HandoverStart, id:
 
 async function startControl(client: PoppyClient, start: HandoverStart, id: string): Promise<{ readonly url: string; readonly expiresAt: number }> {
   const value = row(client, id);
-  if (!value || (value.state !== "offered" && value.state !== "user")) throw new PoppyError("invalid_request", "That browser step is no longer open.", 0);
+  if (!value || (value.state !== "offered" && value.state !== "user")) throw new PoppyError("invalid_request", ours("That browser step is no longer open."), 0);
   if (!sameSession(client, value)) {
     await endChanged(client, value);
-    throw new PoppyError("approval_changed", "The Session changed since the step was offered, so the browser wasn't opened.", 0);
+    throw new PoppyError("approval_changed", ours("The Session changed since the step was offered, so the browser wasn't opened."), 0);
   }
   const company = companyOf(client, value);
   const existing = value.state === "user" ? await connected(client, value) : null;
@@ -293,14 +294,14 @@ async function startControl(client: PoppyClient, start: HandoverStart, id: strin
   const now = client.host.now();
   const started = one(client.sql, object({ count: integer }), "SELECT COUNT(*) AS count FROM poppy_handovers WHERE started_at > ?", now - 3_600_000)?.count ?? 0;
   if (started >= HANDOVER_LIMITS.perHour) {
-    throw new PoppyError("rate_limited", `This agent has opened ${HANDOVER_LIMITS.perHour} browsers in the last hour. Take the step on ${company.domain} yourself, or try again later.`, 0);
+    throw new PoppyError("rate_limited", shown`This agent has opened ${HANDOVER_LIMITS.perHour} browsers in the last hour. Take the step on ${show.name(company.domain)} yourself, or try again later.`, 0);
   }
   const { cookies, binding } = await start(company, value.label);
   if (!sameAuthority(bindingOf(value), binding)) {
     await endChanged(client, value);
-    throw new PoppyError("approval_changed", "The Session changed while opening the browser, so it wasn't opened.", 0);
+    throw new PoppyError("approval_changed", ours("The Session changed while opening the browser, so it wasn't opened."), 0);
   }
-  const failed = new PoppyError("refused", `Couldn't start a browser for this step. Try again, or take it on ${company.domain} yourself.`, 0);
+  const failed = new PoppyError("refused", shown`Couldn't start a browser for this step. Try again, or take it on ${show.name(company.domain)} yourself.`, 0);
   const launcher = launcherOf(client);
   let browser: HandoverBrowser;
   try {
@@ -318,12 +319,12 @@ async function startControl(client: PoppyClient, start: HandoverStart, id: strin
   const current = row(client, id);
   if (!current || (current.state !== "offered" && current.state !== "user")) {
     await browser.close().catch(() => undefined);
-    throw new PoppyError("invalid_request", "That browser step ended while its browser was starting.", 0);
+    throw new PoppyError("invalid_request", ours("That browser step ended while its browser was starting."), 0);
   }
   if (!sameSession(client, current)) {
     await browser.close().catch(() => undefined);
     await endChanged(client, current);
-    throw new PoppyError("approval_changed", "The Session changed while opening the browser, so it wasn't opened.", 0);
+    throw new PoppyError("approval_changed", ours("The Session changed while opening the browser, so it wasn't opened."), 0);
   }
   browsersOf(client).set(id, browser);
   client.sql.exec("UPDATE poppy_handovers SET state = 'user', browser = ?, started_at = ? WHERE id = ?", browser.sessionId, now, id);
@@ -339,7 +340,7 @@ async function startControl(client: PoppyClient, start: HandoverStart, id: strin
  */
 export async function liveView(client: PoppyClient, start: HandoverStart, id: string): Promise<{ readonly url: string; readonly expiresAt: number }> {
   const value = row(client, id);
-  if (!value || value.state !== "user") throw new PoppyError("invalid_request", "You don't have control of that browser.", 0);
+  if (!value || value.state !== "user") throw new PoppyError("invalid_request", ours("You don't have control of that browser."), 0);
   return takeControl(client, start, id);
 }
 
