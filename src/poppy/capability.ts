@@ -41,6 +41,7 @@ import { isDiagnosticFlowId } from "./approval-outcome";
 import { writeCard, type CardWriteOptions } from "./cards";
 import { approvalDecisions } from "./approval-decisions";
 import { ours, shown } from "../diagnostic";
+import { noticeOf } from "./diagnostic-notice";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -428,7 +429,7 @@ export class PoppyCapability extends LifecycleCapability {
             kind: "notice",
             company: "",
             open: false,
-            text: `That didn't work: ${error instanceof Error ? error.message : String(error)}`
+            ...noticeOf(ours("That didn't work"), error)
           }
         ]
       });
@@ -556,7 +557,7 @@ export class PoppyCapability extends LifecycleCapability {
           addInstruction(client, decoded.value);
         } catch (error) {
           if (!(error instanceof InstructionRefused)) throw error;
-          await this.#showCard({ id: `instruction-refused-${Date.now()}`, kind: "notice", company: "Your agent", open: true, text: error.message });
+          await this.#showCard({ id: `instruction-refused-${Date.now()}`, kind: "notice", company: "Your agent", open: true, ...noticeOf(ours("Your instruction wasn't saved"), error) });
         }
         this.#sendSettings();
         return;

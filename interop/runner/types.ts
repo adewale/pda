@@ -139,7 +139,13 @@ export type Check = {
   readonly basis?: Basis | null;
   /** Index of the HAR entry, when one exchange shows it. */
   readonly exchange: number | null;
+  /** What the check found, as a sentence: for a departure, "subject: expected X, got Y". */
   readonly detail: string;
+  /**
+   * A departure's parts, for the report to lay out apart (src/diagnostic.ts): the runner's own checks
+   * have them; a Company's recorded checks arrive as text (`[id] detail`) and don't.
+   */
+  readonly parts?: { readonly subject: string; readonly expected: string; readonly got: string; readonly detail?: string };
   /** "trace", "validator", or "company:<name>" for violations a Company adapter recorded. */
   readonly source: string;
 };

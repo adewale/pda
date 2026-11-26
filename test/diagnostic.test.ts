@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { departure, ours, ProblemError, render, sentence, show, shown } from "../src/diagnostic";
+import { departure, ours, partsOf, ProblemError, render, sentence, show, shown } from "../src/diagnostic";
+import { noticeOf } from "../src/poppy/diagnostic-notice";
 
 /** What the constructors in src/diagnostic.ts make of values at run time; test/diagnostic-types.ts holds the type-level guarantees. */
 describe("diagnostics", () => {
@@ -53,5 +54,21 @@ describe("diagnostics", () => {
     const error = new ProblemError(problem);
     expect(error.message).toBe("the divisor: expected a number other than 0, got 0");
     expect(error.problem).toBe(problem);
+  });
+
+  it("gives a departure's parts apart, its follow-up as detail, and nothing for a fact", () => {
+    expect(partsOf(departure(ours("the token"), ours("a JWT"), ours("nothing"), ours("Sign in again")))).toEqual({ subject: "the token", expected: "a JWT", got: "nothing", detail: "Sign in again" });
+    expect(partsOf(departure(ours("the token"), ours("a JWT"), ours("nothing")))).toEqual({ subject: "the token", expected: "a JWT", got: "nothing" });
+    expect(partsOf(ours("The Company is offline"))).toBeUndefined();
+  });
+
+  it("makes a notice: a lead sentence and a departure's parts, a fact in one sentence, and someone else's error quoted", () => {
+    const lead = ours("That didn't work");
+    expect(noticeOf(lead, new ProblemError(departure(ours("its operation_id"), ours("1 to 256 URL-safe characters"), ours("300 characters"))))).toEqual({
+      text: "That didn't work.",
+      problem: { subject: "its operation_id", expected: "1 to 256 URL-safe characters", got: "300 characters" }
+    });
+    expect(noticeOf(lead, new ProblemError(ours("The Company is offline")))).toEqual({ text: "That didn't work: The Company is offline." });
+    expect(noticeOf(lead, new Error("boom\nline two"))).toEqual({ text: 'That didn\'t work: "boom line two".' });
   });
 });

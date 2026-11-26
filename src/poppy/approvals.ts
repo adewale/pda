@@ -1,6 +1,7 @@
 import { ATTACHMENT_TYPES, type AttachmentInfo } from "../attachments";
 import { array, boolean, integer, json, literal, nullable, object, optional, record, string, tagged, tryDecode, type Decoded, type Decoder } from "../decode";
 import { isObject } from "./json";
+import { ours, shown, type Shown } from "../diagnostic";
 
 /**
  * The form a local approval's request is stored in (`poppy_approvals.request`).
@@ -77,19 +78,19 @@ export function storedApproval(value: NewApproval): string {
 }
 
 /** A stored approval, or why it can't be sent. */
-export function readApproval(text: string): { ok: true; value: StoredApproval } | { ok: false; problem: string } {
+export function readApproval(text: string): { ok: true; value: StoredApproval } | { ok: false; problem: Shown } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, problem: "it isn't readable" };
+    return { ok: false, problem: ours("it isn't readable") };
   }
   const version = isObject(parsed) ? (parsed.v ?? 1) : null;
   if (version !== APPROVAL_VERSION) {
-    return { ok: false, problem: `it was stored in a form (version ${typeof version === "number" ? version : "unknown"}) this version of the agent doesn't send` };
+    return { ok: false, problem: shown`it was stored in a form (version ${typeof version === "number" ? version : ours("unknown")}) this version of the agent doesn't send` };
   }
   const decoded = tryDecode(approval, parsed, "approval");
-  return decoded.ok ? decoded : { ok: false, problem: `it isn't one this agent stored (${decoded.problem})` };
+  return decoded.ok ? decoded : { ok: false, problem: shown`it isn't one this agent stored (${decoded.problem})` };
 }
 
 /**

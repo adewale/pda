@@ -12,7 +12,7 @@
  * mock's (test/mock-company/violations.ts), and the tests check they agree.
  */
 import { createHash } from "node:crypto";
-import { departure, ours, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
+import { departure, ours, partsOf, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
 import { levelOf, severityOf, type Basis } from "../../src/validator/levels.ts";
 import { authorization, clientIdOf, decodeJwt, direction, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
 import type { Check, Side } from "./types.ts";
@@ -114,7 +114,8 @@ export type TraceCheckId = keyof typeof TRACE_CHECKS;
 /** A check's finding: its detail says what the rule expected and what the recording shows (src/diagnostic.ts). */
 function check(id: TraceCheckId, exchange: Exchange | null, detail: Problem): Check {
   const spec: CheckSpec = TRACE_CHECKS[id];
-  return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail: render(detail), source: "trace" };
+  const parts = partsOf(detail);
+  return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
 }
 
 /** A recorded string shown quoted, as written; anything else by its kind. */

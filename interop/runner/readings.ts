@@ -4,7 +4,7 @@
  * sent, and attribution rule 3 asks whether two declared readings can work
  * together. Pure functions.
  */
-import { departure, ours, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
+import { departure, ours, partsOf, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
 import { decodeJwt, form, isServerMetadata, jsonBody, type DecodedJwt, type Exchange } from "./har.ts";
 import type { Check } from "./types.ts";
 
@@ -70,7 +70,8 @@ export function compatible(question: string, agent: string | undefined, company:
 }
 
 function warning(id: QuestionId, x: Exchange, detail: Problem): Check {
-  return { id: `reading.${id}`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), source: "trace" };
+  const parts = partsOf(detail);
+  return { id: `reading.${id}`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
 }
 
 /** A recorded string shown quoted, as written; anything else by its kind. */
@@ -181,6 +182,7 @@ export function refusedReadingChecks(all: readonly Exchange[], companyReadings: 
     basis: "Reading",
     exchange: x.index,
     detail: render(detail),
+    ...(partsOf(detail) ? { parts: partsOf(detail)! } : {}),
     source: "trace"
   });
   for (const x of all) {

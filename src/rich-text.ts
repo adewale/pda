@@ -50,3 +50,52 @@ export function shortSegment(segment: string, limit = SEGMENT_LIMIT): string {
   const tail = Math.floor((limit - 1) / 3);
   return `${segment.slice(0, limit - 1 - tail)}…${segment.slice(-tail)}`;
 }
+
+// Markdown, for reports people paste into an issue: nothing in shown text is trusted as Markdown.
+
+/**
+ * Text as Markdown that renders as itself: emphasis, code, link, table and
+ * HTML punctuation escaped anywhere, and a heading, list or quote marker
+ * escaped where it would start a line. Parentheses need none once square
+ * brackets are escaped.
+ */
+export function markdownWords(text: string): string {
+  return text
+    .replace(/[\\`*_[\]<>|~]/g, (char) => `\\${char}`)
+    .replace(/\n+/g, " ")
+    .replace(/^(\s*)([#+\->=]|\d+[.)])/, (_, space: string, marker: string) => `${space}\\${marker}`);
+}
+
+/** A value as a code span, fenced with more backticks than it holds, so it can't close early. */
+export function codeSpan(value: string): string {
+  const run = Math.max(0, ...[...value.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = "`".repeat(run + 1);
+  const pad = value.startsWith("`") || value.endsWith("`") || run > 0 ? " " : "";
+  return `${fence}${pad}${value.replace(/\n+/g, " ")}${pad}${fence}`;
+}
+
+/** What GitHub's Markdown turns into a link without a scheme: a `www.` name, or an email address. */
+const AUTOLINK = /\bwww\.[^\s<>`"']+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+
+/** Words as Markdown, with each bare name GitHub would link set as a code span instead. */
+function linklessWords(text: string): string {
+  let out = "";
+  let last = 0;
+  for (const match of text.matchAll(AUTOLINK)) {
+    const token = match[0].replace(TRAILING, "");
+    out += markdownWords(text.slice(last, match.index)) + codeSpan(token);
+    last = match.index + token.length;
+  }
+  return out + markdownWords(text.slice(last));
+}
+
+/**
+ * Shown text as Markdown that renders as itself and links nowhere: its words
+ * escaped, and each URL, `www.` name or email address in it a code span, since
+ * GitHub's Markdown links those even bare.
+ */
+export function markdownText(value: string): string {
+  return pieces(value)
+    .map((piece) => (piece.kind === "url" ? codeSpan(piece.url) : linklessWords(piece.text)))
+    .join("");
+}

@@ -22,7 +22,7 @@ import { agent, cards, company, compareViolations, requests, signInDirect, tool,
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
 import { named } from "./named-fetcher.ts";
-import { departure, ours, shown } from "../src/diagnostic";
+import { departure, ours, render, shown } from "../src/diagnostic";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
@@ -1773,7 +1773,12 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
       await signInDirect(a, c);
       const result = await tool(a, "poppy_api_call", exchangeWrite(c));
       expect(result.isError, server).toBe(true);
-      expect(JSON.parse(result.details)).toEqual({ error: server === "non-public host" ? "untrusted_server" : "invalid_request" });
+      // The parts come as data too, so the model can act on what was expected and what was got.
+      expect(JSON.parse(result.details)).toEqual(
+        server === "non-public host"
+          ? { error: "untrusted_server", problem: { subject: `${c.hosts.api}/openapi.json's server`, expected: "a public host, or one of the Company's own", got: "printer.internal", detail: "The agent won't send it its Session header or tokens" } }
+          : { error: "invalid_request", problem: { subject: `${c.hosts.api}/openapi.json's server`, expected: "an https:// URL", got: expect.stringMatching(new RegExp(`^${c.hosts.api.replace(/^https:/, "http:").replace(/[.]/g, "\\.")}/`)) } }
+      );
       expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
     }
   });
@@ -1790,7 +1795,9 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(after).toMatchObject({ status: "refused", answer: { status: 403, error: "unusable_proposal" } });
     expect(after.result).toContain("Sent for your task");
     const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-"))!;
-    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval, but its terms couldn't be used (its summary is too long to show), so nothing was done.`);
+    // A sentence that stands alone, and what was wrong in its parts, which the page lays out as the validator does.
+    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval, but its terms couldn't be used, so nothing was done.`);
+    expect(notice.problem).toEqual({ subject: "its summary", expected: "at most 4000 characters, to show in full", got: expect.stringMatching(/^\d{4,}$/) });
     // No card to approve the Company's operation, and nothing performed.
     expect((await cards(a)).filter((item) => item.kind === "approval" && item.open)).toEqual([]);
     expect((await c.stub.state()).performs).toBe(0);
@@ -2191,8 +2198,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const before = (await requests(c)).length;
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.details)).toMatchObject({ error: "invalid_request" });
-    expect(JSON.parse(result.details)).toEqual({ error: "invalid_request" });
+    expect(JSON.parse(result.details)).toEqual({ error: "invalid_request", problem: { subject: `${c.hosts.api}/openapi.json's server`, expected: "an https:// URL", got: `${server}/orders` } });
     // Only the description was fetched: no token request, and nothing to the http server.
     const after = (await requests(c)).slice(before);
     expect(after.filter((request) => request.url.startsWith("http:"))).toEqual([]);
@@ -2824,12 +2830,12 @@ describe("Operations 2", () => {
   });
 
   it.each([
-    ["a colon in its id, as a Company's own record's might have", { operation_id: "booking:1" }, "its operation_id isn't 1 to 256 URL-safe characters"],
-    ["a space in its id", { operation_id: "exc 1" }, "its operation_id isn't 1 to 256 URL-safe characters"],
-    ["an id of more than 256 characters", { operation_id: "x".repeat(257) }, "its operation_id isn't 1 to 256 URL-safe characters"],
-    ["0.2's integer revision", { revision: 2 }, "its revision isn't 1 to 256 URL-safe characters"],
-    ["no expiry", { expires_at: null }, "its expires_at isn't an RFC 3339 time"],
-    ["no terms", { terms: undefined }, "it has no terms"]
+    ["a colon in its id, as a Company's own record's might have", { operation_id: "booking:1" }, { subject: "its operation_id", expected: "1 to 256 URL-safe characters", got: "9 characters, some not URL-safe" }],
+    ["a space in its id", { operation_id: "exc 1" }, { subject: "its operation_id", expected: "1 to 256 URL-safe characters", got: "5 characters, some not URL-safe" }],
+    ["an id of more than 256 characters", { operation_id: "x".repeat(257) }, { subject: "its operation_id", expected: "1 to 256 URL-safe characters", got: "257 characters" }],
+    ["0.2's integer revision", { revision: 2 }, { subject: "its revision", expected: "1 to 256 URL-safe characters", got: "a whole number" }],
+    ["no expiry", { expires_at: null }, { subject: "its expires_at", expected: "an RFC 3339 time", got: "null" }],
+    ["no terms", { terms: undefined }, { subject: "its terms", expected: "an object", got: "none" }]
   ] as const)("tells the User when a Company Agent's operation has %s, and offers nothing to approve", async (_, change, problem) => {
     const c = await company();
     const a = await agent();
@@ -2837,7 +2843,8 @@ describe("Operations 2", () => {
     const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", terms: { price_difference: { amount: "70.00", currency: "USD" } }, expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
     await c.stub.say(first.conversationId, "Shall I go ahead?", { extensions: { operations: { operation } } });
     const notice = await until(async () => (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-")));
-    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used (${problem}), so nothing was done.`);
+    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used, so nothing was done.`);
+    expect(notice.problem).toEqual(problem);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
     expect(await a.stub.poppySql("SELECT id FROM poppy_approvals")).toBe("[]");
   });
@@ -2958,9 +2965,10 @@ describe("8.5 an event whose handling fails", () => {
     // As if the card had shown other terms under the same revision: the Company's offer no longer matches it.
     await a.stub.poppySql("UPDATE poppy_approvals SET terms = json_set(terms, '$.highlights', json('[\"Free\"]')) WHERE id = ?", card.approvalId);
     await ask();
-    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("terms under a revision it had already sent"))));
+    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.problem?.subject ?? "").includes("terms under a revision it had already sent"))));
     // What it sent first, and what changed, by name.
-    expect(notice.text).toBe(`Mock Shop ${c.id}'s terms under a revision it had already sent: expected the terms it sent first under that revision, got terms whose highlights changed. They weren't used. The earlier card stands. Nothing was done.`);
+    expect(notice.text).toBe(`Mock Shop ${c.id}'s terms couldn't be used, so nothing was done.`);
+    expect(notice.problem).toEqual({ subject: `Mock Shop ${c.id}'s terms under a revision it had already sent`, expected: "the terms it sent first under that revision", got: "terms whose highlights changed", detail: "They weren't used. The earlier card stands" });
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true })]);
     expect(await a.stub.poppyReadNow(first.conversationId)).not.toBeNull();
     expect((await c.stub.state()).performs).toBe(0);
@@ -3652,25 +3660,30 @@ describe("parsed once at the edge", () => {
 
   it("decodes an operation (Ops 3): ids of URL-safe characters, terms an object, an optional summary, and an RFC 3339 expires_at", () => {
     const terms = { total: { amount: "1.00", currency: "USD" } };
+    // What was wrong, as the notice would say it.
+    const said = (value: Parameters<typeof parseOperationV2>[0]) => {
+      const parsed = parseOperationV2(value);
+      return "problem" in parsed ? render(parsed.problem) : parsed;
+    };
     const base = { operation_id: "exc_1", revision: "r-2", summary: "Exchange the jacket", terms, expires_at: "2026-10-20T00:00:00Z" };
     // Members it doesn't know are left out.
     expect(parseOperationV2({ ...base, state: "proposed", extra: 1 })).toEqual(base);
     expect(parseOperationV2(base)).toEqual(base);
-    expect(parseOperationV2({ ...base, operation_id: "booking:1" })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
-    expect(parseOperationV2({ ...base, operation_id: "x".repeat(257) })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
+    expect(said({ ...base, operation_id: "booking:1" })).toBe("its operation_id: expected 1 to 256 URL-safe characters, got 9 characters, some not URL-safe");
+    expect(said({ ...base, operation_id: "x".repeat(257) })).toBe("its operation_id: expected 1 to 256 URL-safe characters, got 257 characters");
     // 0.2's integer revisions aren't strings.
-    expect(parseOperationV2({ ...base, revision: 2 })).toEqual({ problem: "its revision isn't 1 to 256 URL-safe characters" });
+    expect(said({ ...base, revision: 2 })).toBe("its revision: expected 1 to 256 URL-safe characters, got a whole number");
     // A blank summary says nothing, so the terms are shown instead (Ops 3).
     const { summary: _summary, ...unsummarized } = base;
     expect(parseOperationV2({ ...base, summary: "  " })).toEqual(unsummarized);
     expect(parseOperationV2(unsummarized)).toEqual(unsummarized);
-    expect(parseOperationV2({ ...base, summary: 3 })).toEqual({ problem: "its summary isn't a string" });
-    expect(parseOperationV2({ ...base, summary: "x".repeat(4_001) })).toEqual({ problem: "its summary is too long to show" });
+    expect(said({ ...base, summary: 3 })).toBe("its summary: expected a string, got a whole number");
+    expect(said({ ...base, summary: "x".repeat(4_001) })).toBe("its summary: expected at most 4000 characters, to show in full, got 4001");
     const { terms: _terms, ...termless } = base;
-    expect(parseOperationV2(termless)).toEqual({ problem: "it has no terms" });
-    expect(parseOperationV2({ ...base, terms: ["70.00"] })).toEqual({ problem: "its terms aren't an object" });
-    expect(parseOperationV2({ ...base, expires_at: "tomorrow" })).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
-    expect(parseOperationV2([base])).toEqual({ problem: "it isn't an object" });
+    expect(said(termless)).toBe("its terms: expected an object, got none");
+    expect(said({ ...base, terms: ["70.00"] })).toBe("its terms: expected an object, got an array");
+    expect(said({ ...base, expires_at: "tomorrow" })).toBe('its expires_at: expected an RFC 3339 time, got "tomorrow"');
+    expect(said([base])).toBe("the operation: expected an object, got an array");
   });
 
   it("reads Poppy-Operation as an RFC 9651 Dictionary with sid and ref Strings, and ignores any other field (0.4 Ops 4)", () => {

@@ -10,7 +10,7 @@
  * Company's address isn't made clickable in someone else's issue.
  */
 import { show } from "../diagnostic.ts";
-import { pieces } from "../rich-text.ts";
+import { codeSpan, markdownText as text, markdownWords as words } from "../rich-text.ts";
 import type { DocumentResult, Report } from "./validate.ts";
 import type { Message } from "./primitives.ts";
 
@@ -23,34 +23,6 @@ const DOCUMENT_NAMES: Readonly<Record<DocumentResult["kind"], string>> = {
 };
 
 const SEVERITY_NAMES = { error: "Error", warning: "Warning", info: "Info" } as const;
-
-/**
- * Text as Markdown that renders as itself: emphasis, code, link, table and
- * HTML punctuation escaped anywhere, and a heading, list or quote marker
- * escaped where it would start a line. Parentheses need none once square
- * brackets are escaped.
- */
-function words(text: string): string {
-  return text
-    .replace(/[\\`*_[\]<>|~]/g, (char) => `\\${char}`)
-    .replace(/\n+/g, " ")
-    .replace(/^(\s*)([#+\->=]|\d+[.)])/, (_, space: string, marker: string) => `${space}\\${marker}`);
-}
-
-/** A value as a code span, fenced with more backticks than it holds, so it can't close early. */
-export function codeSpan(value: string): string {
-  const run = Math.max(0, ...[...value.matchAll(/`+/g)].map((match) => match[0].length));
-  const fence = "`".repeat(run + 1);
-  const pad = value.startsWith("`") || value.endsWith("`") || run > 0 ? " " : "";
-  return `${fence}${pad}${value.replace(/\n+/g, " ")}${pad}${fence}`;
-}
-
-/** Shown text: its words escaped, each URL in it a code span. */
-function text(value: string): string {
-  return pieces(value)
-    .map((piece) => (piece.kind === "url" ? codeSpan(piece.url) : words(piece.text)))
-    .join("");
-}
 
 function headline(report: Report): string {
   const { error, warning, info } = report.counts;

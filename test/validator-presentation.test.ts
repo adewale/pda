@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { pieces, shortSegment, urlParts } from "../src/rich-text";
+import { codeSpan, markdownText, pieces, shortSegment, urlParts } from "../src/rich-text";
 import { handleValidator, type ValidatorHttpOptions } from "../src/validator/http";
 import { resultPage } from "../src/validator/html";
-import { codeSpan, reportMarkdown } from "../src/validator/markdown";
+import { reportMarkdown } from "../src/validator/markdown";
 import { validateCompany, validateText } from "../src/validator/index";
 import { named } from "./named-fetcher.ts";
 
@@ -105,6 +105,11 @@ describe("the report as Markdown", () => {
     expect(markdown).toContain('  - Got: "\\*\\[x\\](`https://evil.example`)\\*"');
     // Outside code spans, where Markdown parses, no link syntax survives.
     expect(markdown.replace(/`[^`\n]*`/g, "")).not.toMatch(/(^|[^\\])\[x\]\(/m);
+  });
+
+  it("sets each name GitHub would link even bare, a www. name or an email address, as code", () => {
+    expect(markdownText("Ask www.evil.example, or write to help@evil.example.")).toBe("Ask `www.evil.example`, or write to `help@evil.example`.");
+    expect(markdownText("see https://a.example/x and *www.b.example*")).toBe("see `https://a.example/x` and \\*`www.b.example`\\*");
   });
 
   it("fences a code span with more backticks than its value holds", () => {
