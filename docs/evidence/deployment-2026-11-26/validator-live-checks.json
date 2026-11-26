@@ -1,0 +1,3765 @@
+{
+  "checkedAt": "2026-11-26T09:15Z (first eleven URLs); ecosystem hosts as each entry's checkedAt",
+  "endpoint": "https://poppydemoagent.dev/validator/api?url=",
+  "deployedCommit": "64a04aba8dd113e3ee8be538cefec34ec4b9ad74",
+  "workerVersion": "a46f82b9-5b50-4a9c-9850-657d13a92383",
+  "results": {
+    "www.turkishairlines.com": {
+      "httpStatus": 200,
+      "seconds": 0.1,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://www.turkishairlines.com/.well-known/poppy.json",
+            "finalUrl": "https://www.turkishairlines.com/.well-known/poppy.json",
+            "status": 520,
+            "contentType": "text/plain; charset=UTF-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "poppy",
+            "pointer": "",
+            "text": "Fetching https://www.turkishairlines.com/.well-known/poppy.json failed: the server dropped the connection or sent a response that couldn't be read. HTTP 520 is Cloudflare's code for that, not a status the server sent. Sites that block automated clients or cloud addresses often do this, and agents' fetches are both.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": [],
+        "maxAgeSeconds": null
+      }
+    },
+    "expired.badssl.com": {
+      "httpStatus": 200,
+      "seconds": 0.5,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://expired.badssl.com/.well-known/poppy.json",
+            "finalUrl": "https://expired.badssl.com/.well-known/poppy.json",
+            "status": 526,
+            "contentType": "text/plain; charset=UTF-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "poppy",
+            "pointer": "",
+            "text": "Fetching https://expired.badssl.com/.well-known/poppy.json failed: the server presented a certificate that couldn't be verified. HTTP 526 is Cloudflare's code for that, not a status the server sent.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": [],
+        "maxAgeSeconds": null
+      }
+    },
+    "localtest.me": {
+      "httpStatus": 200,
+      "seconds": 0.1,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://localtest.me/.well-known/poppy.json",
+            "finalUrl": "https://localtest.me/.well-known/poppy.json",
+            "status": 530,
+            "contentType": "text/plain; charset=UTF-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "poppy",
+            "pointer": "",
+            "text": "Fetching https://localtest.me/.well-known/poppy.json failed: the server couldn't be resolved or reached (from a Cloudflare Worker, a name that resolves to a private address gets 530 too). HTTP 530 is Cloudflare's code for that, not a status the server sent.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": [],
+        "maxAgeSeconds": null
+      }
+    },
+    "https://httpbin.org/status/999": {
+      "httpStatus": 200,
+      "seconds": 0.4,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "client-metadata",
+            "url": "https://httpbin.org/status/999",
+            "finalUrl": "https://httpbin.org/status/999",
+            "status": 999,
+            "contentType": "text/html; charset=utf-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "client-metadata",
+            "pointer": "",
+            "text": "Fetching https://httpbin.org/status/999 failed: the server answered with HTTP status 999, which isn't a valid status.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": []
+      }
+    },
+    "https://httpbin.org/status/429": {
+      "httpStatus": 200,
+      "seconds": 0.4,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "client-metadata",
+            "url": "https://httpbin.org/status/429",
+            "finalUrl": "https://httpbin.org/status/429",
+            "status": 429,
+            "contentType": "text/html; charset=utf-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "client-metadata",
+            "pointer": "",
+            "text": "Fetching https://httpbin.org/status/429 failed: the server is limiting how often it's asked (HTTP 429). Try again later.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": []
+      }
+    },
+    "https://example.com:9443/x.json": {
+      "httpStatus": 200,
+      "seconds": 0.6,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "client-metadata",
+            "url": "https://example.com:9443/x.json",
+            "finalUrl": "https://example.com:9443/x.json",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "client-metadata",
+            "pointer": "",
+            "text": "Fetching https://example.com:9443/x.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096 and 8443), so it wasn't fetched.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": []
+      }
+    },
+    "https://example.com:8443/x.json": {
+      "httpStatus": 200,
+      "seconds": 10.1,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "client-metadata",
+            "url": "https://example.com:8443/x.json",
+            "finalUrl": "https://example.com:8443/x.json",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-failed",
+            "basis": "Guides",
+            "severity": "warning",
+            "refuses": true,
+            "document": "client-metadata",
+            "pointer": "",
+            "text": "Fetching https://example.com:8443/x.json timed out after 10 seconds.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/1.0/guides#both-fetching"
+            }
+          }
+        ],
+        "skipped": []
+      }
+    },
+    "https://httpbin.org/html": {
+      "httpStatus": 200,
+      "seconds": 0.6,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "indeterminate",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "client-metadata",
+            "url": "https://httpbin.org/html",
+            "finalUrl": "https://httpbin.org/html",
+            "status": 200,
+            "contentType": "text/html; charset=utf-8",
+            "maxAgeSeconds": null
+          }
+        ],
+        "counts": {
+          "error": 1,
+          "warning": 0,
+          "info": 0
+        },
+        "refused": true,
+        "messages": [
+          {
+            "id": "http-web-page",
+            "basis": "MUST",
+            "severity": "error",
+            "refuses": true,
+            "document": "client-metadata",
+            "pointer": "",
+            "text": "https://httpbin.org/html: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html).",
+            "expected": "HTTP 200 with a JSON document",
+            "got": "a web page (HTTP 200, text/html)",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/1.0/spec#discovery"
+            }
+          }
+        ],
+        "skipped": []
+      }
+    },
+    "sandbox.printwithpoppy.com": {
+      "httpStatus": 200,
+      "seconds": 1.3,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "Draft 0.4",
+        "protocolVersion": "0.4",
+        "specificationRevision": "2026-11-11",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+            "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "protocol_version": "0.4",
+              "organization": {
+                "name": "Print with Poppy \u2014 Agent Sandbox",
+                "domain": "sandbox.printwithpoppy.com"
+              },
+              "auth": {
+                "issuer": "https://sandbox.printwithpoppy.com",
+                "scopes": {
+                  "orders:read": "See your Print with Poppy account email, order history, order status and delivery details. Read-only.",
+                  "orders:write": "Save new orders to your account and propose reorders of past orders. Each purchase still needs your explicit approval and card payment; approving an order creates a checkout that can't be undone. Doesn't include reading order history (orders:read).",
+                  "addresses": "See, save, change and delete the shipping addresses saved to your account, and ship an order to one of them."
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "addresses": {
+                    "changes": "reversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://sandbox.printwithpoppy.com/openapi.json",
+                  "description": "AGENT SANDBOX: real Poppy sessions and approval flow; simulated payments, fulfillment and shipping. No card or physical prints. Order emails may be delivered to the order email address; all other emails are captured only. Use fictional shipping details, sample images and your own email address. This is separate from the /demo visual walkthrough."
+                }
+              ],
+              "extensions": {
+                "operations": [
+                  {
+                    "version": "3"
+                  }
+                ],
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "email",
+                        "label": "Email",
+                        "secret": false
+                      }
+                    ],
+                    "scopes": [
+                      "orders:read",
+                      "orders:write"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "resource": "https://sandbox.printwithpoppy.com",
+              "authorization_servers": [
+                "https://sandbox.printwithpoppy.com"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ],
+              "resource_name": "Print with Poppy"
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "issuer": "https://sandbox.printwithpoppy.com",
+              "token_endpoint": "https://sandbox.printwithpoppy.com/oauth/token",
+              "revocation_endpoint": "https://sandbox.printwithpoppy.com/oauth/revoke",
+              "authorization_endpoint": "https://sandbox.printwithpoppy.com/oauth/authorize",
+              "response_types_supported": [
+                "code"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "device_authorization_endpoint": "https://sandbox.printwithpoppy.com/oauth/device",
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "urn:ietf:params:oauth:grant-type:device_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses"
+              ],
+              "protected_resources": [
+                "https://sandbox.printwithpoppy.com"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384",
+                "RS256",
+                "EdDSA"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "revocation_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384",
+                "RS256",
+                "EdDSA"
+              ],
+              "client_id_metadata_document_supported": true
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 3
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "poppy",
+            "pointer": "",
+            "text": "https://sandbox.printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          },
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "protected-resource",
+            "pointer": "",
+            "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          },
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "",
+            "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "0.4",
+          "organization": {
+            "name": "Print with Poppy \u2014 Agent Sandbox",
+            "domain": "sandbox.printwithpoppy.com"
+          },
+          "auth": {
+            "issuer": "https://sandbox.printwithpoppy.com",
+            "scopes": {
+              "orders:read": "See your Print with Poppy account email, order history, order status and delivery details. Read-only.",
+              "orders:write": "Save new orders to your account and propose reorders of past orders. Each purchase still needs your explicit approval and card payment; approving an order creates a checkout that can't be undone. Doesn't include reading order history (orders:read).",
+              "addresses": "See, save, change and delete the shipping addresses saved to your account, and ship an order to one of them."
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "addresses": {
+                "changes": "reversible",
+                "personal_data": true
+              }
+            }
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://sandbox.printwithpoppy.com/openapi.json",
+              "description": "AGENT SANDBOX: real Poppy sessions and approval flow; simulated payments, fulfillment and shipping. No card or physical prints. Order emails may be delivered to the order email address; all other emails are captured only. Use fictional shipping details, sample images and your own email address. This is separate from the /demo visual walkthrough."
+            }
+          ],
+          "extensions": {
+            "operations": [
+              {
+                "version": "3"
+              }
+            ],
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "email",
+                    "label": "Email",
+                    "secret": false
+                  }
+                ],
+                "scopes": [
+                  "orders:read",
+                  "orders:write"
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://sandbox.printwithpoppy.com",
+          "token_endpoint": "https://sandbox.printwithpoppy.com/oauth/token",
+          "revocation_endpoint": "https://sandbox.printwithpoppy.com/oauth/revoke",
+          "authorization_endpoint": "https://sandbox.printwithpoppy.com/oauth/authorize",
+          "response_types_supported": [
+            "code"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "device_authorization_endpoint": "https://sandbox.printwithpoppy.com/oauth/device",
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses"
+          ],
+          "protected_resources": [
+            "https://sandbox.printwithpoppy.com"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384",
+            "RS256",
+            "EdDSA"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "revocation_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384",
+            "RS256",
+            "EdDSA"
+          ],
+          "client_id_metadata_document_supported": true
+        },
+        "protectedResource": {
+          "resource": "https://sandbox.printwithpoppy.com",
+          "authorization_servers": [
+            "https://sandbox.printwithpoppy.com"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Print with Poppy"
+        },
+        "issuer": "https://sandbox.printwithpoppy.com",
+        "identifier": "https://sandbox.printwithpoppy.com",
+        "maxAgeSeconds": null
+      }
+    },
+    "printwithpoppy.com": {
+      "httpStatus": 200,
+      "seconds": 1.0,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "Draft 0.4",
+        "protocolVersion": "0.4",
+        "specificationRevision": "2026-11-11",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://printwithpoppy.com/.well-known/poppy.json",
+            "finalUrl": "https://printwithpoppy.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "protocol_version": "0.4",
+              "organization": {
+                "name": "Print with Poppy",
+                "domain": "printwithpoppy.com"
+              },
+              "auth": {
+                "issuer": "https://printwithpoppy.com",
+                "scopes": {
+                  "orders:read": "See your Print with Poppy account email, order history, order status and delivery details. Read-only.",
+                  "orders:write": "Save new orders to your account and propose reorders of past orders. Each purchase still needs your explicit approval and card payment; approving an order creates a checkout that can't be undone. Doesn't include reading order history (orders:read).",
+                  "addresses": "See, save, change and delete the shipping addresses saved to your account, and ship an order to one of them."
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "addresses": {
+                    "changes": "reversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://printwithpoppy.com/openapi.json",
+                  "description": "Live store: browse the catalog, upload photos, approve home-delivered prints, pay by card and track orders. Agents without native Poppy support should read /api/compat/instructions for the separate HTTP compatibility API; no private signing key is required."
+                }
+              ],
+              "extensions": {
+                "operations": [
+                  {
+                    "version": "3"
+                  }
+                ],
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "email",
+                        "label": "Email",
+                        "secret": false
+                      }
+                    ],
+                    "scopes": [
+                      "orders:read",
+                      "orders:write"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://printwithpoppy.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://printwithpoppy.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "resource": "https://printwithpoppy.com",
+              "authorization_servers": [
+                "https://printwithpoppy.com"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ],
+              "resource_name": "Print with Poppy"
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "issuer": "https://printwithpoppy.com",
+              "token_endpoint": "https://printwithpoppy.com/oauth/token",
+              "revocation_endpoint": "https://printwithpoppy.com/oauth/revoke",
+              "authorization_endpoint": "https://printwithpoppy.com/oauth/authorize",
+              "response_types_supported": [
+                "code"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "device_authorization_endpoint": "https://printwithpoppy.com/oauth/device",
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "urn:ietf:params:oauth:grant-type:device_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses"
+              ],
+              "protected_resources": [
+                "https://printwithpoppy.com"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384",
+                "RS256",
+                "EdDSA"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "revocation_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384",
+                "RS256",
+                "EdDSA"
+              ],
+              "client_id_metadata_document_supported": true
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 3
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "poppy",
+            "pointer": "",
+            "text": "https://printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          },
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "protected-resource",
+            "pointer": "",
+            "text": "https://printwithpoppy.com/.well-known/oauth-protected-resource sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          },
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "",
+            "text": "https://printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/0.4/spec#discovery"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "0.4",
+          "organization": {
+            "name": "Print with Poppy",
+            "domain": "printwithpoppy.com"
+          },
+          "auth": {
+            "issuer": "https://printwithpoppy.com",
+            "scopes": {
+              "orders:read": "See your Print with Poppy account email, order history, order status and delivery details. Read-only.",
+              "orders:write": "Save new orders to your account and propose reorders of past orders. Each purchase still needs your explicit approval and card payment; approving an order creates a checkout that can't be undone. Doesn't include reading order history (orders:read).",
+              "addresses": "See, save, change and delete the shipping addresses saved to your account, and ship an order to one of them."
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "addresses": {
+                "changes": "reversible",
+                "personal_data": true
+              }
+            }
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://printwithpoppy.com/openapi.json",
+              "description": "Live store: browse the catalog, upload photos, approve home-delivered prints, pay by card and track orders. Agents without native Poppy support should read /api/compat/instructions for the separate HTTP compatibility API; no private signing key is required."
+            }
+          ],
+          "extensions": {
+            "operations": [
+              {
+                "version": "3"
+              }
+            ],
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "email",
+                    "label": "Email",
+                    "secret": false
+                  }
+                ],
+                "scopes": [
+                  "orders:read",
+                  "orders:write"
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://printwithpoppy.com",
+          "token_endpoint": "https://printwithpoppy.com/oauth/token",
+          "revocation_endpoint": "https://printwithpoppy.com/oauth/revoke",
+          "authorization_endpoint": "https://printwithpoppy.com/oauth/authorize",
+          "response_types_supported": [
+            "code"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "device_authorization_endpoint": "https://printwithpoppy.com/oauth/device",
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses"
+          ],
+          "protected_resources": [
+            "https://printwithpoppy.com"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384",
+            "RS256",
+            "EdDSA"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "revocation_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384",
+            "RS256",
+            "EdDSA"
+          ],
+          "client_id_metadata_document_supported": true
+        },
+        "protectedResource": {
+          "resource": "https://printwithpoppy.com",
+          "authorization_servers": [
+            "https://printwithpoppy.com"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_name": "Print with Poppy"
+        },
+        "issuer": "https://printwithpoppy.com",
+        "identifier": "https://printwithpoppy.com",
+        "maxAgeSeconds": null
+      }
+    },
+    "northbound.camp": {
+      "httpStatus": 200,
+      "seconds": 0.7,
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "Draft 0.4",
+        "protocolVersion": "0.4",
+        "specificationRevision": "2026-11-11",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://northbound.camp/.well-known/poppy.json",
+            "finalUrl": "https://northbound.camp/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "0.4",
+              "organization": {
+                "name": "Northbound",
+                "domain": "northbound.camp"
+              },
+              "auth": {
+                "issuer": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+                "scopes": {
+                  "orders:read": "See your orders and what you have in your cart",
+                  "orders:write": "Place an order with your saved address and card"
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "web": {},
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://northbound.camp/api/agent/v1/openapi.json",
+                  "description": "Browse the catalog, build the cart, and place and track orders"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://northbound.camp/.well-known/oauth-protected-resource",
+            "finalUrl": "https://northbound.camp/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "resource": "https://northbound.camp",
+              "resource_name": "Northbound",
+              "authorization_servers": [
+                "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write"
+              ],
+              "authorization_details_types_supported": [
+                "purchase"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://auth.northbound.camp/.well-known/oauth-authorization-server/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+            "finalUrl": "https://auth.northbound.camp/.well-known/oauth-authorization-server/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 0,
+            "value": {
+              "issuer": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+              "jwks_uri": "https://auth.northbound.camp/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/.well-known/jwks.json",
+              "authorization_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/authorize",
+              "response_types_supported": [
+                "code"
+              ],
+              "subject_types_supported": [
+                "public"
+              ],
+              "id_token_signing_alg_values_supported": [
+                "RS256",
+                "PS256"
+              ],
+              "token_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/token",
+              "userinfo_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/userinfo",
+              "scopes_supported": [
+                "openid",
+                "profile",
+                "email",
+                "phone",
+                "offline_access"
+              ],
+              "claims_supported": [
+                "iss",
+                "aud",
+                "iat",
+                "exp",
+                "sub",
+                "name",
+                "email",
+                "email_verified",
+                "phone_number",
+                "phone_number_verified",
+                "picture",
+                "family_name",
+                "given_name"
+              ],
+              "revocation_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/revoke",
+              "token_endpoint_auth_methods_supported": [
+                "none",
+                "client_secret_basic",
+                "client_secret_post",
+                "private_key_jwt"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "device_authorization_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/device",
+              "client_id_metadata_document_supported": true,
+              "backchannel_token_delivery_modes_supported": [
+                "poll"
+              ],
+              "backchannel_authentication_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/bc-authorize",
+              "dpop_signing_alg_values_supported": [
+                "RS256",
+                "RS384",
+                "RS512",
+                "PS256",
+                "PS384",
+                "PS512",
+                "ES256",
+                "ES384",
+                "ES512",
+                "EdDSA"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+                "urn:ietf:params:oauth:grant-type:device_code",
+                "urn:openid:params:grant-type:ciba",
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:token-exchange"
+              ],
+              "authorization_grant_profiles_supported": [
+                "urn:ietf:params:oauth:grant-profile:id-jag"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "RS256",
+                "RS384",
+                "RS512",
+                "PS256",
+                "PS384",
+                "PS512",
+                "ES256",
+                "ES384",
+                "ES512",
+                "EdDSA"
+              ],
+              "protected_resources": [
+                "https://northbound.camp"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 2
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "http-cache-bounded",
+            "basis": "Guides",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "",
+            "text": "https://auth.northbound.camp/.well-known/oauth-authorization-server/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n may be cached for 0 seconds; agents typically clamp that to between 60 and 86400.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/0.4/guides#both-fetching"
+            }
+          },
+          {
+            "id": "metadata-iss-parameter",
+            "basis": "Rule",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "/authorization_response_iss_parameter_supported",
+            "line": 1,
+            "column": 1,
+            "text": "authorization_response_iss_parameter_supported isn't true.",
+            "ref": {
+              "label": "RFC 9207 \u00a73",
+              "url": "https://www.rfc-editor.org/rfc/rfc9207#section-3"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "0.4",
+          "organization": {
+            "name": "Northbound",
+            "domain": "northbound.camp"
+          },
+          "auth": {
+            "issuer": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+            "scopes": {
+              "orders:read": "See your orders and what you have in your cart",
+              "orders:write": "Place an order with your saved address and card"
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              }
+            }
+          },
+          "web": {},
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://northbound.camp/api/agent/v1/openapi.json",
+              "description": "Browse the catalog, build the cart, and place and track orders"
+            }
+          ]
+        },
+        "metadata": {
+          "issuer": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+          "jwks_uri": "https://auth.northbound.camp/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/.well-known/jwks.json",
+          "authorization_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/authorize",
+          "response_types_supported": [
+            "code"
+          ],
+          "subject_types_supported": [
+            "public"
+          ],
+          "id_token_signing_alg_values_supported": [
+            "RS256",
+            "PS256"
+          ],
+          "token_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/token",
+          "userinfo_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/userinfo",
+          "scopes_supported": [
+            "openid",
+            "profile",
+            "email",
+            "phone",
+            "offline_access"
+          ],
+          "claims_supported": [
+            "iss",
+            "aud",
+            "iat",
+            "exp",
+            "sub",
+            "name",
+            "email",
+            "email_verified",
+            "phone_number",
+            "phone_number_verified",
+            "picture",
+            "family_name",
+            "given_name"
+          ],
+          "revocation_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/revoke",
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_basic",
+            "client_secret_post",
+            "private_key_jwt"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "device_authorization_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/device",
+          "client_id_metadata_document_supported": true,
+          "backchannel_token_delivery_modes_supported": [
+            "poll"
+          ],
+          "backchannel_authentication_endpoint": "https://auth.northbound.camp/oauth2/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n/bc-authorize",
+          "dpop_signing_alg_values_supported": [
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "EdDSA"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "urn:openid:params:grant-type:ciba",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "urn:ietf:params:oauth:grant-type:token-exchange"
+          ],
+          "authorization_grant_profiles_supported": [
+            "urn:ietf:params:oauth:grant-profile:id-jag"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "EdDSA"
+          ],
+          "protected_resources": [
+            "https://northbound.camp"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://northbound.camp",
+          "resource_name": "Northbound",
+          "authorization_servers": [
+            "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write"
+          ],
+          "authorization_details_types_supported": [
+            "purchase"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ]
+        },
+        "issuer": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+        "identifier": "https://auth.northbound.camp/v1/apps/P3KIVAYZeIyGHpSWnEZhIrGvEz5n",
+        "maxAgeSeconds": 0
+      }
+    },
+    "www.cliffside-retail.com": {
+      "httpStatus": 200,
+      "seconds": 0.6,
+      "checkedAt": "2026-11-26T09:21:51+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://www.cliffside-retail.com/.well-known/poppy.json",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "1.0",
+              "organization": {
+                "name": "Cliffside Retail",
+                "domain": "www.cliffside-retail.com"
+              },
+              "auth": {
+                "issuer": "https://www.cliffside-retail.com",
+                "scopes": {
+                  "orders:read": "See your orders, rewards points, warranty claims, and saved sizes. Needed to check an order or rewards, dispute a charge, or make a warranty claim. Not needed for gear lists, but it marks gear you already own",
+                  "orders:write": "Make changes to your orders, like a warranty replacement or refund. Needed for any change to an order",
+                  "addresses": "See and change your saved shipping addresses. Needed to change where an order ships",
+                  "poppy:browser-sign-in": "Use the website signed in, with the other access you approve. Needed for signed-in pages, like your saved sizes. Public pages work without it"
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "addresses": {
+                    "changes": "reversible",
+                    "personal_data": true
+                  },
+                  "poppy:browser-sign-in": {
+                    "changes": "none",
+                    "personal_data": true
+                  }
+                }
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://www.cliffside-retail.com/poppy/conversations",
+                    "description": "Return policy, orders, warranty claims, and changing your shipping address"
+                  }
+                ]
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://www.cliffside-retail.com/openapi.json",
+                  "description": "Inventory, rewards points, and who the session belongs to"
+                },
+                {
+                  "type": "mcp",
+                  "url": "https://www.cliffside-retail.com/mcp",
+                  "description": "Plans what gear to pack for a hike, by the weather"
+                }
+              ],
+              "web": {
+                "browser_session_endpoint": "https://www.cliffside-retail.com/poppy/browser-session"
+              },
+              "extensions": {
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "phone",
+                        "label": "Phone number",
+                        "secret": false
+                      }
+                    ],
+                    "scopes": [
+                      "orders:read",
+                      "orders:write",
+                      "addresses",
+                      "poppy:browser-sign-in"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "resource": "https://www.cliffside-retail.com",
+              "authorization_servers": [
+                "https://www.cliffside-retail.com"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "issuer": "https://www.cliffside-retail.com",
+              "authorization_endpoint": "https://www.cliffside-retail.com/oauth/authorize",
+              "token_endpoint": "https://www.cliffside-retail.com/oauth/token",
+              "revocation_endpoint": "https://www.cliffside-retail.com/oauth/revoke",
+              "protected_resources": [
+                "https://www.cliffside-retail.com",
+                "https://www.cliffside-retail.com/mcp"
+              ],
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses",
+                "poppy:browser-sign-in"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        },
+        "refused": false,
+        "messages": [],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "organization": {
+            "name": "Cliffside Retail",
+            "domain": "www.cliffside-retail.com"
+          },
+          "auth": {
+            "issuer": "https://www.cliffside-retail.com",
+            "scopes": {
+              "orders:read": "See your orders, rewards points, warranty claims, and saved sizes. Needed to check an order or rewards, dispute a charge, or make a warranty claim. Not needed for gear lists, but it marks gear you already own",
+              "orders:write": "Make changes to your orders, like a warranty replacement or refund. Needed for any change to an order",
+              "addresses": "See and change your saved shipping addresses. Needed to change where an order ships",
+              "poppy:browser-sign-in": "Use the website signed in, with the other access you approve. Needed for signed-in pages, like your saved sizes. Public pages work without it"
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "addresses": {
+                "changes": "reversible",
+                "personal_data": true
+              },
+              "poppy:browser-sign-in": {
+                "changes": "none",
+                "personal_data": true
+              }
+            }
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://www.cliffside-retail.com/poppy/conversations",
+                "description": "Return policy, orders, warranty claims, and changing your shipping address"
+              }
+            ]
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://www.cliffside-retail.com/openapi.json",
+              "description": "Inventory, rewards points, and who the session belongs to"
+            },
+            {
+              "type": "mcp",
+              "url": "https://www.cliffside-retail.com/mcp",
+              "description": "Plans what gear to pack for a hike, by the weather"
+            }
+          ],
+          "web": {
+            "browser_session_endpoint": "https://www.cliffside-retail.com/poppy/browser-session"
+          },
+          "extensions": {
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "phone",
+                    "label": "Phone number",
+                    "secret": false
+                  }
+                ],
+                "scopes": [
+                  "orders:read",
+                  "orders:write",
+                  "addresses",
+                  "poppy:browser-sign-in"
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://www.cliffside-retail.com",
+          "authorization_endpoint": "https://www.cliffside-retail.com/oauth/authorize",
+          "token_endpoint": "https://www.cliffside-retail.com/oauth/token",
+          "revocation_endpoint": "https://www.cliffside-retail.com/oauth/revoke",
+          "protected_resources": [
+            "https://www.cliffside-retail.com",
+            "https://www.cliffside-retail.com/mcp"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses",
+            "poppy:browser-sign-in"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://www.cliffside-retail.com",
+          "authorization_servers": [
+            "https://www.cliffside-retail.com"
+          ]
+        },
+        "issuer": "https://www.cliffside-retail.com",
+        "identifier": "https://www.cliffside-retail.com",
+        "maxAgeSeconds": 300
+      }
+    },
+    "www.alpine-retail.com": {
+      "httpStatus": 200,
+      "seconds": 0.5,
+      "checkedAt": "2026-11-26T09:21:52+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://www.alpine-retail.com/.well-known/poppy.json",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "1.0",
+              "organization": {
+                "name": "Cliffside Retail",
+                "domain": "www.cliffside-retail.com"
+              },
+              "auth": {
+                "issuer": "https://www.cliffside-retail.com",
+                "scopes": {
+                  "orders:read": "See your orders, rewards points, warranty claims, and saved sizes. Needed to check an order or rewards, dispute a charge, or make a warranty claim. Not needed for gear lists, but it marks gear you already own",
+                  "orders:write": "Make changes to your orders, like a warranty replacement or refund. Needed for any change to an order",
+                  "addresses": "See and change your saved shipping addresses. Needed to change where an order ships",
+                  "poppy:browser-sign-in": "Use the website signed in, with the other access you approve. Needed for signed-in pages, like your saved sizes. Public pages work without it"
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "addresses": {
+                    "changes": "reversible",
+                    "personal_data": true
+                  },
+                  "poppy:browser-sign-in": {
+                    "changes": "none",
+                    "personal_data": true
+                  }
+                }
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://www.cliffside-retail.com/poppy/conversations",
+                    "description": "Return policy, orders, warranty claims, and changing your shipping address"
+                  }
+                ]
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://www.cliffside-retail.com/openapi.json",
+                  "description": "Inventory, rewards points, and who the session belongs to"
+                },
+                {
+                  "type": "mcp",
+                  "url": "https://www.cliffside-retail.com/mcp",
+                  "description": "Plans what gear to pack for a hike, by the weather"
+                }
+              ],
+              "web": {
+                "browser_session_endpoint": "https://www.cliffside-retail.com/poppy/browser-session"
+              },
+              "extensions": {
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "phone",
+                        "label": "Phone number",
+                        "secret": false
+                      }
+                    ],
+                    "scopes": [
+                      "orders:read",
+                      "orders:write",
+                      "addresses",
+                      "poppy:browser-sign-in"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "resource": "https://www.cliffside-retail.com",
+              "authorization_servers": [
+                "https://www.cliffside-retail.com"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "issuer": "https://www.cliffside-retail.com",
+              "authorization_endpoint": "https://www.cliffside-retail.com/oauth/authorize",
+              "token_endpoint": "https://www.cliffside-retail.com/oauth/token",
+              "revocation_endpoint": "https://www.cliffside-retail.com/oauth/revoke",
+              "protected_resources": [
+                "https://www.cliffside-retail.com",
+                "https://www.cliffside-retail.com/mcp"
+              ],
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "addresses",
+                "poppy:browser-sign-in"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        },
+        "refused": false,
+        "messages": [],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "organization": {
+            "name": "Cliffside Retail",
+            "domain": "www.cliffside-retail.com"
+          },
+          "auth": {
+            "issuer": "https://www.cliffside-retail.com",
+            "scopes": {
+              "orders:read": "See your orders, rewards points, warranty claims, and saved sizes. Needed to check an order or rewards, dispute a charge, or make a warranty claim. Not needed for gear lists, but it marks gear you already own",
+              "orders:write": "Make changes to your orders, like a warranty replacement or refund. Needed for any change to an order",
+              "addresses": "See and change your saved shipping addresses. Needed to change where an order ships",
+              "poppy:browser-sign-in": "Use the website signed in, with the other access you approve. Needed for signed-in pages, like your saved sizes. Public pages work without it"
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "addresses": {
+                "changes": "reversible",
+                "personal_data": true
+              },
+              "poppy:browser-sign-in": {
+                "changes": "none",
+                "personal_data": true
+              }
+            }
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://www.cliffside-retail.com/poppy/conversations",
+                "description": "Return policy, orders, warranty claims, and changing your shipping address"
+              }
+            ]
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://www.cliffside-retail.com/openapi.json",
+              "description": "Inventory, rewards points, and who the session belongs to"
+            },
+            {
+              "type": "mcp",
+              "url": "https://www.cliffside-retail.com/mcp",
+              "description": "Plans what gear to pack for a hike, by the weather"
+            }
+          ],
+          "web": {
+            "browser_session_endpoint": "https://www.cliffside-retail.com/poppy/browser-session"
+          },
+          "extensions": {
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "phone",
+                    "label": "Phone number",
+                    "secret": false
+                  }
+                ],
+                "scopes": [
+                  "orders:read",
+                  "orders:write",
+                  "addresses",
+                  "poppy:browser-sign-in"
+                ]
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://www.cliffside-retail.com",
+          "authorization_endpoint": "https://www.cliffside-retail.com/oauth/authorize",
+          "token_endpoint": "https://www.cliffside-retail.com/oauth/token",
+          "revocation_endpoint": "https://www.cliffside-retail.com/oauth/revoke",
+          "protected_resources": [
+            "https://www.cliffside-retail.com",
+            "https://www.cliffside-retail.com/mcp"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "addresses",
+            "poppy:browser-sign-in"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://www.cliffside-retail.com",
+          "authorization_servers": [
+            "https://www.cliffside-retail.com"
+          ]
+        },
+        "issuer": "https://www.cliffside-retail.com",
+        "identifier": "https://www.cliffside-retail.com",
+        "maxAgeSeconds": 300
+      }
+    },
+    "flowers.papsandbox.com": {
+      "httpStatus": 200,
+      "seconds": 0.5,
+      "checkedAt": "2026-11-26T09:21:52+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://flowers.papsandbox.com/.well-known/poppy.json",
+            "finalUrl": "https://flowers.papsandbox.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "1.0",
+              "supported_versions": {
+                "0.4": "https://flowers.papsandbox.com/poppy/0.4.json",
+                "0.3": "https://flowers.papsandbox.com/poppy/0.3.json"
+              },
+              "organization": {
+                "name": "Northlight Flowers",
+                "domain": "flowers.papsandbox.com",
+                "logo_uri": "https://flowers.papsandbox.com/poppy/logo.svg"
+              },
+              "auth": {
+                "issuer": "https://flowers.papsandbox.com",
+                "scopes": {
+                  "orders:read": "See your orders and their deliveries: what you ordered, the delivery date and the card message. Read only.",
+                  "orders:write": "Change an order: move its delivery date, or add, swap or remove items and the card. A change can add items and charge the difference, which can't be undone. You still approve each change. Doesn't include reading your orders.",
+                  "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
+                },
+                "scope_hints": {
+                  "orders:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "orders:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://flowers.papsandbox.com/poppy/conversations",
+                    "description": "Questions about bouquets, delivery dates and your orders, and changes to a booked delivery"
+                  }
+                ]
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://flowers.papsandbox.com/poppy/openapi.json",
+                  "description": "Product search, delivery dates, the customer's orders, and changes to a delivery"
+                },
+                {
+                  "type": "mcp",
+                  "url": "https://flowers.papsandbox.com/poppy/mcp",
+                  "description": "Product search, delivery dates, the customer's orders, and changes to a delivery, as MCP tools"
+                }
+              ],
+              "web": {
+                "browser_session_endpoint": "https://flowers.papsandbox.com/poppy/browser-session"
+              },
+              "extensions": {
+                "operations": [
+                  {
+                    "version": "3"
+                  }
+                ],
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "email",
+                        "label": "Email",
+                        "secret": false
+                      },
+                      {
+                        "name": "password",
+                        "label": "Password",
+                        "secret": true
+                      }
+                    ],
+                    "scopes": [
+                      "orders:read",
+                      "orders:write",
+                      "poppy:browser-sign-in"
+                    ]
+                  }
+                ]
+              },
+              "tasks": {
+                "endpoint": "https://flowers.papsandbox.com/poppy/tasks"
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://flowers.papsandbox.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://flowers.papsandbox.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "resource": "https://flowers.papsandbox.com",
+              "authorization_servers": [
+                "https://flowers.papsandbox.com"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "issuer": "https://flowers.papsandbox.com",
+              "token_endpoint": "https://flowers.papsandbox.com/oauth/token",
+              "revocation_endpoint": "https://flowers.papsandbox.com/oauth/revoke",
+              "authorization_endpoint": "https://flowers.papsandbox.com/oauth/authorize",
+              "device_authorization_endpoint": "https://flowers.papsandbox.com/oauth/device",
+              "protected_resources": [
+                "https://flowers.papsandbox.com",
+                "https://flowers.papsandbox.com/poppy/mcp"
+              ],
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "urn:ietf:params:oauth:grant-type:device_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "dpop_signing_alg_values_supported": [
+                "ES256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "client_id_metadata_document_supported": true,
+              "scopes_supported": [
+                "orders:read",
+                "orders:write",
+                "poppy:browser-sign-in"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        },
+        "refused": false,
+        "messages": [],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "supported_versions": {
+            "0.4": "https://flowers.papsandbox.com/poppy/0.4.json",
+            "0.3": "https://flowers.papsandbox.com/poppy/0.3.json"
+          },
+          "organization": {
+            "name": "Northlight Flowers",
+            "domain": "flowers.papsandbox.com",
+            "logo_uri": "https://flowers.papsandbox.com/poppy/logo.svg"
+          },
+          "auth": {
+            "issuer": "https://flowers.papsandbox.com",
+            "scopes": {
+              "orders:read": "See your orders and their deliveries: what you ordered, the delivery date and the card message. Read only.",
+              "orders:write": "Change an order: move its delivery date, or add, swap or remove items and the card. A change can add items and charge the difference, which can't be undone. You still approve each change. Doesn't include reading your orders.",
+              "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
+            },
+            "scope_hints": {
+              "orders:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "orders:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              }
+            }
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://flowers.papsandbox.com/poppy/conversations",
+                "description": "Questions about bouquets, delivery dates and your orders, and changes to a booked delivery"
+              }
+            ]
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://flowers.papsandbox.com/poppy/openapi.json",
+              "description": "Product search, delivery dates, the customer's orders, and changes to a delivery"
+            },
+            {
+              "type": "mcp",
+              "url": "https://flowers.papsandbox.com/poppy/mcp",
+              "description": "Product search, delivery dates, the customer's orders, and changes to a delivery, as MCP tools"
+            }
+          ],
+          "web": {
+            "browser_session_endpoint": "https://flowers.papsandbox.com/poppy/browser-session"
+          },
+          "extensions": {
+            "operations": [
+              {
+                "version": "3"
+              }
+            ],
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "email",
+                    "label": "Email",
+                    "secret": false
+                  },
+                  {
+                    "name": "password",
+                    "label": "Password",
+                    "secret": true
+                  }
+                ],
+                "scopes": [
+                  "orders:read",
+                  "orders:write",
+                  "poppy:browser-sign-in"
+                ]
+              }
+            ]
+          },
+          "tasks": {
+            "endpoint": "https://flowers.papsandbox.com/poppy/tasks"
+          }
+        },
+        "metadata": {
+          "issuer": "https://flowers.papsandbox.com",
+          "token_endpoint": "https://flowers.papsandbox.com/oauth/token",
+          "revocation_endpoint": "https://flowers.papsandbox.com/oauth/revoke",
+          "authorization_endpoint": "https://flowers.papsandbox.com/oauth/authorize",
+          "device_authorization_endpoint": "https://flowers.papsandbox.com/oauth/device",
+          "protected_resources": [
+            "https://flowers.papsandbox.com",
+            "https://flowers.papsandbox.com/poppy/mcp"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "dpop_signing_alg_values_supported": [
+            "ES256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "client_id_metadata_document_supported": true,
+          "scopes_supported": [
+            "orders:read",
+            "orders:write",
+            "poppy:browser-sign-in"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://flowers.papsandbox.com",
+          "authorization_servers": [
+            "https://flowers.papsandbox.com"
+          ]
+        },
+        "issuer": "https://flowers.papsandbox.com",
+        "identifier": "https://flowers.papsandbox.com",
+        "maxAgeSeconds": 300
+      }
+    },
+    "stays.papsandbox.com": {
+      "httpStatus": 200,
+      "seconds": 0.6,
+      "checkedAt": "2026-11-26T09:21:53+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://stays.papsandbox.com/.well-known/poppy.json",
+            "finalUrl": "https://stays.papsandbox.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "1.0",
+              "supported_versions": {
+                "0.4": "https://stays.papsandbox.com/poppy/0.4.json",
+                "0.3": "https://stays.papsandbox.com/poppy/0.3.json"
+              },
+              "organization": {
+                "name": "Harbour Row Stays",
+                "domain": "stays.papsandbox.com",
+                "logo_uri": "https://stays.papsandbox.com/poppy/logo.svg"
+              },
+              "auth": {
+                "issuer": "https://stays.papsandbox.com",
+                "scopes": {
+                  "bookings:read": "See your bookings: dates, room, rate plan and price. Read only.",
+                  "bookings:write": "Change a booking: new dates, room or rate plan, such as adding breakfast. Moving to a non-refundable rate can't be undone. You still approve each change. Doesn't include reading your bookings.",
+                  "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
+                },
+                "scope_hints": {
+                  "bookings:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "bookings:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://stays.papsandbox.com/poppy/conversations",
+                    "description": "Questions about rooms, rates and your booking, and changes to it"
+                  }
+                ]
+              },
+              "apis": [
+                {
+                  "type": "openapi",
+                  "url": "https://stays.papsandbox.com/poppy/openapi.json",
+                  "description": "Room availability and rates, the guest's bookings, and changes to a booking"
+                },
+                {
+                  "type": "mcp",
+                  "url": "https://stays.papsandbox.com/poppy/mcp",
+                  "description": "Room availability and rates, the guest's bookings, and changes to a booking, as MCP tools"
+                }
+              ],
+              "web": {
+                "browser_session_endpoint": "https://stays.papsandbox.com/poppy/browser-session"
+              },
+              "extensions": {
+                "operations": [
+                  {
+                    "version": "3"
+                  }
+                ],
+                "mediated-sign-in": [
+                  {
+                    "version": "1",
+                    "fields": [
+                      {
+                        "name": "email",
+                        "label": "Email",
+                        "secret": false
+                      },
+                      {
+                        "name": "password",
+                        "label": "Password",
+                        "secret": true
+                      }
+                    ],
+                    "scopes": [
+                      "bookings:read",
+                      "poppy:browser-sign-in"
+                    ]
+                  }
+                ]
+              },
+              "tasks": {
+                "endpoint": "https://stays.papsandbox.com/poppy/tasks"
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://stays.papsandbox.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://stays.papsandbox.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "resource": "https://stays.papsandbox.com",
+              "authorization_servers": [
+                "https://stays.papsandbox.com"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://stays.papsandbox.com/.well-known/oauth-authorization-server",
+            "finalUrl": "https://stays.papsandbox.com/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "issuer": "https://stays.papsandbox.com",
+              "token_endpoint": "https://stays.papsandbox.com/oauth/token",
+              "revocation_endpoint": "https://stays.papsandbox.com/oauth/revoke",
+              "authorization_endpoint": "https://stays.papsandbox.com/oauth/authorize",
+              "device_authorization_endpoint": "https://stays.papsandbox.com/oauth/device",
+              "protected_resources": [
+                "https://stays.papsandbox.com",
+                "https://stays.papsandbox.com/poppy/mcp"
+              ],
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "refresh_token",
+                "authorization_code",
+                "urn:ietf:params:oauth:grant-type:device_code",
+                "https://personalagentprotocol.org/grant/mediated-sign-in"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "dpop_signing_alg_values_supported": [
+                "ES256"
+              ],
+              "authorization_response_iss_parameter_supported": true,
+              "client_id_metadata_document_supported": true,
+              "scopes_supported": [
+                "bookings:read",
+                "bookings:write",
+                "poppy:browser-sign-in"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 0
+        },
+        "refused": false,
+        "messages": [],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "supported_versions": {
+            "0.4": "https://stays.papsandbox.com/poppy/0.4.json",
+            "0.3": "https://stays.papsandbox.com/poppy/0.3.json"
+          },
+          "organization": {
+            "name": "Harbour Row Stays",
+            "domain": "stays.papsandbox.com",
+            "logo_uri": "https://stays.papsandbox.com/poppy/logo.svg"
+          },
+          "auth": {
+            "issuer": "https://stays.papsandbox.com",
+            "scopes": {
+              "bookings:read": "See your bookings: dates, room, rate plan and price. Read only.",
+              "bookings:write": "Change a booking: new dates, room or rate plan, such as adding breakfast. Moving to a non-refundable rate can't be undone. You still approve each change. Doesn't include reading your bookings.",
+              "poppy:browser-sign-in": "Use the website signed in, with the other access you approve"
+            },
+            "scope_hints": {
+              "bookings:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "bookings:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              }
+            }
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://stays.papsandbox.com/poppy/conversations",
+                "description": "Questions about rooms, rates and your booking, and changes to it"
+              }
+            ]
+          },
+          "apis": [
+            {
+              "type": "openapi",
+              "url": "https://stays.papsandbox.com/poppy/openapi.json",
+              "description": "Room availability and rates, the guest's bookings, and changes to a booking"
+            },
+            {
+              "type": "mcp",
+              "url": "https://stays.papsandbox.com/poppy/mcp",
+              "description": "Room availability and rates, the guest's bookings, and changes to a booking, as MCP tools"
+            }
+          ],
+          "web": {
+            "browser_session_endpoint": "https://stays.papsandbox.com/poppy/browser-session"
+          },
+          "extensions": {
+            "operations": [
+              {
+                "version": "3"
+              }
+            ],
+            "mediated-sign-in": [
+              {
+                "version": "1",
+                "fields": [
+                  {
+                    "name": "email",
+                    "label": "Email",
+                    "secret": false
+                  },
+                  {
+                    "name": "password",
+                    "label": "Password",
+                    "secret": true
+                  }
+                ],
+                "scopes": [
+                  "bookings:read",
+                  "poppy:browser-sign-in"
+                ]
+              }
+            ]
+          },
+          "tasks": {
+            "endpoint": "https://stays.papsandbox.com/poppy/tasks"
+          }
+        },
+        "metadata": {
+          "issuer": "https://stays.papsandbox.com",
+          "token_endpoint": "https://stays.papsandbox.com/oauth/token",
+          "revocation_endpoint": "https://stays.papsandbox.com/oauth/revoke",
+          "authorization_endpoint": "https://stays.papsandbox.com/oauth/authorize",
+          "device_authorization_endpoint": "https://stays.papsandbox.com/oauth/device",
+          "protected_resources": [
+            "https://stays.papsandbox.com",
+            "https://stays.papsandbox.com/poppy/mcp"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "refresh_token",
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "https://personalagentprotocol.org/grant/mediated-sign-in"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "dpop_signing_alg_values_supported": [
+            "ES256"
+          ],
+          "authorization_response_iss_parameter_supported": true,
+          "client_id_metadata_document_supported": true,
+          "scopes_supported": [
+            "bookings:read",
+            "bookings:write",
+            "poppy:browser-sign-in"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://stays.papsandbox.com",
+          "authorization_servers": [
+            "https://stays.papsandbox.com"
+          ]
+        },
+        "issuer": "https://stays.papsandbox.com",
+        "identifier": "https://stays.papsandbox.com",
+        "maxAgeSeconds": 300
+      }
+    },
+    "stacktr.ee": {
+      "httpStatus": 200,
+      "seconds": 0.2,
+      "checkedAt": "2026-11-26T09:21:53+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://stacktr.ee/.well-known/poppy.json",
+            "finalUrl": "https://stacktr.ee/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json; charset=utf-8",
+            "maxAgeSeconds": 3600,
+            "value": {
+              "protocol_version": "1.0",
+              "supported_versions": {
+                "0.4": "https://stacktr.ee/.well-known/poppy/0.4.json",
+                "0.3": "https://stacktr.ee/.well-known/poppy/0.3.json"
+              },
+              "organization": {
+                "name": "Stacktree",
+                "domain": "stacktr.ee",
+                "logo_uri": "https://stacktr.ee/favicon.svg"
+              },
+              "auth": {
+                "issuer": "https://api.stacktr.ee",
+                "scopes": {
+                  "sites:read": "See the pages in their Stacktree account: each page's address and settings, whether it has been opened and by whom, and what readers commented. Request it when they ask what they have published, whether someone opened a page, or what feedback came back on it. Not needed to publish, or to check on a page published with no account: that page's claim_token reads whether it has been opened and whether comments are waiting.",
+                  "sites:write": "Publish pages into their Stacktree account, replace what is on a page at the same address, set a passcode, an expiry date and who a page is for, resolve readers' comments, and delete pages. Request it when they want a page kept, changed later from another conversation, or managed with their other pages. Not needed for a one-off page: POST /sites with no sign-in publishes a private link that lasts 24 hours, and its claim_token updates it."
+                },
+                "scope_hints": {
+                  "sites:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "sites:write": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "apis": [
+                {
+                  "type": "mcp",
+                  "url": "https://api.stacktr.ee/mcp",
+                  "description": "Publish a page to a private link that opens with no account, update it in place, see who opened it and what they commented, and get a webhook when it is opened (MCP Events, MCP 2026-07-28)."
+                },
+                {
+                  "type": "openapi",
+                  "url": "https://api.stacktr.ee/openapi.json",
+                  "description": "The same over REST: publish (POST /sites, JSON or a file), update, passcodes, named links, opens (GET /sites/{id}/activity), comments, and webhooks that call you when a page is first opened, a named link is opened or a comment arrives (POST /webhooks), so you can tell your User in any channel."
+                }
+              ],
+              "tasks": {
+                "endpoint": "https://api.stacktr.ee/poppy/tasks"
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://stacktr.ee/.well-known/oauth-protected-resource",
+            "finalUrl": "https://stacktr.ee/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "resource": "https://stacktr.ee",
+              "resource_name": "Stacktree",
+              "authorization_servers": [
+                "https://api.stacktr.ee"
+              ],
+              "scopes_supported": [
+                "sites:write",
+                "sites:read"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ],
+              "resource_documentation": "https://stacktr.ee/docs",
+              "resource_policy_uri": "https://stacktr.ee/privacy",
+              "resource_tos_uri": "https://stacktr.ee/terms"
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+            "finalUrl": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": null,
+            "value": {
+              "issuer": "https://api.stacktr.ee",
+              "authorization_endpoint": "https://api.stacktr.ee/oauth/authorize",
+              "token_endpoint": "https://api.stacktr.ee/oauth/token",
+              "registration_endpoint": "https://api.stacktr.ee/oauth/register",
+              "revocation_endpoint": "https://api.stacktr.ee/oauth/revoke",
+              "device_authorization_endpoint": "https://api.stacktr.ee/oauth/device",
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:device_code"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "none",
+                "client_secret_post",
+                "client_secret_basic"
+              ],
+              "scopes_supported": [
+                "sites:write",
+                "sites:read"
+              ],
+              "resource_indicators_supported": true,
+              "response_modes_supported": [
+                "query"
+              ],
+              "service_documentation": "https://stacktr.ee/docs",
+              "agent_auth": {
+                "skill": "https://stacktr.ee/auth.md",
+                "register_uri": "https://api.stacktr.ee/oauth/register",
+                "identity_types_supported": [
+                  "oauth_client",
+                  "anonymous",
+                  "wallet"
+                ],
+                "credential_types_supported": [
+                  "oauth_access_token",
+                  "api_key",
+                  "wallet_signature",
+                  "claim_token"
+                ],
+                "mcp_endpoint": "https://api.stacktr.ee/mcp",
+                "mcp_credential_types_supported": [
+                  "oauth_access_token",
+                  "api_key"
+                ],
+                "registration_methods": [
+                  {
+                    "type": "oauth_dynamic_client_registration",
+                    "description": "RFC 7591 Dynamic Client Registration. The standard path for MCP connectors (e.g. claude.ai). Register, then run the OAuth 2.1 + PKCE authorization-code flow.",
+                    "register_uri": "https://api.stacktr.ee/oauth/register",
+                    "authorization_uri": "https://api.stacktr.ee/oauth/authorize",
+                    "token_uri": "https://api.stacktr.ee/oauth/token",
+                    "revocation_uri": "https://api.stacktr.ee/oauth/revoke",
+                    "code_challenge_methods_supported": [
+                      "S256"
+                    ],
+                    "scopes_supported": [
+                      "sites:write",
+                      "sites:read"
+                    ]
+                  },
+                  {
+                    "type": "api_key",
+                    "description": "Long-lived API key (stk_live_...) for server-side or CLI agents. Create one in the dashboard and send it as a bearer token. Accepted on every REST route AND on the MCP endpoint at https://api.stacktr.ee/mcp, so an agent with a key needs no browser and no OAuth flow to speak MCP.",
+                    "register_uri": "https://app.stacktr.ee/api-keys",
+                    "credential_format": "Authorization: Bearer stk_live_...",
+                    "mcp_endpoint": "https://api.stacktr.ee/mcp"
+                  },
+                  {
+                    "type": "device_code",
+                    "description": "OAuth 2.0 Device Authorization Grant (RFC 8628), for an agent that has a human to ask but no browser to drive. POST the device-code endpoint (no auth) for { device_code, user_code, verification_url_complete, interval }; print the URL for the human; poll the poll endpoint every \"interval\" seconds until it answers { status: \"authorized\", api_key }. The key is handed over exactly once and belongs to the human's account, on their plan. Codes live 10 minutes; rate limited per IP.",
+                    "device_authorization_uri": "https://api.stacktr.ee/api-keys/device-code",
+                    "token_uri": "https://api.stacktr.ee/api-keys/device-code/poll",
+                    "verification_uri": "https://app.stacktr.ee/connect/cli",
+                    "credential_format": "Authorization: Bearer stk_live_..."
+                  },
+                  {
+                    "type": "anonymous",
+                    "description": "No registration. POST a file to the publish endpoint with no Authorization header to get a private, unguessable URL that lives 24 hours.",
+                    "endpoint": "https://api.stacktr.ee/sites"
+                  },
+                  {
+                    "type": "payment",
+                    "description": "Pay to provision a persistent identity with no human in the loop. The payment is the credential. GET the endpoint for the rail menu (which agentic-commerce protocols are live); POST the payment to receive an stk_live_ API key once. The key carries free-tier limits (3 pages in total, each expiring after 7 days, no email gates; passcodes do work); POST /unlock buys past them. Accepted protocols: x402 (USDC), MPP, ACP (Stripe shared payment token), AP2.",
+                    "endpoint": "https://api.stacktr.ee/provision",
+                    "protocols_supported": [
+                      "x402",
+                      "mpp",
+                      "acp",
+                      "ap2"
+                    ]
+                  },
+                  {
+                    "type": "wallet_signature",
+                    "description": "No registration and no key: the wallet that PAID for a page (x402 pay-per-publish) is its update credential. POST {\"wallet\":\"0x\u2026\"} to the challenge endpoint, personal_sign (EIP-191) the returned message with that wallet, then send \"Authorization: Wallet challenge=\u2026,sig=0x\u2026\" on PUT /sites/{id}. Challenges are single-use, 5-minute TTL. Scope: content updates to pages carrying that payer wallet (adopted pages while the wallet stays account-linked). EVM EOA wallets only.",
+                    "endpoint": "https://api.stacktr.ee/wallet-auth/challenge"
+                  },
+                  {
+                    "type": "claim_token",
+                    "description": "No registration, no key, no wallet: the claim_token returned by an anonymous publish is that page's update credential while the page is unclaimed. Send \"Authorization: Claim <claim_token>\" on PUT /sites/{idOrSlug} with a JSON body {\"html\": \"...\"} (multipart with a \"file\" field also works). Works on every rail, including Solana x402 payers, who cannot use wallet_signature. Scope: replacing the content of that one page, nothing else. It stops working the moment the page is claimed (claiming rotates the token into the account), when the page expires, and for a blocked actor. Rate limited per IP and requires a direct client connection.",
+                    "endpoint": "https://api.stacktr.ee/sites/{idOrSlug}",
+                    "credential_format": "Authorization: Claim <claim_token>"
+                  }
+                ]
+              },
+              "protected_resources": [
+                "https://stacktr.ee",
+                "https://api.stacktr.ee/mcp"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 3
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "protected-resource",
+            "pointer": "",
+            "text": "https://stacktr.ee/.well-known/oauth-protected-resource sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/1.0/spec#discovery"
+            }
+          },
+          {
+            "id": "http-no-cache-headers",
+            "basis": "SHOULD",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "",
+            "text": "https://api.stacktr.ee/.well-known/oauth-authorization-server sends no Cache-Control or Expires.",
+            "ref": {
+              "label": "Spec 3",
+              "url": "https://personalagentprotocol.org/docs/1.0/spec#discovery"
+            }
+          },
+          {
+            "id": "metadata-iss-parameter",
+            "basis": "Rule",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "/authorization_response_iss_parameter_supported",
+            "line": 1,
+            "column": 1,
+            "text": "authorization_response_iss_parameter_supported isn't true.",
+            "ref": {
+              "label": "RFC 9207 \u00a73",
+              "url": "https://www.rfc-editor.org/rfc/rfc9207#section-3"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "supported_versions": {
+            "0.4": "https://stacktr.ee/.well-known/poppy/0.4.json",
+            "0.3": "https://stacktr.ee/.well-known/poppy/0.3.json"
+          },
+          "organization": {
+            "name": "Stacktree",
+            "domain": "stacktr.ee",
+            "logo_uri": "https://stacktr.ee/favicon.svg"
+          },
+          "auth": {
+            "issuer": "https://api.stacktr.ee",
+            "scopes": {
+              "sites:read": "See the pages in their Stacktree account: each page's address and settings, whether it has been opened and by whom, and what readers commented. Request it when they ask what they have published, whether someone opened a page, or what feedback came back on it. Not needed to publish, or to check on a page published with no account: that page's claim_token reads whether it has been opened and whether comments are waiting.",
+              "sites:write": "Publish pages into their Stacktree account, replace what is on a page at the same address, set a passcode, an expiry date and who a page is for, resolve readers' comments, and delete pages. Request it when they want a page kept, changed later from another conversation, or managed with their other pages. Not needed for a one-off page: POST /sites with no sign-in publishes a private link that lasts 24 hours, and its claim_token updates it."
+            },
+            "scope_hints": {
+              "sites:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "sites:write": {
+                "changes": "irreversible",
+                "personal_data": true
+              }
+            }
+          },
+          "apis": [
+            {
+              "type": "mcp",
+              "url": "https://api.stacktr.ee/mcp",
+              "description": "Publish a page to a private link that opens with no account, update it in place, see who opened it and what they commented, and get a webhook when it is opened (MCP Events, MCP 2026-07-28)."
+            },
+            {
+              "type": "openapi",
+              "url": "https://api.stacktr.ee/openapi.json",
+              "description": "The same over REST: publish (POST /sites, JSON or a file), update, passcodes, named links, opens (GET /sites/{id}/activity), comments, and webhooks that call you when a page is first opened, a named link is opened or a comment arrives (POST /webhooks), so you can tell your User in any channel."
+            }
+          ],
+          "tasks": {
+            "endpoint": "https://api.stacktr.ee/poppy/tasks"
+          }
+        },
+        "metadata": {
+          "issuer": "https://api.stacktr.ee",
+          "authorization_endpoint": "https://api.stacktr.ee/oauth/authorize",
+          "token_endpoint": "https://api.stacktr.ee/oauth/token",
+          "registration_endpoint": "https://api.stacktr.ee/oauth/register",
+          "revocation_endpoint": "https://api.stacktr.ee/oauth/revoke",
+          "device_authorization_endpoint": "https://api.stacktr.ee/oauth/device",
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:device_code"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "none",
+            "client_secret_post",
+            "client_secret_basic"
+          ],
+          "scopes_supported": [
+            "sites:write",
+            "sites:read"
+          ],
+          "resource_indicators_supported": true,
+          "response_modes_supported": [
+            "query"
+          ],
+          "service_documentation": "https://stacktr.ee/docs",
+          "agent_auth": {
+            "skill": "https://stacktr.ee/auth.md",
+            "register_uri": "https://api.stacktr.ee/oauth/register",
+            "identity_types_supported": [
+              "oauth_client",
+              "anonymous",
+              "wallet"
+            ],
+            "credential_types_supported": [
+              "oauth_access_token",
+              "api_key",
+              "wallet_signature",
+              "claim_token"
+            ],
+            "mcp_endpoint": "https://api.stacktr.ee/mcp",
+            "mcp_credential_types_supported": [
+              "oauth_access_token",
+              "api_key"
+            ],
+            "registration_methods": [
+              {
+                "type": "oauth_dynamic_client_registration",
+                "description": "RFC 7591 Dynamic Client Registration. The standard path for MCP connectors (e.g. claude.ai). Register, then run the OAuth 2.1 + PKCE authorization-code flow.",
+                "register_uri": "https://api.stacktr.ee/oauth/register",
+                "authorization_uri": "https://api.stacktr.ee/oauth/authorize",
+                "token_uri": "https://api.stacktr.ee/oauth/token",
+                "revocation_uri": "https://api.stacktr.ee/oauth/revoke",
+                "code_challenge_methods_supported": [
+                  "S256"
+                ],
+                "scopes_supported": [
+                  "sites:write",
+                  "sites:read"
+                ]
+              },
+              {
+                "type": "api_key",
+                "description": "Long-lived API key (stk_live_...) for server-side or CLI agents. Create one in the dashboard and send it as a bearer token. Accepted on every REST route AND on the MCP endpoint at https://api.stacktr.ee/mcp, so an agent with a key needs no browser and no OAuth flow to speak MCP.",
+                "register_uri": "https://app.stacktr.ee/api-keys",
+                "credential_format": "Authorization: Bearer stk_live_...",
+                "mcp_endpoint": "https://api.stacktr.ee/mcp"
+              },
+              {
+                "type": "device_code",
+                "description": "OAuth 2.0 Device Authorization Grant (RFC 8628), for an agent that has a human to ask but no browser to drive. POST the device-code endpoint (no auth) for { device_code, user_code, verification_url_complete, interval }; print the URL for the human; poll the poll endpoint every \"interval\" seconds until it answers { status: \"authorized\", api_key }. The key is handed over exactly once and belongs to the human's account, on their plan. Codes live 10 minutes; rate limited per IP.",
+                "device_authorization_uri": "https://api.stacktr.ee/api-keys/device-code",
+                "token_uri": "https://api.stacktr.ee/api-keys/device-code/poll",
+                "verification_uri": "https://app.stacktr.ee/connect/cli",
+                "credential_format": "Authorization: Bearer stk_live_..."
+              },
+              {
+                "type": "anonymous",
+                "description": "No registration. POST a file to the publish endpoint with no Authorization header to get a private, unguessable URL that lives 24 hours.",
+                "endpoint": "https://api.stacktr.ee/sites"
+              },
+              {
+                "type": "payment",
+                "description": "Pay to provision a persistent identity with no human in the loop. The payment is the credential. GET the endpoint for the rail menu (which agentic-commerce protocols are live); POST the payment to receive an stk_live_ API key once. The key carries free-tier limits (3 pages in total, each expiring after 7 days, no email gates; passcodes do work); POST /unlock buys past them. Accepted protocols: x402 (USDC), MPP, ACP (Stripe shared payment token), AP2.",
+                "endpoint": "https://api.stacktr.ee/provision",
+                "protocols_supported": [
+                  "x402",
+                  "mpp",
+                  "acp",
+                  "ap2"
+                ]
+              },
+              {
+                "type": "wallet_signature",
+                "description": "No registration and no key: the wallet that PAID for a page (x402 pay-per-publish) is its update credential. POST {\"wallet\":\"0x\u2026\"} to the challenge endpoint, personal_sign (EIP-191) the returned message with that wallet, then send \"Authorization: Wallet challenge=\u2026,sig=0x\u2026\" on PUT /sites/{id}. Challenges are single-use, 5-minute TTL. Scope: content updates to pages carrying that payer wallet (adopted pages while the wallet stays account-linked). EVM EOA wallets only.",
+                "endpoint": "https://api.stacktr.ee/wallet-auth/challenge"
+              },
+              {
+                "type": "claim_token",
+                "description": "No registration, no key, no wallet: the claim_token returned by an anonymous publish is that page's update credential while the page is unclaimed. Send \"Authorization: Claim <claim_token>\" on PUT /sites/{idOrSlug} with a JSON body {\"html\": \"...\"} (multipart with a \"file\" field also works). Works on every rail, including Solana x402 payers, who cannot use wallet_signature. Scope: replacing the content of that one page, nothing else. It stops working the moment the page is claimed (claiming rotates the token into the account), when the page expires, and for a blocked actor. Rate limited per IP and requires a direct client connection.",
+                "endpoint": "https://api.stacktr.ee/sites/{idOrSlug}",
+                "credential_format": "Authorization: Claim <claim_token>"
+              }
+            ]
+          },
+          "protected_resources": [
+            "https://stacktr.ee",
+            "https://api.stacktr.ee/mcp"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://stacktr.ee",
+          "resource_name": "Stacktree",
+          "authorization_servers": [
+            "https://api.stacktr.ee"
+          ],
+          "scopes_supported": [
+            "sites:write",
+            "sites:read"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "resource_documentation": "https://stacktr.ee/docs",
+          "resource_policy_uri": "https://stacktr.ee/privacy",
+          "resource_tos_uri": "https://stacktr.ee/terms"
+        },
+        "issuer": "https://api.stacktr.ee",
+        "identifier": "https://api.stacktr.ee",
+        "maxAgeSeconds": 3600
+      }
+    },
+    "emorahealth.com": {
+      "httpStatus": 200,
+      "seconds": 0.6,
+      "checkedAt": "2026-11-26T09:21:54+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "1.0",
+        "protocolVersion": "1.0",
+        "specificationRevision": "2026-11-19",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://emorahealth.com/.well-known/poppy.json",
+            "finalUrl": "https://www.emorahealth.com/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json; charset=utf-8",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "1.0",
+              "organization": {
+                "name": "Emora Health",
+                "domain": "www.emorahealth.com",
+                "logo_uri": "https://www.emorahealth.com/apple-touch-icon.png"
+              },
+              "auth": {
+                "issuer": "https://www.emorahealth.com/poppy",
+                "disabled": true
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://www.emorahealth.com/poppy/conversations",
+                    "description": "Questions about Emora Health's virtual behavioral health care for kids, teens, and parents: therapy, non-stimulant medication management, and Comprehensive Testing. It explains conditions and care options, finds a clinician, checks real-time availability, estimates insurance costs, and gives a pre-filled booking link for the family to finish. It can't see or change Emora accounts or appointments."
+                  }
+                ]
+              },
+              "tasks": {
+                "endpoint": "https://www.emorahealth.com/poppy/tasks"
+              },
+              "extensions": {
+                "links": [
+                  {
+                    "version": "1"
+                  }
+                ],
+                "disclosures": [
+                  {
+                    "version": "1"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://www.emorahealth.com/.well-known/oauth-protected-resource",
+            "finalUrl": "https://www.emorahealth.com/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json; charset=utf-8",
+            "maxAgeSeconds": 86400,
+            "value": {
+              "resource": "https://www.emorahealth.com",
+              "resource_name": "Emora Health",
+              "resource_documentation": "https://www.emorahealth.com/developers",
+              "resource_policy_uri": "https://www.emorahealth.com/privacy",
+              "resource_tos_uri": "https://www.emorahealth.com/terms",
+              "authorization_servers": [
+                "https://www.emorahealth.com",
+                "https://www.emorahealth.com/poppy"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ],
+              "scopes_supported": [
+                "mcp"
+              ],
+              "x-access-model": "anonymous-read",
+              "x-access-note": "Open to read \u2014 call directly. Helping families find pediatric mental health care faster. See /developers.",
+              "x-auth-documentation": "https://www.emorahealth.com/auth.md",
+              "x-protected-resources": [
+                {
+                  "resource": "https://www.emorahealth.com/api/mcp/v1",
+                  "resource_metadata": "https://www.emorahealth.com/.well-known/oauth-protected-resource/api/mcp/v1",
+                  "access_model": "anonymous-read",
+                  "note": "The public agent API. No credential required."
+                },
+                {
+                  "resource": "https://www.emorahealth.com/mcp/ops",
+                  "resource_metadata": "https://www.emorahealth.com/.well-known/oauth-protected-resource/mcp/ops",
+                  "access_model": "authenticated",
+                  "note": "Emora staff tooling. Bearer token, scope mcp."
+                }
+              ],
+              "x-excluded-paths": [
+                "/care",
+                "/join-session",
+                "/clowncar",
+                "/payload/admin",
+                "/payload/api",
+                "/api/care",
+                "/api/clowncar"
+              ]
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+            "finalUrl": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+            "status": 200,
+            "contentType": "application/json; charset=utf-8",
+            "maxAgeSeconds": 300,
+            "value": {
+              "issuer": "https://www.emorahealth.com/poppy",
+              "token_endpoint": "https://www.emorahealth.com/poppy/oauth/token",
+              "revocation_endpoint": "https://www.emorahealth.com/poppy/oauth/revoke",
+              "grant_types_supported": [
+                "refresh_token"
+              ],
+              "protected_resources": [
+                "https://www.emorahealth.com"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384"
+              ],
+              "revocation_endpoint_auth_methods_supported": [
+                "private_key_jwt"
+              ],
+              "scopes_supported": [],
+              "client_id_metadata_document_supported": true,
+              "service_documentation": "https://www.emorahealth.com/developers"
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 1,
+          "info": 0
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "scope-undescribed",
+            "basis": "SHOULD",
+            "severity": "warning",
+            "refuses": false,
+            "document": "protected-resource",
+            "pointer": "/scopes_supported/0",
+            "line": 15,
+            "column": 5,
+            "text": "the description of \"mcp\": expected one in poppy.json's auth.scopes, or an OpenAPI description that could have one, got neither.",
+            "expected": "one in poppy.json's auth.scopes, or an OpenAPI description that could have one",
+            "got": "neither",
+            "ref": {
+              "label": "Spec 4.7",
+              "url": "https://personalagentprotocol.org/docs/1.0/spec#scopes"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "1.0",
+          "organization": {
+            "name": "Emora Health",
+            "domain": "www.emorahealth.com",
+            "logo_uri": "https://www.emorahealth.com/apple-touch-icon.png"
+          },
+          "auth": {
+            "issuer": "https://www.emorahealth.com/poppy",
+            "disabled": true
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://www.emorahealth.com/poppy/conversations",
+                "description": "Questions about Emora Health's virtual behavioral health care for kids, teens, and parents: therapy, non-stimulant medication management, and Comprehensive Testing. It explains conditions and care options, finds a clinician, checks real-time availability, estimates insurance costs, and gives a pre-filled booking link for the family to finish. It can't see or change Emora accounts or appointments."
+              }
+            ]
+          },
+          "tasks": {
+            "endpoint": "https://www.emorahealth.com/poppy/tasks"
+          },
+          "extensions": {
+            "links": [
+              {
+                "version": "1"
+              }
+            ],
+            "disclosures": [
+              {
+                "version": "1"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://www.emorahealth.com/poppy",
+          "token_endpoint": "https://www.emorahealth.com/poppy/oauth/token",
+          "revocation_endpoint": "https://www.emorahealth.com/poppy/oauth/revoke",
+          "grant_types_supported": [
+            "refresh_token"
+          ],
+          "protected_resources": [
+            "https://www.emorahealth.com"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384"
+          ],
+          "revocation_endpoint_auth_methods_supported": [
+            "private_key_jwt"
+          ],
+          "scopes_supported": [],
+          "client_id_metadata_document_supported": true,
+          "service_documentation": "https://www.emorahealth.com/developers"
+        },
+        "protectedResource": {
+          "resource": "https://www.emorahealth.com",
+          "resource_name": "Emora Health",
+          "resource_documentation": "https://www.emorahealth.com/developers",
+          "resource_policy_uri": "https://www.emorahealth.com/privacy",
+          "resource_tos_uri": "https://www.emorahealth.com/terms",
+          "authorization_servers": [
+            "https://www.emorahealth.com",
+            "https://www.emorahealth.com/poppy"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "scopes_supported": [
+            "mcp"
+          ],
+          "x-access-model": "anonymous-read",
+          "x-access-note": "Open to read \u2014 call directly. Helping families find pediatric mental health care faster. See /developers.",
+          "x-auth-documentation": "https://www.emorahealth.com/auth.md",
+          "x-protected-resources": [
+            {
+              "resource": "https://www.emorahealth.com/api/mcp/v1",
+              "resource_metadata": "https://www.emorahealth.com/.well-known/oauth-protected-resource/api/mcp/v1",
+              "access_model": "anonymous-read",
+              "note": "The public agent API. No credential required."
+            },
+            {
+              "resource": "https://www.emorahealth.com/mcp/ops",
+              "resource_metadata": "https://www.emorahealth.com/.well-known/oauth-protected-resource/mcp/ops",
+              "access_model": "authenticated",
+              "note": "Emora staff tooling. Bearer token, scope mcp."
+            }
+          ],
+          "x-excluded-paths": [
+            "/care",
+            "/join-session",
+            "/clowncar",
+            "/payload/admin",
+            "/payload/api",
+            "/api/care",
+            "/api/clowncar"
+          ]
+        },
+        "issuer": "https://www.emorahealth.com/poppy",
+        "identifier": "https://www.emorahealth.com/poppy",
+        "maxAgeSeconds": 300
+      }
+    },
+    "project-1xtwb.vercel.app": {
+      "httpStatus": 200,
+      "seconds": 0.4,
+      "checkedAt": "2026-11-26T09:21:54+00:00",
+      "report": {
+        "outputVersion": 1,
+        "validator": {
+          "name": "poppy-validator",
+          "version": "1.3.0"
+        },
+        "outcome": "valid",
+        "checkedAgainst": "Draft 0.4",
+        "protocolVersion": "0.4",
+        "specificationRevision": "2026-11-11",
+        "documents": [
+          {
+            "kind": "poppy",
+            "url": "https://project-1xtwb.vercel.app/.well-known/poppy.json",
+            "finalUrl": "https://project-1xtwb.vercel.app/.well-known/poppy.json",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 300,
+            "value": {
+              "protocol_version": "0.4",
+              "organization": {
+                "name": "My B2B Store",
+                "domain": "project-1xtwb.vercel.app"
+              },
+              "auth": {
+                "issuer": "https://project-1xtwb.vercel.app",
+                "scopes": {
+                  "catalog:read": "Search products and see your account's prices and stock",
+                  "cart:read": "See your cart, its items, prices, and discounts",
+                  "cart:manage": "Add, change, and remove items, discounts, and delivery details in your cart",
+                  "dev.ucp.shopping.checkout:manage": "Create, change, and complete checkouts, including placing orders on your account",
+                  "dev.ucp.shopping.order:read": "See your orders and their delivery status",
+                  "dev.ucp.shopping.order:manage": "Change or cancel your orders",
+                  "buyer:read": "See your buyer account and contact details",
+                  "poppy:browser-sign-in": "Browse the website, and see and do anything your account can do there"
+                },
+                "scope_hints": {
+                  "catalog:read": {
+                    "changes": "none",
+                    "personal_data": false
+                  },
+                  "cart:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "cart:manage": {
+                    "changes": "reversible",
+                    "personal_data": true
+                  },
+                  "dev.ucp.shopping.checkout:manage": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "dev.ucp.shopping.order:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "dev.ucp.shopping.order:manage": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  },
+                  "buyer:read": {
+                    "changes": "none",
+                    "personal_data": true
+                  },
+                  "poppy:browser-sign-in": {
+                    "changes": "irreversible",
+                    "personal_data": true
+                  }
+                }
+              },
+              "tasks": {
+                "endpoint": "https://project-1xtwb.vercel.app/poppy/tasks"
+              },
+              "apis": [
+                {
+                  "type": "mcp",
+                  "url": "https://project-1xtwb.vercel.app/api/mcp",
+                  "description": "UCP tools (UCP 2026-08-25): catalog search and lookup, cart, checkout, and orders. Calls carry UCP request metadata, including the platform profile. UCP profile: /.well-known/ucp"
+                },
+                {
+                  "type": "openapi",
+                  "url": "https://project-1xtwb.vercel.app/poppy/openapi.json",
+                  "description": "UCP REST service (UCP 2026-08-25) at /api/ucp/v1: catalog search and lookup, cart, checkout, orders, and buyer. UCP profile: /.well-known/ucp"
+                }
+              ],
+              "extensions": {
+                "ucp": [
+                  {
+                    "version": "1"
+                  }
+                ]
+              },
+              "agent": {
+                "protocols": [
+                  {
+                    "type": "poppy",
+                    "endpoint": "https://project-1xtwb.vercel.app/poppy/conversations",
+                    "access": "session"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "protected-resource",
+            "url": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource",
+            "finalUrl": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 0,
+            "value": {
+              "resource": "https://project-1xtwb.vercel.app",
+              "authorization_servers": [
+                "https://project-1xtwb.vercel.app"
+              ],
+              "bearer_methods_supported": [
+                "header"
+              ],
+              "scopes_supported": [
+                "dev.ucp.shopping.checkout:manage",
+                "dev.ucp.shopping.order:read",
+                "dev.ucp.shopping.order:manage",
+                "catalog:read",
+                "cart:read",
+                "cart:manage",
+                "buyer:read",
+                "poppy:browser-sign-in"
+              ],
+              "resource_documentation": "https://project-1xtwb.vercel.app/llms.txt"
+            }
+          },
+          {
+            "kind": "oauth-metadata",
+            "url": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server",
+            "finalUrl": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server",
+            "status": 200,
+            "contentType": "application/json",
+            "maxAgeSeconds": 0,
+            "value": {
+              "issuer": "https://project-1xtwb.vercel.app",
+              "authorization_endpoint": "https://project-1xtwb.vercel.app/api/oauth/authorize",
+              "token_endpoint": "https://project-1xtwb.vercel.app/api/oauth/token",
+              "revocation_endpoint": "https://project-1xtwb.vercel.app/api/oauth/revoke",
+              "scopes_supported": [
+                "dev.ucp.shopping.checkout:manage",
+                "dev.ucp.shopping.order:read",
+                "dev.ucp.shopping.order:manage",
+                "catalog:read",
+                "cart:read",
+                "cart:manage",
+                "buyer:read",
+                "poppy:browser-sign-in"
+              ],
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "client_secret_post",
+                "private_key_jwt"
+              ],
+              "authorization_response_iss_parameter_supported": false,
+              "token_endpoint_auth_signing_alg_values_supported": [
+                "ES256",
+                "PS384"
+              ],
+              "protected_resources": [
+                "https://project-1xtwb.vercel.app",
+                "https://project-1xtwb.vercel.app/api/mcp"
+              ],
+              "dpop_signing_alg_values_supported": [
+                "ES256",
+                "ES384",
+                "PS256",
+                "PS384",
+                "EdDSA"
+              ]
+            }
+          }
+        ],
+        "counts": {
+          "error": 0,
+          "warning": 0,
+          "info": 3
+        },
+        "refused": false,
+        "messages": [
+          {
+            "id": "http-cache-bounded",
+            "basis": "Guides",
+            "severity": "info",
+            "refuses": false,
+            "document": "protected-resource",
+            "pointer": "",
+            "text": "https://project-1xtwb.vercel.app/.well-known/oauth-protected-resource may be cached for 0 seconds; agents typically clamp that to between 60 and 86400.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/0.4/guides#both-fetching"
+            }
+          },
+          {
+            "id": "http-cache-bounded",
+            "basis": "Guides",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "",
+            "text": "https://project-1xtwb.vercel.app/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400.",
+            "ref": {
+              "label": "Guides: Fetching metadata safely",
+              "url": "https://personalagentprotocol.org/docs/0.4/guides#both-fetching"
+            }
+          },
+          {
+            "id": "metadata-iss-parameter",
+            "basis": "Rule",
+            "severity": "info",
+            "refuses": false,
+            "document": "oauth-metadata",
+            "pointer": "/authorization_response_iss_parameter_supported",
+            "line": 1,
+            "column": 737,
+            "text": "authorization_response_iss_parameter_supported isn't true.",
+            "ref": {
+              "label": "RFC 9207 \u00a73",
+              "url": "https://www.rfc-editor.org/rfc/rfc9207#section-3"
+            }
+          }
+        ],
+        "skipped": [],
+        "poppy": {
+          "protocol_version": "0.4",
+          "organization": {
+            "name": "My B2B Store",
+            "domain": "project-1xtwb.vercel.app"
+          },
+          "auth": {
+            "issuer": "https://project-1xtwb.vercel.app",
+            "scopes": {
+              "catalog:read": "Search products and see your account's prices and stock",
+              "cart:read": "See your cart, its items, prices, and discounts",
+              "cart:manage": "Add, change, and remove items, discounts, and delivery details in your cart",
+              "dev.ucp.shopping.checkout:manage": "Create, change, and complete checkouts, including placing orders on your account",
+              "dev.ucp.shopping.order:read": "See your orders and their delivery status",
+              "dev.ucp.shopping.order:manage": "Change or cancel your orders",
+              "buyer:read": "See your buyer account and contact details",
+              "poppy:browser-sign-in": "Browse the website, and see and do anything your account can do there"
+            },
+            "scope_hints": {
+              "catalog:read": {
+                "changes": "none",
+                "personal_data": false
+              },
+              "cart:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "cart:manage": {
+                "changes": "reversible",
+                "personal_data": true
+              },
+              "dev.ucp.shopping.checkout:manage": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "dev.ucp.shopping.order:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "dev.ucp.shopping.order:manage": {
+                "changes": "irreversible",
+                "personal_data": true
+              },
+              "buyer:read": {
+                "changes": "none",
+                "personal_data": true
+              },
+              "poppy:browser-sign-in": {
+                "changes": "irreversible",
+                "personal_data": true
+              }
+            }
+          },
+          "tasks": {
+            "endpoint": "https://project-1xtwb.vercel.app/poppy/tasks"
+          },
+          "apis": [
+            {
+              "type": "mcp",
+              "url": "https://project-1xtwb.vercel.app/api/mcp",
+              "description": "UCP tools (UCP 2026-08-25): catalog search and lookup, cart, checkout, and orders. Calls carry UCP request metadata, including the platform profile. UCP profile: /.well-known/ucp"
+            },
+            {
+              "type": "openapi",
+              "url": "https://project-1xtwb.vercel.app/poppy/openapi.json",
+              "description": "UCP REST service (UCP 2026-08-25) at /api/ucp/v1: catalog search and lookup, cart, checkout, orders, and buyer. UCP profile: /.well-known/ucp"
+            }
+          ],
+          "extensions": {
+            "ucp": [
+              {
+                "version": "1"
+              }
+            ]
+          },
+          "agent": {
+            "protocols": [
+              {
+                "type": "poppy",
+                "endpoint": "https://project-1xtwb.vercel.app/poppy/conversations",
+                "access": "session"
+              }
+            ]
+          }
+        },
+        "metadata": {
+          "issuer": "https://project-1xtwb.vercel.app",
+          "authorization_endpoint": "https://project-1xtwb.vercel.app/api/oauth/authorize",
+          "token_endpoint": "https://project-1xtwb.vercel.app/api/oauth/token",
+          "revocation_endpoint": "https://project-1xtwb.vercel.app/api/oauth/revoke",
+          "scopes_supported": [
+            "dev.ucp.shopping.checkout:manage",
+            "dev.ucp.shopping.order:read",
+            "dev.ucp.shopping.order:manage",
+            "catalog:read",
+            "cart:read",
+            "cart:manage",
+            "buyer:read",
+            "poppy:browser-sign-in"
+          ],
+          "response_types_supported": [
+            "code"
+          ],
+          "grant_types_supported": [
+            "authorization_code",
+            "refresh_token"
+          ],
+          "code_challenge_methods_supported": [
+            "S256"
+          ],
+          "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "private_key_jwt"
+          ],
+          "authorization_response_iss_parameter_supported": false,
+          "token_endpoint_auth_signing_alg_values_supported": [
+            "ES256",
+            "PS384"
+          ],
+          "protected_resources": [
+            "https://project-1xtwb.vercel.app",
+            "https://project-1xtwb.vercel.app/api/mcp"
+          ],
+          "dpop_signing_alg_values_supported": [
+            "ES256",
+            "ES384",
+            "PS256",
+            "PS384",
+            "EdDSA"
+          ]
+        },
+        "protectedResource": {
+          "resource": "https://project-1xtwb.vercel.app",
+          "authorization_servers": [
+            "https://project-1xtwb.vercel.app"
+          ],
+          "bearer_methods_supported": [
+            "header"
+          ],
+          "scopes_supported": [
+            "dev.ucp.shopping.checkout:manage",
+            "dev.ucp.shopping.order:read",
+            "dev.ucp.shopping.order:manage",
+            "catalog:read",
+            "cart:read",
+            "cart:manage",
+            "buyer:read",
+            "poppy:browser-sign-in"
+          ],
+          "resource_documentation": "https://project-1xtwb.vercel.app/llms.txt"
+        },
+        "issuer": "https://project-1xtwb.vercel.app",
+        "identifier": "https://project-1xtwb.vercel.app",
+        "maxAgeSeconds": 0
+      }
+    }
+  }
+}
