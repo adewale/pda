@@ -1,4 +1,5 @@
-import { Company, HttpError, json, MEDIATED_GRANT, randomId, resourceError, type Inbound, type ResourceContext, type Session } from "./core";
+import { Company, HttpError, json, MEDIATED_GRANT, randomId, requestAt, resourceError, type Inbound, type ResourceContext, type Session } from "./core";
+import { departure, ours, show, shown, type Departure } from "../../src/diagnostic";
 import { parseApprovalHeader, type Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
@@ -22,6 +23,11 @@ description: Exchange an item on one of the User's orders for another size or mo
 2. Find the replacement with \`searchProducts\`.
 3. Send \`POST /orders/{order_id}/exchanges\`. The Company returns the terms for the User to approve.
 `;
+
+/** A form sent to a website whose poppy.json sets `web.disabled`. */
+function disabledForm(inbound: Inbound): Departure {
+  return departure(requestAt(inbound), ours("no form, since this website's poppy.json sets web.disabled"), ours("one"));
+}
 
 export class Web {
   /** A report belongs to the verified Personal Agent and User, not every visitor to the Company. */
@@ -155,7 +161,7 @@ export class Web {
    */
   async tasks(context: ResourceContext): Promise<Response> {
     const co = this.company;
-    if (context.token) co.violation("tasks.token", "GET {tasks.endpoint} carried an access token");
+    if (context.token) co.violation("tasks.token", departure(ours("GET {tasks.endpoint}"), ours("no access token"), ours("one")));
     return json({
       ...(co.config.excludedTasks ? { excluded_tasks: this.#excluded() } : {}),
       ...(co.config.skills ? { skill_index: await this.#skillIndex() } : {}),
@@ -187,7 +193,8 @@ export class Web {
     if (!co.config.skills) return json({ error: "not_found" }, 404);
     const headers = inbound.request.headers;
     if (headers.has("Authorization") || headers.has("Poppy-Session") || headers.has("DPoP")) {
-      co.violation("skills.credentials", `a skill artifact fetched with ${["Authorization", "Poppy-Session", "DPoP"].filter((name) => headers.has(name)).join(", ")}`);
+      const sent = (["Authorization", "Poppy-Session", "DPoP"] as const).filter((name) => headers.has(name)).map((name) => ours(name));
+      co.violation("skills.credentials", departure(ours("the fetch of a skill artifact"), ours("no credentials"), show.list(sent)));
     }
     return new Response(SKILL_MD, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
   }
@@ -209,17 +216,18 @@ export class Web {
     const report = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
     const { task, description } = report;
     if (typeof task !== "string" || typeof description !== "string" || task.length > 200 || description.length > 2_000) {
-      co.violation("feedback.fields", "feedback report: task (at most 200 characters) and description (at most 2,000) are required strings");
+      const field = (value: unknown) => (typeof value === "string" ? shown`${value.length} characters` : show.kind(value));
+      co.violation("feedback.fields", departure(ours("the feedback report"), ours("task, a string of at most 200 characters, and description, of at most 2,000"), shown`task as ${field(task)} and description as ${field(description)}`));
       return json({ error: "invalid_request" }, 400);
     }
-    if ("kind" in report) co.violation("feedback.kind", "feedback report: kind is 0.2's; 0.3 removed it (9.3)");
+    if ("kind" in report) co.violation("feedback.kind", departure(ours("the feedback report"), ours("no kind, which 0.3 removed"), shown`kind ${show.value(report.kind)}`));
     const phrase = task.toLowerCase().trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
     if (co.config.excludedTasks && EXCLUDED.some((entry) => entry.task.toLowerCase() === phrase)) {
-      co.violation("feedback.excluded-task", `feedback report about ${JSON.stringify(task)}, which the Company lists as excluded`);
+      co.violation("feedback.excluded-task", departure(ours("the feedback report's task"), ours("one the Company doesn't list as excluded"), show.text(task)));
     }
     const reportKey = JSON.stringify([context.session.clientId, context.session.userId, phrase]);
     if (this.#reportedTasks.has(reportKey)) {
-      co.violation("feedback.repeated", `a second feedback report about ${JSON.stringify(task)}`);
+      co.violation("feedback.repeated", departure(shown`feedback about ${show.text(task)}`, ours("one report"), ours("a second")));
     }
     this.#reportedTasks.add(reportKey);
     co.feedback.push({ task, signedIn: context.signedIn });
@@ -305,8 +313,9 @@ export class Web {
     const co = this.company;
     if (!co.browserJoin) return new Response("Not found", { status: 404 });
     const method = inbound.request.method;
-    const page = (id: ViolationId | null, message: string, status = 400) => {
-      if (id) co.violation(id, `browser join: ${message}`);
+    /** The page a person sees, with `message`; records `detail` under `id` when there is one. */
+    const page = (id: ViolationId | null, message: string, status = 400, detail?: Departure) => {
+      if (id && detail) co.violation(id, detail);
       return new Response(`<!doctype html><title>Couldn't connect</title><p>${message}</p>`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     };
     if (method === "GET") {
@@ -328,18 +337,25 @@ export class Web {
     }
     if (method !== "POST") return page(null, "method not allowed", 405);
     const type = inbound.request.headers.get("Content-Type") ?? "";
-    if (!type.startsWith("application/x-www-form-urlencoded")) return page("browser-join.form", `the form was sent as ${JSON.stringify(type)}`);
+    if (!type.startsWith("application/x-www-form-urlencoded")) {
+      return page("browser-join.form", `the form was sent as ${JSON.stringify(type)}`, 400, departure(ours("the browser join's form"), ours("application/x-www-form-urlencoded"), show.type(type)));
+    }
     const fields = new URLSearchParams(inbound.bodyText);
     const code = fields.get("code") ?? "";
-    if ([...fields.keys()].some((name) => name !== "code")) co.violation("browser-join.form", "the form carried fields other than code");
+    const others = [...new Set(fields.keys())].filter((name) => name !== "code");
+    if (others.length > 0) co.violation("browser-join.form", departure(ours("the browser join's form"), ours("only code"), shown`also ${show.list(others.map((name) => show.code(name)))}`));
     const join = this.#joins.get(code);
     const cookie = /(?:^|;\s*)__Host-poppy_join=([^;]+)/.exec(inbound.request.headers.get("Cookie") ?? "")?.[1];
     if (!join) return page(null, "unknown code");
-    if (join.used) return page("browser-join.code-reused", "the code was submitted before");
+    if (join.used) return page("browser-join.code-reused", "the code was submitted before", 400, departure(ours("the browser join's code"), ours("a code submitted once"), ours("one submitted before")));
     join.used = true;
-    if (!cookie || cookie !== join.cookie) return page("browser-join.cookie", "the form came without the cookie set with its code");
+    if (!cookie || cookie !== join.cookie) {
+      return page("browser-join.cookie", "the form came without the cookie set with its code", 400, departure(ours("the browser join's form"), ours("the cookie set with its code"), cookie ? ours("another cookie") : ours("none")));
+    }
     if (join.expiresAt <= co.now()) return page(null, "the code expired");
-    if (!join.authorized) return page("browser-join.not-authorized", "the code was submitted before the agent authorized it");
+    if (!join.authorized) {
+      return page("browser-join.not-authorized", "the code was submitted before the agent authorized it", 400, departure(ours("the browser join's code"), ours("a code the agent authorized first"), ours("one not authorized yet")));
+    }
     const session = co.sessions.get(join.authorized.sessionId);
     if (!session || session.ended) return page(null, "the Session has ended");
     const value = randomId("", 18);
@@ -365,11 +381,11 @@ export class Web {
     }
     const code = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as { code?: unknown }).code : undefined;
     if (!(inbound.request.headers.get("Content-Type") ?? "").startsWith("application/json") || typeof code !== "string") {
-      co.violation("browser-join.authorize-body", "authorize wasn't a JSON body with the code");
+      co.violation("browser-join.authorize-body", departure(ours("the authorize request's body"), ours("JSON with the code, as a string"), typeof code === "string" ? shown`a body as ${show.type(inbound.request.headers.get("Content-Type"))}` : shown`code as ${show.kind(code)}`));
       return json({ error: "invalid_request" }, 400);
     }
     const join = this.#joins.get(code);
-    if (join?.authorized) co.violation("browser-join.code-reused", "browser join: the code was authorized before");
+    if (join?.authorized) co.violation("browser-join.code-reused", departure(ours("the browser join's code"), ours("a code authorized once"), ours("one authorized before")));
     if (!join || join.authorized || join.used || join.expiresAt <= co.now()) return json({ error: "invalid_request" }, 400);
     // A token without poppy:browser-sign-in is refused as at an API, and the code stays unauthorized (6).
     if (context.token && !context.scope.includes("poppy:browser-sign-in")) {
@@ -407,7 +423,7 @@ export class Web {
   /** `POST /account/address`: the address form, sent with the Session's cookie and its hidden field. */
   saveAddress(inbound: Inbound): Response {
     if (this.company.config.webDisabled) {
-      this.company.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+      this.company.violation("web.disabled-form", disabledForm(inbound));
     }
     const session = this.#session(inbound);
     const fields = [...new URLSearchParams(inbound.bodyText)];
@@ -431,8 +447,8 @@ export class Web {
     const co = this.company;
     const page = (body: string, status: number, headers: Record<string, string> = {}) =>
       new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers } });
-    if (co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
-    if (inbound.request.headers.has("Poppy-Approval")) co.violation("web-operation.approval-in-browser", "the exchange form came with Poppy-Approval");
+    if (co.config.webDisabled) co.violation("web.disabled-form", disabledForm(inbound));
+    if (inbound.request.headers.has("Poppy-Approval")) co.violation("web-operation.approval-in-browser", departure(ours("the exchange form"), ours("no Poppy-Approval: a website's operation is approved at its endpoint"), ours("one")));
     const session = this.#session(inbound);
     if (!session || session.ended || !session.account || !this.#allows(session, co.orderScopes.write)) return page("<p>Sign in to exchange an item.</p>", 403);
     const declared = session.declaration?.declared.get("operations") === "3";
@@ -464,14 +480,14 @@ export class Web {
     const co = this.company;
     const page = (body: string, status: number) =>
       new Response(`<!doctype html><title>Mock Shop</title>${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
-    if (co.config.webDisabled) co.violation("web.disabled-form", "a form sent to a website whose poppy.json sets web.disabled");
+    if (co.config.webDisabled) co.violation("web.disabled-form", disabledForm(inbound));
     const session = this.#session(inbound);
     if (!session || session.ended || !session.account || !this.#allows(session, co.orderScopes.write)) return page("<p>Sign in to return an item.</p>", 403);
     const asked = Object.fromEntries(new URLSearchParams(inbound.bodyText));
     const controller = asked.controller ?? "";
     const declared = session.declaration?.declared.get("browser-control") === "1";
     if (co.config.browserControl && declared && controller !== "user") {
-      co.violation("browser-control.marked-step", `the return form, marked submission, came with controller ${JSON.stringify(controller)} from Session ${session.sid}`);
+      co.violation("browser-control.marked-step", departure(shown`the return form, a marked submission, from Session ${show.value(session.sid)}`, ours("controller user"), show.value(controller)));
     }
     co.returns.push({ account: session.account, controller, reason: asked.reason ?? "", cardLast4: asked.card_last4 ?? "" });
     return new Response(null, { status: 303, headers: { Location: "/orders/ord_7Hk2?returned=1", "Cache-Control": "no-store" } });
@@ -493,7 +509,7 @@ export class Web {
     const header = inbound.request.headers.get("Poppy-Approval");
     const approval = header === null ? null : parseApprovalHeader(header);
     if (header !== null && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
-      co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
+      co.violation("approval.header", departure(ours("Poppy-Approval"), ours("an RFC 9651 Dictionary with operation_id and revision Strings"), show.text(header)));
       return json({ error: "invalid_request" }, 400);
     }
     const answer = this.operations.atEndpoint(context, ref, approval);
@@ -511,9 +527,9 @@ export class Web {
     const co = this.company;
     const headers = inbound.request.headers;
     if (!headers.has("Poppy-Session")) return null;
-    const where = `${inbound.request.method} ${inbound.url.href}`;
-    if (offHost) co.violation("page.session-off-host", `a Session header on a page that isn't on organization.domain (${where})`);
-    if (headers.has("Authorization")) co.violation("page.token", `an access token with a website page (${where})`);
+    const where = shown`${show.name(inbound.request.method)} ${show.url(inbound.url)}`;
+    if (offHost) co.violation("page.session-off-host", departure(shown`the page ${where}`, ours("no Session header off organization.domain"), ours("one")));
+    if (headers.has("Authorization")) co.violation("page.token", departure(shown`the page ${where}`, ours("no access token: a page takes only the Session header"), ours("one")));
     if (co.config.pagesRefuseSession) return co.invalidSession("this page refuses the Session header").response;
     try {
       await co.verifySessionHeader(inbound, null);

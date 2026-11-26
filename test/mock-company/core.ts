@@ -22,6 +22,7 @@ import {
   type MockConfig,
   type MockRequest
 } from "./types";
+import { departure, ours, render, show, shown, type Problem, type Shown } from "../../src/diagnostic";
 import { isViolation, type JwtKind, type SignedKind, type ViolationId } from "./violations";
 
 export const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -233,6 +234,32 @@ function isPrivateJwk(jwk: Record<string, unknown>): boolean {
   return PRIVATE_JWK_FIELDS.some((field) => field in jwk);
 }
 
+/** The private members a JWK carries, by name only: `private members d and p`. */
+export function privateMembers(jwk: Record<string, unknown>): Shown {
+  return shown`private members ${show.list(PRIVATE_JWK_FIELDS.filter((field) => field in jwk).map((field) => show.code(field)))}`;
+}
+
+/** A request as a check names it: `GET /orders`, without its host or query. */
+export function requestAt(inbound: Inbound): Shown {
+  return shown`${show.name(inbound.request.method)} ${show.name(inbound.url.pathname)}`;
+}
+
+/** How far a JWT's `iat` is from `now`, in whole minutes (a check's exact second would race the clock), or its kind. */
+export function offset(iat: unknown, now: number): Shown {
+  if (typeof iat !== "number") return show.kind(iat);
+  return shown`one ${Math.round(Math.abs(now - iat) / 60)} minutes ${iat < now ? ours("earlier") : ours("later")}`;
+}
+
+/** A `Poppy-Extensions` value as declared, unquoted: `Poppy-Extensions "operations";v="3"`. */
+function declaredExtensions(value: string): Shown {
+  return value.trim() === "" ? ours("no Poppy-Extensions") : shown`Poppy-Extensions ${show.name(value)}`;
+}
+
+/** A claim or field that should be a URL: the URL without its query, or its kind. */
+export function urlOrKind(value: unknown): Shown {
+  return typeof value === "string" ? show.url(value) : show.kind(value);
+}
+
 async function sha256b64(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return base64url.encode(new Uint8Array(digest));
@@ -335,8 +362,8 @@ export class Company {
    * whether it's a violation or a warning; whether the request is also
    * refused is up to the caller.
    */
-  violation(id: ViolationId, detail: string): void {
-    this.recorded.push(`[${id}] ${detail}`);
+  violation(id: ViolationId, detail: Problem): void {
+    this.recorded.push(`[${id}] ${render(detail)}`);
   }
 
   /** The recorded checks that are failures: a MUST, an RFC's MUST or a keyword-less rule broken. */
@@ -416,11 +443,11 @@ export class Company {
   /** JTIs are single-use within each kind of JWT. */
   freshJti(kind: JwtKind, jti: unknown): boolean {
     if (typeof jti !== "string" || jti === "") {
-      this.violation(`${kind}.jti-missing`, `${kind}: missing jti`);
+      this.violation(`${kind}.jti-missing`, departure(ours(kind), ours("a jti"), jti === undefined ? ours("none") : shown`jti ${show.value(jti)}`));
       return false;
     }
     if (!/^[A-Za-z0-9_-]{22,}$/.test(jti)) {
-      this.violation(`${kind}.jti-weak`, `${kind}: jti ${JSON.stringify(jti)} is not 128 random bits of base64url`);
+      this.violation(`${kind}.jti-weak`, departure(shown`${ours(kind)}'s jti`, ours("128 random bits of base64url, 22 characters or more"), show.value(jti)));
     }
     let seen = this.seenJtis.get(kind);
     if (!seen) {
@@ -428,7 +455,7 @@ export class Company {
       this.seenJtis.set(kind, seen);
     }
     if (seen.has(jti)) {
-      this.violation(`${kind}.jti-reused`, `${kind}: reused jti ${jti}`);
+      this.violation(`${kind}.jti-reused`, departure(shown`${ours(kind)}'s jti`, ours("a jti not used before"), shown`${show.value(jti)} again`));
       return kind === "dpop" ? this.flawed("accept-replayed-proof") : kind === "client-assertion" && this.flawed("accept-replayed-assertion");
     }
     seen.add(jti);
@@ -459,7 +486,7 @@ export class Company {
     this.performs += 1;
     const key = `${account ?? ""}|ord_7Hk2|itm_4Qa`;
     if (this.exchanged.has(key)) {
-      this.violation("exchange.performed-twice", `itm_4Qa on ord_7Hk2 exchanged again for ${account} (${how})`);
+      this.violation("exchange.performed-twice", departure(ours("the exchange of itm_4Qa on ord_7Hk2"), shown`one for ${show.value(account)}`, shown`a second, by ${show.name(how)}`));
     }
     this.exchanged.add(key);
   }
@@ -516,12 +543,12 @@ export class Company {
       if (own !== undefined && now < own) {
         this.violation(
           "rate-limit.retry-after-ignored",
-          `sent ${inbound.request.method} ${inbound.url.pathname} ${own - now} ms before Retry-After elapsed`
+          departure(requestAt(inbound), ours("no repeat until its Retry-After elapsed"), shown`the same request ${own - now} ms before it did`)
         );
       } else {
         this.violation(
           "rate-limit.shared-limit-ignored",
-          `sent ${inbound.request.method} ${inbound.url.pathname} ${this.retryAfterUntil - now} ms before another request's Retry-After elapsed`
+          departure(requestAt(inbound), ours("no request until an earlier request's Retry-After elapsed"), shown`this one ${this.retryAfterUntil - now} ms before it did`)
         );
       }
       this.retryAfterByRequest.set(request, this.retryAfterUntil);
@@ -557,21 +584,22 @@ export class Company {
   scanSecrets(inbound: Inbound, allowed: "account-token" | "token-endpoint" | null): void {
     const headerText: string[] = [];
     inbound.request.headers.forEach((value, name) => headerText.push(`${name}: ${value}`));
-    const places: [string, string][] = [
+    const places: ["URL" | "headers" | "body", string][] = [
       ["URL", inbound.url.href],
       ["headers", headerText.join("\n")],
       ["body", inbound.bodyText]
     ];
     const check = (
       id: "secret.password" | "secret.one-time-code" | "secret.account-token",
-      kind: string,
+      kind: "password" | "one-time code" | "refresh token",
       secret: string,
       allowedHere: boolean
     ) => {
+      const only = id === "secret.account-token" ? ours("the body of a token or revocation request only") : ours("the token endpoint's body only");
       for (const [where, text] of places) {
         if (!text.includes(secret)) continue;
         if (allowedHere && where === "body") continue;
-        this.violation(id, `${kind} sent in ${where} of ${inbound.request.method} ${inbound.url.href}`);
+        this.violation(id, departure(shown`the ${ours(kind)}`, only, shown`it in the ${ours(where)} of ${show.name(inbound.request.method)} ${show.url(inbound.url)}`));
       }
     };
     for (const account of this.config.accounts) {
@@ -589,7 +617,7 @@ export class Company {
         this.accessTokens.has(value) ||
         this.accountTokens.has(value)
       ) {
-        this.violation("secret.token-in-url", `token sent in URL ${inbound.url.href}`);
+        this.violation("secret.token-in-url", departure(ours("the request URL"), ours("no token in its query"), shown`${show.code(name)}= in ${show.url(inbound.url)}`));
         // Refuse the transport itself, independently of whether the supplied token exists.
         if (!this.flawed("accept-query-token")) throw resourceError("DPoP", 400, "invalid_request");
       }
@@ -613,31 +641,32 @@ export class Company {
   async client(clientId: string): Promise<ClientInfo> {
     const cached = this.clients.get(clientId);
     if (cached) return cached;
-    const fail = (id: ViolationId, message: string): HttpError => {
-      this.violation(id, `client metadata: ${message}`);
+    /** Records `detail`, and refuses with `message` as the error_description. */
+    const fail = (id: ViolationId, detail: Problem, message: string): HttpError => {
+      this.violation(id, detail);
       return oauthError(401, "invalid_client", message);
     };
     let url: URL;
     try {
       url = new URL(clientId);
     } catch {
-      throw fail("client-metadata.not-url", `client_id ${JSON.stringify(clientId)} is not a URL`);
+      throw fail("client-metadata.not-url", departure(ours("client_id"), ours("an HTTPS URL"), show.text(clientId, 200)), `client_id ${JSON.stringify(clientId)} is not a URL`);
     }
-    if (url.protocol !== "https:") throw fail("client-metadata.not-https", "client_id must be an https URL");
+    if (url.protocol !== "https:") throw fail("client-metadata.not-https", departure(ours("client_id"), ours("an https URL"), show.url(url)), "client_id must be an https URL");
     const response = await this.#fetchAgent(clientId);
     if (response.status !== 200) {
-      throw fail("client-metadata.fetch-status", `fetching client_id returned ${response.status}; it must not redirect`);
+      throw fail("client-metadata.fetch-status", departure(ours("fetching client_id"), ours("HTTP 200, without a redirect"), show.status(response.status)), `fetching client_id returned ${response.status}; it must not redirect`);
     }
     let metadata: Record<string, unknown>;
     try {
       metadata = (await response.json()) as Record<string, unknown>;
     } catch {
-      throw fail("client-metadata.not-json", "client metadata is not JSON");
+      throw fail("client-metadata.not-json", departure(ours("the client metadata"), ours("a JSON document"), shown`a body that doesn't parse as JSON (${show.type(response.headers.get("Content-Type"))})`), "client metadata is not JSON");
     }
     // A document a test serves in its place isn't what the agent publishes.
     if (!this.served.has(clientId)) this.sent.push({ method: "GET", url: clientId, clientMetadata: metadata });
     if (metadata.client_id !== clientId) {
-      throw fail("client-metadata.client-id-mismatch", "client_id in the document doesn't equal the URL it was fetched from");
+      throw fail("client-metadata.client-id-mismatch", departure(ours("the document's client_id"), shown`the URL it was fetched from, ${show.url(clientId)}`, urlOrKind(metadata.client_id)), "client_id in the document doesn't equal the URL it was fetched from");
     }
     const sameDomain = (value: unknown): value is string => {
       if (typeof value !== "string") return false;
@@ -649,25 +678,28 @@ export class Company {
       }
     };
     if (!sameDomain(metadata.jwks_uri)) {
-      throw fail("client-metadata.jwks-uri", "jwks_uri must be https on the client_id domain");
+      throw fail("client-metadata.jwks-uri", departure(ours("jwks_uri"), shown`an https URL on ${show.name(url.hostname)}, client_id's host`, urlOrKind(metadata.jwks_uri)), "jwks_uri must be https on the client_id domain");
     }
     const redirectUris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris : [];
-    if (!redirectUris.every((uri) => sameDomain(uri) || isLoopbackRedirect(uri))) {
-      throw fail("client-metadata.redirect-uris", "redirect_uris must be https on the client_id domain");
+    const strayRedirect = redirectUris.find((uri) => !sameDomain(uri) && !isLoopbackRedirect(uri));
+    if (strayRedirect !== undefined) {
+      throw fail("client-metadata.redirect-uris", departure(ours("each redirect_uri"), shown`an https URL on ${show.name(url.hostname)}, client_id's host, or a loopback redirect URI`, urlOrKind(strayRedirect)), "redirect_uris must be https on the client_id domain");
     }
     if (metadata.token_endpoint_auth_method !== "private_key_jwt") {
-      this.violation("client-metadata.auth-method", "client metadata: token_endpoint_auth_method should be private_key_jwt");
+      this.violation("client-metadata.auth-method", departure(ours("token_endpoint_auth_method"), ours("private_key_jwt"), show.value(metadata.token_endpoint_auth_method)));
     }
     const jwksResponse = await this.#fetchAgent(metadata.jwks_uri as string);
-    if (jwksResponse.status !== 200) throw fail("client-metadata.jwks-status", `jwks_uri returned ${jwksResponse.status}`);
+    if (jwksResponse.status !== 200) throw fail("client-metadata.jwks-status", departure(ours("fetching jwks_uri"), ours("HTTP 200"), show.status(jwksResponse.status)), `jwks_uri returned ${jwksResponse.status}`);
     const jwks = (await jwksResponse.json().catch(() => ({}))) as JSONWebKeySet;
-    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) throw fail("client-metadata.jwks-empty", "JWKS has no keys");
+    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) {
+      throw fail("client-metadata.jwks-empty", departure(ours("the JWKS"), ours("at least one key"), Array.isArray(jwks.keys) ? ours("an empty keys array") : shown`keys as ${show.kind(jwks.keys)}`), "JWKS has no keys");
+    }
     for (const key of jwks.keys) {
       if (isPrivateJwk(key as unknown as Record<string, unknown>)) {
-        throw fail("client-metadata.jwks-private", "JWKS publishes a private key");
+        throw fail("client-metadata.jwks-private", departure(ours("each JWKS key"), ours("a public key only"), privateMembers(key as unknown as Record<string, unknown>)), "JWKS publishes a private key");
       }
       if (!key.kid) {
-        this.violation("client-metadata.key-without-kid", "client metadata: JWKS key without kid (Guides: give every key a kid)");
+        this.violation("client-metadata.key-without-kid", departure(ours("each JWKS key"), ours("a kid"), ours("a key without one")));
       }
     }
     const info: ClientInfo = {
@@ -689,21 +721,21 @@ export class Company {
     kind: SignedKind,
     error: () => HttpError
   ): Promise<JWTPayload> {
-    const label = "client assertion";
     if (!header.alg || !CLIENT_ASSERTION_ALGS.includes(header.alg)) {
-      this.violation(`${kind}.alg`, `${label}: alg ${header.alg} is not allowed`);
+      this.violation(`${kind}.alg`, departure(ours("the client assertion's alg"), ours("ES256 or PS384"), show.value(header.alg)));
       throw error();
     }
     if (header.jku || header.x5u || header.jwk) {
-      this.violation(`${kind}.embedded-key`, `${label}: embeds or points to a key (jku/x5u/jwk)`);
+      const named = (["jku", "x5u", "jwk"] as const).filter((name) => header[name] !== undefined).map((name) => ours(name));
+      this.violation(`${kind}.embedded-key`, departure(ours("the client assertion's header"), ours("no key of its own: no jku, x5u or jwk"), show.list(named)));
     }
     if (this.config.strictAssertions) {
       if (header.typ !== "JWT") {
-        this.violation(`${kind}.typ`, `${label}: strict Company: header typ must be "JWT", got ${JSON.stringify(header.typ)}`);
+        this.violation(`${kind}.typ`, departure(ours("the client assertion's typ"), ours("\"JWT\", as the strict Company reads S2"), show.value(header.typ)));
         throw error();
       }
       if (!header.kid || !client.jwks.keys.some((key) => key.kid === header.kid)) {
-        this.violation(`${kind}.kid`, `${label}: strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
+        this.violation(`${kind}.kid`, departure(ours("the client assertion's kid"), ours("the kid of a key in the client's JWKS, as the strict Company reads S2"), show.value(header.kid)));
         throw error();
       }
     }
@@ -714,21 +746,20 @@ export class Company {
       });
       return payload;
     } catch (cause) {
-      this.violation(`${kind}.signature`, `${label}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      this.violation(`${kind}.signature`, departure(ours("the client assertion"), ours("a signature by a key in the client's JWKS, within its exp"), show.text(cause instanceof Error ? cause.message : String(cause))));
       throw error();
     }
   }
 
   #checkLifetime(kind: SignedKind, payload: JWTPayload): boolean {
-    const label = "client assertion";
     if (typeof payload.iat !== "number" || typeof payload.exp !== "number") {
-      this.violation(`${kind}.iat-exp-missing`, `${label}: iat and exp are required`);
+      this.violation(`${kind}.iat-exp-missing`, departure(ours("the client assertion's iat and exp"), ours("two numbers"), shown`iat as ${show.kind(payload.iat)} and exp as ${show.kind(payload.exp)}`));
       return false;
     }
     const final = !this.config.protocolVersion.startsWith("0.");
     const longest = final || !this.config.strictAssertions ? MAX_ASSERTION_LIFETIME : STRICT_ASSERTION_LIFETIME;
     if (payload.exp - payload.iat > longest) {
-      this.violation(final ? "client-assertion.lifetime-1.0" : `${kind}.lifetime`, `${label}: lifetime ${payload.exp - payload.iat}s is too long (at most ${longest}s)`);
+      this.violation(final ? "client-assertion.lifetime-1.0" : `${kind}.lifetime`, departure(ours("the client assertion's lifetime"), shown`at most ${longest} s`, shown`${payload.exp - payload.iat} s`));
       return false;
     }
     return true;
@@ -746,7 +777,7 @@ export class Company {
   async authenticateClient(form: URLSearchParams, endpoint: string): Promise<ClientInfo> {
     const assertion = form.get("client_assertion");
     if (form.get("client_assertion_type") !== CLIENT_ASSERTION_TYPE || !assertion) {
-      this.violation("client-assertion.missing", `no client assertion at ${endpoint}`);
+      this.violation("client-assertion.missing", departure(shown`the request to ${show.url(endpoint)}`, ours("a client_assertion of client_assertion_type jwt-bearer"), assertion ? shown`client_assertion_type ${show.value(form.get("client_assertion_type") ?? undefined)}` : ours("no client_assertion")));
       throw oauthError(401, "invalid_client", "client assertion is required");
     }
     const clientId = form.get("client_id") ?? this.#assertedClient(assertion);
@@ -761,29 +792,29 @@ export class Company {
       header = decodeProtectedHeader(assertion);
       decodeJwt(assertion);
     } catch {
-      this.violation("client-assertion.not-jwt", "client assertion: not a JWT");
+      this.violation("client-assertion.not-jwt", departure(ours("the client assertion"), ours("a JWT"), ours("a value that doesn't decode as one")));
       throw oauthError(401, "invalid_client", "client assertion is not a JWT");
     }
     // Explicit typing (RFC 8725 3.11, 5.2): a DPoP proof, Session JWT or delegation is never a client assertion.
     if (header.typ === "dpop+jwt" || header.typ === "poppy-session+jwt" || header.typ === "poppy-delegation+jwt") {
-      this.violation("client-assertion.wrong-typ", `client assertion has typ ${header.typ}`);
+      this.violation("client-assertion.wrong-typ", departure(ours("the client assertion's typ"), ours("a client assertion's, not a DPoP proof's, Session JWT's or delegation's"), show.value(header.typ)));
       throw oauthError(401, "invalid_client");
     }
     const payload = await this.#verifyClientJwt(client, assertion, header, "client-assertion", () =>
       oauthError(401, "invalid_client", "client assertion did not verify")
     );
     if (Array.isArray(payload.aud)) {
-      this.violation("client-assertion.aud-array", "client assertion: aud is an array");
+      this.violation("client-assertion.aud-array", departure(ours("the client assertion's aud"), ours("the issuer, as a single string"), show.kind(payload.aud)));
       throw oauthError(401, "invalid_client");
     }
     // 4.1: the issuer, as a single string, compared character for character; never an endpoint.
     const audiences = [this.hosts.issuer, ...(this.flawed("accept-token-endpoint-aud") ? [this.hosts.tokenEndpoint] : [])];
     if (typeof payload.aud !== "string" || !audiences.includes(payload.aud)) {
-      this.violation("client-assertion.aud", `client assertion: aud ${JSON.stringify(payload.aud)} is not the issuer ${this.hosts.issuer}`);
+      this.violation("client-assertion.aud", departure(ours("the client assertion's aud"), shown`the issuer, ${show.text(this.hosts.issuer, 200)}`, typeof payload.aud === "string" ? show.text(payload.aud, 200) : show.kind(payload.aud)));
       throw oauthError(401, "invalid_client");
     }
     if (payload.iss !== clientId || payload.sub !== clientId) {
-      this.violation("client-assertion.iss-sub", "client assertion: iss and sub must both be the client_id");
+      this.violation("client-assertion.iss-sub", departure(ours("the client assertion's iss and sub"), shown`both the client_id, ${show.url(clientId)}`, shown`iss ${urlOrKind(payload.iss)} and sub ${urlOrKind(payload.sub)}`));
       throw oauthError(401, "invalid_client");
     }
     if (!this.#checkLifetime("client-assertion", payload)) {
@@ -822,7 +853,7 @@ export class Company {
           (!random && words.includes(account.email.split("@")[0]!.toLowerCase()))
       );
       if (userId.includes("@") || personal) {
-        this.violation("user-id.personal", `User ID ${JSON.stringify(userId)} contains personal information`);
+        this.violation("user-id.personal", departure(ours("the User ID"), ours("an identifier with no personal information"), shown`${show.value(userId)}, which holds an account's email address or its name`));
       }
     }
     this.userIds.add(userId);
@@ -840,8 +871,12 @@ export class Company {
   ): Promise<string> {
     const atTokenEndpoint = accessToken === undefined;
     const origin = inbound.url.origin;
-    const fail = (error: string, why: string, id: ViolationId | null): HttpError => {
-      if (id) this.violation(id, `DPoP: ${why} (${inbound.request.method} ${inbound.url.pathname})`);
+    const where = requestAt(inbound);
+    /** The DPoP proof's `part` on this request, as a check's subject. */
+    const onProof = (part: Shown): Shown => shown`${part} on ${where}`;
+    /** Records `detail` under `id` when there is one, and refuses with `why` as the error_description. */
+    const fail = (error: string, why: string, id: ViolationId | null, detail?: Problem): HttpError => {
+      if (id && detail) this.violation(id, detail);
       const headers: Record<string, string> = { "WWW-Authenticate": `DPoP error="${error}"` };
       if (error === "use_dpop_nonce") headers["DPoP-Nonce"] = this.nonceFor(origin);
       return atTokenEndpoint
@@ -851,50 +886,53 @@ export class Company {
           });
     };
     const proofs = inbound.request.headers.get("DPoP");
-    if (!proofs) throw fail("invalid_dpop_proof", "missing DPoP header", "dpop.missing");
-    if (proofs.includes(",")) throw fail("invalid_dpop_proof", "more than one DPoP proof", "dpop.multiple");
+    if (!proofs) throw fail("invalid_dpop_proof", "missing DPoP header", "dpop.missing", departure(onProof(ours("the DPoP header")), ours("a DPoP proof for the DPoP-bound token"), ours("none")));
+    if (proofs.includes(",")) {
+      throw fail("invalid_dpop_proof", "more than one DPoP proof", "dpop.multiple", departure(onProof(ours("the DPoP header")), ours("one proof"), shown`${proofs.split(",").length} proofs`));
+    }
     let header;
     let claims: JWTPayload;
     try {
       header = decodeProtectedHeader(proofs);
       claims = decodeJwt(proofs);
     } catch {
-      throw fail("invalid_dpop_proof", "proof is not a JWT", "dpop.not-jwt");
+      throw fail("invalid_dpop_proof", "proof is not a JWT", "dpop.not-jwt", departure(onProof(ours("the DPoP proof")), ours("a JWT"), ours("a value that doesn't decode as one")));
     }
-    if (header.typ !== "dpop+jwt") throw fail("invalid_dpop_proof", `typ is ${header.typ}`, "dpop.typ");
+    if (header.typ !== "dpop+jwt") throw fail("invalid_dpop_proof", `typ is ${header.typ}`, "dpop.typ", departure(onProof(ours("the DPoP proof's typ")), ours("dpop+jwt"), show.value(header.typ)));
     if (!header.alg || !SIGNING_ALGS.includes(header.alg)) {
-      throw fail("invalid_dpop_proof", `alg ${header.alg} not allowed`, "dpop.alg");
+      throw fail("invalid_dpop_proof", `alg ${header.alg} not allowed`, "dpop.alg", departure(onProof(ours("the DPoP proof's alg")), ours("ES256 or RS256"), show.value(header.alg)));
     }
     const jwk = header.jwk as JWK | undefined;
-    if (!jwk) throw fail("invalid_dpop_proof", "no jwk in header", "dpop.no-jwk");
+    if (!jwk) throw fail("invalid_dpop_proof", "no jwk in header", "dpop.no-jwk", departure(onProof(ours("the DPoP proof's header")), ours("a jwk"), ours("none")));
     if (isPrivateJwk(jwk as unknown as Record<string, unknown>)) {
-      throw fail("invalid_dpop_proof", "jwk contains a private key", "dpop.private-jwk");
+      throw fail("invalid_dpop_proof", "jwk contains a private key", "dpop.private-jwk", departure(onProof(ours("the DPoP proof's jwk")), ours("a public key only"), privateMembers(jwk as unknown as Record<string, unknown>)));
     }
     try {
       const key = await importJWK(jwk, header.alg);
       await jwtVerify(proofs, key, { typ: "dpop+jwt", algorithms: SIGNING_ALGS });
     } catch (cause) {
-      throw fail("invalid_dpop_proof", `signature: ${cause instanceof Error ? cause.message : String(cause)}`, "dpop.signature");
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw fail("invalid_dpop_proof", `signature: ${message}`, "dpop.signature", departure(onProof(ours("the DPoP proof")), ours("a signature by its jwk"), show.text(message)));
     }
     const htu = `${inbound.url.origin}${inbound.url.pathname}`;
     if (claims.htm !== inbound.request.method) {
-      throw fail("invalid_dpop_proof", `htm ${String(claims.htm)} != ${inbound.request.method}`, "dpop.htm");
+      throw fail("invalid_dpop_proof", `htm ${String(claims.htm)} != ${inbound.request.method}`, "dpop.htm", departure(onProof(ours("the DPoP proof's htm")), shown`the request's method, ${show.value(inbound.request.method)}`, show.value(claims.htm)));
     }
     if (claims.htu !== htu) {
-      const error = fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`, "dpop.htu");
+      const error = fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`, "dpop.htu", departure(onProof(ours("the DPoP proof's htu")), shown`the request URL without its query, ${show.url(htu)}`, urlOrKind(claims.htu)));
       if (!this.flawed("accept-wrong-htu")) throw error;
     }
     // Proofs carry the agent's real time; the fake clock moves only request timing.
     const now = Math.floor(Date.now() / 1000);
     if (typeof claims.iat !== "number" || Math.abs(now - claims.iat) > DPOP_WINDOW + SKEW) {
-      throw fail("invalid_dpop_proof", "iat outside the acceptance window", "dpop.iat");
+      throw fail("invalid_dpop_proof", "iat outside the acceptance window", "dpop.iat", departure(onProof(ours("the DPoP proof's iat")), shown`a time within ${DPOP_WINDOW + SKEW} s of now`, offset(claims.iat, now)));
     }
     if (!this.freshJti("dpop", claims.jti)) {
       throw fail("invalid_dpop_proof", "jti reused", null);
     }
     // At the token endpoint there's no access token, so ath isn't checked (RFC 9449 4.3).
     if (!atTokenEndpoint && claims.ath !== (await sha256b64(accessToken))) {
-      throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath");
+      throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath", departure(onProof(ours("the DPoP proof's ath")), ours("the hash of the access token sent"), claims.ath === undefined ? ours("none") : ours("another value")));
     }
     const jkt = await calculateJwkThumbprint(jwk);
     if (this.config.nonceLoop) {
@@ -917,7 +955,7 @@ export class Company {
         if (claims.nonce === undefined && since !== undefined && claims.iat > since) {
           this.violation(
             "dpop.nonce-ignored",
-            `DPoP: proof without the nonce this key already used at ${origin} (must keep using nonces)`
+            departure(shown`a DPoP proof at ${show.name(origin)}`, ours("the nonce this key already used at this server"), ours("none"), ours("A key keeps using a server's nonces"))
           );
         }
         throw fail("use_dpop_nonce", "nonce required", null);
@@ -1019,8 +1057,9 @@ export class Company {
     const cached = this.#delegations.get(delegation);
     const now = Math.floor(Date.now() / 1000);
     if (cached && cached.clientId === client.clientId && cached.exp > now) return cached.jwk;
-    const fail = (id: ViolationId, why: string): HttpError => {
-      this.violation(id, `delegation: ${why}`);
+    /** Records `detail`, and refuses with `why` as the error_description. */
+    const fail = (id: ViolationId, why: string, detail: Problem): HttpError => {
+      this.violation(id, detail);
       return this.invalidSession(why);
     };
     let header;
@@ -1029,31 +1068,53 @@ export class Company {
       header = decodeProtectedHeader(delegation);
       claims = decodeJwt(delegation);
     } catch {
-      throw fail("delegation.not-jwt", "poppy_dlg is not a JWT");
+      throw fail("delegation.not-jwt", "poppy_dlg is not a JWT", departure(ours("poppy_dlg"), ours("a JWT"), ours("a value that doesn't decode as one")));
     }
-    if (header.typ !== "poppy-delegation+jwt") throw fail("delegation.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-delegation+jwt`);
-    if (!header.alg || !DELEGATION_ALGS.includes(header.alg)) throw fail("delegation.alg", `alg ${String(header.alg)} is not ES256 or PS384`);
+    if (header.typ !== "poppy-delegation+jwt") {
+      throw fail("delegation.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-delegation+jwt`, departure(ours("the delegation's typ"), ours("poppy-delegation+jwt"), show.value(header.typ)));
+    }
+    if (!header.alg || !DELEGATION_ALGS.includes(header.alg)) {
+      throw fail("delegation.alg", `alg ${String(header.alg)} is not ES256 or PS384`, departure(ours("the delegation's alg"), ours("ES256 or PS384"), show.value(header.alg)));
+    }
     const signer = client.jwks.keys.find((key) => key.kid === header.kid);
-    if (!signer) throw fail("delegation.kid", `kid ${JSON.stringify(header.kid)} names no key in jwks_uri`);
+    if (!signer) {
+      throw fail("delegation.kid", `kid ${JSON.stringify(header.kid)} names no key in jwks_uri`, departure(ours("the delegation's kid"), ours("the kid of a key in the client's jwks_uri"), show.value(header.kid)));
+    }
     try {
       // The signature alone: its times are checked below, each with its own finding.
       await compactVerify(delegation, await importJWK(signer, header.alg), { algorithms: DELEGATION_ALGS });
     } catch (cause) {
-      throw fail("delegation.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw fail("delegation.signature", `signature: ${message}`, departure(ours("the delegation"), ours("a signature by the key its kid names"), show.text(message)));
     }
-    if (claims.iss !== client.clientId) throw fail("delegation.iss", "iss isn't the Session JWT's iss");
-    if (typeof claims.iat !== "number" || typeof claims.exp !== "number") throw fail("delegation.lifetime", "iat and exp are required");
-    if (claims.exp - claims.iat > DELEGATION_LIFETIME) throw fail("delegation.lifetime", `exp is ${claims.exp - claims.iat} s after iat, more than 24 hours`);
-    if (claims.exp <= now - SKEW) throw fail("delegation.expired", "the delegation has expired");
-    if (typeof claims.jti !== "string" || claims.jti.length < 22) throw fail("delegation.jti", "jti is missing or guessable");
+    if (claims.iss !== client.clientId) {
+      throw fail("delegation.iss", "iss isn't the Session JWT's iss", departure(ours("the delegation's iss"), shown`the Session JWT's iss, ${show.url(client.clientId)}`, urlOrKind(claims.iss)));
+    }
+    if (typeof claims.iat !== "number" || typeof claims.exp !== "number") {
+      throw fail("delegation.lifetime", "iat and exp are required", departure(ours("the delegation's iat and exp"), ours("two numbers"), shown`iat as ${show.kind(claims.iat)} and exp as ${show.kind(claims.exp)}`));
+    }
+    if (claims.exp - claims.iat > DELEGATION_LIFETIME) {
+      throw fail("delegation.lifetime", `exp is ${claims.exp - claims.iat} s after iat, more than 24 hours`, departure(ours("the delegation's lifetime"), shown`at most 24 hours (${DELEGATION_LIFETIME} s)`, shown`${claims.exp - claims.iat} s`));
+    }
+    if (claims.exp <= now - SKEW) throw fail("delegation.expired", "the delegation has expired", departure(ours("the delegation's exp"), ours("a time to come"), ours("a time past")));
+    if (typeof claims.jti !== "string" || claims.jti.length < 22) {
+      const got = typeof claims.jti === "string" ? shown`${claims.jti.length} characters` : show.kind(claims.jti);
+      throw fail("delegation.jti", "jti is missing or guessable", departure(ours("the delegation's jti"), ours("128 random bits, 22 characters or more"), got));
+    }
     const cnf = claims.cnf as { jwk?: unknown } | undefined;
     const jwk = cnf && typeof cnf.jwk === "object" && cnf.jwk !== null ? (cnf.jwk as JWK) : null;
-    if (!jwk) throw fail("delegation.cnf", "cnf.jwk is missing");
-    if (isPrivateJwk(jwk as unknown as Record<string, unknown>)) throw fail("delegation.private-key", "cnf.jwk contains private key members");
+    if (!jwk) throw fail("delegation.cnf", "cnf.jwk is missing", departure(ours("the delegation's cnf"), ours("an object with a jwk"), cnf === undefined ? ours("no cnf") : shown`jwk as ${show.kind(cnf.jwk)}`));
+    if (isPrivateJwk(jwk as unknown as Record<string, unknown>)) {
+      throw fail("delegation.private-key", "cnf.jwk contains private key members", departure(ours("the delegation's delegated key"), ours("a public key only"), privateMembers(jwk as unknown as Record<string, unknown>)));
+    }
     const extra = Object.keys(claims).filter((name) => !["iss", "cnf", "iat", "exp", "jti", "nbf"].includes(name));
     if (extra.length > 0) {
       // 5.2: "MUST NOT put a User ID, an Agent ID, a Company's issuer, or anything else about the User or the Companies they use in a delegation."
-      throw fail("delegation.names-user", `carries ${extra.join(", ")}, which can name the User or a Company`);
+      throw fail(
+        "delegation.names-user",
+        `carries ${extra.join(", ")}, which can name the User or a Company`,
+        departure(ours("the delegation's claims"), ours("only iss, cnf, iat, exp, jti and nbf"), shown`also ${show.list(extra.map((name) => show.code(name)))}`, ours("Those can name the User or a Company"))
+      );
     }
     this.#delegations.set(delegation, { clientId: client.clientId, jwk, exp: claims.exp });
     return jwk;
@@ -1081,23 +1142,24 @@ export class Company {
     const headers = inbound.request.headers;
     const input = headers.get("Signature-Input");
     if (input === null) return;
-    const where = `${inbound.request.method} ${inbound.url.pathname}`;
-    const invalid = (why: string) => this.violation("operator-signature.invalid", `operator signature: ${why} (${where})`);
+    const subject = shown`the operator signature on ${requestAt(inbound)}`;
+    const invalid = (expected: Shown, got: Shown) => this.violation("operator-signature.invalid", departure(subject, expected, got));
     const parsed = /^(\w+)=\(([^)]*)\)(;.*)$/.exec(input);
     const signature = parsed ? new RegExp(`^${parsed[1]}=:([^:]+):$`).exec(headers.get("Signature") ?? "") : null;
     const agent = parsed ? new RegExp(`^${parsed[1]}="([^"]+)"`).exec(headers.get("Signature-Agent") ?? "") : null;
-    if (!parsed || !signature || !agent) return invalid("Signature-Input, Signature and Signature-Agent don't share a label");
+    if (!parsed || !signature || !agent) return invalid(ours("Signature-Input, Signature and Signature-Agent under one label"), ours("headers that don't share one"));
     const [, label, list, params] = parsed;
     const items = list!.split(" ").filter(Boolean);
+    const components = shown`components ${show.list(items.map((item) => show.name(item)))}`;
     const param = (name: string) => new RegExp(`;${name}=(?:"([^"]*)"|(\\d+))`).exec(params!)?.slice(1).find((v) => v !== undefined);
-    if (param("tag") !== "web-bot-auth") return invalid(`tag is ${param("tag")}, not web-bot-auth`);
+    if (param("tag") !== "web-bot-auth") return invalid(ours("tag web-bot-auth"), shown`tag ${show.value(param("tag"))}`);
     const now = Math.floor(Date.now() / 1000);
-    if (!(Number(param("created")) <= now + 60 && Number(param("expires")) >= now)) return invalid("outside its created and expires");
+    if (!(Number(param("created")) <= now + 60 && Number(param("expires")) >= now)) return invalid(ours("now between its created and expires"), ours("a time outside them"));
     const covers = (id: string) => items.includes(`"${id}"`);
     if (!covers("poppy-session") || (headers.has("Authorization") && !covers("authorization"))) {
-      this.violation("operator-signature.components", `operator signature: covers ${list}, without poppy-session${headers.has("Authorization") ? " and authorization" : ""} (${where})`);
+      this.violation("operator-signature.components", departure(subject, headers.has("Authorization") ? ours("components with poppy-session and authorization") : ours("components with poppy-session"), components));
     }
-    if (!items.includes(`"signature-agent";key="${label}"`) || !(covers("@authority") || covers("@target-uri"))) return invalid("doesn't cover @authority and its Signature-Agent member");
+    if (!items.includes(`"signature-agent";key="${label}"`) || !(covers("@authority") || covers("@target-uri"))) return invalid(ours("components with @authority or @target-uri, and its Signature-Agent member"), components);
     const directoryUrl = `${new URL(agent[1]!).origin}/.well-known/http-message-signatures-directory`;
     let directory = this.#operatorDirectories.get(directoryUrl);
     if (!directory) {
@@ -1105,7 +1167,7 @@ export class Company {
       this.#operatorDirectories.set(directoryUrl, directory);
     }
     const jwk = (await directory)?.keys.find((key) => key.kid === param("keyid"));
-    if (!jwk) return invalid(`keyid ${param("keyid")} isn't in ${directoryUrl}`);
+    if (!jwk) return invalid(shown`a keyid in ${show.url(directoryUrl)}`, shown`keyid ${show.value(param("keyid"))}`);
     const lines: string[] = [];
     for (const item of items) {
       let value: string | null;
@@ -1115,27 +1177,30 @@ export class Company {
       else if (item === '"@target-uri"') value = inbound.url.href;
       else if (item === `"signature-agent";key="${label}"`) value = `"${agent[1]}"`;
       else value = headers.get(item.replace(/^"|"$/g, ""));
-      if (value === null) return invalid(`covers ${item}, which the request lacks`);
+      if (value === null) return invalid(ours("components the request has"), shown`${show.name(item)}, which it lacks`);
       lines.push(`${item}: ${value}`);
     }
     lines.push(`"@signature-params": (${list})${params}`);
     const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x as string }, { name: "Ed25519" }, false, ["verify"]);
     const bytes = Uint8Array.from(atob(signature[1]!), (char) => char.charCodeAt(0));
-    if (!(await crypto.subtle.verify({ name: "Ed25519" }, key, bytes, new TextEncoder().encode(lines.join("\n"))))) invalid("the signature doesn't verify");
+    if (!(await crypto.subtle.verify({ name: "Ed25519" }, key, bytes, new TextEncoder().encode(lines.join("\n"))))) invalid(ours("a signature that verifies"), ours("one that doesn't"));
   }
 
   async verifySessionHeader(inbound: Inbound, accessToken: string | null): Promise<{ readonly client: ClientInfo; readonly session: Session }> {
     await this.#checkOperatorSignature(inbound);
-    const where = `${inbound.request.method} ${inbound.url.pathname}`;
-    const fail = (id: ViolationId, why: string): HttpError => {
-      this.violation(id, `Session JWT: ${why} (${where})`);
+    const where = requestAt(inbound);
+    /** `part` of the Session header on this request, as a check's subject. */
+    const on = (part: Shown): Shown => shown`${part} on ${where}`;
+    /** Records `detail`, and refuses with `why` as the error_description. */
+    const fail = (id: ViolationId, why: string, detail: Problem): HttpError => {
+      this.violation(id, detail);
       return this.invalidSession(why);
     };
     const value = inbound.request.headers.get("Poppy-Session");
     if (!value) {
       throw accessToken !== null
-        ? fail("session-jwt.missing-with-token", "an access token without the Session header")
-        : fail("session-jwt.missing", "no Poppy-Session header");
+        ? fail("session-jwt.missing-with-token", "an access token without the Session header", departure(on(ours("the request")), ours("a Poppy-Session header beside its access token"), ours("none")))
+        : fail("session-jwt.missing", "no Poppy-Session header", departure(on(ours("the request")), ours("a Poppy-Session header"), ours("none")));
     }
     let header;
     let claims: JWTPayload;
@@ -1143,12 +1208,16 @@ export class Company {
       header = decodeProtectedHeader(value);
       claims = decodeJwt(value);
     } catch {
-      throw fail("session-jwt.not-jwt", "Poppy-Session is not a JWT");
+      throw fail("session-jwt.not-jwt", "Poppy-Session is not a JWT", departure(on(ours("Poppy-Session")), ours("a JWT"), ours("a value that doesn't decode as one")));
     }
-    if (header.typ !== "poppy-session+jwt") throw fail("session-jwt.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-session+jwt`);
-    if (header.alg !== "ES256") throw fail("session-jwt.alg", `alg ${String(header.alg)} is not ES256`);
-    if (typeof header.poppy_dlg !== "string") throw fail("session-jwt.no-delegation", "no poppy_dlg delegation in the header");
-    if (typeof claims.iss !== "string") throw fail("session-jwt.iss", "iss is missing");
+    if (header.typ !== "poppy-session+jwt") {
+      throw fail("session-jwt.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-session+jwt`, departure(on(ours("the Session JWT's typ")), ours("poppy-session+jwt"), show.value(header.typ)));
+    }
+    if (header.alg !== "ES256") throw fail("session-jwt.alg", `alg ${String(header.alg)} is not ES256`, departure(on(ours("the Session JWT's alg")), ours("ES256"), show.value(header.alg)));
+    if (typeof header.poppy_dlg !== "string") {
+      throw fail("session-jwt.no-delegation", "no poppy_dlg delegation in the header", departure(on(ours("the Session JWT's poppy_dlg")), ours("a delegation, as a string"), show.kind(header.poppy_dlg)));
+    }
+    if (typeof claims.iss !== "string") throw fail("session-jwt.iss", "iss is missing", departure(on(ours("the Session JWT's iss")), ours("the client_id, as a string"), show.kind(claims.iss)));
     // 4.1: a refused Personal Agent gets `invalid_session` at a resource, as `invalid_client` at the authorization server.
     const registered = this.config.requireRegistration;
     if (registered && !registered.includes(claims.iss)) throw this.invalidSession("this Personal Agent is not accepted");
@@ -1160,35 +1229,57 @@ export class Company {
       throw error;
     }
     const jwk = await this.#verifyDelegation(client, header.poppy_dlg);
-    if (header.kid !== (await calculateJwkThumbprint(jwk))) throw fail("session-jwt.kid", "kid isn't the delegated key's JWK thumbprint");
+    if (header.kid !== (await calculateJwkThumbprint(jwk))) {
+      throw fail("session-jwt.kid", "kid isn't the delegated key's JWK thumbprint", departure(on(ours("the Session JWT's kid")), ours("the delegated key's JWK thumbprint"), show.value(header.kid)));
+    }
     try {
       await jwtVerify(value, await importJWK(jwk, "ES256"), { algorithms: ["ES256"], typ: "poppy-session+jwt" });
     } catch (cause) {
-      throw fail("session-jwt.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw fail("session-jwt.signature", `signature: ${message}`, departure(on(ours("the Session JWT")), ours("a signature by the delegated key"), show.text(message)));
     }
     const delegation = this.#delegations.get(header.poppy_dlg)!;
-    if (typeof claims.iat !== "number") throw fail("session-jwt.iat", "iat is missing");
-    if (claims.iat > delegation.exp) throw fail("session-jwt.after-delegation", "signed after its delegation expired");
-    if (Array.isArray(claims.aud) || claims.aud !== this.identifier) throw fail("session-jwt.aud", `aud ${JSON.stringify(claims.aud)} isn't the Company's identifier ${this.identifier} as a single string`);
-    if (claims.htm !== inbound.request.method) throw fail("session-jwt.htm", `htm ${String(claims.htm)} isn't ${inbound.request.method}`);
-    if (claims.htu !== `${inbound.url.origin}${inbound.url.pathname}`) throw fail("session-jwt.htu", `htu ${String(claims.htu)} isn't this URL without its query`);
+    if (typeof claims.iat !== "number") throw fail("session-jwt.iat", "iat is missing", departure(on(ours("the Session JWT's iat")), ours("a number"), show.kind(claims.iat)));
+    if (claims.iat > delegation.exp) {
+      throw fail("session-jwt.after-delegation", "signed after its delegation expired", departure(on(ours("the Session JWT's iat")), ours("a time before its delegation's exp"), shown`one ${claims.iat - delegation.exp} s after it`));
+    }
+    if (Array.isArray(claims.aud) || claims.aud !== this.identifier) {
+      const got = typeof claims.aud === "string" ? show.text(claims.aud, 200) : show.kind(claims.aud);
+      throw fail("session-jwt.aud", `aud ${JSON.stringify(claims.aud)} isn't the Company's identifier ${this.identifier} as a single string`, departure(on(ours("the Session JWT's aud")), shown`the Company's identifier, ${show.text(this.identifier, 200)}, as a single string`, got));
+    }
+    if (claims.htm !== inbound.request.method) {
+      throw fail("session-jwt.htm", `htm ${String(claims.htm)} isn't ${inbound.request.method}`, departure(on(ours("the Session JWT's htm")), shown`the request's method, ${show.value(inbound.request.method)}`, show.value(claims.htm)));
+    }
+    if (claims.htu !== `${inbound.url.origin}${inbound.url.pathname}`) {
+      throw fail("session-jwt.htu", `htu ${String(claims.htu)} isn't this URL without its query`, departure(on(ours("the Session JWT's htu")), shown`the request URL without its query, ${show.url(`${inbound.url.origin}${inbound.url.pathname}`)}`, urlOrKind(claims.htu)));
+    }
     // Session JWTs carry the agent's real time; the fake clock moves only request timing.
-    if (Math.abs(Math.floor(Date.now() / 1000) - claims.iat) > SESSION_JWT_WINDOW + SKEW) throw fail("session-jwt.iat", "iat is outside the acceptance window");
+    if (Math.abs(Math.floor(Date.now() / 1000) - claims.iat) > SESSION_JWT_WINDOW + SKEW) {
+      throw fail("session-jwt.iat", "iat is outside the acceptance window", departure(on(ours("the Session JWT's iat")), shown`a time within ${SESSION_JWT_WINDOW + SKEW} s of now`, offset(claims.iat, Math.floor(Date.now() / 1000))));
+    }
     if (!this.freshJti("session-jwt", claims.jti)) throw this.invalidSession("jti missing or reused");
-    if (typeof claims.sid !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(claims.sid)) throw fail("session-jwt.sid", "sid isn't 1 to 256 URL-safe characters");
-    if (typeof claims.sub !== "string" || claims.sub === "") throw fail("session-jwt.sub", "sub (the User ID) is missing");
-    if ("agent_id" in claims && (typeof claims.agent_id !== "string" || claims.agent_id === "")) throw fail("session-jwt.sub", "agent_id isn't a string");
+    if (typeof claims.sid !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(claims.sid)) {
+      throw fail("session-jwt.sid", "sid isn't 1 to 256 URL-safe characters", departure(on(ours("the Session JWT's sid")), ours("1 to 256 URL-safe characters"), show.value(claims.sid)));
+    }
+    if (typeof claims.sub !== "string" || claims.sub === "") {
+      throw fail("session-jwt.sub", "sub (the User ID) is missing", departure(on(ours("the Session JWT's sub")), ours("the User ID, a non-empty string"), show.value(claims.sub)));
+    }
+    if ("agent_id" in claims && (typeof claims.agent_id !== "string" || claims.agent_id === "")) {
+      throw fail("session-jwt.sub", "agent_id isn't a string", departure(on(ours("the Session JWT's agent_id")), ours("a non-empty string"), show.value(claims.agent_id)));
+    }
     if (accessToken !== null) {
-      if (claims.ath !== (await sha256b64(accessToken))) throw fail("session-jwt.ath", "ath doesn't match the access token");
+      if (claims.ath !== (await sha256b64(accessToken))) {
+        throw fail("session-jwt.ath", "ath doesn't match the access token", departure(on(ours("the Session JWT's ath")), ours("the hash of the access token sent"), claims.ath === undefined ? ours("none") : ours("another value")));
+      }
     } else if ("ath" in claims) {
-      throw fail("session-jwt.ath-without-token", "ath without an access token");
+      throw fail("session-jwt.ath-without-token", "ath without an access token", departure(on(ours("the Session JWT")), ours("no ath, with no access token sent"), ours("an ath")));
     }
     const thumbprint = header.kid;
     const first = this.delegatedKeyUsers.get(thumbprint);
     if (first === undefined) this.delegatedKeyUsers.set(thumbprint, `${client.clientId}|${claims.sub}`);
     else if (first !== `${client.clientId}|${claims.sub}`) {
       // 5.2: "MUST use each delegated key, and its delegation, for one User ID only."
-      this.violation("delegation.key-shared", `delegated key ${thumbprint} signed for another User ID`);
+      this.violation("delegation.key-shared", departure(shown`delegated key ${show.value(thumbprint)}`, ours("signatures for one User ID"), ours("one for another User ID")));
     }
     this.checkUserId(claims.sub);
     const agentId = typeof claims.agent_id === "string" ? claims.agent_id : null;
@@ -1199,7 +1290,11 @@ export class Company {
       this.sessions.set(session.id, session);
       this.sessionsBySid.set(key, session);
     } else if (session.userId !== claims.sub || (session.agentId ?? null) !== agentId) {
-      throw fail("session-jwt.sub-changed", "a known sid with another User ID or Agent ID");
+      throw fail(
+        "session-jwt.sub-changed",
+        "a known sid with another User ID or Agent ID",
+        departure(on(shown`Session ${show.value(claims.sid)}`), shown`the sub and agent_id it started with, ${show.value(session.userId)} and ${show.value(session.agentId ?? null)}`, shown`${show.value(claims.sub)} and ${show.value(agentId)}`)
+      );
     }
     if (session.ended) throw this.sessionEnded("the Session has ended");
     this.#checkVersion(inbound, session, where);
@@ -1220,18 +1315,27 @@ export class Company {
    * `version_unsupported`; the agent is at fault when it sent none, or one
    * the Company never listed. The values are fixed for a Session.
    */
-  #checkVersion(inbound: Inbound, session: Session, where: string): void {
+  #checkVersion(inbound: Inbound, session: Session, where: Shown): void {
     const header = inbound.request.headers.get("Poppy-Version");
     const version = header ?? "";
     const extensions = inbound.request.headers.get("Poppy-Extensions") ?? "";
     for (const served of this.servedVersions) this.#listed.add(served);
     // 3.4: the agent declares the version it implements, compatible with the chosen one: 1.0 for a 1.1 document.
-    if (header === null) this.violation("version.missing", `a request without Poppy-Version (${where})`);
-    else if (![...this.#listed].some((listed) => compatible(listed, version))) this.violation("version.unlisted", `Poppy-Version ${header}, which isn't compatible with a version this Company listed (${where})`);
+    if (header === null) this.violation("version.missing", departure(where, ours("a Poppy-Version header"), ours("none")));
+    else if (![...this.#listed].some((listed) => compatible(listed, version))) {
+      this.violation("version.unlisted", departure(shown`Poppy-Version on ${where}`, shown`a version compatible with one this Company listed: ${show.list([...this.#listed].map((listed) => show.code(listed)), "or")}`, show.code(header)));
+    }
     if (!this.servedVersions.some((served) => compatible(served, version))) throw new HttpError(json({ error: "version_unsupported" }, 400, { "Cache-Control": "no-store" }));
     // The same RFC 9651 List however it is written: `"operations";v="3"` and `"operations"; v="3"` alike.
     if (session.declaration && (session.declaration.version !== version || extensionsKey(session.declaration.extensions) !== extensionsKey(extensions))) {
-      this.violation("version.changed-in-session", `Session ${session.sid} declared ${session.declaration.version} ${JSON.stringify(session.declaration.extensions)}, then ${version} ${JSON.stringify(extensions)} (${where})`);
+      this.violation(
+        "version.changed-in-session",
+        departure(
+          shown`Poppy-Version and Poppy-Extensions on ${where}`,
+          shown`what Session ${show.value(session.sid)} declared first, ${show.code(session.declaration.version)} with ${declaredExtensions(session.declaration.extensions)}`,
+          shown`${show.code(version)} with ${declaredExtensions(extensions)}`
+        )
+      );
     }
     session.declaration ??= { version, extensions, declared: parseExtensions(extensions) };
   }
@@ -1269,7 +1373,7 @@ export class Company {
         throw resourceError(scheme, 401, "invalid_token");
       }
       if ((given === "DPoP") !== (token.kind === "dpop")) {
-        this.violation("resource.bearer-scheme", `${given} scheme for a ${token.kind === "dpop" ? "DPoP-bound" : "Bearer"} token on ${inbound.url.pathname}`);
+        this.violation("resource.bearer-scheme", departure(shown`the Authorization scheme on ${requestAt(inbound)}`, shown`${token.kind === "dpop" ? ours("DPoP") : ours("Bearer")}, the token's token_type`, show.code(given)));
         // A flawed Company takes a DPoP-bound token as Bearer, with no proof (RFC 9449 7.1 forbids it).
         if (!(given === "Bearer" && this.flawed("accept-bearer-scheme"))) throw resourceError(scheme, 401, "invalid_token");
       }
@@ -1278,7 +1382,7 @@ export class Company {
       const conversations = inbound.url.pathname.startsWith(new URL(this.hosts.conversationsEndpoint).pathname);
       const resource = mcp ? this.hosts.mcpUrl : this.config.apiResource && inbound.url.origin === this.hosts.api && !conversations ? this.hosts.api : null;
       if (token.resource !== resource) {
-        if (mcp) this.violation("mcp.wrong-token", "MCP request with a token not issued for this MCP server");
+        if (mcp) this.violation("mcp.wrong-token", departure(ours("the MCP request's access token"), shown`one issued for this MCP server, ${show.url(this.hosts.mcpUrl)}`, token.resource === null ? ours("one issued for no resource") : shown`one issued for ${show.url(token.resource)}`));
         throw resourceError(scheme, 401, "invalid_token", { headers: mcp ? { "WWW-Authenticate": `${scheme} error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", this.hosts.mcpUrl).href}"` } : {} });
       }
     }
@@ -1286,19 +1390,19 @@ export class Company {
     if (token && value) {
       if (token.clientId !== client.clientId) {
         // 5.3, step 3: the token was issued to the same client_id as iss. Sign-in names no User ID, so the token can't.
-        this.violation("session-jwt.token-other-client", "the access token was issued to another client");
+        this.violation("session-jwt.token-other-client", departure(ours("the access token"), shown`one issued to the Session JWT's iss, ${show.url(client.clientId)}`, shown`one issued to ${show.url(token.clientId)}`));
         throw this.invalidSession("the access token isn't this client's");
       }
       if (token.kind === "dpop" && given === "DPoP") {
         const jkt = await this.verifyDpop(inbound, value);
         if (jkt !== token.jkt) {
-          this.violation("dpop.key-mismatch", "DPoP proof key isn't the key the token is bound to");
+          this.violation("dpop.key-mismatch", departure(shown`the DPoP proof's key on ${requestAt(inbound)}`, ours("the key the token is bound to"), ours("another key")));
           if (!this.flawed("accept-other-key")) throw resourceError("DPoP", 401, "invalid_dpop_proof");
         }
       }
       if (session.boundAccount && session.boundAccount !== token.account) {
         // 5.4: "SHOULD start a new Session rather than use a second account in one Session"; the Company MAY refuse.
-        this.violation("session.second-account", `Session ${session.id} used with a second account`);
+        this.violation("session.second-account", departure(shown`Session ${show.value(session.id)}`, shown`its one account, ${show.value(session.boundAccount)}`, shown`a second, ${show.value(token.account)}`));
         throw this.sessionEnded("this Session is for another account");
       }
       session.account = token.account;
