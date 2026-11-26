@@ -3,6 +3,7 @@ import { type Json, isObject } from "./json";
 import { type JsonBody, type OpenApiOperation, type OpenApiCall } from "./openapi-document";
 import { type Company } from "./discovery";
 import { PoppyError } from "./client";
+import { departure, ours, show, shown, type Departure, type Shown } from "../diagnostic";
 import { type OutputUnit, Validator } from "@cfworker/json-schema";
 import { given } from "./openapi-request";
 
@@ -79,7 +80,16 @@ export function checkBody(company: Company, op: OpenApiOperation, body: Json | u
   if (!spec) return;
   if (body === undefined) {
     if (!spec.required) return;
-    throw new PoppyError("invalid_body", `${op.method} ${op.path} (${op.operationId}) at ${company.name} needs a JSON body: see its requestBody in poppy_api_describe. Nothing was sent.`, 0);
+    throw new PoppyError(
+      "invalid_body",
+      departure(
+        shown`the body for ${show.code(op.method)} ${show.name(op.path)} (${show.code(op.operationId)}) at ${show.name(company.name)}`,
+        ours("a JSON body"),
+        ours("none"),
+        ours("See its requestBody in poppy_api_describe. Nothing was sent")
+      ),
+      0
+    );
   }
   let errors: readonly OutputUnit[];
   try {
@@ -90,14 +100,26 @@ export function checkBody(company: Company, op: OpenApiOperation, body: Json | u
     return;
   }
   if (errors.length === 0) return;
-  const serialised = serialisedJson(errors, body, "body", `for ${op.operationId} at ${company.name}`);
-  if (serialised) throw new PoppyError("invalid_body", `${serialised} Nothing was sent.`, 0);
-  const shown = leafErrors(errors, "body");
+  const context = shown`for ${show.code(op.operationId)} at ${show.name(company.name)}`;
+  const refused = serialised(errors, body, ours("body"), context);
+  if (refused) throw new PoppyError("invalid_body", refused, 0);
   throw new PoppyError(
     "invalid_body",
-    `body for ${op.operationId} at ${company.name} doesn't match its request schema: ${shown.join("; ")}. See its requestBody in poppy_api_describe. Nothing was sent.`,
+    departure(shown`the body ${context}`, ours("a value its request schema allows"), joined(leaves(errors, ours("body"))), ours("See its requestBody in poppy_api_describe. Nothing was sent")),
     0
   );
+}
+
+/** Where in a value a JSON Pointer leads, from `where`, the value's own name: `body.items[0]`. */
+function place(where: Shown, pointer: string): Shown {
+  if (pointer === "") return where;
+  const path = show.path(pointer);
+  return path.startsWith("[") ? shown`${where}${path}` : shown`${where}.${path}`;
+}
+
+/** Problems one after another: "a; b; c". */
+function joined(problems: readonly Shown[]): Shown {
+  return problems.reduce((all, problem) => shown`${all}; ${problem}`);
 }
 
 /**
@@ -105,25 +127,37 @@ export function checkBody(company: Company, op: OpenApiOperation, body: Json | u
  * a correction naming each such place; null when there is none.
  * The model serialised the value itself, at the top or deeper in, and our
  * client would serialise it again. Strings are never parsed for it.
+ * `where` names the value (`body`), `context` what it is for. Nothing is
+ * sent with such a value, and the correction says so.
  */
-export function serialisedJson(errors: readonly OutputUnit[], value: Json, where: string, context: string): string | null {
+export function serialised(errors: readonly OutputUnit[], value: Json, where: Shown, context: Shown): Departure | null {
+  const found = serialisedPlaces(errors, value);
+  if (found.size === 0) return null;
+  const names = show.list([...found.keys()].map((pointer) => place(where, pointer)));
+  const as = found.size === 1 ? ([...found.values()][0] === "array" ? ours("a structured array") : ours("a structured object")) : ours("structured values");
+  return departure(
+    shown`${names} ${context}`,
+    ours("the JSON value itself, such as {\"product\": \"prints\"}"),
+    ours("a string containing serialised JSON"),
+    shown`Pass ${names} as ${as}. Nothing was sent`
+  );
+}
+
+/** Each place, as a JSON Pointer, where a schema refused a string that holds a JSON object or array, and which. */
+function serialisedPlaces(errors: readonly OutputUnit[], value: Json): Map<string, "object" | "array"> {
   const found = new Map<string, "object" | "array">();
   for (const { instanceLocation } of errors) {
-    const at = atPointer(value, instanceLocation.replace(/^#/, ""));
+    const pointer = instanceLocation.replace(/^#/, "");
+    const at = atPointer(value, pointer);
     if (typeof at !== "string" || !/^\s*[{[]/.test(at)) continue;
     try {
       const parsed: unknown = JSON.parse(at);
-      if (parsed !== null && typeof parsed === "object") {
-        found.set(`${where}${instanceLocation.replace(/^#/, "")}`, Array.isArray(parsed) ? "array" : "object");
-      }
+      if (parsed !== null && typeof parsed === "object") found.set(pointer, Array.isArray(parsed) ? "array" : "object");
     } catch {
       // Not JSON: the schema's own errors say what's wrong.
     }
   }
-  if (found.size === 0) return null;
-  const names = [...found.keys()].join(", ");
-  const as = found.size === 1 ? `a structured ${[...found.values()][0]}` : "structured values";
-  return `${names} ${context} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass ${names} as ${as}.`;
+  return found;
 }
 
 /** The value at a JSON Pointer (RFC 6901) in `value`, or undefined. */
@@ -150,10 +184,15 @@ export function schemaErrors(schema: Json, value: Json, draft: SchemaDraft): rea
   }
 }
 
-/** The leaves of a validation: the wrappers ($ref, properties, allOf…) only say a child failed. */
-export function leafErrors(errors: readonly OutputUnit[], where: string, limit = 5): string[] {
+/**
+ * The leaves of a validation: the wrappers ($ref, properties, allOf…) only
+ * say a child failed. Each is where, from `where`, the value's own name, and
+ * the validator's words, which quote the Company's schema (their own quotes
+ * as single ones, so they read inside ours).
+ */
+export function leaves(errors: readonly OutputUnit[], where: Shown, limit = 5): Shown[] {
   const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
-  return (leaves.length ? leaves : errors).slice(0, limit).map((unit) => `${unit.instanceLocation.replace(/^#/, where) || where}: ${unit.error}`);
+  return (leaves.length ? leaves : errors).slice(0, limit).map((unit) => shown`${place(where, unit.instanceLocation.replace(/^#/, ""))}: ${show.text(unit.error.replace(/"/g, "'").replace(/\.$/, ""))}`);
 }
 
 /**
@@ -174,24 +213,48 @@ function readings(value: string | number | boolean): Json[] {
  * A schema we can't read refuses nothing: the Company decides.
  */
 export function checkParams(company: Pick<Company, "name">, op: OpenApiOperation, params: OpenApiCall["params"]): void {
-  const problems: string[] = [];
+  const problems: Shown[] = [];
   for (const { name, schema } of op.parameters) {
     const value = given(params, name);
     if (value === undefined) continue;
+    const at = place(ours("params"), `/${name.replace(/~/g, "~0").replace(/\//g, "~1")}`);
     if (op.parameters.some((parameter) => parameter.name === name && parameter.in === "header") && /[^\t\x20-\x7e]/.test(String(value))) {
-      problems.push(`params.${name}: a header value must be one line of printable ASCII`);
+      problems.push(shown`${at}: a header value must be one line of printable ASCII`);
       continue;
     }
     if (schema === undefined) continue;
     const errors = schemaErrors(schema, value, op.schemaDraft);
     if (!errors || errors.length === 0) continue;
     if (readings(value).some((reading) => schemaErrors(schema, reading, op.schemaDraft)?.length === 0)) continue;
-    problems.push(...leafErrors(errors, `params.${name}`, 3));
+    problems.push(...leaves(errors, at, 3));
   }
   if (problems.length === 0) return;
   throw new PoppyError(
     "invalid_params",
-    `params for ${op.operationId} at ${company.name} don't match their schemas: ${problems.slice(0, 5).join("; ")}. See its parameters in poppy_api_describe. Nothing was sent.`,
+    departure(
+      shown`the params for ${show.code(op.operationId)} at ${show.name(company.name)}`,
+      ours("values their schemas allow"),
+      joined(problems.slice(0, 5)),
+      ours("See its parameters in poppy_api_describe. Nothing was sent")
+    ),
     0
   );
+}
+
+/**
+ * Transitional, for src/poppy/mcp-dispatch.ts until it builds its problems
+ * with `serialised` and `leaves`: the same corrections as text. Removed then.
+ */
+export function serialisedJson(errors: readonly OutputUnit[], value: Json, where: string, context: string): string | null {
+  const found = serialisedPlaces(errors, value);
+  if (found.size === 0) return null;
+  const names = [...found.keys()].map((pointer) => `${where}${pointer}`).join(", ");
+  const as = found.size === 1 ? `a structured ${[...found.values()][0]}` : "structured values";
+  return `${names} ${context} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass ${names} as ${as}.`;
+}
+
+/** Transitional, as `serialisedJson` is: `leaves` as text. */
+export function leafErrors(errors: readonly OutputUnit[], where: string, limit = 5): string[] {
+  const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
+  return (leaves.length ? leaves : errors).slice(0, limit).map((unit) => `${unit.instanceLocation.replace(/^#/, where) || where}: ${unit.error}`);
 }

@@ -109,8 +109,8 @@ describe("the fetch browser", () => {
     });
     const context = await browser.newContext(allowAll);
     await expect(context.goto("http://shop.example/")).rejects.toThrow("only loads HTTPS pages");
-    await expect(context.goto("https://127.0.0.1/")).rejects.toThrow("non-public host");
-    await expect(context.goto("https://localhost/")).rejects.toThrow("non-public host");
+    await expect(context.goto("https://127.0.0.1/")).rejects.toThrow("the host to fetch: expected a public host name, got 127.0.0.1. Nothing was fetched");
+    await expect(context.goto("https://localhost/")).rejects.toThrow("the host to fetch: expected a public host name, got localhost. Nothing was fetched");
     expect(fetched).toEqual([]);
   });
 
