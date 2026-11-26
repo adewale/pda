@@ -1417,7 +1417,7 @@ describe("6 web browsing", () => {
     expect(small.isError).toBe(false);
     const big = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/big?kb=1100" });
     expect(big.isError).toBe(true);
-    expect(big.text).toContain("larger than 1000000 bytes [too_large]");
+    expect(big.text).toContain("larger than 1000000 bytes. [too_large]");
   });
 
   it("reads a page's title, text, links and forms, and never its scripts or styles", async () => {
@@ -1477,7 +1477,7 @@ describe("6 web browsing", () => {
     const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/account/address" });
     // A fill without a value is refused, not taken as an empty one.
-    expect((await browse({ action: "fill", selector: "#line1" })).text).toContain("fill needs a value");
+    expect((await browse({ action: "fill", selector: "#line1" })).text).toBe('fill\'s value: expected the text to fill in, got nothing. To clear a field, give value "". [invalid_request]');
     expect((await browse({ action: "fill", selector: "#line1", value: "1 High St" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: '[name="city"]', value: "Leeds" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: "country", value: "France" })).isError).toBe(false);
@@ -1666,7 +1666,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const before = (await requests(c)).length;
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders/{order_id}/items/{item_id}", params: { order_id: "ord_7Hk2" } });
     expect(result.isError).toBe(true);
-    expect(result.text).toBe("GET /orders/{order_id}/items/{item_id} needs the path parameter item_id, which the call doesn't give [invalid_request]");
+    expect(result.text).toBe("GET /orders/{order_id}/items/{item_id}: expected a value for the path parameter item_id, got none in the call. [invalid_request]");
     // Only the description was fetched: no token request, and nothing sent to the operation's path.
     const after = (await requests(c)).slice(before);
     expect(after.filter((request) => request.grant !== null || request.url.startsWith(`${c.hosts.api}/orders`))).toEqual([]);
@@ -1675,7 +1675,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const plain = await company({ operations: false });
     await signInDirect(a, plain);
     const write = await tool(a, "poppy_api_call", { domain: plain.domain, operation: "exchangeItem", body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    expect(write.text).toContain("Missing parameter order_id [invalid_request]");
+    expect(write.text).toBe("parameter order_id of POST /orders/{order_id}/exchanges: expected a value, since it is required, got nothing. [invalid_request]");
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
@@ -1927,7 +1927,8 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     it("refuses a stored row that was tampered with: a call that no longer makes the URL approved, or one that isn't well formed", async () => {
       const moved = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: { order_id: "ord_other" } } }));
       expect(moved.after.status).toBe("failed");
-      expect(moved.after.result).toContain(`not the POST ${moved.c.hosts.api}/orders/ord_7Hk2/exchanges you approved`);
+      // Both requests, apart: the one approved, and the one the description makes now.
+      expect(moved.after.result).toContain(`expected the POST ${moved.c.hosts.api}/orders/ord_7Hk2/exchanges you approved, got POST ${moved.c.hosts.api}/orders/ord_other/exchanges. Not sent.`);
       expect(moved.after.result).toContain("[approval_changed]");
 
       const malformed = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: "order_id=ord_7Hk2" } }));
@@ -1955,7 +1956,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
     expect(refused.isError).toBe(true);
     expect(refused.text).toBe(
-      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id} isn't protected by its Poppy Session: its description lists no OAuth, Bearer or DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
+      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id}: expected an operation its Poppy Session protects, with OAuth, Bearer or DPoP security in its description, got one whose description lists none, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
     );
     // No card, no token request, nothing sent to the endpoint.
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
@@ -2953,8 +2954,9 @@ describe("8.5 an event whose handling fails", () => {
     // As if the card had shown other terms under the same revision: the Company's offer no longer matches it.
     await a.stub.poppySql("UPDATE poppy_approvals SET terms = json_set(terms, '$.highlights', json('[\"Free\"]')) WHERE id = ?", card.approvalId);
     await ask();
-    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("other terms under a revision"))));
-    expect(notice.text).toContain("Nothing was done.");
+    const notice = await until(async () => (await a.stub.poppyReadNow(first.conversationId), (await cards(a)).find((item) => item.kind === "notice" && String(item.text).includes("terms under a revision it had already sent"))));
+    // What it sent first, and what changed, by name.
+    expect(notice.text).toBe(`Mock Shop ${c.id}'s terms under a revision it had already sent: expected the terms it sent first under that revision, got terms whose highlights changed. They weren't used. The earlier card stands. Nothing was done.`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true })]);
     expect(await a.stub.poppyReadNow(first.conversationId)).not.toBeNull();
     expect((await c.stub.state()).performs).toBe(0);
@@ -3397,7 +3399,7 @@ describe("8.13 conversation errors", () => {
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       const said = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Are you there?" });
       expect(said.isError).toBe(true);
-      expect(said.text).toBe(`Mock Shop ${c.id}: insufficient_scope [insufficient_scope]`);
+      expect(said.text).toBe(`Mock Shop ${c.id}: insufficient_scope. [insufficient_scope]`);
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       expect((await posts(c, id)).started).toBe(1);
       // Signed in again, the same conversation goes on.
