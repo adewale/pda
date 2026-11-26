@@ -63,12 +63,14 @@ function sidesMatchCatalog(report: Report) {
     const definition = MESSAGES[message.id] as { readonly note?: true; readonly fact?: string };
     const fact = definition.note === true || definition.fact !== undefined;
     if (fact) {
-      expect(message, message.id).not.toHaveProperty("expected");
-      expect(message, message.id).not.toHaveProperty("got");
+      for (const part of ["subject", "expected", "got", "detail"]) expect(message, message.id).not.toHaveProperty(part);
     } else {
+      expect(message.subject, message.id).toBeTruthy();
       expect(message.expected, message.id).toBeTruthy();
       expect(message.got, message.id).toBeTruthy();
-      expect(message.text, message.id).toContain(`: expected ${message.expected}, got ${message.got}`);
+      // The parts rebuild the sentence exactly, so a reader that shows them apart (the results page) loses nothing.
+      const said = `${message.subject}: expected ${message.expected}, got ${message.got}${message.detail === undefined ? "" : `. ${message.detail}`}`;
+      expect(message.text, message.id).toBe(/[.!?…]$/.test(said) ? said : `${said}.`);
     }
   }
 }

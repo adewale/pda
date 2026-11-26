@@ -3,8 +3,9 @@
  *
  * - `GET /validator`: the form; with `?url=` it checks that and shows the results.
  * - `POST /validator`: the form's paste or URL submission, answered as HTML.
- * - `POST /validator/api`: JSON in (`{"url": …}` or `{"document": …, "kind": …}`), the JSON report out.
- * - `GET /validator/api?url=`: the same for a URL.
+ * - `POST /validator/api`: JSON in (`{"url": …}` or `{"document": …, "kind": …}`), the JSON report out;
+ *   with `"format": "markdown"`, the report as Markdown.
+ * - `GET /validator/api?url=`: the same for a URL (`&format=markdown` for Markdown).
  * - `GET /validator/messages`: what every message means.
  *
  * The API allows any origin and sends no cookies. Callers can limit input
@@ -13,6 +14,7 @@
 import { departure, isDeparture, ours, sentence, show, shown, type Problem } from "../diagnostic.ts";
 import { withUserAgent, type Fetcher } from "./fetch.ts";
 import { formPage, messagesPage, resultPage } from "./html.ts";
+import { reportMarkdown } from "./markdown.ts";
 import type { DocumentKind } from "./primitives.ts";
 import { validateTarget, validatorUserAgent, validateText, type Report } from "./validate.ts";
 import { checkJsonWork, HTTP_INPUT_LIMITS, InputError as BadInput, readInputBytes } from "./input.ts";
@@ -35,7 +37,11 @@ type Input = {
   domain?: string;
   fetchedFrom?: string;
   protocolVersion?: string;
+  /** How the API answers: the JSON report (the default), or Markdown. */
+  format?: string;
 };
+
+const FORMATS = ["json", "markdown"] as const;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -55,6 +61,10 @@ function problem(said: Problem, status: number): Response {
   return json({ error: sentence(said), ...(isDeparture(said) ? { expected: said.expected, got: said.got } : {}) }, status);
 }
 
+function markdown(body: string): Response {
+  return new Response(body, { headers: { ...CORS, "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+}
+
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
 }
@@ -63,7 +73,8 @@ async function readInput(request: Request): Promise<Input> {
   const url = new URL(request.url);
   if (request.method === "GET") {
     const target = url.searchParams.get("url");
-    return target ? { url: target } : {};
+    const format = url.searchParams.get("format");
+    return { ...(target ? { url: target } : {}), ...(format ? { format } : {}) };
   }
   const bytes = await readInputBytes(request);
   const type = request.headers.get("Content-Type") ?? "";
@@ -97,7 +108,8 @@ async function readInput(request: Request): Promise<Input> {
       ...(text("kind") ? { kind: text("kind")! } : {}),
       ...(text("domain") ? { domain: text("domain")! } : {}),
       ...(text("fetchedFrom") ? { fetchedFrom: text("fetchedFrom")! } : {}),
-      ...(text("protocolVersion") ? { protocolVersion: text("protocolVersion")! } : {})
+      ...(text("protocolVersion") ? { protocolVersion: text("protocolVersion")! } : {}),
+      ...(text("format") ? { format: text("format")! } : {})
     };
   }
   let form: FormData;
@@ -167,7 +179,11 @@ export async function handleValidator(request: Request, options: ValidatorHttpOp
     if (request.method !== "GET" && request.method !== "POST") return problem(departure(ours("the method"), ours("GET or POST"), show.code(request.method)), 405);
     try {
       await admit();
-      return json(await run(await readInput(request), request, options));
+      const input = await readInput(request);
+      const format = input.format ?? "json";
+      if (!(FORMATS as readonly string[]).includes(format)) throw new BadInput(departure(ours("format"), ours("json or markdown"), show.value(format)));
+      const report = await run(input, request, options);
+      return format === "markdown" ? markdown(reportMarkdown(report)) : json(report);
     } catch (error) {
       if (error instanceof BadInput) return problem(error.problem, error.status);
       throw error;
