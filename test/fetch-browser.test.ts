@@ -147,7 +147,7 @@ describe("the fetch browser", () => {
         { headers: { "Content-Type": "text/html" } }
       );
     const context = await new FetchBrowser(async () => endless(), { maxBytes: 10_000 }).newContext(allowAll);
-    await expect(context.goto("https://shop.example/")).rejects.toThrow("larger than 10000 bytes");
+    await expect(context.goto("https://shop.example/")).rejects.toThrow("https://shop.example/: expected a page of at most 10000 bytes, got a larger one");
     expect(pulled).toBeLessThan(20);
   });
 
@@ -240,5 +240,40 @@ describe("steps a website marks for the User (0.4 Browser Control 4, 5)", () => 
     for (const form of ["#checkin", "#hands-off", "#odd", "#plain"]) await refused(context.prepareSubmit(form));
     await refused(context.click("#terms"));
     expect((await context.click("#help")).text).toBe("Next");
+  });
+});
+
+describe("what the browser says when a selector or value doesn't fit the page", () => {
+  const page = `
+<form id="a" method="post" action="/a">
+  <select name="size"><option>Small<option>Large</select>
+  <input type="radio" name="colour" value="red"><input type="radio" name="colour" value="blue">
+  <input name="note">
+</form>
+<form id="b" method="post" action="/b"><input name="note"></form>
+<a id="js" href="javascript:void(0)">Open</a>`;
+
+  async function opened() {
+    const context = await new FetchBrowser(async () => html(page)).newContext(allowAll);
+    await context.goto("https://shop.example/");
+    return context;
+  }
+
+  it("names the choices a field has beside the value it was given", async () => {
+    const context = await opened();
+    await expect(context.fill("size", "Huge")).rejects.toMatchObject({ code: "invalid_request", message: 'the field "size": expected one of its options, "Small" or "Large", got "Huge"' });
+    await expect(context.fill("colour", "green")).rejects.toMatchObject({ code: "invalid_request", message: 'the field "colour": expected one of its choices, "red" or "blue", got "green"' });
+  });
+
+  it("says how to name a field that is in more than one form, and why a link it can't follow is refused", async () => {
+    const context = await opened();
+    await expect(context.fill("note", "x")).rejects.toMatchObject({
+      code: "invalid_request",
+      message: 'the field "note": expected a field in one form, got fields in 2 forms. Put the form\'s selector first, as in "#a note"'
+    });
+    await expect(context.click("#js")).rejects.toMatchObject({
+      code: "refused",
+      message: "the link \"#js\": expected an http or https link, got a javascript: link. It needs JavaScript or another app, which this browser doesn't have"
+    });
   });
 });

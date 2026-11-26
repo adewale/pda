@@ -3,6 +3,7 @@ import { BROWSER_SIGN_IN, type Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
+import { departure, ours, render, show, shown, type Shown } from "../diagnostic";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import { EndpointRequest } from "./outgoing";
@@ -148,7 +149,7 @@ function contextsOf(client: PoppyClient): Map<string, ContextEntry> {
 function checkContext(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
   const session = client.session(company.issuer, label);
   if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || !sameContextSession(client, company, entry, session)) {
-    throw new PoppyError("approval_changed", "The account, Session or access changed. Open a fresh page.", 0);
+    throw new PoppyError("approval_changed", ours("The account, Session or access changed. Open a fresh page."), 0);
   }
 }
 
@@ -223,17 +224,18 @@ export function isSignInPage(company: Company, url: URL): boolean {
 function pageGuard(company: Company, endpoint?: string): PageGuard {
   return (url) => {
     if (url.protocol !== "https:" || !onCompanyDomain(company, url)) {
-      throw new PoppyError("refused", `Browsing is limited to ${company.domain} over HTTPS; not ${url.href}`, 0);
+      const got = url.protocol === "https:" || url.protocol === "http:" ? show.url(url) : shown`an address with ${show.name(url.protocol)}`;
+      throw new PoppyError("refused", departure(ours("the page"), shown`one on ${show.name(company.domain)} over HTTPS`, got), 0);
     }
     try {
       assertPublicHost(url);
     } catch (error) {
-      if (error instanceof PoppyFetchError) throw new PoppyError("refused", error.message, 0);
+      if (error instanceof PoppyFetchError) throw new PoppyError("refused", error.problem, 0);
       throw error;
     }
     if (url.href === endpoint) return;
     if (isSignInPage(company, url)) {
-      throw new PoppyError("refused", "The agent never opens a company's sign-in pages; the User signs in themselves (use poppy_sign_in)", 0);
+      throw new PoppyError("refused", ours("The agent never opens a company's sign-in pages; the User signs in themselves (use poppy_sign_in)"), 0);
     }
   };
 }
@@ -331,9 +333,11 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   check();
   if (page.status === 429 || page.status === 503) {
     await client.pageLimited(company, page.status, page.retryAfter);
-    throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
+    throw new PoppyError("browser_join_failed", shown`${show.name(company.name)} asked us to wait before joining the browser to the Session`, page.status);
   }
-  if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
+  if (!page.code || !page.action) {
+    throw new PoppyError("browser_join_failed", departure(shown`${show.name(company.name)}'s browser-session page`, ours("a form with a code to join with"), shown`${show.status(page.status)} without one`), page.status);
+  }
   const { code } = page;
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
   let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number; readonly scope: string; readonly accountGeneration: number } | undefined;
@@ -348,7 +352,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
       if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration
         || canonicalScope(session.scope) !== entry.scope || accountGeneration(client, company, session.account) !== entry.accountGeneration
         || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
-        throw new PoppyError("approval_changed", "The account or browser changed while joining. Open a fresh page.", 0);
+        throw new PoppyError("approval_changed", ours("The account or browser changed while joining. Open a fresh page."), 0);
       }
       // resource() may have retried session_ended with a fresh SID. Its
       // dispatch guard makes this the binding actually sent on that attempt.
@@ -368,7 +372,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   const checkAuthorized = () => {
     check();
     if (!authorized || !sameAuthority(entry, authorized) || entry.scope !== authorized.scope || entry.accountGeneration !== authorized.accountGeneration) {
-      throw new PoppyError("approval_changed", "The browser join no longer belongs to the authorized Session. Open a fresh page.", 0);
+      throw new PoppyError("approval_changed", ours("The browser join no longer belongs to the authorized Session. Open a fresh page."), 0);
     }
   };
   checkAuthorized();
@@ -378,7 +382,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   checkAuthorized();
   // A refused submit is answered with an error page, and no redirect (6, step 3).
   if (result.url === page.action && result.status >= 400) {
-    throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
+    throw new PoppyError("browser_join_failed", shown`${show.name(company.name)} didn't accept the browser into the Session (${show.status(result.status)})`, result.status);
   }
   if (result.status === 429 || result.status === 503) await client.pageLimited(company, result.status, result.retryAfter);
 }
@@ -422,7 +426,7 @@ async function load(client: PoppyClient, company: Company, context: BrowserConte
     check();
     if (!limited) return snapshot;
   }
-  throw new PoppyError("rate_limited", `${company.name}'s website kept refusing the page`, 429);
+  throw new PoppyError("rate_limited", shown`${show.name(company.name)}'s website kept refusing the page`, 429);
 }
 
 /** The approval card's words: where the form goes, and every value the User can see on the page. */
@@ -448,7 +452,11 @@ function describeSubmission(company: Company, selector: string, submission: Form
  */
 function refuseFormsIfDisabled(company: Company): void {
   if (company.web?.disabled) {
-    throw new PoppyError("refused", `${company.name} asks agents not to use its website in a browser, so its forms aren't filled or sent; pages can still be read. Use its Company Agent or APIs instead (poppy_discover lists them).`, 0);
+    throw new PoppyError(
+      "refused",
+      shown`${show.name(company.name)} asks agents not to use its website in a browser, so its forms aren't filled or sent; pages can still be read. Use its Company Agent or APIs instead (poppy_discover lists them).`,
+      0
+    );
   }
 }
 
@@ -477,7 +485,7 @@ export async function browse(
     return { ...snapshotForModel(snapshot), note: websiteSignedOutNote(company) };
   }
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
-  if (!entry || entry.joining) throw new PoppyError("invalid_request", "Open a page first, and wait for its browser join to finish", 0);
+  if (!entry || entry.joining) throw new PoppyError("invalid_request", ours("Open a page first, and wait for its browser join to finish"), 0);
   checkContext(client, company, label, entry);
   const handle = await entry.context;
   checkContext(client, company, label, entry);
@@ -520,7 +528,7 @@ async function act(client: PoppyClient, company: Company, label: string, entry: 
   }
   if (action.kind === "fill") {
     if (CREDENTIAL.test(action.selector)) {
-      throw new PoppyError("refused", "The agent never types credentials or codes into a website; sign in with poppy_sign_in instead", 0);
+      throw new PoppyError("refused", ours("The agent never types credentials or codes into a website; sign in with poppy_sign_in instead"), 0);
     }
     const snapshot = await handle.fill(action.selector, action.value);
     checkContext(client, company, label, entry);
@@ -562,7 +570,7 @@ async function approvedContext(client: PoppyClient, company: Company, label: str
   guard(new URL(submission.action));
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry) throw new Error("The page is no longer open");
-  if (!binding || binding.contextId !== entry.id || !sameAuthority(binding, entry)) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
+  if (!binding || binding.contextId !== entry.id || !sameAuthority(binding, entry)) throw new PoppyError("approval_changed", ours("The account, Session or page context changed. Review a fresh form."), 0);
   checkContext(client, company, label, entry);
   return { entry, handle: await entry.context };
 }
@@ -596,7 +604,7 @@ async function atOperationsEndpoint(
     beforeDispatch: () => {
       beforeDispatch();
       if (client.session(company.issuer, label)?.session_id !== entry.sessionId) {
-        throw new PoppyError("approval_changed", "The Session changed since the website returned this operation. Open the page and submit again.", 0);
+        throw new PoppyError("approval_changed", ours("The Session changed since the website returned this operation. Open the page and submit again."), 0);
       }
     }
   });
@@ -608,6 +616,16 @@ async function atOperationsEndpoint(
     body = text.slice(0, 2_000);
   }
   return { status: response.status, body };
+}
+
+/** What the operations endpoint answered: its status, and its error and description when it gave them. */
+function answeredWith(status: number, body: Json): Shown {
+  if (isObject(body) && body.error !== undefined) {
+    const said = typeof body.error_description === "string" ? shown`: ${show.text(body.error_description, 300)}` : ours("");
+    return shown`${show.status(status)} ${show.code(body.error)}${said}`;
+  }
+  if (body === null) return show.status(status);
+  return shown`${show.status(status)} with ${typeof body === "string" ? show.text(body, 300) : show.value(body)}`;
 }
 
 /** The values the User could see in the form, which the operation's terms are compared with (0.4 Ops 8.2). */
@@ -629,20 +647,21 @@ async function proposeWebOperation(
     const operation = parseOperationV2(body.operation);
     if ("problem" in operation) {
       await unusableApproval(client, company, operation.problem);
-      throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
+      throw withAnswer(new PoppyError("unusable_proposal", shown`${show.name(company.name)} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
     }
     const approval = { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at };
     return proposeApproval(client, company, label, operation, formAsked(submission), { kind: "web-operation", ref, approval, submission, binding }, executingApproval);
   }
   // The reference expired, or the Session can't use it (Ops 4): the browser has to make the request again.
   if (status === 400) {
-    throw withAnswer(new PoppyError("invalid_request", `${company.name} no longer has the operation its website returned, so nothing was done. Submit the form again for current terms.`, 400), 400);
+    throw withAnswer(new PoppyError("invalid_request", shown`${show.name(company.name)} no longer has the operation its website returned, so nothing was done. Submit the form again for current terms.`, 400), 400);
   }
   const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
-  throw withAnswer(new PoppyError(code, `${company.name}'s operations endpoint answered ${status}: ${JSON.stringify(body).slice(0, 500)}`, status), status);
+  const asked = departure(shown`${show.name(company.name)}'s operations endpoint's answer`, ours("an operation to approve"), answeredWith(status, body), ours("Nothing was done"));
+  throw withAnswer(new PoppyError(code, asked, status), status);
 }
 
-const ASKS_FOR_TERMS = (company: Company) => `${company.name}'s website asks you to approve its exact terms first, on the next card. Nothing has happened yet.`;
+const ASKS_FOR_TERMS = (company: Company) => render(shown`${show.name(company.name)}'s website asks you to approve its exact terms first, on the next card. Nothing has happened yet.`);
 
 /**
  * An approved form submit: exactly the fields the User approved, in the same
@@ -675,7 +694,7 @@ registerExecutor("web-operation", async (client, company, approval, label, execu
   const { entry, handle } = await approvedContext(client, company, label, approval.submission, approval.binding);
   const endpoint = company.extensions.operationsEndpoint;
   if (!endpoint || operationsVersion(company) !== "3") {
-    throw new PoppyError("approval_changed", `${company.name} no longer lists where its website's operations are approved, so the approval wasn't sent.`, 0);
+    throw new PoppyError("approval_changed", shown`${show.name(company.name)} no longer lists where its website's operations are approved, so the approval wasn't sent.`, 0);
   }
   const check = () => { execution.beforeDispatch(); checkContext(client, company, label, entry); };
   const recorded = await atOperationsEndpoint(client, company, label, entry, endpoint, approval.ref, toSend(company, approval.approval, execution), check);
@@ -685,14 +704,15 @@ registerExecutor("web-operation", async (client, company, approval, label, execu
     const operation = isObject(recorded.body) ? parseOperationV2(recorded.body.operation) : null;
     // An approved revision returned unchanged is a refusal, never a new card (Ops 6).
     if (operation && !("problem" in operation) && operation.operation_id === approval.approval.operation_id && operation.revision === approval.approval.revision) {
-      throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first; nothing was done`, 403), 403);
+      throw withAnswer(new PoppyError("approval_required", shown`${show.name(company.name)} asks for approval of new terms first; nothing was done`, 403), 403);
     }
     throw new TermsRequested(ASKS_FOR_TERMS(company), await proposeWebOperation(client, company, label, approval.ref, approval.submission, approval.binding, recorded, execution.approvalId));
   }
   if (recorded.status !== 204) {
     const code = companyErrorCode(isObject(recorded.body) ? recorded.body.error : undefined, recorded.status);
-    const why = recorded.status === 400 ? "the operation expired or can't be approved in this Session" : JSON.stringify(recorded.body).slice(0, 500);
-    throw withAnswer(new PoppyError(code, `${company.name} didn't take the approval (${why}), so nothing was done`, recorded.status), recorded.status);
+    const got = recorded.status === 400 ? shown`${show.status(400)}: the operation expired or can't be approved in this Session` : answeredWith(recorded.status, recorded.body);
+    const refused = departure(shown`${show.name(company.name)}'s answer to the approval`, ours("HTTP 204, the approval recorded"), got, ours("Nothing was done"));
+    throw withAnswer(new PoppyError(code, refused, recorded.status), recorded.status);
   }
   // Recorded, and nothing performed yet: the browser makes the request again, and once more if no answer came (Ops 7).
   let snapshot: PageSnapshot | undefined;
@@ -717,8 +737,9 @@ registerExecutor("web-operation", async (client, company, approval, label, execu
   const page = snapshot ? ` The website now shows ${snapshot.url} (HTTP ${snapshot.status}).` : "";
   if (state === "performed") return `${company.name} says it performed the operation.${page}`;
   if (state === "approved") {
-    const why = `${company.name}'s website didn't use the recorded approval for the repeated request, so nothing was done. Open the page and submit the form again before it expires.`;
+    const why = shown`${show.name(company.name)}'s website didn't use the recorded approval for the repeated request, so nothing was done. Open the page and submit the form again before it expires.`;
     throw snapshot ? withAnswer(new PoppyError("approval_changed", why, snapshot.status), snapshot.status) : new PoppyError("approval_changed", why, 0);
   }
-  throw new OperationOutcomeUnknown(`${company.name} recorded the approval, but whether its website performed the operation isn't known yet.${page} Check with ${company.name} before approving it again.`);
+  const shows = snapshot ? shown` The website now shows ${show.url(snapshot.url)} (${show.status(snapshot.status)}).` : ours("");
+  throw new OperationOutcomeUnknown(render(shown`${show.name(company.name)} recorded the approval, but whether its website performed the operation isn't known yet.${shows} Check with ${show.name(company.name)} before approving it again.`));
 });

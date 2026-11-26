@@ -1393,7 +1393,7 @@ describe("6 web browsing", () => {
     const via = (to: string) => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: `/go?to=${encodeURIComponent(to)}` });
     const offDomain = await via("https://elsewhere.test/");
     expect(offDomain.isError).toBe(true);
-    expect(offDomain.text).toContain(`limited to ${c.domain}`);
+    expect(offDomain.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test/`);
     const plain = await via(`http://${c.domain}/orders`);
     expect(plain.isError).toBe(true);
     expect(plain.text).toContain("only loads HTTPS pages");
@@ -1404,7 +1404,7 @@ describe("6 web browsing", () => {
     for (let hop = 0; hop < 6; hop++) chain = `/go?to=${encodeURIComponent(chain)}`;
     const long = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: chain });
     expect(long.isError).toBe(true);
-    expect(long.text).toContain("Too many redirects");
+    expect(long.text).toContain(`the redirects from https://${c.domain}/go?…: expected at most 5, got 6`);
     const requested = (await requests(c)).map((request) => request.url);
     expect(requested.some((url) => url.startsWith("http:") || url.includes("/oauth/authorize"))).toBe(false);
     expect(requested.some((url) => url.endsWith("/orders"))).toBe(false);
@@ -1417,7 +1417,7 @@ describe("6 web browsing", () => {
     expect(small.isError).toBe(false);
     const big = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/big?kb=1100" });
     expect(big.isError).toBe(true);
-    expect(big.text).toContain("larger than 1000000 bytes [too_large]");
+    expect(big.text).toContain(`https://${c.domain}/big?…: expected a page of at most 1000000 bytes, got a larger one [too_large]`);
   });
 
   it("reads a page's title, text, links and forms, and never its scripts or styles", async () => {
@@ -1452,7 +1452,7 @@ describe("6 web browsing", () => {
       expect(JSON.parse(result.details), selector).toMatchObject({ error: "refused" });
       expect(result.text, selector).toContain("submit, which waits for the User's approval");
     }
-    expect((await browse({ action: "click", selector: "#nowhere" })).text).toContain("No link #nowhere");
+    expect((await browse({ action: "click", selector: "#nowhere" })).text).toContain('the selector "#nowhere": expected a link on this page, got none. Use a selector from the page\'s links');
     expect((await c.stub.state()).formPosts).toEqual([]);
     expect((await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/account/address"))).toEqual([]);
   });
@@ -1467,7 +1467,7 @@ describe("6 web browsing", () => {
     expect((await fill("#f7")).text).toContain("never types credentials");
     expect((await fill("confirm")).text).toContain("never types credentials");
     expect((await fill("csrf")).text).toContain("which the website sets itself");
-    expect((await fill("#save")).text).toContain("is a button");
+    expect((await fill("#save")).text).toContain('the field "#save": expected a field to fill, got a button');
   });
 
   it("sends a form only after the User approves exactly what it sends, hidden fields included", async () => {
@@ -1521,7 +1521,7 @@ describe("6 web browsing", () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: "https://elsewhere.test/" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`limited to ${c.domain}`);
+    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test/ [refused]`);
   });
 
   it("never opens the Company's sign-in pages", async () => {
@@ -2109,7 +2109,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     await signInDirect(a, c);
     const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    expect(result.text).toContain(`the authorization servers in ${c.hosts.mcpUrl}'s metadata: expected a list naming "${c.hosts.issuer}", got an empty list`);
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
@@ -2129,7 +2129,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     const before = (await requests(c)).length;
     const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    expect(result.text).toContain(`the authorization servers in ${c.hosts.mcpUrl}'s metadata: expected a list naming "${c.hosts.issuer}", got an empty list`);
     const after = (await requests(c)).slice(before);
     expect(after.filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
     // No token was asked for the server, whose metadata doesn't name the issuer.
