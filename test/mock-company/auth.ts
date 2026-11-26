@@ -8,10 +8,12 @@ import {
   parseScope,
   randomId,
   redirectUriMatches,
+  requestAt,
   sha256b64,
   type ClientInfo,
   type Inbound
 } from "./core";
+import { departure, ours, show, shown } from "../../src/diagnostic";
 
 /** The one scope 0.4 defines: a joined browser signed in (6). */
 const BROWSER_SIGN_IN = "poppy:browser-sign-in";
@@ -89,11 +91,11 @@ export class AuthServer {
   /** A form at one of the issuer's OAuth endpoints, which never carries the Session header (5.2). */
   #form(inbound: Inbound): URLSearchParams {
     if (inbound.request.headers.has("Poppy-Session")) {
-      this.company.violation("session-jwt.oauth-endpoint", `${inbound.url.pathname} got a Poppy-Session header`);
+      this.company.violation("session-jwt.oauth-endpoint", departure(shown`${requestAt(inbound)}, at an OAuth endpoint`, ours("no Poppy-Session header"), ours("one")));
     }
     const type = inbound.request.headers.get("Content-Type") ?? "";
     if (!type.startsWith("application/x-www-form-urlencoded")) {
-      this.company.violation("form.not-form", `${inbound.url.pathname} sent as ${JSON.stringify(type)}, not a form`);
+      this.company.violation("form.not-form", departure(shown`the body of ${requestAt(inbound)}`, ours("a form, application/x-www-form-urlencoded"), show.type(type)));
       throw oauthError(400, "invalid_request", "expected a form body");
     }
     return new URLSearchParams(inbound.bodyText);
@@ -112,12 +114,12 @@ export class AuthServer {
    */
   #checkScopes(type: "direct" | "device" | "mediated", raw: string | null): { readonly requested: string[]; readonly scope: string[] } {
     if (raw === null || raw.trim() === "") {
-      this.company.violation("signin.no-scope", `${type} sign-in without scope`);
+      this.company.violation("signin.no-scope", departure(shown`the ${ours(type)} sign-in's scope`, ours("at least one scope"), raw === null ? ours("none") : ours("only white space")));
       throw oauthError(400, "invalid_scope", "scope is required");
     }
     const requested = parseScope(raw);
     if (requested.includes(BROWSER_SIGN_IN) && !this.company.browserJoin) {
-      this.company.violation("browser-sign-in.no-endpoint", `${type} sign-in asked for ${BROWSER_SIGN_IN} from a Company that lists no browser_session_endpoint`);
+      this.company.violation("browser-sign-in.no-endpoint", departure(shown`the ${ours(type)} sign-in's scope`, ours("no poppy:browser-sign-in from a Company that lists no browser_session_endpoint"), ours("poppy:browser-sign-in")));
     }
     const supported = Object.keys(this.company.scopeDescriptions());
     const unknown = requested.filter((entry) => !supported.includes(entry));
@@ -153,12 +155,12 @@ export class AuthServer {
     // A resource is a target only where its own metadata, at the URL derived from it, names it (RFC 9728 3.3).
     const isMcp = resource === co.hosts.mcpUrl && !co.config.mcpPrmAtRootOnly;
     if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) {
-      co.violation("resource.unverified-target", `token request for ${resource}, which no metadata at its own derived URL names`);
+      co.violation("resource.unverified-target", departure(ours("the token request's resource"), ours("one that protected resource metadata at its own derived URL names"), show.url(resource)));
       throw oauthError(400, "invalid_target", "unknown resource");
     }
     const proof = inbound.request.headers.get("DPoP");
     if (co.config.dpopTokens && !proof) {
-      co.violation("token.dpop-not-sent", `token request (${grant}) without a DPoP proof, though the metadata lists dpop_signing_alg_values_supported`);
+      co.violation("token.dpop-not-sent", departure(shown`the token request (${show.code(grant ?? undefined)})`, ours("a DPoP proof, since the metadata lists dpop_signing_alg_values_supported"), ours("none")));
       throw oauthError(400, "invalid_dpop_proof", "a DPoP proof is required");
     }
     const jkt = proof ? await co.verifyDpop(inbound, undefined) : null;
@@ -183,7 +185,7 @@ export class AuthServer {
     // 1.0 (4.4): every refresh carries a proof from the key the refresh token was issued with.
     if (token.jkt !== null && binding.proofKey !== token.jkt) {
       if (!co.config.protocolVersion.startsWith("0.")) {
-        co.violation("dpop.refresh-key-changed", `refreshed a refresh token issued with DPoP key ${token.jkt} with ${binding.proofKey === null ? "no proof" : `key ${binding.proofKey}`}`);
+        co.violation("dpop.refresh-key-changed", departure(ours("the refresh request's DPoP proof"), ours("one by the key the refresh token was issued with"), binding.proofKey === null ? ours("none") : ours("one by another key")));
       }
       if (co.config.bindRefreshTokens) throw oauthError(400, "invalid_grant", "the refresh token is bound to another DPoP key");
     }
@@ -219,10 +221,13 @@ export class AuthServer {
     if (!co.config.signIn.mediated) throw oauthError(400, "unsupported_grant_type");
     const signInId = form.get("sign_in_id");
     if (signInId !== null) {
-      if (form.has("email") || form.has("password")) co.violation("mediated.credentials-with-code", "credentials resent with the one-time code (Mediated Sign-In 4: not the credentials or scope)");
-      if (form.has("scope")) co.violation("mediated.scope-with-code", "scope resent with the one-time code (Mediated Sign-In 4: the sign-in keeps its first scopes)");
+      const sent = (["email", "password"] as const).filter((field) => form.has(field)).map((field) => ours(field));
+      if (sent.length > 0) co.violation("mediated.credentials-with-code", departure(ours("the one-time code's request"), ours("sign_in_id and one_time_code, without the credentials"), shown`${show.list(sent)} as well`));
+      if (form.has("scope")) co.violation("mediated.scope-with-code", departure(ours("the one-time code's request"), ours("no scope: the sign-in keeps its first scopes"), ours("scope again")));
       const signIn = this.#mediated.get(signInId);
-      if (signIn && signIn.clientId !== client.clientId) co.violation("mediated.code-other-client", `one-time code for ${signIn.id} sent by another client`);
+      if (signIn && signIn.clientId !== client.clientId) {
+        co.violation("mediated.code-other-client", departure(shown`the one-time code for ${show.value(signIn.id)}`, shown`the client that started it, ${show.url(signIn.clientId)}`, show.url(client.clientId)));
+      }
       if (!signIn || signIn.clientId !== client.clientId || signIn.finished) throw oauthError(400, "invalid_grant", "unknown sign_in_id");
       if (signIn.expiresAt <= co.now()) {
         signIn.finished = true;
@@ -240,8 +245,8 @@ export class AuthServer {
       return this.#signedIn(client, signIn.account, signIn, binding);
     }
     const { requested, scope } = this.#checkScopes("mediated", form.get("scope"));
-    for (const field of ["email", "password"]) {
-      if (!form.has(field)) co.violation("mediated.missing-field", `mediated sign-in missing field ${field}`);
+    for (const field of ["email", "password"] as const) {
+      if (!form.has(field)) co.violation("mediated.missing-field", departure(ours("the mediated sign-in"), shown`a field ${ours(field)}`, ours("none")));
     }
     if (++this.#mediatedAttempts > 20) throw oauthError(400, "invalid_grant");
     const account = co.config.accounts.find((entry) => entry.email === form.get("email") && entry.password === form.get("password"));
@@ -269,11 +274,11 @@ export class AuthServer {
     const token = value ? co.accountTokens.get(value) : undefined;
     if (!token) throw oauthError(400, "invalid_grant", "unknown refresh token");
     if (token.clientId !== client.clientId) {
-      co.violation("account-token.other-client", "refresh token used by a different client_id");
+      co.violation("account-token.other-client", departure(ours("the refresh token's client"), shown`the client it was issued to, ${show.url(token.clientId)}`, show.url(client.clientId)));
       throw oauthError(400, "invalid_grant");
     }
     if (token.rotated) {
-      co.violation("account-token.rotated-reused", "used a refresh token after the Company rotated it (4.4)");
+      co.violation("account-token.rotated-reused", departure(ours("the refresh token"), ours("the one the Company issued last"), ours("one it had replaced")));
     }
     if (token.rotated && !co.flawed("accept-rotated-account-token")) {
       if (co.config.reuseDetection) {
@@ -304,23 +309,23 @@ export class AuthServer {
       throw oauthError(400, "invalid_grant", "code expired or unknown");
     }
     if (code.used) {
-      co.violation("code.reused", "authorization code used twice");
+      co.violation("code.reused", departure(ours("the authorization code"), ours("a code used once"), ours("one used before")));
       throw oauthError(400, "invalid_grant", "code already used");
     }
     code.used = true;
     if (code.clientId !== client.clientId) throw oauthError(400, "invalid_grant");
     if (form.get("redirect_uri") !== code.redirectUri) {
-      co.violation("code.redirect-uri", "redirect_uri at the token endpoint differs from the authorization request");
+      co.violation("code.redirect-uri", departure(ours("the token request's redirect_uri"), shown`the authorization request's, ${show.url(code.redirectUri)}`, form.has("redirect_uri") ? show.url(form.get("redirect_uri")!) : ours("none")));
       throw oauthError(400, "invalid_grant");
     }
     const verifier = form.get("code_verifier");
     if (!verifier || (await sha256b64(verifier)) !== code.challenge) {
-      co.violation("code.pkce", "PKCE code_verifier doesn't match the challenge");
+      co.violation("code.pkce", departure(ours("the token request's code_verifier"), ours("the verifier of the authorization request's code_challenge"), verifier ? ours("another verifier") : ours("none")));
       throw oauthError(400, "invalid_grant");
     }
     // RFC 9449 §10.1: a code from a request pushed with a DPoP proof is exchanged with that key.
     if (code.jkt && binding.proofKey !== code.jkt) {
-      co.violation("par.code-key", `exchanged a code bound to DPoP key ${code.jkt} with ${binding.proofKey === null ? "no proof" : `key ${binding.proofKey}`}`);
+      co.violation("par.code-key", departure(ours("the code exchange's DPoP proof"), ours("one by the key the code was pushed with"), binding.proofKey === null ? ours("none") : ours("one by another key")));
       throw oauthError(400, "invalid_dpop_proof", "the code is bound to another DPoP key");
     }
     return this.#signedIn(client, code.account, code, binding);
@@ -342,14 +347,14 @@ export class AuthServer {
       if (device.status === "done" || device.lastPoll < 0) {
         co.violation(
           "device.polled-after-final",
-          `kept polling after ${device.status === "done" ? "completion" : "access_denied"}`
+          departure(ours("the device code"), shown`no poll after ${device.status === "done" ? ours("its tokens were issued") : ours("access_denied")}`, ours("another poll"))
         );
       }
       device.lastPoll = -1;
       throw oauthError(400, device.status === "done" ? "invalid_grant" : "access_denied");
     }
     if (device.expiresAt <= now) {
-      if (device.lastPoll < 0) co.violation("device.polled-after-expiry", "kept polling after expired_token");
+      if (device.lastPoll < 0) co.violation("device.polled-after-expiry", departure(ours("the device code"), ours("no poll after expired_token"), ours("another poll")));
       device.lastPoll = -1;
       throw oauthError(400, "expired_token");
     }
@@ -357,7 +362,7 @@ export class AuthServer {
       if (device.slowedDown) {
         co.violation(
           "device.too-fast",
-          `polled ${now - device.lastPoll} ms after the last poll, under the ${device.interval} s interval after slow_down`
+          departure(ours("the device code's polls, after slow_down"), shown`at least ${device.interval} s apart`, shown`one ${now - device.lastPoll} ms after the last`)
         );
       }
       device.slowedDown = true;
@@ -435,12 +440,12 @@ export class AuthServer {
       if (url.searchParams.get("client_id") !== pushed.request.clientId) return page(400, "client_id doesn't match the pushed request");
       const extra = [...url.searchParams.keys()].filter((name) => name !== "client_id" && name !== "request_uri");
       if (extra.length > 0 && !co.config.protocolVersion.startsWith("0.")) {
-        co.violation("par.extra-parameters", `the authorization URL for a pushed request also carries ${extra.join(", ")}`);
+        co.violation("par.extra-parameters", departure(ours("the authorization URL for a pushed request"), ours("client_id and request_uri only"), shown`also ${show.list(extra.map((name) => show.code(name)))}`));
       }
       return pushed.request;
     }
     if (co.config.pushedAuthorization === "required" && !pushedParameters) {
-      co.violation("par.not-pushed", "an authorization request in the URL, though the metadata sets require_pushed_authorization_requests");
+      co.violation("par.not-pushed", departure(ours("the authorization request"), ours("a pushed one, since the metadata sets require_pushed_authorization_requests"), ours("one in the URL")));
       return page(400, "This Company accepts only pushed authorization requests");
     }
     const params = url.searchParams;
@@ -455,13 +460,13 @@ export class AuthServer {
     }
     const redirectUri = params.get("redirect_uri") ?? "";
     if (!client.redirectUris.some((registered) => redirectUriMatches(registered, redirectUri))) {
-      co.violation("authorize.redirect-uri", `redirect_uri ${redirectUri} isn't an exact registered redirect_uri`);
+      co.violation("authorize.redirect-uri", departure(ours("the authorization request's redirect_uri"), shown`one of the client's registered redirect_uris, exactly: ${show.list(client.redirectUris.map((uri) => show.url(uri)), "or")}`, redirectUri ? show.url(redirectUri) : ours("none")));
       return page(400, "redirect_uri doesn't match");
     }
     // 1.0 (4.2): prompt=consent, unless the redirect comes back only to the device that opened the URL,
     // as at a loopback redirect URI. The mock shows its consent page for every request either way.
     if (!co.config.protocolVersion.startsWith("0.") && !(params.get("prompt") ?? "").split(" ").includes("consent") && !isLoopback(redirectUri)) {
-      co.violation("authorize.prompt-consent", `a 1.x authorization request without prompt=consent, to redirect_uri ${redirectUri}`);
+      co.violation("authorize.prompt-consent", departure(shown`the 1.x authorization request to ${show.url(redirectUri)}`, ours("prompt=consent, since its redirect URI isn't loopback"), params.has("prompt") ? shown`prompt ${show.value(params.get("prompt"))}` : ours("no prompt")));
     }
     const state = params.get("state");
     const redirectError = (error: string) => {
@@ -473,15 +478,16 @@ export class AuthServer {
     };
     if (params.get("response_type") !== "code") return redirectError("unsupported_response_type");
     if (!state) {
-      co.violation("authorize.no-state", "authorization request without state");
+      co.violation("authorize.no-state", departure(ours("the authorization request"), ours("a state"), ours("none")));
       return redirectError("invalid_request");
     }
     if (params.get("code_challenge_method") !== "S256" || !params.get("code_challenge")) {
-      co.violation("authorize.no-pkce", "authorization request without PKCE S256");
+      const method = params.get("code_challenge_method");
+      co.violation("authorize.no-pkce", departure(ours("the authorization request"), ours("a code_challenge with code_challenge_method S256"), !params.get("code_challenge") ? ours("no code_challenge") : shown`code_challenge_method ${show.value(method ?? undefined)}`));
       return redirectError("invalid_request");
     }
-    for (const name of ["access_token", "refresh_token", "assertion", "client_assertion"]) {
-      if (params.has(name)) co.violation("authorize.secret-in-url", `${name} in the authorization URL`);
+    for (const name of ["access_token", "refresh_token", "assertion", "client_assertion"] as const) {
+      if (params.has(name)) co.violation("authorize.secret-in-url", departure(ours("the authorization URL"), ours("no token or assertion"), shown`${ours(name)} in its query`));
     }
     let requested: string[];
     let scope: string[];

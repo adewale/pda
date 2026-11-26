@@ -62,7 +62,7 @@ describe("the violation check after each test", () => {
 
   it("lets a test that breaks the protocol on purpose say so", async () => {
     const c = await company();
-    c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
+    c.expectViolations(/^\[secret\.token-in-url\] the request URL: expected no token in its query, got access_token= in https:\/\/api\.\w+\.shop\.test\/products\?…$/);
     const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
     expect(response.status).toBe(400);
   });
@@ -3298,7 +3298,7 @@ describe("8.13 conversation errors", () => {
   it("reports a request id the Company already has with other content as the agent's bug, and never sends it under a new id (request_id_conflict)", async () => {
     const { c, a, id, release } = await started();
     // Our bug, simulated: the replayed call's stored message changed after it was sent.
-    c.expectViolations(/^\[request\.id-reused\] request id \S+ reused with a different path or body$/);
+    c.expectViolations(/^\[request\.id-reused\] request id "\S+": expected the path and body it was first sent with, got a different path or body$/);
     try {
       expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
       await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE 'message|%|call-2'");
@@ -3354,7 +3354,7 @@ describe("8.13 conversation errors", () => {
   ])("sends a message whose reply can't start at the saved cursor once, reading from the start ($code)", async ({ code, status, notice }) => {
     const { c, a, id, release } = await started();
     // The message names the cursor it last handled (8.4), here one the Company never gave.
-    if (code === "invalid_cursor") c.expectViolations(/^\[message\.as-of-cursor\] conversation message: as_of_cursor "evt_nothing_like_it"/);
+    if (code === "invalid_cursor") c.expectViolations(/^\[message\.as-of-cursor\] the message's as_of_cursor: expected a cursor of this conversation, got "evt_nothing_like_it"$/);
     try {
       if (code === "cursor_expired") {
         // The agent last read up to an event the Company then stops keeping.

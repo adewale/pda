@@ -722,19 +722,19 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "client-assertion.jti-missing",
     what: "a client assertion without jti",
-    detail: "[client-assertion.jti-missing] client-assertion: missing jti",
+    detail: "[client-assertion.jti-missing] client-assertion: expected a jti, got none",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { jti: undefined } }) })
   },
   {
     id: "client-assertion.jti-weak",
     what: "a client assertion jti of 64 bits",
-    detail: '[client-assertion.jti-weak] client-assertion: jti "abcdefgh" is not 128 random bits of base64url',
+    detail: "[client-assertion.jti-weak] client-assertion's jti: expected 128 random bits of base64url, 22 characters or more, got \"abcdefgh\"",
     run: async (c) => expect((await revoke(c, { client: await clientAssertion(c, { claims: { jti: "abcdefgh" } }) })).status).toBe(200)
   },
   {
     id: "client-assertion.jti-reused",
     what: "the same client assertion twice",
-    detail: /^\[client-assertion\.jti-reused\] client-assertion: reused jti [\w-]{22}$/,
+    detail: /^\[client-assertion\.jti-reused\] client-assertion's jti: expected a jti not used before, got "[\w-]{22}" again$/,
     run: async (c) => {
       const client = await clientAssertion(c);
       expect((await revoke(c, { client })).status).toBe(200);
@@ -744,7 +744,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "dpop.jti-missing",
     what: "a DPoP proof without jti",
-    detail: "[dpop.jti-missing] dpop: missing jti",
+    detail: "[dpop.jti-missing] dpop: expected a jti, got none",
     run: async (c) => {
       const key = await dpopKey();
       return tokenRequest(c, UNKNOWN_REFRESH, { key, dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: undefined } }) });
@@ -753,7 +753,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "dpop.jti-weak",
     what: "a DPoP proof jti of 64 bits",
-    detail: '[dpop.jti-weak] dpop: jti "abcdefgh" is not 128 random bits of base64url',
+    detail: "[dpop.jti-weak] dpop's jti: expected 128 random bits of base64url, 22 characters or more, got \"abcdefgh\"",
     run: async (c) => {
       const key = await dpopKey();
       const response = await tokenRequest(c, UNKNOWN_REFRESH, { key, dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: "abcdefgh" } }) });
@@ -763,7 +763,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "dpop.jti-reused",
     what: "the same DPoP proof twice",
-    detail: /^\[dpop\.jti-reused\] dpop: reused jti [\w-]{22}$/,
+    detail: /^\[dpop\.jti-reused\] dpop's jti: expected a jti not used before, got "[\w-]{22}" again$/,
     run: async (c) => {
       const s = await signedIn(c);
       const dpop = await proof(s.dpop!, "GET", orders(c), s.token);
@@ -771,17 +771,17 @@ const TAMPERS: readonly Tamper[] = [
       return getOrders(c, { proof: dpop }, s);
     }
   },
-  { id: "session-jwt.jti-missing", what: "a Session JWT without jti", detail: "[session-jwt.jti-missing] session-jwt: missing jti", run: (c) => getProducts(c, { claims: { jti: undefined } }) },
+  { id: "session-jwt.jti-missing", what: "a Session JWT without jti", detail: "[session-jwt.jti-missing] session-jwt: expected a jti, got none", run: (c) => getProducts(c, { claims: { jti: undefined } }) },
   {
     id: "session-jwt.jti-weak",
     what: "a Session JWT jti of 64 bits",
-    detail: '[session-jwt.jti-weak] session-jwt: jti "abcdefgh" is not 128 random bits of base64url',
+    detail: "[session-jwt.jti-weak] session-jwt's jti: expected 128 random bits of base64url, 22 characters or more, got \"abcdefgh\"",
     run: async (c) => expect((await getProducts(c, { claims: { jti: "abcdefgh" } })).status).toBe(200)
   },
   {
     id: "session-jwt.jti-reused",
     what: "the same Session JWT twice",
-    detail: /^\[session-jwt\.jti-reused\] session-jwt: reused jti [\w-]{22}$/,
+    detail: /^\[session-jwt\.jti-reused\] session-jwt's jti: expected a jti not used before, got "[\w-]{22}" again$/,
     run: async (c) => {
       const s = await session();
       const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
@@ -794,111 +794,111 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "client-assertion.alg",
     what: "a client assertion signed with HS256",
-    detail: "[client-assertion.alg] client assertion: alg HS256 is not allowed",
+    detail: "[client-assertion.alg] the client assertion's alg: expected ES256 or PS384, got \"HS256\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { alg: "HS256" }, key: await hmacKey() }) })
   },
   {
     id: "client-assertion.embedded-key",
     what: "a client assertion carrying its own jwk",
-    detail: "[client-assertion.embedded-key] client assertion: embeds or points to a key (jku/x5u/jwk)",
+    detail: "[client-assertion.embedded-key] the client assertion's header: expected no key of its own: no jku, x5u or jwk, got jwk",
     run: async (c) => expect((await revoke(c, { client: await clientAssertion(c, { header: { jwk: (await dpopKey()).jwk } }) })).status).toBe(200)
   },
   {
     id: "client-assertion.typ",
     what: 'a client assertion with typ "at+jwt"',
-    detail: '[client-assertion.typ] client assertion: strict Company: header typ must be "JWT", got "at+jwt"',
+    detail: "[client-assertion.typ] the client assertion's typ: expected \"JWT\", as the strict Company reads S2, got \"at+jwt\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "at+jwt" } }) })
   },
   {
     id: "client-assertion.kid",
     what: "a client assertion whose kid names no key",
-    detail: '[client-assertion.kid] client assertion: strict Company: kid "not-a-key" names no published key',
+    detail: "[client-assertion.kid] the client assertion's kid: expected the kid of a key in the client's JWKS, as the strict Company reads S2, got \"not-a-key\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { kid: "not-a-key" } }) })
   },
   {
     id: "client-assertion.signature",
     what: "a client assertion signed with an unpublished key",
-    detail: "[client-assertion.signature] client assertion: signature verification failed",
+    detail: "[client-assertion.signature] the client assertion: expected a signature by a key in the client's JWKS, within its exp, got \"signature verification failed\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { key: await strangerKey() }) })
   },
   {
     id: "client-assertion.iat-exp-missing",
     what: "a client assertion without iat",
-    detail: "[client-assertion.iat-exp-missing] client assertion: iat and exp are required",
+    detail: "[client-assertion.iat-exp-missing] the client assertion's iat and exp: expected two numbers, got iat as nothing and exp as a whole number",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { iat: undefined } }) })
   },
   {
     id: "client-assertion.lifetime",
     what: "a client assertion valid for 120 s",
-    detail: "[client-assertion.lifetime] client assertion: lifetime 120s is too long (at most 60s)",
+    detail: "[client-assertion.lifetime] the client assertion's lifetime: expected at most 60 s, got 120 s",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(120) }) })
   },
   {
     id: "client-assertion.lifetime",
     what: "a client assertion valid for 301 s at a lenient Company",
     config: { strictAssertions: false },
-    detail: "[client-assertion.lifetime] client assertion: lifetime 301s is too long (at most 300s)",
+    detail: "[client-assertion.lifetime] the client assertion's lifetime: expected at most 300 s, got 301 s",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(301) }) })
   },
   {
     id: "client-assertion.lifetime-1.0",
     what: "a 301-second assertion at a final 1.0 Company",
     config: { protocolVersion: "1.0", strictAssertions: true },
-    detail: "[client-assertion.lifetime-1.0] client assertion: lifetime 301s is too long (at most 300s)",
+    detail: "[client-assertion.lifetime-1.0] the client assertion's lifetime: expected at most 300 s, got 301 s",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(301) }) })
   },
   {
     id: "client-assertion.missing",
     what: "a revocation without a client assertion",
-    detail: (c) => `[client-assertion.missing] no client assertion at ${c.hosts.revocationEndpoint}`,
+    detail: (c) => `[client-assertion.missing] the request to ${c.hosts.revocationEndpoint}: expected a client_assertion of client_assertion_type jwt-bearer, got no client_assertion`,
     run: async (c) => revoke(c, { client: null })
   },
   {
     id: "client-assertion.missing",
     what: "a token request without a client assertion",
-    detail: (c) => `[client-assertion.missing] no client assertion at ${c.hosts.tokenEndpoint}`,
+    detail: (c) => `[client-assertion.missing] the request to ${c.hosts.tokenEndpoint}: expected a client_assertion of client_assertion_type jwt-bearer, got no client_assertion`,
     run: async (c) => tokenRequest(c, UNKNOWN_REFRESH, { client: null })
   },
   {
     id: "client-assertion.not-jwt",
     what: "a client assertion that isn't a JWT",
-    detail: "[client-assertion.not-jwt] client assertion: not a JWT",
+    detail: "[client-assertion.not-jwt] the client assertion: expected a JWT, got a value that doesn't decode as one",
     run: async (c) => revoke(c, { client: "not.a.jwt" })
   },
   {
     id: "client-assertion.wrong-typ",
     what: "a delegation as the client assertion",
-    detail: "[client-assertion.wrong-typ] client assertion has typ poppy-delegation+jwt",
+    detail: "[client-assertion.wrong-typ] the client assertion's typ: expected a client assertion's, not a DPoP proof's, Session JWT's or delegation's, got \"poppy-delegation+jwt\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "poppy-delegation+jwt" } }) })
   },
   {
     id: "client-assertion.wrong-typ",
     what: "a DPoP proof as the client assertion",
-    detail: "[client-assertion.wrong-typ] client assertion has typ dpop+jwt",
+    detail: "[client-assertion.wrong-typ] the client assertion's typ: expected a client assertion's, not a DPoP proof's, Session JWT's or delegation's, got \"dpop+jwt\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "dpop+jwt" } }) })
   },
   {
     id: "client-assertion.aud-array",
     what: "a client assertion whose aud is an array",
-    detail: "[client-assertion.aud-array] client assertion: aud is an array",
+    detail: "[client-assertion.aud-array] the client assertion's aud: expected the issuer, as a single string, got an array",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: [c.hosts.issuer] } }) })
   },
   {
     id: "client-assertion.aud",
     what: "a client assertion for the token endpoint, not the issuer",
-    detail: (c) => `[client-assertion.aud] client assertion: aud "${c.hosts.tokenEndpoint}" is not the issuer ${c.hosts.issuer}`,
+    detail: (c) => `[client-assertion.aud] the client assertion's aud: expected the issuer, "${c.hosts.issuer}", got "${c.hosts.tokenEndpoint}"`,
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: c.hosts.tokenEndpoint } }) })
   },
   {
     id: "client-assertion.aud",
     what: "a client assertion for another Company",
-    detail: (c) => `[client-assertion.aud] client assertion: aud "https://auth.other.shop.test" is not the issuer ${c.hosts.issuer}`,
+    detail: (c) => `[client-assertion.aud] the client assertion's aud: expected the issuer, "${c.hosts.issuer}", got "https://auth.other.shop.test"`,
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: "https://auth.other.shop.test" } }) })
   },
   {
     id: "client-assertion.iss-sub",
     what: "a client assertion whose sub isn't the client_id",
-    detail: "[client-assertion.iss-sub] client assertion: iss and sub must both be the client_id",
+    detail: "[client-assertion.iss-sub] the client assertion's iss and sub: expected both the client_id, https://agent.test/poppy/client.json, got iss https://agent.test/poppy/client.json and sub \"usr_Q7c1vKx9TzLw3NdR5mHa2B\"",
     run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { sub: USER_ID } }) })
   },
 
@@ -906,13 +906,13 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "user-id.personal",
     what: "an email address as the User ID",
-    detail: '[user-id.personal] User ID "ada@example.com" contains personal information',
+    detail: "[user-id.personal] the User ID: expected an identifier with no personal information, got \"ada@example.com\", which holds an account's email address or its name",
     run: async (c) => expect((await getProducts(c, undefined, await session("ada@example.com"))).status).toBe(200)
   },
   {
     id: "user-id.personal",
     what: "the User's name as a word in the User ID",
-    detail: '[user-id.personal] User ID "usr_ada_7" contains personal information',
+    detail: "[user-id.personal] the User ID: expected an identifier with no personal information, got \"usr_ada_7\", which holds an account's email address or its name",
     run: async (c) => {
       // Random ids that merely contain the letters are fine: this one has "ADA" inside,
       // and the next has "adA" as a word between `_` and the end, as 128 random bits may.
@@ -928,67 +928,67 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "client-metadata.not-url",
     what: "a client_id that isn't a URL",
-    detail: '[client-metadata.not-url] client metadata: client_id "not a url" is not a URL',
+    detail: "[client-metadata.not-url] client_id: expected an HTTPS URL, got \"not a url\"",
     run: async (c) => revoke(c, { clientId: "not a url" })
   },
   {
     id: "client-metadata.not-https",
     what: "an http client_id",
-    detail: "[client-metadata.not-https] client metadata: client_id must be an https URL",
+    detail: "[client-metadata.not-https] client_id: expected an https URL, got http://agent.test/poppy/client.json",
     run: async (c) => revoke(c, { clientId: "http://agent.test/poppy/client.json" })
   },
   {
     id: "client-metadata.fetch-status",
     what: "a client_id that redirects",
-    detail: "[client-metadata.fetch-status] client metadata: fetching client_id returned 302; it must not redirect",
+    detail: "[client-metadata.fetch-status] fetching client_id: expected HTTP 200, without a redirect, got HTTP 302",
     run: async (c) => revokeAsOther(c, await otherClient(c, { raw: "", status: 302 }))
   },
   {
     id: "client-metadata.not-json",
     what: "client metadata that isn't JSON",
-    detail: "[client-metadata.not-json] client metadata: client metadata is not JSON",
+    detail: "[client-metadata.not-json] the client metadata: expected a JSON document, got a body that doesn't parse as JSON (application/json)",
     run: async (c) => revokeAsOther(c, await otherClient(c, { raw: "<html>" }))
   },
   {
     id: "client-metadata.client-id-mismatch",
     what: "client metadata naming another client_id",
-    detail: "[client-metadata.client-id-mismatch] client metadata: client_id in the document doesn't equal the URL it was fetched from",
+    detail: "[client-metadata.client-id-mismatch] the document's client_id: expected the URL it was fetched from, https://other.agent.test/poppy/client.json, got https://agent.test/poppy/client.json",
     run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { client_id: CLIENT_ID } }))
   },
   {
     id: "client-metadata.jwks-uri",
     what: "a jwks_uri on another domain",
-    detail: "[client-metadata.jwks-uri] client metadata: jwks_uri must be https on the client_id domain",
+    detail: "[client-metadata.jwks-uri] jwks_uri: expected an https URL on other.agent.test, client_id's host, got https://elsewhere.test/jwks.json",
     run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { jwks_uri: "https://elsewhere.test/jwks.json" } }))
   },
   {
     id: "client-metadata.redirect-uris",
     what: "an http redirect_uri that isn't loopback",
-    detail: "[client-metadata.redirect-uris] client metadata: redirect_uris must be https on the client_id domain",
+    detail: "[client-metadata.redirect-uris] each redirect_uri: expected an https URL on other.agent.test, client_id's host, or a loopback redirect URI, got http://other.agent.test/poppy/callback",
     run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { redirect_uris: ["http://other.agent.test/poppy/callback"] } }))
   },
   {
     id: "client-metadata.auth-method",
     what: "token_endpoint_auth_method client_secret_basic",
-    detail: "[client-metadata.auth-method] client metadata: token_endpoint_auth_method should be private_key_jwt",
+    detail: "[client-metadata.auth-method] token_endpoint_auth_method: expected private_key_jwt, got \"client_secret_basic\"",
     run: async (c) => expect((await revokeAsOther(c, await otherClient(c, { metadata: { token_endpoint_auth_method: "client_secret_basic" } }))).status).toBe(200)
   },
   {
     id: "client-metadata.jwks-status",
     what: "a jwks_uri that answers 404",
-    detail: "[client-metadata.jwks-status] client metadata: jwks_uri returned 404",
+    detail: "[client-metadata.jwks-status] fetching jwks_uri: expected HTTP 200, got HTTP 404",
     run: async (c) => revokeAsOther(c, await otherClient(c, { jwksStatus: 404 }))
   },
   {
     id: "client-metadata.jwks-empty",
     what: "a JWKS with no keys",
-    detail: "[client-metadata.jwks-empty] client metadata: JWKS has no keys",
+    detail: "[client-metadata.jwks-empty] the JWKS: expected at least one key, got an empty keys array",
     run: async (c) => revokeAsOther(c, await otherClient(c, { jwks: { keys: [] } }))
   },
   {
     id: "client-metadata.jwks-private",
     what: "a JWKS publishing a private key",
-    detail: "[client-metadata.jwks-private] client metadata: JWKS publishes a private key",
+    detail: "[client-metadata.jwks-private] each JWKS key: expected a public key only, got private members d",
     run: async (c) => {
       const { privateKey } = await generateKeyPair("ES256", { extractable: true });
       return revokeAsOther(c, await otherClient(c, { jwks: { keys: [{ ...(await exportJWK(privateKey)), kid: "other-1" }] } }));
@@ -998,37 +998,37 @@ const TAMPERS: readonly Tamper[] = [
     id: "client-metadata.key-without-kid",
     what: "a JWKS key without kid, at a lenient Company",
     config: { strictAssertions: false },
-    detail: "[client-metadata.key-without-kid] client metadata: JWKS key without kid (Guides: give every key a kid)",
+    detail: "[client-metadata.key-without-kid] each JWKS key: expected a kid, got a key without one",
     run: async (c) => expect((await revokeAsOther(c, await otherClient(c, { kid: null }))).status).toBe(200)
   },
 
   // ---- DPoP proofs for DPoP-bound access tokens (4.5, RFC 9449) ----
-  { id: "dpop.missing", what: "a DPoP-bound token without a proof", detail: "[dpop.missing] DPoP: missing DPoP header (GET /orders)", run: (c) => getOrders(c, { proof: null }) },
+  { id: "dpop.missing", what: "a DPoP-bound token without a proof", detail: "[dpop.missing] the DPoP header on GET /orders: expected a DPoP proof for the DPoP-bound token, got none", run: (c) => getOrders(c, { proof: null }) },
   {
     id: "dpop.multiple",
     what: "two DPoP proofs in one header",
-    detail: "[dpop.multiple] DPoP: more than one DPoP proof (GET /orders)",
+    detail: "[dpop.multiple] the DPoP header on GET /orders: expected one proof, got 2 proofs",
     run: async (c) => {
       const s = await signedIn(c);
       return getOrders(c, { proof: `${await proof(s.dpop!, "GET", orders(c), s.token)}, ${await proof(s.dpop!, "GET", orders(c), s.token)}` }, s);
     }
   },
-  { id: "dpop.not-jwt", what: "a DPoP proof that isn't a JWT", detail: "[dpop.not-jwt] DPoP: proof is not a JWT (GET /orders)", run: (c) => getOrders(c, { proof: "not-a-jwt" }) },
-  { id: "dpop.typ", what: 'a DPoP proof with typ "JWT"', detail: "[dpop.typ] DPoP: typ is JWT (GET /orders)", run: (c) => getOrders(c, { proof: { header: { typ: "JWT" } } }) },
+  { id: "dpop.not-jwt", what: "a DPoP proof that isn't a JWT", detail: "[dpop.not-jwt] the DPoP proof on GET /orders: expected a JWT, got a value that doesn't decode as one", run: (c) => getOrders(c, { proof: "not-a-jwt" }) },
+  { id: "dpop.typ", what: 'a DPoP proof with typ "JWT"', detail: "[dpop.typ] the DPoP proof's typ on GET /orders: expected dpop+jwt, got \"JWT\"", run: (c) => getOrders(c, { proof: { header: { typ: "JWT" } } }) },
   {
     id: "dpop.alg",
     what: "a DPoP proof signed with ES384",
-    detail: "[dpop.alg] DPoP: alg ES384 not allowed (GET /orders)",
+    detail: "[dpop.alg] the DPoP proof's alg on GET /orders: expected ES256 or RS256, got \"ES384\"",
     run: async (c) => {
       const { privateKey, publicKey } = await generateKeyPair("ES384");
       return getOrders(c, { proof: { header: { alg: "ES384", jwk: await exportJWK(publicKey) }, key: privateKey } });
     }
   },
-  { id: "dpop.no-jwk", what: "a DPoP proof without its jwk", detail: "[dpop.no-jwk] DPoP: no jwk in header (GET /orders)", run: (c) => getOrders(c, { proof: { header: { jwk: undefined } } }) },
+  { id: "dpop.no-jwk", what: "a DPoP proof without its jwk", detail: "[dpop.no-jwk] the DPoP proof's header on GET /orders: expected a jwk, got none", run: (c) => getOrders(c, { proof: { header: { jwk: undefined } } }) },
   {
     id: "dpop.private-jwk",
     what: "a DPoP proof whose jwk is the private key",
-    detail: "[dpop.private-jwk] DPoP: jwk contains a private key (GET /orders)",
+    detail: "[dpop.private-jwk] the DPoP proof's jwk on GET /orders: expected a public key only, got private members d",
     run: async (c) => {
       const { privateKey } = await generateKeyPair("ES256", { extractable: true });
       return getOrders(c, { proof: { header: { jwk: await exportJWK(privateKey) }, key: privateKey } });
@@ -1037,28 +1037,28 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "dpop.signature",
     what: "a DPoP proof signed by a key other than its jwk",
-    detail: "[dpop.signature] DPoP: signature: signature verification failed (GET /orders)",
+    detail: "[dpop.signature] the DPoP proof on GET /orders: expected a signature by its jwk, got \"signature verification failed\"",
     run: async (c) => getOrders(c, { proof: { key: await strangerKey() } })
   },
-  { id: "dpop.htm", what: "a DPoP proof for POST on a GET", detail: "[dpop.htm] DPoP: htm POST != GET (GET /orders)", run: (c) => getOrders(c, { proof: { claims: { htm: "POST" } } }) },
+  { id: "dpop.htm", what: "a DPoP proof for POST on a GET", detail: "[dpop.htm] the DPoP proof's htm on GET /orders: expected the request's method, \"GET\", got \"POST\"", run: (c) => getOrders(c, { proof: { claims: { htm: "POST" } } }) },
   {
     id: "dpop.htu",
     what: "a DPoP proof whose htu keeps the query",
-    detail: (c) => `[dpop.htu] DPoP: htu ${c.hosts.api}/orders?q=jacket != ${c.hosts.api}/orders (GET /orders)`,
+    detail: (c) => `[dpop.htu] the DPoP proof's htu on GET /orders: expected the request URL without its query, ${c.hosts.api}/orders, got ${c.hosts.api}/orders?…`,
     run: async (c) => call(c, await signedIn(c), "GET", `${orders(c)}?q=jacket`, { proof: { claims: { htu: `${orders(c)}?q=jacket` } } })
   },
-  { id: "dpop.iat", what: "a DPoP proof made ten minutes ago", detail: "[dpop.iat] DPoP: iat outside the acceptance window (GET /orders)", run: (c) => getOrders(c, { proof: { claims: { iat: seconds() - 600 } } }) },
+  { id: "dpop.iat", what: "a DPoP proof made ten minutes ago", detail: "[dpop.iat] the DPoP proof's iat on GET /orders: expected a time within 90 s of now, got one 10 minutes earlier", run: (c) => getOrders(c, { proof: { claims: { iat: seconds() - 600 } } }) },
   {
     id: "dpop.ath",
     what: "a DPoP proof whose ath is for another token",
-    detail: "[dpop.ath] DPoP: ath doesn't match the token (GET /orders)",
+    detail: "[dpop.ath] the DPoP proof's ath on GET /orders: expected the hash of the access token sent, got another value",
     run: async (c) => getOrders(c, { proof: { claims: { ath: await hash("at_other") } } })
   },
   {
     id: "dpop.nonce-ignored",
     what: "a proof, a second after using the nonce, without it",
     config: { requireNonce: true },
-    detail: (c) => `[dpop.nonce-ignored] DPoP: proof without the nonce this key already used at ${new URL(c.hosts.tokenEndpoint).origin} (must keep using nonces)`,
+    detail: (c) => `[dpop.nonce-ignored] a DPoP proof at ${c.hosts.issuer}: expected the nonce this key already used at this server, got none. A key keeps using a server's nonces`,
     run: async (c) => {
       const key = await dpopKey();
       const send = (dpop: string) => tokenRequest(c, UNKNOWN_REFRESH, { key, dpop });
@@ -1077,7 +1077,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "dpop.key-mismatch",
     what: "a correct proof from a key the token isn't bound to",
-    detail: "[dpop.key-mismatch] DPoP proof key isn't the key the token is bound to",
+    detail: "[dpop.key-mismatch] the DPoP proof's key on GET /orders: expected the key the token is bound to, got another key",
     run: async (c) => {
       const s = await signedIn(c);
       return getOrders(c, {}, { ...s, dpop: await dpopKey() });
@@ -1088,7 +1088,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "resource.bearer-scheme",
     what: "a DPoP-bound token with the Bearer scheme",
-    detail: "[resource.bearer-scheme] Bearer scheme for a DPoP-bound token on /orders",
+    detail: "[resource.bearer-scheme] the Authorization scheme on GET /orders: expected DPoP, the token's token_type, got Bearer",
     run: async (c) => {
       const s = await signedIn(c);
       return getOrders(c, { auth: `Bearer ${s.token}`, proof: null }, s);
@@ -1098,7 +1098,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "resource.bearer-scheme",
     what: "a Bearer token with the DPoP scheme",
     config: BEARER,
-    detail: "[resource.bearer-scheme] DPoP scheme for a Bearer token on /orders",
+    detail: "[resource.bearer-scheme] the Authorization scheme on GET /orders: expected Bearer, the token's token_type, got DPoP",
     run: async (c) => {
       const s = await signedIn(c, { bearer: true });
       expect(s.tokenType).toBe("Bearer");
@@ -1109,20 +1109,20 @@ const TAMPERS: readonly Tamper[] = [
     id: "resource.unverified-target",
     what: "a token for a resource named only by metadata for another URL",
     config: { mismatchedApiResourceMetadata: true },
-    detail: (c) => `[resource.unverified-target] token request for ${c.hosts.api}/elsewhere, which no metadata at its own derived URL names`,
+    detail: (c) => `[resource.unverified-target] the token request's resource: expected one that protected resource metadata at its own derived URL names, got ${c.hosts.api}/elsewhere`,
     run: async (c) => refresh(c, await signedIn(c), { resource: `${c.hosts.api}/elsewhere` })
   },
   {
     id: "mcp.wrong-token",
     what: "the default access token at the MCP server",
     config: BEARER,
-    detail: "[mcp.wrong-token] MCP request with a token not issued for this MCP server",
+    detail: (c) => `[mcp.wrong-token] the MCP request's access token: expected one issued for this MCP server, ${c.hosts.mcpUrl}, got one issued for no resource`,
     run: async (c) => call(c, await signedIn(c, { bearer: true }), "POST", c.hosts.mcpUrl, { body: { jsonrpc: "2.0", id: 1, method: "tools/list" }, headers: MCP_ACCEPT })
   },
   {
     id: "mcp.accept",
     what: "an MCP request that only Accepts JSON",
-    detail: '[mcp.accept] MCP request must Accept application/json and text/event-stream, got "application/json"',
+    detail: "[mcp.accept] the MCP request's Accept: expected application/json and text/event-stream, got \"application/json\"",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, { body: MCP_INITIALIZE, headers: { Accept: "application/json" } });
       expect(response.status).toBe(200);
@@ -1133,7 +1133,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.legacy-session",
     what: "an MCP request after initialize without Mcp-Session-Id",
     config: LEGACY_ONLY,
-    detail: "[mcp.legacy-session] tools/list without Mcp-Session-Id",
+    detail: "[mcp.legacy-session] tools/list after initialize: expected the server's Mcp-Session-Id, got none",
     run: async (c) => {
       const s = await session();
       const { "Mcp-Session-Id": _dropped, ...headers } = await legacyMcp(c, s);
@@ -1146,7 +1146,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.legacy-version-header",
     what: "an MCP request in a session without MCP-Protocol-Version",
     config: LEGACY_ONLY,
-    detail: "[mcp.legacy-version-header] tools/list: MCP-Protocol-Version null in a 2025-06-18 session",
+    detail: "[mcp.legacy-version-header] tools/list's MCP-Protocol-Version: expected the version its session negotiated, \"2025-06-18\", got none",
     run: async (c) => {
       const s = await session();
       const { "MCP-Protocol-Version": _dropped, ...headers } = await legacyMcp(c, s);
@@ -1157,7 +1157,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.legacy-initialized",
     what: "an MCP request in a session before notifications/initialized",
     config: LEGACY_ONLY,
-    detail: "[mcp.legacy-initialized] tools/list before notifications/initialized",
+    detail: "[mcp.legacy-initialized] tools/list in a session: expected notifications/initialized first, got this request before it",
     run: async (c) => {
       const s = await session();
       const headers = await legacyMcp(c, s, { initialized: false });
@@ -1169,7 +1169,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-meta",
     what: "a 2026-07-28 request without clientCapabilities in _meta",
     config: MODERN_ONLY,
-    detail: "[mcp.modern-meta] tools/list: _meta lacks io.modelcontextprotocol/clientCapabilities",
+    detail: "[mcp.modern-meta] tools/list's _meta: expected protocolVersion and clientCapabilities, got no io.modelcontextprotocol/clientCapabilities",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { meta: { "io.modelcontextprotocol/clientCapabilities": undefined } }));
       expect(response.status).toBe(400);
@@ -1180,14 +1180,14 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-client-info",
     what: "a 2026-07-28 request without clientInfo",
     config: MODERN_ONLY,
-    detail: "[mcp.modern-client-info] tools/list without io.modelcontextprotocol/clientInfo",
+    detail: "[mcp.modern-client-info] tools/list's _meta: expected io.modelcontextprotocol/clientInfo, an object, got nothing",
     run: async (c) => expect((await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { meta: { "io.modelcontextprotocol/clientInfo": undefined } }))).status).toBe(200)
   },
   {
     id: "mcp.modern-version-header",
     what: "a 2026-07-28 request without MCP-Protocol-Version",
     config: MODERN_ONLY,
-    detail: '[mcp.modern-version-header] tools/list: MCP-Protocol-Version null, _meta "2026-07-28"',
+    detail: "[mcp.modern-version-header] tools/list's MCP-Protocol-Version: expected its _meta protocolVersion, \"2026-07-28\", got none",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { headers: { "MCP-Protocol-Version": undefined } }));
       expect(response.status).toBe(400);
@@ -1198,7 +1198,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-method-header",
     what: "a 2026-07-28 tools/list whose Mcp-Method says tools/call",
     config: MODERN_ONLY,
-    detail: '[mcp.modern-method-header] tools/list: Mcp-Method "tools/call"',
+    detail: "[mcp.modern-method-header] tools/list's Mcp-Method: expected its method, \"tools/list\", got \"tools/call\"",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/list", {}, { headers: { "Mcp-Method": "tools/call" } }));
       expect(response.status).toBe(400);
@@ -1209,7 +1209,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-name-header",
     what: "a 2026-07-28 tools/call whose Mcp-Name names another tool",
     config: MODERN_ONLY,
-    detail: '[mcp.modern-name-header] tools/call "search_products": Mcp-Name "exchange_item"',
+    detail: "[mcp.modern-name-header] tools/call's Mcp-Name: expected its tool, \"search_products\", got \"exchange_item\"",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/call", { name: "search_products", arguments: { query: "jacket" } }, { headers: { "Mcp-Name": "exchange_item" } }));
       expect(response.status).toBe(400);
@@ -1219,7 +1219,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-param-header",
     what: "a 2026-07-28 tools/call without its x-mcp-header argument's header",
     config: MODERN_ONLY,
-    detail: '[mcp.modern-param-header] tools/call search_products: Mcp-Param-Query null for "jacket"',
+    detail: "[mcp.modern-param-header] Mcp-Param-Query on tools/call \"search_products\": expected its argument, \"jacket\", got none",
     run: async (c) => {
       const response = await call(c, await session(), "POST", c.hosts.mcpUrl, modernMcp("tools/call", { name: "search_products", arguments: { query: "jacket" } }, { headers: { "Mcp-Param-Query": undefined } }));
       expect(response.status).toBe(400);
@@ -1229,7 +1229,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "mcp.modern-session-id",
     what: "a 2026-07-28 request with Mcp-Session-Id",
     config: DUAL_ERA,
-    detail: "[mcp.modern-session-id] tools/list with Mcp-Session-Id",
+    detail: "[mcp.modern-session-id] tools/list in 2026-07-28: expected no Mcp-Session-Id, got one",
     run: async (c) => {
       const s = await session();
       const { "Mcp-Session-Id": sessionId } = await legacyMcp(c, s);
@@ -1244,7 +1244,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "rate-limit.retry-after-ignored",
     what: "a retry before Retry-After elapsed",
     config: { rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 1 } },
-    detail: /^\[rate-limit\.retry-after-ignored\] sent GET \/products \d+ ms before Retry-After elapsed$/,
+    detail: /^\[rate-limit\.retry-after-ignored\] GET \/products: expected no repeat until its Retry-After elapsed, got the same request \d+ ms before it did$/,
     run: async (c) => {
       const s = await session();
       const first = await call(c, s, "GET", products(c));
@@ -1257,7 +1257,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "rate-limit.retry-after-ignored",
     what: "a retry before Retry-After elapsed on the fake clock",
     config: { rateLimit: { tokenRequests429: 1, requests429: 0, retryAfterSeconds: 2 } },
-    detail: /^\[rate-limit\.retry-after-ignored\] sent POST \/oauth\/token \d+ ms before Retry-After elapsed$/,
+    detail: /^\[rate-limit\.retry-after-ignored\] POST \/oauth\/token: expected no repeat until its Retry-After elapsed, got the same request \d+ ms before it did$/,
     run: async (c) => {
       expect((await tokenRequest(c, UNKNOWN_REFRESH)).status).toBe(429);
       // One second on is still too soon; three seconds on is fine.
@@ -1269,7 +1269,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "rate-limit.shared-limit-ignored",
     what: "a different request inside another request's Retry-After",
     config: { rateLimit: { tokenRequests429: 1, requests429: 0, retryAfterSeconds: 2 } },
-    detail: /^\[rate-limit\.shared-limit-ignored\] sent GET \/products \d+ ms before another request's Retry-After elapsed$/,
+    detail: /^\[rate-limit\.shared-limit-ignored\] GET \/products: expected no request until an earlier request's Retry-After elapsed, got this one \d+ ms before it did$/,
     run: async (c) => {
       expect((await tokenRequest(c, UNKNOWN_REFRESH)).status).toBe(429);
       const read = await call(c, await session(), "GET", products(c));
@@ -1280,19 +1280,19 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "secret.password",
     what: "a password in a header to the website",
-    detail: (c) => `[secret.password] password sent in headers of GET ${SITE(c)}/`,
+    detail: (c) => `[secret.password] the password: expected the token endpoint's body only, got it in the headers of GET ${c.hosts.web}/`,
     run: async (c) => c.call(`${SITE(c)}/`, { headers: { "X-Note": "correct horse" } })
   },
   {
     id: "secret.password",
     what: "a password in a conversation message",
-    detail: (c) => `[secret.password] password sent in body of POST ${c.hosts.conversationsEndpoint}`,
+    detail: (c) => `[secret.password] the password: expected the token endpoint's body only, got it in the body of POST ${c.hosts.conversationsEndpoint}`,
     run: async (c) => expect((await converse(c, await session(), message({ text: "My password is correct horse" }))).status).toBe(201)
   },
   {
     id: "secret.one-time-code",
     what: "a one-time code in the body of a conversation",
-    detail: (c) => `[secret.one-time-code] one-time code sent in body of POST ${c.hosts.conversationsEndpoint}`,
+    detail: (c) => `[secret.one-time-code] the one-time code: expected the token endpoint's body only, got it in the body of POST ${c.hosts.conversationsEndpoint}`,
     run: async (c) => {
       const { code } = await oneTimeCode(c);
       return converse(c, await session(), message({ text: `My code is ${code}` }));
@@ -1301,7 +1301,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "secret.account-token",
     what: "a refresh token in a header to an API",
-    detail: (c) => `[secret.account-token] refresh token sent in headers of GET ${c.hosts.api}/orders`,
+    detail: (c) => `[secret.account-token] the refresh token: expected the body of a token or revocation request only, got it in the headers of GET ${c.hosts.api}/orders`,
     run: async (c) => {
       const s = await signedIn(c);
       expect((await getOrders(c, { headers: { "X-Refresh": s.refreshToken! } }, s)).status).toBe(200);
@@ -1310,7 +1310,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "secret.token-in-url",
     what: "an access token in the query string",
-    detail: /^\[secret\.token-in-url\] token sent in URL https:\/\/api\.\w+\.shop\.test\/products\?access_token=at_[\w-]+$/,
+    detail: (c) => `[secret.token-in-url] the request URL: expected no token in its query, got access_token= in ${c.hosts.api}/products?…`,
     run: async (c) => {
       const s = await signedIn(c);
       return call(c, s, "GET", `${products(c)}?access_token=${s.token}`, { token: null });
@@ -1321,13 +1321,13 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "form.not-form",
     what: "a revocation as JSON",
-    detail: '[form.not-form] /oauth/revoke sent as "application/json", not a form',
+    detail: "[form.not-form] the body of POST /oauth/revoke: expected a form, application/x-www-form-urlencoded, got application/json",
     run: async (c) => revoke(c, { contentType: "application/json" })
   },
   {
     id: "account-token.other-client",
     what: "a refresh token used by another client_id",
-    detail: "[account-token.other-client] refresh token used by a different client_id",
+    detail: "[account-token.other-client] the refresh token's client: expected the client it was issued to, https://agent.test/poppy/client.json, got https://other.agent.test/poppy/client.json",
     run: async (c) => {
       const s = await signedIn(c);
       const other = await otherClient(c);
@@ -1338,7 +1338,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "account-token.rotated-reused",
     what: "a refresh token used after it rotated",
     config: { rotateRefreshTokens: true },
-    detail: "[account-token.rotated-reused] used a refresh token after the Company rotated it (4.4)",
+    detail: "[account-token.rotated-reused] the refresh token: expected the one the Company issued last, got one it had replaced",
     run: async (c) => {
       const s = await signedIn(c);
       expect((await refresh(c, s)).status).toBe(200);
@@ -1348,7 +1348,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "token.dpop-not-sent",
     what: "a refresh without a DPoP proof where the issuer asks for one",
-    detail: /^\[token\.dpop-not-sent\] token request \(refresh_token\) without a DPoP proof/,
+    detail: "[token.dpop-not-sent] the token request (refresh_token): expected a DPoP proof, since the metadata lists dpop_signing_alg_values_supported, got none",
     run: (c) => tokenRequest(c, UNKNOWN_REFRESH, { key: null })
   },
 
@@ -1356,49 +1356,49 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "signin.no-scope",
     what: "a device sign-in without scope",
-    detail: "[signin.no-scope] device sign-in without scope",
+    detail: "[signin.no-scope] the device sign-in's scope: expected at least one scope, got none",
     run: async (c) => form(c, c.hosts.deviceEndpoint, {}, null)
   },
   {
     id: "signin.no-scope",
     what: "a direct sign-in without scope",
-    detail: "[signin.no-scope] direct sign-in without scope",
+    detail: "[signin.no-scope] the direct sign-in's scope: expected at least one scope, got none",
     run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ scope: undefined })))
   },
   {
     id: "signin.no-scope",
     what: "a mediated sign-in without scope",
-    detail: "[signin.no-scope] mediated sign-in without scope",
+    detail: "[signin.no-scope] the mediated sign-in's scope: expected at least one scope, got none",
     run: async (c) => mediated(c, ADA)
   },
   {
     id: "authorize.redirect-uri",
     what: "an unregistered redirect_uri",
-    detail: "[authorize.redirect-uri] redirect_uri https://agent.test/elsewhere isn't an exact registered redirect_uri",
+    detail: "[authorize.redirect-uri] the authorization request's redirect_uri: expected one of the client's registered redirect_uris, exactly: https://agent.test/poppy/callback, got https://agent.test/elsewhere",
     run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ redirect_uri: "https://agent.test/elsewhere" })))
   },
   {
     id: "authorize.no-state",
     what: "an authorization request without state",
-    detail: "[authorize.no-state] authorization request without state",
+    detail: "[authorize.no-state] the authorization request: expected a state, got none",
     run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ state: undefined })))
   },
   {
     id: "authorize.no-pkce",
     what: "PKCE plain instead of S256",
-    detail: "[authorize.no-pkce] authorization request without PKCE S256",
+    detail: "[authorize.no-pkce] the authorization request: expected a code_challenge with code_challenge_method S256, got code_challenge_method \"plain\"",
     run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ code_challenge: "plain-verifier", code_challenge_method: "plain" })))
   },
   {
     id: "authorize.secret-in-url",
     what: "a client assertion in the authorization URL",
-    detail: "[authorize.secret-in-url] client_assertion in the authorization URL",
+    detail: "[authorize.secret-in-url] the authorization URL: expected no token or assertion, got client_assertion in its query",
     run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams({ client_assertion: await clientAssertion(c) })))).status).toBe(200)
   },
   {
     id: "code.reused",
     what: "an authorization code exchanged twice",
-    detail: "[code.reused] authorization code used twice",
+    detail: "[code.reused] the authorization code: expected a code used once, got one used before",
     run: async (c) => {
       const flow = await authorizationCode(c);
       const key = await dpopKey();
@@ -1409,34 +1409,34 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "code.redirect-uri",
     what: "a different redirect_uri at the token endpoint",
-    detail: "[code.redirect-uri] redirect_uri at the token endpoint differs from the authorization request",
+    detail: "[code.redirect-uri] the token request's redirect_uri: expected the authorization request's, https://agent.test/poppy/callback, got https://agent.test/poppy/callback2",
     run: async (c) => exchangeCode(c, await authorizationCode(c), await dpopKey(), { redirect_uri: "https://agent.test/poppy/callback2" })
   },
   {
     id: "code.pkce",
     what: "the wrong PKCE verifier",
-    detail: "[code.pkce] PKCE code_verifier doesn't match the challenge",
+    detail: "[code.pkce] the token request's code_verifier: expected the verifier of the authorization request's code_challenge, got another verifier",
     run: async (c) => exchangeCode(c, await authorizationCode(c), await dpopKey(), { code_verifier: jti() + jti() })
   },
   {
     id: "authorize.prompt-consent",
     what: "a 1.0 authorization request without prompt=consent",
     config: { protocolVersion: "1.0" },
-    detail: `[authorize.prompt-consent] a 1.x authorization request without prompt=consent, to redirect_uri ${REDIRECT_URI}`,
+    detail: "[authorize.prompt-consent] the 1.x authorization request to https://agent.test/poppy/callback: expected prompt=consent, since its redirect URI isn't loopback, got no prompt",
     run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams({ prompt: undefined })))).status).toBe(200)
   },
   {
     id: "par.not-pushed",
     what: "an authorization request in the URL to a Company that requires pushed ones",
     config: { pushedAuthorization: "required" },
-    detail: "[par.not-pushed] an authorization request in the URL, though the metadata sets require_pushed_authorization_requests",
+    detail: "[par.not-pushed] the authorization request: expected a pushed one, since the metadata sets require_pushed_authorization_requests, got one in the URL",
     run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams()))).status).toBe(400)
   },
   {
     id: "par.extra-parameters",
     what: "a 1.0 authorization URL that carries scope beside a pushed request's request_uri",
     config: { protocolVersion: "1.0", pushedAuthorization: "offered" },
-    detail: "[par.extra-parameters] the authorization URL for a pushed request also carries scope",
+    detail: "[par.extra-parameters] the authorization URL for a pushed request: expected client_id and request_uri only, got also scope",
     run: async (c) => {
       const pushed = await pushAuthorization(c, await dpopKey());
       expect((await c.call(authorizeUrl(c, { client_id: CLIENT_ID, request_uri: pushed.requestUri, scope: "orders:read" }))).status).toBe(200);
@@ -1446,21 +1446,21 @@ const TAMPERS: readonly Tamper[] = [
     id: "par.code-key",
     what: "a code pushed with one DPoP key, exchanged with another",
     config: { pushedAuthorization: "offered" },
-    detail: /^\[par\.code-key\] exchanged a code bound to DPoP key [\w-]{43} with key [\w-]{43}$/,
+    detail: "[par.code-key] the code exchange's DPoP proof: expected one by the key the code was pushed with, got one by another key",
     run: async (c) => expect((await exchangeCode(c, await pushedCode(c, await dpopKey()), await dpopKey())).status).toBe(400)
   },
   {
     id: "dpop.refresh-key-changed",
     what: "a 1.0 refresh with another DPoP key than the sign-in's",
     config: { protocolVersion: "1.0" },
-    detail: /^\[dpop\.refresh-key-changed\] refreshed a refresh token issued with DPoP key [\w-]{43} with key [\w-]{43}$/,
+    detail: "[dpop.refresh-key-changed] the refresh request's DPoP proof: expected one by the key the refresh token was issued with, got one by another key",
     // The Company doesn't bind its refresh tokens (bindRefreshTokens), so the refresh still works.
     run: async (c) => expect((await tokenRequest(c, { grant_type: "refresh_token", refresh_token: (await signIn(c)).refreshToken }, { key: await dpopKey() })).status).toBe(200)
   },
   {
     id: "device.polled-after-final",
     what: "polling twice after access_denied",
-    detail: "[device.polled-after-final] kept polling after access_denied",
+    detail: "[device.polled-after-final] the device code: expected no poll after access_denied, got another poll",
     run: async (c) => {
       const flow = await deviceFlow(c);
       await c.stub.denyDevice(flow.device.user_code);
@@ -1471,7 +1471,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "device.polled-after-final",
     what: "polling after signing in",
-    detail: "[device.polled-after-final] kept polling after completion",
+    detail: "[device.polled-after-final] the device code: expected no poll after its tokens were issued, got another poll",
     run: async (c) => {
       const flow = await deviceFlow(c);
       await c.stub.approveDevice(flow.device.user_code);
@@ -1482,7 +1482,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "device.polled-after-expiry",
     what: "polling twice after expired_token",
-    detail: "[device.polled-after-expiry] kept polling after expired_token",
+    detail: "[device.polled-after-expiry] the device code: expected no poll after expired_token, got another poll",
     run: async (c) => {
       const flow = await deviceFlow(c, { deviceExpiresIn: 0 });
       expect(await (await flow.poll()).json()).toMatchObject({ error: "expired_token" });
@@ -1492,7 +1492,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "device.too-fast",
     what: "polling faster than the interval after slow_down",
-    detail: /^\[device\.too-fast\] polled \d+ ms after the last poll, under the 6 s interval after slow_down$/,
+    detail: /^\[device\.too-fast\] the device code's polls, after slow_down: expected at least 6 s apart, got one \d+ ms after the last$/,
     run: async (c) => {
       const flow = await deviceFlow(c);
       expect(await (await flow.poll()).json()).toMatchObject({ error: "authorization_pending" });
@@ -1503,13 +1503,13 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "mediated.missing-field",
     what: "Mediated Sign-In without the password field",
-    detail: "[mediated.missing-field] mediated sign-in missing field password",
+    detail: "[mediated.missing-field] the mediated sign-in: expected a field password, got none",
     run: async (c) => mediated(c, { scope: "orders:read", email: ADA.email })
   },
   {
     id: "mediated.credentials-with-code",
     what: "the email resent with the one-time code",
-    detail: "[mediated.credentials-with-code] credentials resent with the one-time code (Mediated Sign-In 4: not the credentials or scope)",
+    detail: "[mediated.credentials-with-code] the one-time code's request: expected sign_in_id and one_time_code, without the credentials, got email as well",
     run: async (c) => {
       const { signInId, code } = await oneTimeCode(c);
       return mediated(c, { sign_in_id: signInId, one_time_code: code, email: GRACE.email });
@@ -1518,7 +1518,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "mediated.scope-with-code",
     what: "scope resent with the one-time code",
-    detail: "[mediated.scope-with-code] scope resent with the one-time code (Mediated Sign-In 4: the sign-in keeps its first scopes)",
+    detail: "[mediated.scope-with-code] the one-time code's request: expected no scope: the sign-in keeps its first scopes, got scope again",
     run: async (c) => {
       const { signInId, code } = await oneTimeCode(c);
       return mediated(c, { sign_in_id: signInId, one_time_code: code, scope: "orders:read" });
@@ -1527,7 +1527,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "mediated.code-other-client",
     what: "a one-time code sent by another client",
-    detail: /^\[mediated\.code-other-client\] one-time code for sgn_[\w-]+ sent by another client$/,
+    detail: /^\[mediated\.code-other-client\] the one-time code for "sgn_[\w-]+": expected the client that started it, https:\/\/agent\.test\/poppy\/client\.json, got https:\/\/other\.agent\.test\/poppy\/client\.json$/,
     run: async (c) => {
       const { signInId, code } = await oneTimeCode(c);
       const other = await otherClient(c);
@@ -1541,7 +1541,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "idempotency.key-reused",
     what: "an Idempotency-Key reused with another body",
     config: { printShop: true },
-    detail: "[idempotency.key-reused] Idempotency-Key key_approved_order_1 reused with a different body",
+    detail: "[idempotency.key-reused] Idempotency-Key \"key_approved_order_1\": expected the body it was first sent with, got a different body",
     run: async (c) => {
       const s = await session();
       const photo = await uploaded(c, s);
@@ -1555,7 +1555,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "idempotency.key-missing",
     what: "an order of prints without the Idempotency-Key its description requires",
     config: { printShop: true },
-    detail: "[idempotency.key-missing] POST /prints without the Idempotency-Key its description requires",
+    detail: "[idempotency.key-missing] POST /prints: expected the Idempotency-Key its description requires, got none",
     run: async (c) => {
       const s = await session();
       return orderPrints(c, s, printOrder(await uploaded(c, s)));
@@ -1565,21 +1565,21 @@ const TAMPERS: readonly Tamper[] = [
     id: "upload.boundary",
     what: "a photo upload whose multipart/form-data has no boundary",
     config: { printShop: true },
-    detail: '[upload.boundary] multipart/form-data without a boundary: "multipart/form-data"',
+    detail: "[upload.boundary] the upload's Content-Type: expected multipart/form-data with a boundary, got \"multipart/form-data\"",
     run: async (c) => uploadPhoto(c, await session(), PHOTO(), "multipart/form-data")
   },
   {
     id: "upload.part-name",
     what: "a photo upload whose part has no form-data name",
     config: { printShop: true },
-    detail: '[upload.part-name] multipart part without a form-data name (Content-Disposition: "attachment; filename=\\"lake\\"")',
+    detail: "[upload.part-name] each multipart part's Content-Disposition: expected form-data with a name, got \"attachment; filename=\\\"lake\\\"\"",
     run: async (c) => uploadPhoto(c, await session(), multipart("b0undary", 'attachment; filename="lake"'), PHOTO_TYPE)
   },
   {
     id: "exchange.performed-twice",
     what: "a write retried without its Idempotency-Key, at a Company without Operations",
     config: { operations: false },
-    detail: "[exchange.performed-twice] itm_4Qa on ord_7Hk2 exchanged again for acct_ada (direct API call)",
+    detail: "[exchange.performed-twice] the exchange of itm_4Qa on ord_7Hk2: expected one for \"acct_ada\", got a second, by direct API call",
     run: async (c) => {
       const s = await signedIn(c);
       expect((await exchange(c, s)).status).toBe(201);
@@ -1589,7 +1589,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "exchange.performed-twice",
     what: "the same exchange approved again as a new operation",
-    detail: /^\[exchange\.performed-twice\] itm_4Qa on ord_7Hk2 exchanged again for acct_ada \(operation exc_[\w-]+\)$/,
+    detail: /^\[exchange\.performed-twice\] the exchange of itm_4Qa on ord_7Hk2: expected one for "acct_ada", got a second, by operation exc_[\w-]+$/,
     run: async (c) => {
       const { s, operation } = await refused(c);
       expect((await exchange(c, s, approval(operation))).status).toBe(201);
@@ -1604,46 +1604,46 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "message.missing",
     what: "a conversation started without a message",
-    detail: "[message.missing] conversation message: missing message",
+    detail: "[message.missing] the conversation request's message: expected an object, got nothing",
     run: async (c) => call(c, await session(), "POST", c.hosts.conversationsEndpoint, { body: { id: "req_1" } })
   },
   {
     id: "message.empty",
     what: "a message with no text, data, context or extensions",
-    detail: "[message.empty] conversation message: needs at least one of text, data, context or extensions",
+    detail: "[message.empty] the conversation message: expected at least one of text, data, context or extensions, got none of them",
     run: async (c) => converse(c, await session(), message({ text: undefined }))
   },
-  { id: "message.text-type", what: "a number as text", detail: "[message.text-type] conversation message: text must be a string", run: async (c) => converse(c, await session(), message({ text: 1042 })) },
+  { id: "message.text-type", what: "a number as text", detail: "[message.text-type] the conversation message's text: expected a string, got a whole number", run: async (c) => converse(c, await session(), message({ text: 1042 })) },
   {
     id: "message.json-in-text",
     what: "JSON in text",
-    detail: "[message.json-in-text] conversation message: JSON in text; use data (8.4)",
+    detail: "[message.json-in-text] the conversation message's text: expected words, with JSON in data, got JSON",
     run: async (c) => expect((await converse(c, await session(), message({ text: '{"order": 1042}' }))).status).toBe(201)
   },
-  { id: "message.data-type", what: "an array as data", detail: "[message.data-type] conversation message: data must be a JSON object", run: async (c) => converse(c, await session(), message({ data: [1042] })) },
-  { id: "message.context-type", what: "a string as context", detail: "[message.context-type] conversation message: context must be an object", run: async (c) => converse(c, await session(), message({ context: "London" })) },
+  { id: "message.data-type", what: "an array as data", detail: "[message.data-type] the conversation message's data: expected a JSON object, got an array", run: async (c) => converse(c, await session(), message({ data: [1042] })) },
+  { id: "message.context-type", what: "a string as context", detail: "[message.context-type] the conversation message's context: expected an object, got a string", run: async (c) => converse(c, await session(), message({ context: "London" })) },
   {
     id: "context.locale",
     what: "a locale that isn't a language tag",
-    detail: '[context.locale] context.locale "English please" is not an RFC 5646 tag',
+    detail: "[context.locale] the context's locale: expected an RFC 5646 language tag, got \"English please\"",
     run: async (c) => converse(c, await session(), message({ context: { locale: "English please" } }))
   },
   {
     id: "context.time-zone",
     what: "a time zone that isn't an IANA name",
-    detail: '[context.time-zone] context.time_zone "GMT+1 please" is not an IANA name',
+    detail: "[context.time-zone] the context's time_zone: expected an IANA time zone name, got \"GMT+1 please\"",
     run: async (c) => converse(c, await session(), message({ context: { time_zone: "GMT+1 please" } }))
   },
   {
     id: "context.user-available",
     what: 'user_available "yes"',
-    detail: "[context.user-available] context.user_available must be a boolean",
+    detail: "[context.user-available] the context's user_available: expected a boolean, got a string",
     run: async (c) => converse(c, await session(), message({ context: { user_available: "yes" } }))
   },
   {
     id: "direct.agent-words",
     what: "a Direct Conversation opened with the agent's words",
-    detail: "[direct.agent-words] Direct Conversation opened with words not marked as the User's (sender agent)",
+    detail: "[direct.agent-words] the words a Direct Conversation opens with: expected the User's, as author.type human, got author.type \"agent\"",
     run: async (c) => {
       const s = await session();
       const parent = await conversation(c, s);
@@ -1653,7 +1653,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "direct.agent-words-later",
     what: "the agent's own words in an open Direct Conversation",
-    detail: /^\[direct\.agent-words-later\] agent's own words sent into Direct Conversation cnv_[\w-]+$/,
+    detail: /^\[direct\.agent-words-later\] a message to Direct Conversation "cnv_[\w-]+": expected the User's words, as author\.type human, got author\.type "agent"$/,
     run: async (c) => {
       const s = await session();
       const parent = await conversation(c, s);
@@ -1669,7 +1669,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "handoff.body",
     what: "a handoff with a reason in the body",
-    detail: '[handoff.body] handoff body should be only the request id, got {"id":"req_1","reason":"needs a person"}',
+    detail: "[handoff.body] the handoff body: expected only the request id, got also reason",
     run: async (c) => {
       const s = await session();
       const id = await conversation(c, s);
@@ -1679,7 +1679,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "close.body",
     what: "a close with a body",
-    detail: '[close.body] close body should be only the request id, got {"id":"req_1","done":true}',
+    detail: "[close.body] the close body: expected only the request id, got also done",
     run: async (c) => {
       const s = await session();
       const id = await conversation(c, s);
@@ -1689,7 +1689,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "conversation.cross-user",
     what: "another User of the same agent reading a conversation",
-    detail: new RegExp(`^\\[conversation\\.cross-user\\] User ${OTHER_USER} reached conversation cnv_[\\w-]+ of User ${USER_ID}$`),
+    detail: /^\[conversation\.cross-user\] conversation "cnv_[\w-]+": expected its own User, "usr_Q7c1vKx9TzLw3NdR5mHa2B", got another User, "usr_Hd8pW2zQ5nVb7LtK3xRc9F"$/,
     run: async (c) => {
       const id = await conversation(c, await session());
       return call(c, await session(OTHER_USER), "GET", `${c.hosts.conversationsEndpoint}/${id}/events`);
@@ -1698,26 +1698,26 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "message.author",
     what: "a message without author",
-    detail: /^\[message\.author\] conversation message: author\.type must be agent or human$/,
+    detail: "[message.author] the conversation message's author.type: expected agent or human, got nothing",
     run: async (c) => converse(c, await session(), message({ author: undefined }))
   },
   {
     id: "message.author",
     what: "an agent's message that names its author",
-    detail: "[message.author] conversation message: only Company messages name an author's id, name or image (8.4)",
+    detail: "[message.author] the conversation message's author: expected only a type: only Company messages name an author's id, name or image, got also name",
     run: async (c) => expect((await converse(c, await session(), message({ author: { type: "agent", name: "Helper" } }))).status).toBe(201)
   },
   {
     id: "message.extension-unlisted",
     what: "an approval in extensions.operations to a Company that doesn't list Operations",
     config: { operations: false },
-    detail: "[message.extension-unlisted] conversation message: extensions.operations, which this Company doesn't list (8.4)",
+    detail: "[message.extension-unlisted] the conversation message's extensions: expected none, since this Company lists none, got operations",
     run: async (c) => converse(c, await session(), message({ extensions: { operations: { approval: { operation_id: "op_1", revision: "r1", approver: "user" } } } }))
   },
   {
     id: "message.sender-field",
     what: "a message that still says sender",
-    detail: /^\[message\.sender-field\]/,
+    detail: "[message.sender-field] the conversation message: expected author.type, as 0.3 and later say, got sender, which is 0.2's",
     run: async (c) => expect((await converse(c, await session(), message({ sender: "agent" }))).status).toBe(201)
   },
 
@@ -1725,7 +1725,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "operator-signature.invalid",
     what: "an operator signature that doesn't verify",
-    detail: /^\[operator-signature\.invalid\] operator signature: the signature doesn't verify \(GET \/products\)$/,
+    detail: "[operator-signature.invalid] the operator signature on GET /products: expected a signature that verifies, got one that doesn't",
     run: async (c) => {
       const s = await session();
       const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
@@ -1735,46 +1735,46 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "operator-signature.components",
     what: "an operator signature that leaves out poppy-session",
-    detail: /^\[operator-signature\.components\] operator signature: covers/,
+    detail: "[operator-signature.components] the operator signature on GET /products: expected components with poppy-session, got components \"@method\", \"@authority\", \"@path\" and \"signature-agent\";key=\"sig1\"",
     run: async (c) => call(c, await session(), "GET", products(c), { headers: await operatorHeaders(c, "GET", products(c)) })
   },
 
   // ---- The Session header (5.2, 5.3) ----
-  { id: "session-jwt.missing", what: "a request without the Session header", detail: /^\[session-jwt\.missing\] Session JWT: no Poppy-Session header \(GET \/products\)$/, run: (c) => getProducts(c, null) },
+  { id: "session-jwt.missing", what: "a request without the Session header", detail: "[session-jwt.missing] the request on GET /products: expected a Poppy-Session header, got none", run: (c) => getProducts(c, null) },
   {
     id: "session-jwt.missing-with-token",
     what: "an access token without the Session header",
-    detail: /^\[session-jwt\.missing-with-token\] Session JWT: an access token without the Session header/,
+    detail: "[session-jwt.missing-with-token] the request on GET /orders: expected a Poppy-Session header beside its access token, got none",
     run: (c) => getOrders(c, { jwt: null })
   },
-  { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", detail: /^\[session-jwt\.not-jwt\]/, run: (c) => getProducts(c, "not.a.jwt") },
-  { id: "session-jwt.typ", what: "a Session JWT with typ JWT", detail: /^\[session-jwt\.typ\] Session JWT: typ is "JWT"/, run: (c) => getProducts(c, { header: { typ: "JWT" } }) },
-  { id: "session-jwt.alg", what: "a Session JWT signed with HS256", detail: /^\[session-jwt\.alg\]/, run: async (c) => getProducts(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
-  { id: "session-jwt.no-delegation", what: "a Session JWT without poppy_dlg", detail: /^\[session-jwt\.no-delegation\]/, run: (c) => getProducts(c, { header: { poppy_dlg: undefined } }) },
-  { id: "session-jwt.iss", what: "a Session JWT without iss", detail: /^\[session-jwt\.iss\]/, run: (c) => getProducts(c, { claims: { iss: undefined } }) },
-  { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", detail: /^\[session-jwt\.kid\]/, run: (c) => getProducts(c, { header: { kid: "someone-else" } }) },
-  { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", detail: /^\[session-jwt\.signature\]/, run: async (c) => getProducts(c, { key: await strangerKey() }) },
-  { id: "session-jwt.iat", what: "a Session JWT ten minutes old", detail: /^\[session-jwt\.iat\] Session JWT: iat is outside the acceptance window/, run: (c) => getProducts(c, { claims: { iat: seconds() - 600 } }) },
+  { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", detail: "[session-jwt.not-jwt] Poppy-Session on GET /products: expected a JWT, got a value that doesn't decode as one", run: (c) => getProducts(c, "not.a.jwt") },
+  { id: "session-jwt.typ", what: "a Session JWT with typ JWT", detail: "[session-jwt.typ] the Session JWT's typ on GET /products: expected poppy-session+jwt, got \"JWT\"", run: (c) => getProducts(c, { header: { typ: "JWT" } }) },
+  { id: "session-jwt.alg", what: "a Session JWT signed with HS256", detail: "[session-jwt.alg] the Session JWT's alg on GET /products: expected ES256, got \"HS256\"", run: async (c) => getProducts(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
+  { id: "session-jwt.no-delegation", what: "a Session JWT without poppy_dlg", detail: "[session-jwt.no-delegation] the Session JWT's poppy_dlg on GET /products: expected a delegation, as a string, got nothing", run: (c) => getProducts(c, { header: { poppy_dlg: undefined } }) },
+  { id: "session-jwt.iss", what: "a Session JWT without iss", detail: "[session-jwt.iss] the Session JWT's iss on GET /products: expected the client_id, as a string, got nothing", run: (c) => getProducts(c, { claims: { iss: undefined } }) },
+  { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", detail: "[session-jwt.kid] the Session JWT's kid on GET /products: expected the delegated key's JWK thumbprint, got \"someone-else\"", run: (c) => getProducts(c, { header: { kid: "someone-else" } }) },
+  { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", detail: "[session-jwt.signature] the Session JWT on GET /products: expected a signature by the delegated key, got \"signature verification failed\"", run: async (c) => getProducts(c, { key: await strangerKey() }) },
+  { id: "session-jwt.iat", what: "a Session JWT ten minutes old", detail: "[session-jwt.iat] the Session JWT's iat on GET /products: expected a time within 90 s of now, got one 10 minutes earlier", run: (c) => getProducts(c, { claims: { iat: seconds() - 600 } }) },
   {
     id: "session-jwt.after-delegation",
     what: "a Session JWT signed after its delegation expired",
-    detail: /^\[session-jwt\.after-delegation\]/,
+    detail: "[session-jwt.after-delegation] the Session JWT's iat on GET /products: expected a time before its delegation's exp, got one 10 s after it",
     run: (c) => getProducts(c, { delegation: { claims: { iat: seconds() - 3600, exp: seconds() - 10 } } })
   },
-  { id: "session-jwt.aud", what: "a Session JWT for the token endpoint", detail: /^\[session-jwt\.aud\]/, run: (c) => getProducts(c, { claims: { aud: c.hosts.tokenEndpoint } }) },
-  { id: "session-jwt.htm", what: "a Session JWT for POST on a GET", detail: /^\[session-jwt\.htm\]/, run: (c) => getProducts(c, { claims: { htm: "POST" } }) },
-  { id: "session-jwt.htu", what: "a Session JWT for another URL", detail: /^\[session-jwt\.htu\]/, run: (c) => getProducts(c, { claims: { htu: orders(c) } }) },
-  { id: "session-jwt.sid", what: "a Session JWT whose sid has a slash", detail: /^\[session-jwt\.sid\]/, run: (c) => getProducts(c, { claims: { sid: "a/b" } }) },
-  { id: "session-jwt.sub", what: "a Session JWT without sub", detail: /^\[session-jwt\.sub\] Session JWT: sub/, run: (c) => getProducts(c, { claims: { sub: undefined } }) },
-  { id: "session-jwt.sub", what: "a Session JWT with an empty agent_id", detail: /^\[session-jwt\.sub\] Session JWT: agent_id/, run: (c) => getProducts(c, { claims: { agent_id: "" } }) },
-  { id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", detail: /^\[session-jwt\.ath\]/, run: async (c) => getOrders(c, { jwt: { claims: { ath: await hash("another token") } } }) },
-  { id: "session-jwt.oauth-endpoint", what: "a Session header at the revocation endpoint", detail: /^\[session-jwt\.oauth-endpoint\] \/oauth\/revoke got a Poppy-Session header$/, run: async (c) => revoke(c, { headers: { "Poppy-Session": "eyJ.a.session-header" } }) },
-  { id: "session-jwt.ath-without-token", what: "ath with no access token", detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => getProducts(c, { claims: { ath: await hash("a token") } }) },
+  { id: "session-jwt.aud", what: "a Session JWT for the token endpoint", detail: (c) => `[session-jwt.aud] the Session JWT's aud on GET /products: expected the Company's identifier, "${c.hosts.issuer}", as a single string, got "${c.hosts.tokenEndpoint}"`, run: (c) => getProducts(c, { claims: { aud: c.hosts.tokenEndpoint } }) },
+  { id: "session-jwt.htm", what: "a Session JWT for POST on a GET", detail: "[session-jwt.htm] the Session JWT's htm on GET /products: expected the request's method, \"GET\", got \"POST\"", run: (c) => getProducts(c, { claims: { htm: "POST" } }) },
+  { id: "session-jwt.htu", what: "a Session JWT for another URL", detail: (c) => `[session-jwt.htu] the Session JWT's htu on GET /products: expected the request URL without its query, ${c.hosts.api}/products, got ${c.hosts.api}/orders`, run: (c) => getProducts(c, { claims: { htu: orders(c) } }) },
+  { id: "session-jwt.sid", what: "a Session JWT whose sid has a slash", detail: "[session-jwt.sid] the Session JWT's sid on GET /products: expected 1 to 256 URL-safe characters, got \"a/b\"", run: (c) => getProducts(c, { claims: { sid: "a/b" } }) },
+  { id: "session-jwt.sub", what: "a Session JWT without sub", detail: "[session-jwt.sub] the Session JWT's sub on GET /products: expected the User ID, a non-empty string, got nothing", run: (c) => getProducts(c, { claims: { sub: undefined } }) },
+  { id: "session-jwt.sub", what: "a Session JWT with an empty agent_id", detail: "[session-jwt.sub] the Session JWT's agent_id on GET /products: expected a non-empty string, got \"\"", run: (c) => getProducts(c, { claims: { agent_id: "" } }) },
+  { id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", detail: "[session-jwt.ath] the Session JWT's ath on GET /orders: expected the hash of the access token sent, got another value", run: async (c) => getOrders(c, { jwt: { claims: { ath: await hash("another token") } } }) },
+  { id: "session-jwt.oauth-endpoint", what: "a Session header at the revocation endpoint", detail: "[session-jwt.oauth-endpoint] POST /oauth/revoke, at an OAuth endpoint: expected no Poppy-Session header, got one", run: async (c) => revoke(c, { headers: { "Poppy-Session": "eyJ.a.session-header" } }) },
+  { id: "session-jwt.ath-without-token", what: "ath with no access token", detail: "[session-jwt.ath-without-token] the Session JWT on GET /products: expected no ath, with no access token sent, got an ath", run: async (c) => getProducts(c, { claims: { ath: await hash("a token") } }) },
   // ---- Versions (3.4) ----
   {
     id: "version.missing",
     what: "a Session request without Poppy-Version",
-    detail: "[version.missing] a request without Poppy-Version (GET /products)",
+    detail: "[version.missing] GET /products: expected a Poppy-Version header, got none",
     run: async (c) => {
       const response = await call(c, await session(), "GET", products(c), { headers: { "Poppy-Version": undefined, "Poppy-Extensions": undefined } });
       expect(response.status).toBe(400);
@@ -1784,7 +1784,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "version.unlisted",
     what: "Poppy-Version 0.5 to a Company that serves only 0.4",
-    detail: "[version.unlisted] Poppy-Version 0.5, which isn't compatible with a version this Company listed (GET /products)",
+    detail: "[version.unlisted] Poppy-Version on GET /products: expected a version compatible with one this Company listed: 0.4, got 0.5",
     run: async (c) => {
       const s = await session();
       const response = await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.5" } });
@@ -1795,7 +1795,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "version.changed-in-session",
     what: "a Session that declared Operations 3, then nothing",
-    detail: /^\[version\.changed-in-session\] Session \S+ declared 0\.4 "\\"operations\\";v=\\"3\\"", then 0\.4 "" \(GET \/products\)$/,
+    detail: /^\[version\.changed-in-session\] Poppy-Version and Poppy-Extensions on GET \/products: expected what Session "[\w-]{22}" declared first, 0\.4 with Poppy-Extensions "operations";v="3", got 0\.4 with no Poppy-Extensions$/,
     run: async (c) => {
       const s = await session();
       expect((await call(c, s, "GET", products(c), { headers: { "Poppy-Version": "0.4", "Poppy-Extensions": `"operations";v="3"` } })).status).toBe(200);
@@ -1805,7 +1805,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "session-jwt.sub-changed",
     what: "a Session's sid with another User ID",
-    detail: /^\[session-jwt\.sub-changed\]/,
+    detail: /^\[session-jwt\.sub-changed\] Session "[\w-]{22}" on GET \/products: expected the sub and agent_id it started with, "usr_Q7c1vKx9TzLw3NdR5mHa2B" and null, got "usr_Another1User2Id3Here4" and null$/,
     run: async (c) => {
       const s = await session();
       expect((await getProducts(c, undefined, s)).status).toBe(200);
@@ -1816,41 +1816,41 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "session-jwt.token-other-client",
     what: "an access token issued to another client_id",
-    detail: /^\[session-jwt\.token-other-client\]/,
+    detail: "[session-jwt.token-other-client] the access token: expected one issued to the Session JWT's iss, https://agent.test/poppy/client.json, got one issued to https://other.agent.test/poppy/client.json",
     run: async (c) => getOrders(c, {}, { ...(await session()), ...(await signIn(c, { other: await otherClient(c) })) })
   },
 
   // ---- Delegations (5.2 Delegated keys) ----
-  { id: "delegation.not-jwt", what: "a poppy_dlg that isn't a JWT", detail: /^\[delegation\.not-jwt\]/, run: (c) => getProducts(c, { delegation: "not-a-delegation" }) },
-  { id: "delegation.typ", what: "a delegation with typ JWT", detail: /^\[delegation\.typ\]/, run: (c) => getProducts(c, { delegation: { header: { typ: "JWT" } } }) },
-  { id: "delegation.alg", what: "a delegation signed with HS256", detail: /^\[delegation\.alg\]/, run: async (c) => getProducts(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
-  { id: "delegation.kid", what: "a delegation whose kid names no published key", detail: /^\[delegation\.kid\]/, run: (c) => getProducts(c, { delegation: { header: { kid: "unpublished" } } }) },
-  { id: "delegation.signature", what: "a delegation signed with an unpublished key", detail: /^\[delegation\.signature\]/, run: async (c) => getProducts(c, { delegation: { key: await strangerKey() } }) },
-  { id: "delegation.iss", what: "a delegation from another client", detail: /^\[delegation\.iss\]/, run: (c) => getProducts(c, { delegation: { claims: { iss: OTHER } } }) },
+  { id: "delegation.not-jwt", what: "a poppy_dlg that isn't a JWT", detail: "[delegation.not-jwt] poppy_dlg: expected a JWT, got a value that doesn't decode as one", run: (c) => getProducts(c, { delegation: "not-a-delegation" }) },
+  { id: "delegation.typ", what: "a delegation with typ JWT", detail: "[delegation.typ] the delegation's typ: expected poppy-delegation+jwt, got \"JWT\"", run: (c) => getProducts(c, { delegation: { header: { typ: "JWT" } } }) },
+  { id: "delegation.alg", what: "a delegation signed with HS256", detail: "[delegation.alg] the delegation's alg: expected ES256 or PS384, got \"HS256\"", run: async (c) => getProducts(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
+  { id: "delegation.kid", what: "a delegation whose kid names no published key", detail: "[delegation.kid] the delegation's kid: expected the kid of a key in the client's jwks_uri, got \"unpublished\"", run: (c) => getProducts(c, { delegation: { header: { kid: "unpublished" } } }) },
+  { id: "delegation.signature", what: "a delegation signed with an unpublished key", detail: "[delegation.signature] the delegation: expected a signature by the key its kid names, got \"signature verification failed\"", run: async (c) => getProducts(c, { delegation: { key: await strangerKey() } }) },
+  { id: "delegation.iss", what: "a delegation from another client", detail: "[delegation.iss] the delegation's iss: expected the Session JWT's iss, https://agent.test/poppy/client.json, got https://other.agent.test/poppy/client.json", run: (c) => getProducts(c, { delegation: { claims: { iss: OTHER } } }) },
   {
     id: "delegation.lifetime",
     what: "a delegation for 25 hours",
-    detail: /^\[delegation\.lifetime\] delegation: exp is 90000 s after iat/,
+    detail: "[delegation.lifetime] the delegation's lifetime: expected at most 24 hours (86400 s), got 90000 s",
     run: (c) => getProducts(c, { delegation: { claims: { iat: seconds(), exp: seconds() + 25 * 3600 } } })
   },
-  { id: "delegation.lifetime", what: "a delegation without exp", detail: /^\[delegation\.lifetime\] delegation: iat and exp are required/, run: (c) => getProducts(c, { delegation: { claims: { exp: undefined } } }) },
-  { id: "delegation.expired", what: "an expired delegation", detail: /^\[delegation\.expired\]/, run: (c) => getProducts(c, { delegation: { claims: { iat: seconds() - 7200, exp: seconds() - 3600 } } }) },
-  { id: "delegation.jti", what: "a delegation with a short jti", detail: /^\[delegation\.jti\]/, run: (c) => getProducts(c, { delegation: { claims: { jti: "short" } } }) },
-  { id: "delegation.cnf", what: "a delegation without cnf", detail: /^\[delegation\.cnf\]/, run: (c) => getProducts(c, { delegation: { claims: { cnf: undefined } } }) },
+  { id: "delegation.lifetime", what: "a delegation without exp", detail: "[delegation.lifetime] the delegation's iat and exp: expected two numbers, got iat as a whole number and exp as nothing", run: (c) => getProducts(c, { delegation: { claims: { exp: undefined } } }) },
+  { id: "delegation.expired", what: "an expired delegation", detail: "[delegation.expired] the delegation's exp: expected a time to come, got a time past", run: (c) => getProducts(c, { delegation: { claims: { iat: seconds() - 7200, exp: seconds() - 3600 } } }) },
+  { id: "delegation.jti", what: "a delegation with a short jti", detail: "[delegation.jti] the delegation's jti: expected 128 random bits, 22 characters or more, got 5 characters", run: (c) => getProducts(c, { delegation: { claims: { jti: "short" } } }) },
+  { id: "delegation.cnf", what: "a delegation without cnf", detail: "[delegation.cnf] the delegation's cnf: expected an object with a jwk, got no cnf", run: (c) => getProducts(c, { delegation: { claims: { cnf: undefined } } }) },
   {
     id: "delegation.private-key",
     what: "a delegation that carries the private key",
-    detail: /^\[delegation\.private-key\]/,
+    detail: "[delegation.private-key] the delegation's delegated key: expected a public key only, got private members d",
     run: async (c) => {
       const s = await session();
       return getProducts(c, { delegation: { claims: { cnf: { jwk: s.key.privateJwk } } } }, s);
     }
   },
-  { id: "delegation.names-user", what: "a delegation naming the User", detail: /^\[delegation\.names-user\] delegation: carries sub/, run: (c) => getProducts(c, { delegation: { claims: { sub: USER_ID } } }) },
+  { id: "delegation.names-user", what: "a delegation naming the User", detail: "[delegation.names-user] the delegation's claims: expected only iss, cnf, iat, exp, jti and nbf, got also sub. Those can name the User or a Company", run: (c) => getProducts(c, { delegation: { claims: { sub: USER_ID } } }) },
   {
     id: "delegation.key-shared",
     what: "one delegated key signing for two User IDs",
-    detail: /^\[delegation\.key-shared\]/,
+    detail: /^\[delegation\.key-shared\] delegated key "[\w-]{43}": expected signatures for one User ID, got one for another User ID$/,
     run: async (c) => {
       const s = await session();
       expect((await getProducts(c, undefined, s)).status).toBe(200);
@@ -1862,7 +1862,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "session.second-account",
     what: "a second account in one Session",
-    detail: /^\[session\.second-account\]/,
+    detail: /^\[session\.second-account\] Session "ses_[\w-]+": expected its one account, "acct_ada", got a second, "acct_grace"$/,
     run: async (c) => {
       const s = await signedIn(c);
       expect((await getOrders(c, {}, s)).status).toBe(200);
@@ -1874,7 +1874,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.form",
     what: "the join form sent as JSON",
-    detail: /^\[browser-join\.form\] browser join: the form was sent as "application\/json"$/,
+    detail: "[browser-join.form] the browser join's form: expected application/x-www-form-urlencoded, got application/json",
     run: async (c) => {
       const { code, cookie } = await joinPage(c);
       expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
@@ -1884,7 +1884,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.form",
     what: "the join form with another field",
-    detail: "[browser-join.form] the form carried fields other than code",
+    detail: "[browser-join.form] the browser join's form: expected only code, got also return_to",
     run: async (c) => {
       const { code, cookie } = await joinPage(c);
       expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
@@ -1894,7 +1894,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.code-reused",
     what: "a join code authorized twice",
-    detail: /^\[browser-join\.code-reused\] browser join: the code was authorized before$/,
+    detail: "[browser-join.code-reused] the browser join's code: expected a code authorized once, got one authorized before",
     run: async (c) => {
       const { code } = await joinPage(c);
       const s = await session();
@@ -1905,7 +1905,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.code-reused",
     what: "a join form submitted twice",
-    detail: /^\[browser-join\.code-reused\] browser join: the code was submitted before$/,
+    detail: "[browser-join.code-reused] the browser join's code: expected a code submitted once, got one submitted before",
     run: async (c) => {
       const { code, cookie } = await joinPage(c);
       expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
@@ -1916,7 +1916,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.cookie",
     what: "the join form without its cookie",
-    detail: /^\[browser-join\.cookie\]/,
+    detail: "[browser-join.cookie] the browser join's form: expected the cookie set with its code, got none",
     run: async (c) => {
       const { code } = await joinPage(c);
       expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
@@ -1926,7 +1926,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.not-authorized",
     what: "the join form before its code was authorized",
-    detail: /^\[browser-join\.not-authorized\]/,
+    detail: "[browser-join.not-authorized] the browser join's code: expected a code the agent authorized first, got one not authorized yet",
     run: async (c) => {
       const { code, cookie } = await joinPage(c);
       return submitJoin(c, code, cookie);
@@ -1934,26 +1934,26 @@ const TAMPERS: readonly Tamper[] = [
   },
   // ---- Website pages fetched without a browser (5.2) ----
   ...([
-    ["page.session-off-host", "a Session header on a page on the CDN host", (c: C) => `https://cdn.${c.hosts.domain}/orders`, { headers: { "Poppy-Extensions": undefined } }],
-    ["page.token", "an access token with a page", (c: C) => `${c.hosts.web}/orders`, { headers: { "Poppy-Extensions": undefined }, auth: "Bearer not-a-token" }]
-  ] as const).map(([id, what, url, options]) => ({
+    ["page.session-off-host", "a Session header on a page on the CDN host", (c: C) => `https://cdn.${c.hosts.domain}/orders`, { headers: { "Poppy-Extensions": undefined } }, "no Session header off organization.domain"],
+    ["page.token", "an access token with a page", (c: C) => `${c.hosts.web}/orders`, { headers: { "Poppy-Extensions": undefined }, auth: "Bearer not-a-token" }, "no access token: a page takes only the Session header"]
+  ] as const).map(([id, what, url, options, expected]) => ({
     id,
     what,
-    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    detail: (c: C) => `[${id}] the page GET ${url(c)}: expected ${expected}, got one`,
     run: async (c: C) => call(c, await session(), "GET", url(c), options)
   })),
   {
     id: "browser-sign-in.no-endpoint",
     what: "a sign-in asking for poppy:browser-sign-in from a Company without browser join",
     config: { browserSession: false },
-    detail: /^\[browser-sign-in\.no-endpoint\] direct sign-in asked for poppy:browser-sign-in/,
+    detail: "[browser-sign-in.no-endpoint] the direct sign-in's scope: expected no poppy:browser-sign-in from a Company that lists no browser_session_endpoint, got poppy:browser-sign-in",
     run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ scope: "orders:read poppy:browser-sign-in" })))
   },
   {
     id: "web.disabled-form",
     what: "a form sent to a website that sets web.disabled",
     config: { webDisabled: true },
-    detail: /^\[web\.disabled-form\]/,
+    detail: "[web.disabled-form] POST /account/address: expected no form, since this website's poppy.json sets web.disabled, got one",
     run: async (c) => {
       expect(((await (await c.call(`${c.hosts.web}/.well-known/poppy.json`)).json()) as { web: unknown }).web).toEqual({ disabled: true });
       return c.call(`${c.hosts.web}/account/address`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "line1=1+Main+St" });
@@ -1964,7 +1964,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "web-operation.unknown-ref",
     what: "a reference at endpoint that the website never returned",
     config: WEB_OPERATIONS,
-    detail: /^\[web-operation\.unknown-ref\]/,
+    detail: /^\[web-operation\.unknown-ref\] the reference sent to endpoint: expected one the website returned, got "exc_[\w-]+\.page"$/,
     run: async (c) => {
       const { s, cookie } = await webSession(c);
       const waiting = await exchangeForm(c, cookie);
@@ -1977,7 +1977,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "web-operation.approval-in-browser",
     what: "the browser's request carrying Poppy-Approval",
     config: WEB_OPERATIONS,
-    detail: /^\[web-operation\.approval-in-browser\]/,
+    detail: "[web-operation.approval-in-browser] the exchange form: expected no Poppy-Approval: a website's operation is approved at its endpoint, got one",
     run: async (c) => {
       const { s, cookie } = await webSession(c);
       const { ref } = poppyOperation(await exchangeForm(c, cookie));
@@ -1989,7 +1989,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "web-operation.approved-elsewhere",
     what: "a website's operation approved at the API",
     config: WEB_OPERATIONS,
-    detail: /^\[web-operation\.approved-elsewhere\]/,
+    detail: /^\[web-operation\.approved-elsewhere\] the approval of the website's operation "exc_[\w-]+": expected its operations endpoint, got an API, MCP server or conversation$/,
     run: async (c) => {
       const { s, cookie } = await webSession(c);
       const { ref } = poppyOperation(await exchangeForm(c, cookie));
@@ -2006,7 +2006,7 @@ const TAMPERS: readonly Tamper[] = [
     id: "browser-control.marked-step",
     what: "the marked return form submitted with the agent in control",
     config: { browserControl: true },
-    detail: /^\[browser-control\.marked-step\] the return form, marked submission, came with controller "agent"/,
+    detail: /^\[browser-control\.marked-step\] the return form, a marked submission, from Session "[\w-]{22}": expected controller user, got "agent"$/,
     run: async (c) => {
       const { cookie } = await webSession(c, { "Poppy-Version": "0.4", "Poppy-Extensions": `"browser-control";v="1"` });
       const post = (controller: string) =>
@@ -2024,7 +2024,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "browser-join.authorize-body",
     what: "authorize with a form body",
-    detail: /^\[browser-join\.authorize-body\]/,
+    detail: "[browser-join.authorize-body] the authorize request's body: expected JSON with the code, as a string, got code as nothing",
     run: async (c) => {
       const { code } = await joinPage(c);
       return authorizeJoin(c, await session(), code, { body: `code=${code}`, contentType: "application/x-www-form-urlencoded" });
@@ -2035,13 +2035,13 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "approval.header",
     what: "a Poppy-Approval that isn't a Dictionary",
-    detail: /^\[approval\.header\]/,
+    detail: "[approval.header] Poppy-Approval: expected an RFC 9651 Dictionary with operation_id and revision Strings, got \"operation_id=exc_1 revision\"",
     run: async (c) => exchange(c, await signedIn(c), { "Poppy-Approval": "operation_id=exc_1 revision" })
   },
   {
     id: "approval.idempotency-key-reused",
     what: "the approved request with the first request's Idempotency-Key",
-    detail: /^\[approval\.idempotency-key-reused\]/,
+    detail: /^\[approval\.idempotency-key-reused\] the approved request's Idempotency-Key: expected a new key, got the first request's, "[\w-]{22}"$/,
     run: async (c) => {
       const s = await signedIn(c);
       const key = jti();
@@ -2051,15 +2051,15 @@ const TAMPERS: readonly Tamper[] = [
   },
   // ---- Operations 3 (0.4 Ops 6) ----
   ...([
-    ["approval.approver", "an approval without approver", ""],
-    ["approval.approved-at", "approved_at as a String", `, approver="user", approved_at="1791487260"`],
-    ["approval.input-type-with-agent", "an agent approval with input_type", `, approver="agent", input_type="tap"`],
-    ["approval.input-type", "input_type as an Integer", `, approver="user", input_type=1`],
-    ["approval.reference", "a reference with a dot", `, approver="user", reference="apr.1"`]
-  ] as const).map(([id, what, members]): Tamper => ({
+    ["approval.approver", "an approval without approver", "", /^\[approval\.approver\] the approver of "exc_[\w-]+": expected "user" or "agent", got nothing$/],
+    ["approval.approved-at", "approved_at as a String", `, approver="user", approved_at="1791487260"`, '[approval.approved-at] approved_at: expected an Integer of Unix seconds, got "1791487260"'],
+    ["approval.input-type-with-agent", "an agent approval with input_type", `, approver="agent", input_type="tap"`, /^\[approval\.input-type-with-agent\] the agent's approval of "exc_[\w-]+": expected no input_type, got input_type "tap"$/],
+    ["approval.input-type", "input_type as an Integer", `, approver="user", input_type=1`, "[approval.input-type] input_type: expected a String, got a whole number"],
+    ["approval.reference", "a reference with a dot", `, approver="user", reference="apr.1"`, '[approval.reference] the approval\'s reference: expected 1 to 256 URL-safe base64 characters, got "apr.1"']
+  ] as const).map(([id, what, members, detail]): Tamper => ({
     id,
     what,
-    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    detail,
     run: async (c) => {
       const s = await signedIn(c);
       const first = (await (await exchange(c, s)).json()) as { operation: Operation };
@@ -2072,7 +2072,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "approval.reference-reused",
     what: "one reference for two revisions' approvals",
-    detail: /^\[approval\.reference-reused\] reference apr_1 approved \S+ \S+, then \S+ \S+$/,
+    detail: /^\[approval\.reference-reused\] reference "apr_1": expected the approval it named first, "exc_[\w-]+ \d+-[\w-]{12}", got "exc_[\w-]+ \d+-[\w-]{12}"$/,
     run: async (c) => {
       const s = await signedIn(c);
       const first = (await (await exchange(c, s)).json()) as { operation: Operation };
@@ -2084,13 +2084,13 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   ...([
-    ["approval.declined-resent", "a declined approval sent again", "all", "user"],
-    ["approval.agent-after-decline", "an agent approval of a new revision after a decline", "all", "agent"]
-  ] as const).map(([id, what, declineApprovals, approver]): Tamper => ({
+    ["approval.declined-resent", "a declined approval sent again", "all", "user", /^\[approval\.declined-resent\] the approval of "exc_[\w-]+" revision "\d+-[\w-]{12}": expected never again once declined, got it again$/],
+    ["approval.agent-after-decline", "an agent approval of a new revision after a decline", "all", "agent", /^\[approval\.agent-after-decline\] a new revision of "exc_[\w-]+", after a decline: expected the User's approval, got the agent's own$/]
+  ] as const).map(([id, what, declineApprovals, approver, detail]): Tamper => ({
     id,
     what,
     config: { declineApprovals },
-    detail: new RegExp(`^\\[${id.replace(/[.]/g, "\\.")}\\]`),
+    detail,
     run: async (c) => {
       const s = await signedIn(c);
       const first = (await (await exchange(c, s)).json()) as { operation: Operation };
@@ -2108,7 +2108,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "approval.agent-after-revision",
     what: "an agent approval of the revision that answered the agent's own approval",
-    detail: /^\[approval\.agent-after-revision\]/,
+    detail: /^\[approval\.agent-after-revision\] revision "\d+-[\w-]{12}" of "exc_[\w-]+", which answered the agent's own approval: expected the User's approval, got the agent's own again$/,
     run: async (c) => {
       const s = await signedIn(c);
       const first = (await (await exchange(c, s)).json()) as { operation: Operation };
@@ -2121,7 +2121,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "approval.mcp-meta",
     what: "an MCP approval that isn't an object",
-    detail: /^\[approval\.mcp-meta\]/,
+    detail: "[approval.mcp-meta] the approval in _meta: expected an object with operation_id and revision strings, got a string",
     run: async (c) => {
       const s = await signedIn(c, { resource: c.hosts.mcpUrl });
       return call(c, s, "POST", c.hosts.mcpUrl, {
@@ -2133,18 +2133,18 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "approval.message",
     what: "a message whose extensions.operations.approval isn't an object",
-    detail: /^\[approval\.message\]/,
+    detail: "[approval.message] the message's approval: expected an object with operation_id and revision strings, got a string",
     run: async (c) => converse(c, await signedIn(c), message({ text: undefined, extensions: { operations: { approval: "yes" } } }))
   },
 
   // ---- What a message took into account (0.4 8.4) ----
   ...([
-    ["message.as-of-human", "as_of_cursor on a message the User wrote", "human", (id: string) => id],
-    ["message.as-of-cursor", "as_of_cursor that the conversation never gave", "agent", () => "evt_unknown"]
-  ] as const).map(([id, what, author, cursor]) => ({
+    ["message.as-of-human", "as_of_cursor on a message the User wrote", "human", (id: string) => id, /^\[message\.as-of-human\] a message with author\.type human: expected no as_of_cursor, got as_of_cursor "evt_[\w-]+"$/],
+    ["message.as-of-cursor", "as_of_cursor that the conversation never gave", "agent", () => "evt_unknown", '[message.as-of-cursor] the message\'s as_of_cursor: expected a cursor of this conversation, got "evt_unknown"']
+  ] as const).map(([id, what, author, cursor, detail]) => ({
     id,
     what,
-    detail: new RegExp(`^\\[${id.replace(/\./g, "\\.")}\\]`),
+    detail,
     run: async (c: C) => {
       const s = await session();
       const headers = { "Poppy-Extensions": undefined };
@@ -2158,13 +2158,13 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "request.id",
     what: "a 0.4 conversation request without an id",
-    detail: "[request.id] conversation request: id undefined isn't 1-256 base64url characters",
+    detail: "[request.id] the conversation request's id: expected 1 to 256 base64url characters, got nothing",
     run: async (c) => call(c, await session(), "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Extensions": undefined }, body: { message: { author: { type: "agent" }, text: "Hello" } } })
   },
   {
     id: "request.id-reused",
     what: "a 0.4 request id sent again with another path",
-    detail: /^\[request\.id-reused\] request id req_1 reused with a different path or body$/,
+    detail: "[request.id-reused] request id \"req_1\": expected the path and body it was first sent with, got a different path or body",
     run: async (c) => {
       const s = await session();
       const started = await call(c, s, "POST", c.hosts.conversationsEndpoint, { headers: { "Poppy-Extensions": undefined }, body: { id: "req_1", message: { author: { type: "agent" }, text: "Hello" } } });
@@ -2179,14 +2179,14 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "skills.credentials",
     what: "a skill artifact fetched with a Session header",
-    detail: /^\[skills\.credentials\]/,
+    detail: "[skills.credentials] the fetch of a skill artifact: expected no credentials, got Poppy-Session",
     run: async (c) => call(c, await session(), "GET", `${c.hosts.api}/poppy/skills/exchange-an-item/SKILL.md`, { headers: { "Poppy-Extensions": undefined } })
   },
   {
     id: "tasks.token",
     what: "GET {tasks.endpoint} with an access token",
     config: { feedback: true },
-    detail: "[tasks.token] GET {tasks.endpoint} carried an access token",
+    detail: "[tasks.token] GET {tasks.endpoint}: expected no access token, got one",
     run: async (c) => {
       const answer = await call(c, await signedIn(c), "GET", `${c.hosts.api}/poppy/tasks`, { headers: { "Poppy-Extensions": undefined } });
       expect(await answer.json()).toMatchObject({ excluded_tasks: expect.any(Array), feedback: { endpoint: `${c.hosts.api}/poppy/feedback` } });
@@ -2196,28 +2196,28 @@ const TAMPERS: readonly Tamper[] = [
     id: "feedback.fields",
     what: "a feedback report whose task is over 200 characters",
     config: { feedback: true },
-    detail: "[feedback.fields] feedback report: task (at most 200 characters) and description (at most 2,000) are required strings",
+    detail: "[feedback.fields] the feedback report: expected task, a string of at most 200 characters, and description, of at most 2,000, got task as 201 characters and description as 97 characters",
     run: async (c) => feedback(c, await session(), { ...REPORT, task: "x".repeat(201) })
   },
   {
     id: "feedback.kind",
     what: "a feedback report with kind",
     config: { feedback: true },
-    detail: "[feedback.kind] feedback report: kind is 0.2's; 0.3 removed it (9.3)",
+    detail: "[feedback.kind] the feedback report: expected no kind, which 0.3 removed, got kind \"missing\"",
     run: async (c) => expect((await feedback(c, await session(), { kind: "missing", ...REPORT })).status).toBe(202)
   },
   {
     id: "feedback.excluded-task",
     what: "a feedback report about an excluded task",
     config: { feedback: true },
-    detail: '[feedback.excluded-task] feedback report about "Close an account", which the Company lists as excluded',
+    detail: "[feedback.excluded-task] the feedback report's task: expected one the Company doesn't list as excluded, got \"Close an account\"",
     run: async (c) => expect((await feedback(c, await session(), { ...REPORT, task: "Close an account" })).status).toBe(202)
   },
   {
     id: "feedback.repeated",
     what: "a second feedback report about the same task",
     config: { feedback: true },
-    detail: '[feedback.repeated] a second feedback report about "Pay with a gift card"',
+    detail: "[feedback.repeated] feedback about \"Pay with a gift card\": expected one report, got a second",
     run: async (c) => {
       const s = await session();
       expect((await feedback(c, s, REPORT)).status).toBe(202);
@@ -2366,11 +2366,11 @@ describe("the mock Company", () => {
 
   it("rejects client assertions a strict Company would, and records why (S2)", async () => {
     const cases = [
-      { tamper: { header: { typ: undefined } }, expected: 'header typ must be "JWT", got undefined' },
-      { tamper: { header: { typ: "at+jwt" } }, expected: 'header typ must be "JWT", got "at+jwt"' },
-      { tamper: { header: { kid: undefined } }, expected: "kid undefined names no published key" },
-      { tamper: { header: { kid: "not-a-key" } }, expected: 'kid "not-a-key" names no published key' },
-      { tamper: { claims: lifetime(120) }, expected: "lifetime 120s is too long" }
+      { tamper: { header: { typ: undefined } }, expected: 'typ: expected "JWT", as the strict Company reads S2, got nothing' },
+      { tamper: { header: { typ: "at+jwt" } }, expected: 'typ: expected "JWT", as the strict Company reads S2, got "at+jwt"' },
+      { tamper: { header: { kid: undefined } }, expected: "kid: expected the kid of a key in the client's JWKS, as the strict Company reads S2, got nothing" },
+      { tamper: { header: { kid: "not-a-key" } }, expected: 'kid: expected the kid of a key in the client\'s JWKS, as the strict Company reads S2, got "not-a-key"' },
+      { tamper: { claims: lifetime(120) }, expected: "lifetime: expected at most 60 s, got 120 s" }
     ];
     for (const { tamper, expected } of cases) {
       const c = company();
