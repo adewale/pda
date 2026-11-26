@@ -18,6 +18,8 @@ import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
 import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
 import { departure, ours, sentence, show, shown, type Departure, type Shown } from "../diagnostic";
+import { noticeOf } from "./diagnostic-notice";
+import { unusableApproval } from "./api-approvals";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -486,7 +488,7 @@ async function sendRefused(
 async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
   const operation = parseOperationV2(value);
   if ("problem" in operation) {
-    await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${company.name} asked for your approval in a conversation, but its terms couldn't be used (${operation.problem}), so nothing was done.` });
+    await unusableApproval(client, company, operation.problem, { conversation: row.id });
     return;
   }
   const session = client.session(company.issuer, row.label);
@@ -510,7 +512,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   await considerAgentApproval(client, company, proposed, operation, row.label); } catch (error) {
     // Other terms under a revision already shown (Ops 3): told, and reading goes on past it.
     if (hasCode(error, "unusable_proposal")) {
-      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${sentence(error.problem)} Nothing was done.` });
+      await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, ...noticeOf(shown`${show.name(company.name)}'s terms couldn't be used, so nothing was done`, error) });
       return;
     }
     if (!(error instanceof ActionOutcomePending)) throw error;

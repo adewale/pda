@@ -17,7 +17,8 @@ import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 // 1.1.0: who answered a fetch is reported apart from what the Company served, so a 520, a bot refusal or a 429 is http-failed, no longer http-status.
 // 1.2.0: a web page where a document should be is http-web-page, no longer json-syntax, and an unsettled issuer is noted (prm-unsettled).
 // 1.3.0: every error and warning but a fact says what was expected and what was got, in its text and as the message's expected and got.
-export const VALIDATOR = { name: "poppy-validator", version: "1.3.0" } as const;
+// 1.4.0: a departure also carries its subject and, when it has one, its detail, so a reader can show each part on its own.
+export const VALIDATOR = { name: "poppy-validator", version: "1.4.0" } as const;
 
 /**
  * The validator's name, for a Company's logs and bot rules, with where to read

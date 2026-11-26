@@ -4,7 +4,7 @@
  * sent, and attribution rule 3 asks whether two declared readings can work
  * together. Pure functions.
  */
-import { departure, ours, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
+import { departure, ours, partsOf, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
 import { decodeJwt, form, isServerMetadata, jsonBody, type DecodedJwt, type Exchange } from "./har.ts";
 import type { Check } from "./types.ts";
 
@@ -70,7 +70,8 @@ export function compatible(question: string, agent: string | undefined, company:
 }
 
 function warning(id: QuestionId, x: Exchange, detail: Problem): Check {
-  return { id: `reading.${id}`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), source: "trace" };
+  const parts = partsOf(detail);
+  return { id: `reading.${id}`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
 }
 
 /** A recorded string shown quoted, as written; anything else by its kind. */
@@ -174,15 +175,10 @@ export const REFUSED_READING = /^reading\.(S\d+)\.refused$/;
 export function refusedReadingChecks(all: readonly Exchange[], companyReadings: Readonly<Record<string, string>>): Check[] {
   const found: Check[] = [];
   const endpoints = assertionEndpoints(all);
-  const refused = (id: QuestionId, x: Exchange, detail: Problem): Check => ({
-    id: `reading.${id}.refused`,
-    side: "agent",
-    severity: "warning",
-    basis: "Reading",
-    exchange: x.index,
-    detail: render(detail),
-    source: "trace"
-  });
+  const refused = (id: QuestionId, x: Exchange, detail: Problem): Check => {
+    const parts = partsOf(detail);
+    return { id: `reading.${id}.refused`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
+  };
   for (const x of all) {
     if (x.direction !== "to-company" || x.probe || (x.status !== 400 && x.status !== 401)) continue;
     const error = (jsonBody(x.responseBody) as { error?: unknown } | undefined)?.error;

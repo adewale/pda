@@ -12,7 +12,7 @@ import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegi
 import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
-import { cellId, renderReport } from "../runner/report.ts";
+import { cellId, renderMarkdown, renderReport } from "../runner/report.ts";
 import type { Cell } from "../runner/types.ts";
 import { recording } from "./helpers.ts";
 
@@ -273,6 +273,74 @@ describe("the report", () => {
     expect(html).toContain('href="SD/pda__x.har"');
     expect(html).toContain("<h2>Stale known failures</h2>");
     expect(html).toContain("pi-poppy × * SE");
+  });
+
+  // A departure's finding, laid out as the validator lays one out (decision 55).
+  const departing: Cell = {
+    agent: "pda",
+    company: "x",
+    scenario: "SD",
+    outcome: "fail",
+    blame: "company",
+    rule: "violation",
+    reason: "x answered *[here](https://evil.example)*",
+    steps: [],
+    checks: [
+      {
+        id: "token.typ",
+        side: "company",
+        severity: "error",
+        basis: "MUST",
+        exchange: 2,
+        detail: 'its access token\'s typ: expected "at+jwt", got "JWT"',
+        parts: { subject: "its access token's typ", expected: '"at+jwt"', got: '"JWT"', detail: "See https://x.company.interop.test/token?…" },
+        source: "trace"
+      },
+      { id: "token.cache", side: "company", severity: "warning", basis: "SHOULD", exchange: 2, detail: "no Cache-Control", source: "trace" }
+    ],
+    har: null
+  };
+  const summary = {
+    run: "r",
+    lane: "local",
+    spec: "Draft 0.4",
+    implementations: [
+      { name: "pda", role: "agent", commit: "abc", readings: {}, relaxations: [] },
+      { name: "x", role: "company", commit: "def", readings: {}, relaxations: [] }
+    ],
+    scenarios: [{ id: "SD", title: "Direct Sign-In", steps: [] }],
+    cells: [departing]
+  };
+
+  it("shows a departure's subject, then expected and got apart, and lets a long finding wrap", () => {
+    const html = renderReport(summary);
+    expect(html).toContain('<td class=finding><b>its access token&#39;s typ</b><br>expected &quot;at+jwt&quot;<br>got &quot;JWT&quot;<br>See https://x.company.interop.test/token?…</td>');
+    expect(html).toContain("<td class=finding>no Cache-Control</td>");
+    expect(html).toContain("td.finding { min-width: 16rem; overflow-wrap: anywhere; }");
+  });
+
+  it("writes the run as Markdown: counts, failed cells with their findings apart, and grids, linking nowhere", () => {
+    const markdown = renderMarkdown(summary);
+    expect(markdown.startsWith("# Poppy interop run r\n\nLane local · Draft 0.4 · 1 fail.")).toBe(true);
+    expect(markdown).toContain(
+      [
+        "- **SD pda × x**: fail · company (violation). x answered \\*\\[here\\](`https://evil.example`)\\*",
+        "  - `token.typ` (error, company): its access token's typ",
+        '    - Expected: "at+jwt"',
+        '    - Got: "JWT"',
+        "    - See `https://x.company.interop.test/token?…`"
+      ].join("\n")
+    );
+    // Warnings don't fail a cell, so they aren't its reasons.
+    expect(markdown).not.toContain("token.cache");
+    expect(markdown).toContain("### SD: Direct Sign-In\n\n| agent \\ Company | x |\n| --- | --- |\n| pda | fail · company (violation) |");
+    expect(markdown.replace(/`[^`\n]*`/g, "")).not.toMatch(/(^|[^\\])\[here\]\(/m);
+  });
+
+  it("marks an adversarial cell among the failures, since the counts and grids leave it out", () => {
+    const markdown = renderMarkdown({ ...summary, cells: [{ ...departing, company: "evil-company", security: true }] });
+    expect(markdown).toContain("- **SD pda × evil-company** (adversarial, not counted above): fail");
+    expect(markdown).not.toContain("1 fail");
   });
 });
 

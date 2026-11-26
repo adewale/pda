@@ -33,7 +33,7 @@ import { instructionForModel, instructions } from "./instructions";
 import { operationsVersion } from "./operations-v2";
 import { NO_TASK_ACCESS, TaskAccessError, companyDomain } from "../task-access";
 import { attachmentInfo } from "../attachments";
-import { departure, isDeparture, ours, ProblemError, render, sentence, show, shown } from "../diagnostic";
+import { departure, isDeparture, ours, partsOf, ProblemError, render, sentence, show, shown } from "../diagnostic";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Company access comes from the Companies selected in the composer, not domain names in prose. When the User's request names a company that isn't selected, call poppy_request_company with its domain, and the attached photos the task would send it, then end your turn: the User allows it on a card. Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -83,9 +83,16 @@ function failure(error: unknown): { output: { type: "text"; text: string }[]; de
         ? `Unexpected error: ${error.message}`
         // Not ours: its words are shown as someone else's.
         : render(shown`Unexpected error: ${show.text(error instanceof Error ? error.message : String(error), 500)}`);
-  // The error's code, and the extension an `extension_required` names, as data (spec 3.3).
+  // The error's code, the extension an `extension_required` names (spec 3.3), and a departure's parts, as data,
+  // so the model can act on what was expected and what was got without reading them back out of the sentence.
+  const parts = error instanceof ProblemError ? partsOf(error.problem) : undefined;
+  const problem: { [key: string]: Json } = parts ? { problem: { subject: parts.subject, expected: parts.expected, got: parts.got, ...(parts.detail === undefined ? {} : { detail: parts.detail }) } } : {};
   const details: Json =
-    error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}), ...(error.detail.poppyTask ? { poppyTask: { ...error.detail.poppyTask } } : {}) } : null;
+    error instanceof PoppyError
+      ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}), ...(error.detail.poppyTask ? { poppyTask: { ...error.detail.poppyTask } } : {}), ...problem }
+      : parts
+        ? problem
+        : null;
   return { output: [{ type: "text", text: message }], details, isError: true };
 }
 

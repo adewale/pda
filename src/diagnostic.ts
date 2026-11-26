@@ -178,6 +178,22 @@ export function isDeparture(problem: Problem): problem is Departure {
   return typeof problem === "object";
 }
 
+/**
+ * A departure's parts as plain strings, for a page or a tool to lay out:
+ * what was checked, what was expected, what was got and what follows. The
+ * same parts a validator message carries, so every surface can show the
+ * pair the same way.
+ */
+export type ProblemParts = { readonly subject: Shown; readonly expected: Shown; readonly got: Shown; readonly detail?: Shown };
+
+/** The parts of a departure; undefined for a fact, which is one sentence. */
+export function partsOf(problem: Problem): ProblemParts | undefined {
+  if (!isDeparture(problem)) return undefined;
+  return problem.then === undefined
+    ? { subject: problem.subject, expected: problem.expected, got: problem.got }
+    : { subject: problem.subject, expected: problem.expected, got: problem.got, detail: problem.then };
+}
+
 /** The diagnostic as text, without a closing full stop: "subject: expected X, got Y. Then." Shown, since every part is. */
 export function render(problem: Problem): Shown {
   if (!isDeparture(problem)) return problem;

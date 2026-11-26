@@ -24,10 +24,14 @@ export type Message = {
   readonly column?: number;
   /** The message as a sentence: for a departure, "subject: expected X, got Y." */
   readonly text: Shown;
-  /** For a departure (every error and warning but a few the catalog marks `fact`): what the rule wants, in its words. */
+  /** For a departure (every error and warning but a few the catalog marks `fact`): what was checked, such as `agent.protocols` or a URL. */
+  readonly subject?: Shown;
+  /** For a departure: what the rule wants, in its words. */
   readonly expected?: Shown;
   /** For a departure: what the document or the fetch gave, quoted and bounded as src/diagnostic.ts shows values. */
   readonly got?: Shown;
+  /** For a departure, when it has one: what follows from it, or what to do, as a sentence of its own. */
+  readonly detail?: Shown;
   readonly ref: Ref;
 };
 
@@ -70,7 +74,9 @@ export class Checker {
       pointer: at,
       ...(position ? { line: position.line, column: position.column } : {}),
       text: sentence(problem),
-      ...(isDeparture(problem) ? { expected: problem.expected, got: problem.got } : {}),
+      ...(isDeparture(problem)
+        ? { subject: problem.subject, expected: problem.expected, got: problem.got, ...(problem.then === undefined ? {} : { detail: problem.then }) }
+        : {}),
       ref: ref ?? definition.ref
     });
   }

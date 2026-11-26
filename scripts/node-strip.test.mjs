@@ -28,3 +28,11 @@ test("the validator CLI runs under Node and says what it expected and what it go
   assert.equal(valid.stderr, "");
   assert.equal(valid.status, 0);
 });
+
+test("the CLI prints the report as Markdown, a departure's parts apart", () => {
+  const result = validate('{"protocol_version":"1.0","organization":{"name":"Example","domain":"example.com"},"agent":{"protocols":"poppy"}}', "--markdown", "--domain", "example.com");
+  assert.equal(result.stderr, "");
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /^# Poppy Validator report\n/);
+  assert.match(result.stdout, /\n  agent\.protocols\n  - Expected: an array\n  - Got: a string\n/);
+});

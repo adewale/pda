@@ -8,7 +8,8 @@ The 0.4 profile has 0.4's rules, with messages that link to the 0.4 pages: exten
 The validator checks the documents a Personal Agent and a Company exchange before they talk: a Company's `poppy.json` and OAuth server metadata, and an agent's client metadata and key set. Our agent runs every document through it and uses only the ones it passes. It is also a web form, an HTTP API, a CLI and a library, at https://poppydemoagent.dev/validator.
 
 - **Severity.** Each message names its basis, and its severity follows from it ([docs/conformance-levels.md](conformance-levels.md)). An `error` breaks a MUST, an RFC's MUST or a rule the draft states without a key word, and only errors make a document invalid. A `warning` departs from a SHOULD, the Guides or our reading of an open question. An `info` is harmless. What our own client refuses is reported separately (`refused`, and `refuses` on each message): it also refuses a few warnings that guard against hostile documents (the Guides' fetch limits, duplicate members, a fragment where no rule forbids one, spec-issues N9; HTTPS everywhere is the draft's own MUST), and tolerates a few errors it has a safe fallback for.
-- **Expected and got.** An error or warning says what the rule wanted and what the document or the fetch gave: its text reads "subject: expected X, got Y.", and its `expected` and `got` hold the two sides apart, values quoted and bounded, a URL a redirect led to without its query. A few report a fact instead, because nothing was got to compare (`http-failed`); notes are facts too. The HTTP API's error answers carry `expected` and `got` the same way.
+- **Expected and got.** An error or warning says what the rule wanted and what the document or the fetch gave: its text reads "subject: expected X, got Y.", and its `expected` and `got` hold the two sides apart, values quoted and bounded, a URL a redirect led to without its query. A few report a fact instead, because nothing was got to compare (`http-failed`); notes are facts too. A departure also carries its `subject` and, when it has one, its `detail` (what follows, or what to do), so a reader can lay the parts out apart: the results page shows the subject once, then Expected and Got, then the detail. The HTTP API's error answers carry `expected` and `got` the same way.
+- **Long values.** The results page sets each URL as code, its host in bold, breaking between path segments, with a segment over 24 characters shortened in its middle (the whole URL in the tooltip). Where a redirect led is shown without its query, with the whole URL collapsed beneath and kept in the JSON report's `finalUrl`. The Markdown report sets URLs as code spans, never links, and escapes everything a document says.
 - **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://poppydemoagent.dev/validator/messages)).
 - **Outcome.** `valid`, `invalid`, or `indeterminate` when a document wasn't served (another status, or a web page in its place), fetching failed, or a resource allowance prevented checks.
 
@@ -21,12 +22,13 @@ cat jwks.json | npm run validate -- --kind jwks -                               
 npm run validate -- example.com --json                                                  # the JSON report
 ```
 
-Exit status `0` valid, `1` invalid, `2` couldn't check; `--strict` fails on warnings too; `--help` lists every option.
+Exit status `0` valid, `1` invalid, `2` couldn't check; `--strict` fails on warnings too; `--markdown` prints the report as Markdown; `--help` lists every option.
 
 | Request | Answer |
 | --- | --- |
 | `GET /validator?url=example.com` | The results page, so you can link to it |
 | `POST /validator/api` with `{"url": "example.com"}` | The JSON report |
+| `GET /validator/api?url=example.com&format=markdown`, or `"format": "markdown"` in a POST | The report as Markdown, to paste into an issue or a pull request |
 | `POST /validator/api` with `{"document": "…", "kind": "poppy", "domain": "example.com"}` | The JSON report for a pasted document (`kind`: `poppy`, `protected-resource`, `oauth-metadata`, `client-metadata` or `jwks`) |
 | `GET /validator/messages` | What each message means, and the report's format |
 
