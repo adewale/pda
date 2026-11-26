@@ -1280,7 +1280,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "secret.password",
     what: "a password in a header to the website",
-    detail: (c) => `[secret.password] the password: expected the token endpoint's body only, got it in the headers of GET ${c.hosts.web}/`,
+    detail: (c) => `[secret.password] the password: expected the token endpoint's body only, got it in the headers of GET ${c.hosts.web}`,
     run: async (c) => c.call(`${SITE(c)}/`, { headers: { "X-Note": "correct horse" } })
   },
   {

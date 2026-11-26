@@ -879,7 +879,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(missing.text).toContain("ship_to");
     expect(missing.text).toContain("gift");
     expect(missing.text).toBe(
-      `the body for orderPrints at Mock Shop ${c.id}: expected a value its request schema allows, got body: "Instance does not have required property 'ship_to'"; body: "Property 'gift' does not match additional properties schema"; body.gift: "False boolean schema". See its requestBody in poppy_api_describe. Nothing was sent [invalid_body]`
+      `the body for orderPrints at Mock Shop ${c.id}: expected a value its request schema allows, got body: "Instance does not have required property 'ship_to'"; body: "Property 'gift' does not match additional properties schema"; body.gift: "False boolean schema". See its requestBody in poppy_api_describe. Nothing was sent. [invalid_body]`
     );
     const none = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints" });
     expect(none.text).toContain(`the body for POST /prints (orderPrints) at Mock Shop ${c.id}: expected a JSON body, got none. See its requestBody in poppy_api_describe. Nothing was sent`);

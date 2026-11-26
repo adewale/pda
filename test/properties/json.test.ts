@@ -321,7 +321,7 @@ describe("malformed input", () => {
   it("refuses a value nested more than 64 deep without overflowing the stack", () => {
     for (const [text, at] of [["[".repeat(100_000), ours("position 65")], [`${"[".repeat(65)}1${"]".repeat(65)}`, ours("position 65")], [`${'{"a":'.repeat(65)}1${"}".repeat(65)}`, ours("position 325")]] as const) {
       expect(() => parseStrictJson(text)).toThrow(new JsonError(departure(at, ours("nesting at most 64 deep"), ours("a 65th level"))));
-      expect(parseJson(text)).toMatchObject({ ok: false, error: "Nesting too deep" });
+      expect(parseJson(text)).toMatchObject({ ok: false, expected: "at most 64 levels of nesting", got: "more" });
     }
     for (const deepest of [`${"[".repeat(64)}1${"]".repeat(64)}`, `${'{"a":'.repeat(64)}1${"}".repeat(64)}`]) {
       expect(parseStrictJson(deepest)).toEqual(JSON.parse(deepest));

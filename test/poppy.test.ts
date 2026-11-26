@@ -1525,7 +1525,7 @@ describe("6 web browsing", () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: "https://elsewhere.test/" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test [refused]`);
+    expect(result.text).toContain(`the page: expected one on ${c.domain} over HTTPS, got https://elsewhere.test. [refused]`);
   });
 
   it("never opens the Company's sign-in pages", async () => {
@@ -1854,7 +1854,7 @@ describe("7 APIs: current task dispatch, validation and Company approvals", () =
     expect(missing.text).toContain("Nothing was sent.");
     const wrong = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
     expect(JSON.parse(wrong.details)).toMatchObject({ error: "invalid_args" });
-    expect(wrong.text).toContain("args/query");
+    expect(wrong.text).toContain(`got args.query: "Instance type 'number' is invalid. Expected 'string'". See it in poppy_mcp_list. Nothing was sent. [invalid_args]`);
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
     // The tools were listed once, before: nothing since.
     expect((await requests(c)).length).toBe(before);
