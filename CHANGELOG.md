@@ -2,7 +2,36 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
-## Unreleased — published Poppy 1.0 (19 November 2026)
+## Unreleased
+
+Nothing yet.
+
+## Released 26 November 2026 (`64a04ab`) — who answered a fetch, and every diagnostic says what was expected and what was got
+
+**Deployed** commit `64a04aba8dd113e3ee8be538cefec34ec4b9ad74` as Worker version `a46f82b9-5b50-4a9c-9850-657d13a92383`, 100% of traffic, together with the published 1.0 pin in the next section. The agent speaks Poppy 0.4 (11 November revision, upstream `ed47408`) and 1.0 (19 November revision, upstream `589743a`), both with Operations 3 ([1.0 changelog](https://personalagentprotocol.org/docs/changelog#1.0), [local snapshot](spec/version-1.0-retrieved-2026-11-19/README.md)). The [public receipt](docs/evidence/deployment-2026-11-26/receipt.json) covers public HTTP only; the [live checks](docs/deployment-tasks.md#who-answered-a-fetch-26-november-2026) of [decision 52](docs/decisions.md#52-one-fetch-for-every-document-and-who-answered-it) record what was observed and what wasn't run.
+
+**Changed:**
+- The validator and the agent fetch every document through one loop, `fetchHops` ([decision 52](docs/decisions.md#52-one-fetch-for-every-document-and-who-answered-it)), and report who answered, not only what. A status the site didn't choose is `http-failed`, a warning that leaves the outcome indeterminate, where it was an `http-status` error against the Company: Cloudflare's 520 to 527 and 530, a bot-protection refusal, 429, a status outside 200 to 599, and a dropped connection. A plain 401, 403 or 5xx stays `http-status`, with a hint.
+- Every fetched document, logos included, must be served with HTTP 200 ([reading](docs/readings.md#success-status)); the agent accepted any 2xx.
+- On Workers, an HTTPS port other than 443, 2053, 2083, 2087, 2096 and 8443 is refused before sending ([reading](docs/readings.md#worker-ports)); a Worker would have fetched it on 443 without saying so. A refused approved write or form is recorded as never sent, not as an unknown outcome.
+- The agent names itself to Companies as `PoppyDemoAgent/1.0 (Poppy personal agent)`, and from `read_url` as `PoppyDemoAgent/1.0 (read_url; …)`. The hosted validator sends `PoppyValidator/{version} (+{its origin}/validator)` and the CLI names the source project. Neither sent a User-Agent before, and bot protection turns away requests without one first.
+- A report links the pages of the version it was checked against, such as `/docs/1.0/`, and `npm run check:spec` checks each link against the pinned HTML.
+- A 200 whose body is a page for people, where a document should be, is `http-web-page` ([decision 53](docs/decisions.md#53-a-web-page-where-a-document-should-be-and-what-an-unsettled-issuer-means)): indeterminate, as a 404 is, with nothing reported about its type, cache lifetime or syntax. It was a `json-syntax` error, "Unexpected character.". The agent refuses it with the same test. When protected resource metadata is unsettled that way, `prm-unsettled` notes that agents can't tell whether there is an issuer. Report text names a redirect target without its query.
+- Every error says what was expected and what was got ([decision 54](docs/decisions.md#54-every-diagnostic-says-what-was-expected-and-what-was-got)). `src/diagnostic.ts` defines the shape, and every error class takes a `Problem` built from shown values, so a token or an authorization callback's `code` can't reach the text. Each validator error and warning but `http-failed` carries `expected` and `got`, and the results page shows them as a pair. The validator is 1.3.0, since the same input gives a different report.
+- `scripts/*.ts` are typechecked (`tsconfig.scripts.json`), and `npm run test:node-runtime` loads the deploy check under Node after `npm ci`.
+
+**Fixed:**
+- A malformed redirect `Location` crashed the validator, whose API answered 500, and the agent's fetches.
+- The CLI's Node fetcher could crash or hang on a 999, a 205 or an unrequested upgrade.
+- The interop agent adapter sent no User-Agent.
+
+**Upgrading:** no stored-state migration and no operator action. A Company's report can change for the same input; compare it with validator 1.3.0's catalog, not an earlier report.
+
+**Validation:** on PRs #77 and #78, the full offline suite, type checks, `check:spec`, `check:docs`, `test:tooling` and `test:node-runtime`; main's CI on `64a04ab`; the public check after deploying; and the live checks linked above.
+
+**Rollback:** redeploy `d9323da`. No stored state changes; the 1.0 pin goes back to the 13 November draft with it.
+
+## Released 26 November 2026 (`64a04ab`) — published Poppy 1.0 (19 November 2026)
 
 **Changed:** pin published 1.0 (14 November) to the 19 November specification and official Company kit at upstream `589743a`. The [1.0 upgrade](docs/poppy-1.0-upgrade.md) records all 22 [upstream changelog](https://personalagentprotocol.org/docs/changelog#1.0) entries. The older draft inputs remain archived; 0.4 keeps its frozen pin. No 1.1 draft features are enabled.
 
@@ -10,11 +39,15 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 
 **Validation:** full offline suite, type checks, tooling, specification and documentation checks; the 133-check published kit with raw findings preserved and a separate DPoP-supplied run. See the upgrade’s verification section for counts and limitations.
 
-**Migration:** no stored-state migration. Pending and failed sign-ins preserve existing account grants. This changes repository inputs and behavior; it does not deploy them.
+**Migration:** no stored-state migration. Pending and failed sign-ins preserve existing account grants.
 
 **Rollback:** revert this change to the 13 November 1.0 draft pin and behavior. No ledger reset is needed.
 
-## Unreleased — each check quotes the sentence it enforces
+## Released 13 November 2026 (`d9323da`) — each check quotes the sentence it enforces
+
+**Deployed** commit `d9323daa8c57ca4391890158c6f5b50b80b5cb26` as Worker version `a31f3b3e-c615-430d-a075-9adbc6983208` at 18:11 UTC, 100% of traffic, with the 1.0 draft in the next section. The public check passed: the served commit, a clean build, 0.4 at the 11 November revision and 1.0 at the 13 November draft. Its receipt wasn't kept in the repository. Rollback for the release: redeploy `ebd63f2`.
+
+Also in this release (#67): the mock Company can send the matching `WWW-Authenticate` challenge on a successful response that carries an `authorization` event (`authorizationChallenge`, 8.11). A test checks that the agent asks for sign-in once and sends the message once. The agent already handled this; nothing had tested it.
 
 The validator called northbound.camp invalid because `scopes_supported` lists scopes, such as `openid`, that `auth.scopes` doesn't describe. 4.7 has said the Company SHOULD describe them since 0.3's text of 3 November; our message was written from the 28 October text, when it was a MUST, and nothing compared it with later pins.
 
@@ -29,7 +62,7 @@ The validator called northbound.camp invalid because `scopes_supported` lists sc
 
 **Rollback:** revert the commit. No stored state changes.
 
-## Unreleased — the 1.0 draft beside 0.4
+## Released 13 November 2026 (`d9323da`) — the 1.0 draft beside 0.4
 
 The agent, the mock Company and the validator speak the 1.0 draft retrieved on 13 November at 15:48 UTC (upstream `bb98332`) beside 0.4 ([decision 51](docs/decisions.md#51-10-beside-04)). The [1.0 upgrade](docs/poppy-1.0-upgrade.md) gives each of its 15 changelog entries a disposition.
 
@@ -48,17 +81,20 @@ The agent, the mock Company and the validator speak the 1.0 draft retrieved on 1
 - The 1.0 snapshot, kit and requirement ledger are pinned in `spec/`. CI runs the 1.0 kit against the mock with [reviewed findings](test/company-kit/reviewed-findings-1.0.json), the same as the 0.4 kit's. Each request the agent sends is checked against the schemas of the kit for the version it declares.
 - The Python Hypothesis client speaks 1.0 beside 0.4, and each run draws the version the mock serves, PAR and bound refresh tokens. The interop grid's `lenient-company` and `strict-company` serve 1.0, and a new `lenient-company-v04` keeps 0.4 in CI.
 
-## Unreleased — asking to contact a Company, amounts in cents, and checkout links that aren't ready
+## Released 12 November 2026, second deployment (`ebd63f2`) — asking to contact a Company, amounts in cents, and checkout links that aren't ready
+
+**Deployed** commit `ebd63f21fe089b0b958779e955fae33826aac99b` as Worker version `7998f2fb-6f99-4f9d-b4bc-bef08b9684b4` at 22:45 UTC, 100% of traffic. The public check passed (the served commit, a clean build, 0.4 at the 11 November revision); its receipt wasn't kept in the repository. Rollback: redeploy `c79324a`.
 
 - When the User's request names a Company they haven't selected, the agent asks on a card with the domain, the Company's own name and the photos it would send. **Allow** sends a message from the composer that selects them; the card grants nothing itself, only a run the User started can ask, and a domain without a `poppy.json` the agent can use gets no card ([decision 50](docs/decisions.md#50-the-agent-can-ask-to-contact-a-company)). Its tool line reads "Asked you to let your agent contact shop.example", and `scripts/app-smoke.mjs --company-access-journey` follows it in Chromium from the card to the Company's terms.
 - An approval card read `1200 USD` for a $12.00 order whose `terms` gave the amount in cents. Where the summary writes the amount in whole units and not as the integer, the card, its total and the differences between revisions show it in whole units ([reading](docs/readings.md#v04-terms-minor-units)).
 - An approved request answered 2xx with `Retry-After`, as an order without its checkout link yet is, is sent again with the same approval and `Idempotency-Key` after the wait, up to five times, so the User no longer has to ask the agent to check. If it still isn't ready, the agent says so instead of sending it again ([reading](docs/readings.md#v04-result-not-ready)). A restart while it waits finishes the request as done, with the Company's first answer and the same note, where it used to leave the outcome unknown.
 - A card no longer warns that the terms disagree with the request just because two fields share a key: a recipient's `name` in the terms was compared with a product's or a preview's `name` in the request. A terms field is now compared with a request field whose keys end with the same keys (`address.name` with `body.address.name`), and not at all when those keys lead to two different places in the request.
 - The mock Company can hold an order's checkout link back for a number of answers (`checkoutPending`).
-- The mock Company can send the matching `WWW-Authenticate` challenge on a successful response that carries an `authorization` event (`authorizationChallenge`, 8.11). A test checks that the agent asks for sign-in once and sends the message once. The agent already handled this; nothing had tested it.
 - The agent knows when a standing instruction approves an operation. Its tool result used to say it was waiting for the User's decision even when the check had found an instruction covering the terms, so on Print with Poppy's sandbox the agent told the User a card was coming, then the instruction approved the order. The result now names the instruction and says the agent approves on it; `poppy_discover`, like `poppy_status`, lists the Company's active instructions, read only.
 
-## Unreleased — 0.4 alone: 0.3 dropped
+## Released 12 November 2026 (`c79324a`) — 0.4 alone: 0.3 dropped
+
+**Deployed** commit `c79324a007d5a658a339f2c1fb922aac60b73e47` as Worker version `f1958504-294f-4f7f-88da-77be1b38954f`, 100% of traffic ([public receipt](docs/evidence/deployment-2026-11-12/receipt.json)). The four sections after this one were never deployed on their own; this release carries them.
 
 The agent, the mock Company, the validator, the interop harness and the Python Hypothesis client speak 0.4 alone ([decision 49](docs/decisions.md#49-03-dropped-the-agent-mock-validator-and-interop-speak-04-alone)). A Company that serves only 0.3 is refused at discovery as `version-unsupported`.
 
@@ -91,7 +127,7 @@ The agent, the mock Company, the validator, the interop harness and the Python H
 - The 0.3 pin is `retired` in `spec/upstream.json`: its snapshot, kit and ledger stay and are still checked, and its ledger links files at the last main commit before 0.4. `npm run check:spec` accepts retired pins.
 - [Current verification](docs/poppy-0.4-conformance.md#current-verification) moves to a 0.4 review; the 0.3 review is kept as its record.
 
-## Unreleased — the agent speaks 0.4 beside 0.3 (in progress; not deployable)
+## Released 12 November 2026 (`c79324a`) — the agent speaks 0.4 beside 0.3 (in progress; not deployable)
 
 The agent now speaks 0.4 beside 0.3, and chooses 0.4 from any Company that offers it ([decision 45](docs/decisions.md#45-04-spoken-on-the-branch-before-it-is-finished-and-strict-04-re-pins)). **Don't deploy this yet.** 0.4 support is unfinished: the real browser and Browser Control, among others, aren't done ([0.4 upgrade](docs/poppy-0.4-upgrade.md)). No live Company serves 0.4 yet; Print with Poppy is still on 0.3.
 
@@ -134,7 +170,7 @@ The agent now speaks 0.4 beside 0.3, and chooses 0.4 from any Company that offer
 - The kit schemas judge each request the agent sends by the version it declares, and the client metadata by both kits.
 - The new profile agrees with the 10 November kit's `check --file` wherever both check. The kit's offline check doesn't check website operations or Browser Control without join, members moved to `tasks`, or `supported_versions` on another host; the pinned text requires each, so the validator keeps them.
 
-## Unreleased — the 0.4 pin moves to 10 November: Operations 3, Browser Control, and Session headers on fetched pages
+## Released 12 November 2026 (`c79324a`) — the 0.4 pin moves to 10 November: Operations 3, Browser Control, and Session headers on fetched pages
 
 Nothing changes on the wire: the agent still speaks 0.3 alone.
 
@@ -144,7 +180,7 @@ Nothing changes on the wire: the agent still speaks 0.3 alone.
 - The official kit now checks our agent too. After every Workers test, the JSON bodies, Session JWTs, delegations, approvals and client metadata the agent sent the mock are checked against the pinned 0.3 kit's own schemas and validator (`test/kit-schemas.ts`). The current suite passes it unchanged.
 - The snapshot has no home-page walkthroughs: `scripts/spec-snapshot.mjs` can't read the site's new bundle. They are examples, not requirements.
 
-## Unreleased — exact protected resource metadata, and a DPoP key per User ID
+## Released 12 November 2026 (`c79324a`) — exact protected resource metadata, and a DPoP key per User ID
 
 Two rules from the 0.4 draft that 0.3 also allows ([0.4 upgrade](docs/poppy-0.4-upgrade.md), H1 and H2).
 
@@ -152,7 +188,7 @@ Two rules from the 0.4 draft that 0.3 also allows ([0.4 upgrade](docs/poppy-0.4-
 - DPoP keys are held by issuer and User ID (0.4, 4.5). Keys stay in memory, so nothing stored changes.
 - The mock records `resource.unverified-target` for a token request naming a resource that no metadata at its own derived URL names. New configurations: `mismatchedApiResourceMetadata` and `mcpPrmAtRootOnly`.
 
-## Unreleased — the Poppy 0.4 draft, pinned beside 0.3
+## Released 12 November 2026 (`c79324a`) — the Poppy 0.4 draft, pinned beside 0.3
 
 Nothing changes on the wire: the agent still speaks 0.3 alone.
 
@@ -160,7 +196,9 @@ Nothing changes on the wire: the agent still speaks 0.3 alone.
 - `spec/upstream.json` lists one pin per version. `npm run check:spec` verifies each pin, its kit and its ledger, and that the runtime pins match the versions the agent speaks. `npm run spec:drift` checks only a published version's own pages and changelog entry titles, and every page of a draft.
 - `node scripts/check-company-kit.mjs --protocol 0.4` runs the 0.4 kit against the mock. Its first run stops at `discovery.schema`, because the mock still lists each extension as an object rather than the versions it serves.
 
-## Unreleased — explicit task access and personal data controls
+## Released 6 November 2026 (`0539f98`) — explicit task access and personal data controls
+
+**Deployed** commit `0539f98` as Worker version `1696070b-d8f2-4c80-adb8-33d643878d43` ([public receipt](docs/evidence/deployment-2026-11-06/receipt.json)).
 
 - Company recipients and photo-upload permissions are explicit selections in the composer, durably bound to each admitted message. The Company list stays selected for later messages, across reloads and devices, until you change it; photo permissions last for one message. Prose names, negations, filenames and Company replies grant no access. An upload without an explicit file-and-destination selection retains its disclosure card. Legacy inferred grants are withdrawn; unfinished tasks need a fresh message and old tabs must reload.
 - Scheduled tasks retain the selections from the message that created them; later chats cannot supply their permissions. Older Company tasks need to be cancelled and set again. Failed-message and photo retries open in the composer for review and fresh selections. Stop is rechecked before a prepared Company message is dispatched.
@@ -170,7 +208,9 @@ Nothing changes on the wire: the agent still speaks 0.3 alone.
 - The sign-in page shows its generic failure message for an unknown `?signin_error=` code; an inherited name such as `__proto__` used to break the page. The Worker and the page share one list of codes (`src/sign-in-errors.ts`).
 - Public build provenance and `npm run check:live` support read-only release checks. Current protocol guides identify the 3 November pin. [Key rotation](docs/key-rotation.md) records operational steps and recovery limits.
 
-## Unreleased — Poppy 0.3, the 3 November text
+## Released 4 November 2026 (`f7fac68`) — Poppy 0.3, the 3 November text
+
+**Deployed** commit `f7fac68` ([public receipt](docs/evidence/deployment-2026-11-04/receipt.json)), with the next section. The 29 October Company diagnostics ran on `4c92a2d`, which had the next section only.
 
 Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream commit [`7205250`](https://github.com/personal-agent-protocol/personal-agent-protocol/commit/7205250c6fb7d4a181707898fa418911ccbcb163) ([snapshot](spec/draft-0.3-retrieved-2026-11-03/README.md), [upstream changelog](https://personalagentprotocol.org/docs/changelog)). Operations **v2**, Mediated Sign-In **v1**. The [ledger](docs/poppy-0.3-upgrade.md) gives each of the changelog's 79 entries a disposition.
 
@@ -234,7 +274,7 @@ Protocol baseline: **0.3 as retrieved on 3 November 2026**, matching upstream co
   - `scripts/app-smoke.mjs --approval-journey --photo-journey` in Chromium: every check passing, including the OpenAPI and MCP approval journeys and both photo journeys, with no uncaught browser errors.
   - Not run: any live Company, and the print-with-poppy peer, whose latest commit (`b340741`) still requires `pap_dlg`. No interop peer or live Company speaks 2026-07-28 yet.
 
-## Unreleased — Poppy 0.3 alone
+## Released 4 November 2026 (`f7fac68`) — Poppy 0.3 alone
 
 Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](spec/draft-0.3-retrieved-2026-10-29/README.md); `spec/upstream.json` pins its hashes; the restored browser rule has no upstream commit yet). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
 
