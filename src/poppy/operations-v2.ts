@@ -11,6 +11,7 @@
 import type { Company } from "./discovery";
 import { array, object, optional, string } from "../decode";
 import { isObject, type Json } from "./json";
+import { departure, ours, show, shown, type Departure } from "../diagnostic";
 import { sha256 } from "./jwt";
 import type { ApprovalTerms } from "./wire";
 
@@ -106,20 +107,25 @@ const SUMMARY_LIMIT = 4_000;
  * summary when present. Without a summary the card shows every value in
  * `terms`, so they must fit on it.
  */
-export function parseOperationV2(value: Json | undefined): OperationV2 | { readonly problem: string } {
-  if (!isObject(value)) return { problem: "it isn't an object" };
+export function parseOperationV2(value: Json | undefined): OperationV2 | { readonly problem: Departure } {
+  if (!isObject(value)) return { problem: departure(ours("the operation"), ours("an object"), show.kind(value)) };
   const { operation_id: id, revision, summary, terms, expires_at: expiresAt } = value;
-  if (typeof id !== "string" || !ID.test(id)) return { problem: "its operation_id isn't 1 to 256 URL-safe characters" };
-  if (typeof revision !== "string" || !ID.test(revision)) return { problem: "its revision isn't 1 to 256 URL-safe characters" };
-  if (summary !== undefined && typeof summary !== "string") return { problem: "its summary isn't a string" };
-  if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: "its summary is too long to show" };
-  if (terms === undefined) return { problem: "it has no terms" };
-  if (!isObject(terms)) return { problem: "its terms aren't an object" };
-  if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: "its expires_at isn't an RFC 3339 time" };
+  const ids = ours("1 to 256 URL-safe characters");
+  // An id is shown by its length or kind, not its value: a Company's text the User hasn't seen yet.
+  const length = (v: unknown) => (typeof v === "string" ? shown`${v.length} characters${ID.test(v) || v.length > 256 || v.length === 0 ? ours("") : ours(", some not URL-safe")}` : show.kind(v));
+  if (typeof id !== "string" || !ID.test(id)) return { problem: departure(ours("its operation_id"), ids, length(id)) };
+  if (typeof revision !== "string" || !ID.test(revision)) return { problem: departure(ours("its revision"), ids, length(revision)) };
+  if (summary !== undefined && typeof summary !== "string") return { problem: departure(ours("its summary"), ours("a string"), show.kind(summary)) };
+  if (typeof summary === "string" && summary.length > SUMMARY_LIMIT) return { problem: departure(ours("its summary"), shown`at most ${SUMMARY_LIMIT} characters, to show in full`, shown`${summary.length} characters`) };
+  if (terms === undefined) return { problem: departure(ours("its terms"), ours("an object"), ours("none")) };
+  if (!isObject(terms)) return { problem: departure(ours("its terms"), ours("an object"), show.kind(terms)) };
+  if (typeof expiresAt !== "string" || !validExpiry(expiresAt)) return { problem: departure(ours("its expires_at"), ours("an RFC 3339 time"), show.value(expiresAt)) };
   // A blank summary says nothing, so the terms are shown instead.
-  const shown = typeof summary === "string" && summary.trim() !== "" ? summary : undefined;
-  const operation: OperationV2 = { operation_id: id, revision, ...(shown !== undefined ? { summary: shown } : {}), terms, expires_at: expiresAt };
-  if (shown === undefined && described(operation).length > SUMMARY_LIMIT) return { problem: "it has no summary, and its terms are too long to show" };
+  const told = typeof summary === "string" && summary.trim() !== "" ? summary : undefined;
+  const operation: OperationV2 = { operation_id: id, revision, ...(told !== undefined ? { summary: told } : {}), terms, expires_at: expiresAt };
+  if (told === undefined && described(operation).length > SUMMARY_LIMIT) {
+    return { problem: departure(ours("its terms, shown in place of a summary"), shown`at most ${SUMMARY_LIMIT} characters`, shown`${described(operation).length} characters`) };
+  }
   return operation;
 }
 

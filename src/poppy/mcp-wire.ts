@@ -10,6 +10,7 @@
  */
 import { isProtocolErrorCode } from "./error-codes";
 import { isObject, type Json } from "./json";
+import { ours, show, shown, type Shown } from "../diagnostic";
 
 /** The legacy version: `initialize`, then `Mcp-Session-Id` and `MCP-Protocol-Version` on every later request. */
 export const MCP_LEGACY = "2025-06-18";
@@ -94,18 +95,18 @@ const SCHEMA_MAPS_IN = ["$defs", "definitions", "patternProperties", "dependentS
  * integer or boolean; or an annotation reached through anything but
  * `properties` from the root. A client MUST leave such a tool out of its list.
  */
-export function headerParameters(inputSchema: Json | undefined): { readonly parameters: readonly HeaderParameter[] } | { readonly problem: string } {
+export function headerParameters(inputSchema: Json | undefined): { readonly parameters: readonly HeaderParameter[] } | { readonly problem: Shown } {
   const parameters: HeaderParameter[] = [];
   const seen = new Set<string>();
-  const found: { problem: string | null } = { problem: null };
+  const found: { problem: Shown | null } = { problem: null };
   const visit = (schema: Json | undefined, path: readonly string[] | null) => {
     if (found.problem || !isObject(schema)) return;
     const header = schema["x-mcp-header"];
     if (header !== undefined) {
-      if (!path || path.length === 0) found.problem = "x-mcp-header on a schema that isn't reached through properties alone";
-      else if (typeof header !== "string" || !TOKEN.test(header)) found.problem = `x-mcp-header ${JSON.stringify(header)} isn't an HTTP token`;
-      else if (seen.has(header.toLowerCase())) found.problem = `x-mcp-header ${header} appears twice`;
-      else if (typeof schema.type !== "string" || !PRIMITIVE.has(schema.type)) found.problem = `x-mcp-header ${header} is on a parameter that isn't a string, integer or boolean`;
+      if (!path || path.length === 0) found.problem = ours("an x-mcp-header on a schema that isn't reached through properties alone");
+      else if (typeof header !== "string" || !TOKEN.test(header)) found.problem = shown`x-mcp-header ${show.value(header)}, which isn't an HTTP token`;
+      else if (seen.has(header.toLowerCase())) found.problem = shown`x-mcp-header ${show.value(header)} twice`;
+      else if (typeof schema.type !== "string" || !PRIMITIVE.has(schema.type)) found.problem = shown`x-mcp-header ${show.value(header)} on a parameter that isn't a string, integer or boolean`;
       else {
         seen.add(header.toLowerCase());
         parameters.push({ header, path });

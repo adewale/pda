@@ -201,6 +201,7 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/oauth/token" && method === "POST") return auth.token(inbound);
       if (path === "/oauth/revoke" && method === "POST") return auth.revoke(inbound);
       if (path === "/oauth/authorize" && method === "GET") return auth.authorize(inbound);
+      if (path === "/oauth/par" && method === "POST" && company.config.signIn.direct && company.config.pushedAuthorization !== "none") return auth.pushAuthorization(inbound);
       if (path === "/oauth/device" && method === "POST") return auth.device(inbound);
       if (path === "/device" && method === "GET") return auth.devicePage(inbound);
       return json({ error: "not_found" }, 404);

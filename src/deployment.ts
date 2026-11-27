@@ -37,22 +37,27 @@ const CHECKS: ReadonlyArray<(env: DeploymentEnv) => unknown> = [
   readInteropKeys
 ];
 
-/** Every problem with the deployment's vars, each naming its setting; empty when it is configured. */
-export function deploymentProblems(env: DeploymentEnv): string[] {
-  const problems: string[] = [];
+/** Every setting's error, in the order checked. */
+function deploymentErrors(env: DeploymentEnv): ConfigError[] {
+  const errors: ConfigError[] = [];
   for (const check of CHECKS) {
     try {
       check(env);
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error;
-      problems.push(error.message);
+      errors.push(error);
     }
   }
-  return problems;
+  return errors;
+}
+
+/** Every problem with the deployment's vars, each naming its setting; empty when it is configured. */
+export function deploymentProblems(env: DeploymentEnv): string[] {
+  return deploymentErrors(env).map((error) => error.message);
 }
 
 /** Throws the first problem as a `ConfigError`. */
 export function checkDeployment(env: DeploymentEnv): void {
-  const [first] = deploymentProblems(env);
-  if (first !== undefined) throw new ConfigError(first);
+  const [first] = deploymentErrors(env);
+  if (first !== undefined) throw new ConfigError(first.problem);
 }

@@ -20,7 +20,7 @@ from hypothesis.stateful import precondition, rule, run_state_machine_as_test
 
 from machine import COVERAGE, MAX_SESSIONS, ApiRules, Base, ConversationRules, MSession, OperatorRules, SessionRules, expect, reached
 from mock_server import DOMAIN, MockServer
-from poppy_client import Es256Key, Poppy, Session, User, ath, random_id
+from poppy_client import Es256Key, Poppy, Session, User, ath, compatible, random_id
 from strategies import CONFIGS
 
 # 9.3's feedback, as a Company may want it or not, answered 202 or with an alternative (9.2).
@@ -280,7 +280,7 @@ class CoreRules:
         """
         ms = data.draw(st.sampled_from([s for s in self.live() if s.bound and any(g.account != s.bound for g in self.live_grants())]))
         grant = data.draw(st.sampled_from([g for g in self.live_grants() if g.account != ms.bound]))
-        key = grant.user.user.dpop_key
+        key = self.refresh_key(grant)
         body = self.token_body(self.poppy.refresh(self.co, key, grant.current), scope=grant.scope)
         self.rotate(grant, body)
         token = self.token_from(body, grant, grant.scope, key)
@@ -305,9 +305,7 @@ class CoreRules:
         account = self.fixture["accounts"][0]
         key = self.users[0].user.dpop_key
         if kind == "direct":
-            url, state, _ = self.poppy.authorization_url(self.co, requested)
-            redirect = self.server.hook("approve_authorization", url=url, account=account)["redirect"]
-            assert self.poppy.callback(self.co, redirect, state).get("error") == "invalid_scope", redirect
+            assert self.direct_error(requested) == "invalid_scope"
             COVERAGE["sign_in_without_an_offered_scope: direct invalid_scope"] += 1
         elif kind == "device":
             expect(self.poppy.device_start(self.co, requested), 400, "invalid_scope")
@@ -330,7 +328,8 @@ class VersionRules:
         Session header is verified first, so the Company has the Session.
         """
         ms = data.draw(st.sampled_from(self.live()))
-        version = data.draw(st.none() | st.sampled_from(["0.3", "0.5", "1.0", "2.0", "0.2"]), label="Poppy-Version")
+        unlisted = [v for v in ["0.3", "0.4", "0.5", "1.0", "1.1", "2.0", "0.2"] if not any(compatible(v, listed) for listed in self.co.listed)]
+        version = data.draw(st.none() | st.sampled_from(unlisted), label="Poppy-Version")
         before = len(self.transport.log)
         reply = self.poppy.resource(ms.session, "GET", self.public_url(), self.co, version=version)
         self.seen_only(ms)

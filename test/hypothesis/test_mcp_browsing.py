@@ -377,7 +377,7 @@ class BrowsingRules:
         """
         ms = data.draw(st.sampled_from(self.live()))
         url = f"https://cdn.{self.co.organization_domain}/orders"
-        headers = {"Poppy-Session": self.poppy.session_jwt(self.co, ms.session, "GET", url, None), "Poppy-Version": ms.session.version, "Accept": "text/html"}
+        headers = {"Poppy-Session": self.poppy.session_jwt(self.co, ms.session, "GET", url, None), "Poppy-Version": ms.session.version or self.co.version, "Accept": "text/html"}
         extensions = ms.session.extensions_header()
         if extensions is not None:
             headers["Poppy-Extensions"] = extensions
@@ -418,9 +418,7 @@ class BrowsingRules:
         if kind == "device":
             expect(self.poppy.device_start(self.co, requested), 400, "invalid_scope")
         else:
-            url, state, _ = self.poppy.authorization_url(self.co, requested)
-            redirect = self.server.hook("approve_authorization", url=url, account=self.fixture["accounts"][0])["redirect"]
-            assert self.poppy.callback(self.co, redirect, state).get("error") == "invalid_scope", redirect
+            assert self.direct_error(requested) == "invalid_scope"
             reached("direct invalid_scope")
         self.violation("browser-sign-in.no-endpoint")
 

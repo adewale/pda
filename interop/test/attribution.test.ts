@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { agentRecorded, attribute, attributeAll, checkLevel, companyRecorded, failureCode, knownFailure, knownMatches, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
 import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
@@ -24,6 +22,13 @@ describe("attribution", () => {
     expect(attribute(cell("a", "c", "fail", [error("agent"), error("company")]), [], none)).toEqual({ blame: null, rule: "unattributed" });
     const warningsOnly = cell("a", "c", "fail", [{ ...error("agent"), severity: "warning" }]);
     expect(attribute(warningsOnly, [], none).rule).toBe("unattributed");
+  });
+
+  it("keeps final 1.0’s lifetime MUST as an agent violation despite incompatible S2 readings", () => {
+    const lifetime = companyRecorded({ id: "client-assertion.lifetime-1.0", basis: "MUST", level: "failure", detail: "301 seconds" }, "strict-company", false);
+    const target = cell("a", "strict-company", "fail", [lifetime, refusal("S2")]);
+    const readings = { agent: { a: { S2: "any" } }, company: { "strict-company": { S2: "jwt-300s" } } };
+    expect(attribute(target, [target], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
   });
 
   it("rule 2: an agent that passes against the reference, at a Company every agent fails, blames the Company", () => {
@@ -146,7 +151,7 @@ describe("attribution", () => {
   });
 
   it("rule warning: a SHOULD or Guides refusal on one side blames that side as a warning, not a violation", () => {
-    // lenient-company refuses an ES384 client assertion (Guides: support ES256 and RS256).
+    // lenient-company refuses an ES384 client assertion (Guides: ES256, or PS384 when signing blindly).
     const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "lenient-company", false);
     const target = cell("a", "lenient-company", "fail", [alg], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "agent", rule: "warning", detail: "session-assertion.alg: a SHOULD or the Guides, not a requirement" });
@@ -364,6 +369,9 @@ describe("reading compatibility", () => {
     expect(s1("token-endpoint")).toEqual([2]);
     expect(s1("issuer")).toEqual([1, 2, 3]);
     expect(s1("either")).toEqual([]);
+    expect(readingChecks(trace, { S1: "endpoint" }).map((check) => check.detail)).toEqual([
+      'the client assertion\'s aud at https://auth.x.company.interop.test/revoke: expected what the agent\'s declared S1 reading, endpoint, wants there: "https://auth.x.company.interop.test/revoke", got "https://auth.x.company.interop.test/token"'
+    ]);
   });
 
   it("finds refusals a Company's declared S1 or S2 reading explains", () => {
@@ -398,6 +406,10 @@ describe("reading compatibility", () => {
     expect(ids({ S1: "token-endpoint", S2: "any" })).toEqual([]);
     expect(ids({ S1: "either" })).toEqual([]);
     expect(refusedReadingChecks(trace, { S1: "endpoint" }).every((check) => check.severity === "warning")).toBe(true);
+    expect(refusedReadingChecks(trace, { S1: "endpoint", S2: "jwt-60s" }).map((check) => check.detail)).toEqual([
+      'the client assertion\'s aud, refused with invalid_client at https://x.company.interop.test/poppy/device: expected what the Company\'s S1 reading, endpoint, wants there: "https://x.company.interop.test/poppy/device", got "https://x.company.interop.test/poppy/token"',
+      "the client assertion, refused with invalid_client at https://x.company.interop.test/poppy/token: expected what the Company's S2 reading, jwt-60s, accepts, got one with no typ and a 60 s lifetime"
+    ]);
   });
 
   it("rule 3, before rule 2: a refusal the Company's declared reading explains, between incompatible readings", () => {
@@ -463,7 +475,7 @@ describe("reading compatibility", () => {
   });
 
   it("S2 lenient-120s (print-with-poppy, Datalayer 0.10.0): between jwt-60s and lenient-300s", () => {
-    expect(QUESTIONS.S2.values).toEqual(["jwt-60s", "lenient-120s", "lenient-300s", "any"]);
+    expect(QUESTIONS.S2.values).toEqual(["jwt-60s", "jwt-300s", "lenient-120s", "lenient-300s", "any"]);
     // As a Company: accepts jwt-60s and itself, not the wider readings.
     expect(compatible("S2", "jwt-60s", "lenient-120s")).toBe(true);
     expect(compatible("S2", "lenient-120s", "lenient-120s")).toBe(true);
@@ -493,12 +505,10 @@ describe("reading compatibility", () => {
     expect(sentBeyond("lenient-120s")).toEqual([2, 3]);
   });
 
-  it("lenient-company declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
-    const root = path.join(import.meta.dirname, "../..");
-    const adapter = readFileSync(path.join(root, "interop/impls/pda-mock/adapter.ts"), "utf8");
-    const core = readFileSync(path.join(root, "test/mock-company/core.ts"), "utf8");
-    expect(adapter).toMatch(/S2: PROFILE === "strict" \? "jwt-60s" : "lenient-300s"/);
-    expect(core).toMatch(/const MAX_ASSERTION_LIFETIME = 300;/);
-    expect(core).toMatch(/const STRICT_ASSERTION_LIFETIME = 60;/);
+  it("compares the final strict assertion profile by JWT typing and lifetime", () => {
+    expect(compatible("S2", "jwt-60s", "jwt-300s")).toBe(true);
+    expect(compatible("S2", "jwt-300s", "lenient-300s")).toBe(true);
+    expect(compatible("S2", "jwt-300s", "lenient-120s")).toBe(false);
+    expect(compatible("S2", "lenient-120s", "jwt-300s")).toBe(false);
   });
 });

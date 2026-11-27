@@ -23,6 +23,7 @@ import { linkedDecision, taskRequested } from "./approval-projection";
 import type { CardWriteOptions } from "./cards";
 import { inspectResultLinks } from "./result-links";
 import { currentEvent, currentTool, id as logId } from "../log";
+import { departure, ours, ProblemError, sentence, show, shown, type Problem, type Shown } from "../diagnostic";
 
 /** Digits after the decimal point in a currency's amounts (ISO 4217): 2 for USD, 0 for JPY; null for a code this runtime doesn't know. */
 function minorDigits(currency: unknown): number | null {
@@ -264,20 +265,56 @@ export function approvalTerms(company: Company, operation: OperationV2, asked: J
  * request was sent, and nothing is done until the User approves the
  * Company's terms on the card that now waits.
  */
-export class TermsRequested extends Error {
-  constructor(readonly result: string, readonly approvalId: string) {
-    super(result);
+export class TermsRequested extends ProblemError {
+  /** What the receipt says. */
+  readonly result: string;
+  constructor(problem: Problem, readonly approvalId: string) {
+    super(problem);
+    this.result = this.message;
   }
 }
 
 /** An approval message was accepted, but that acknowledgement doesn't establish the action's outcome. */
-export class OperationOutcomeUnknown extends Error {}
+export class OperationOutcomeUnknown extends ProblemError {
+  constructor(problem: Problem) {
+    super(problem);
+  }
+}
 
 /** The same action cannot acquire fresh authority until its earlier outcome is reconciled. */
 export class ActionOutcomePending extends PoppyError {
   constructor(readonly previousApprovalId: string) {
-    super("approval_changed", "Another approved action at this Company has an unknown outcome. Check with the Company, then record what happened on its receipt before approving further writes there. Nothing was sent.", 0);
+    super("approval_changed", ours("Another approved action at this Company has an unknown outcome. Check with the Company, then record what happened on its receipt before approving further writes there. Nothing was sent."), 0);
   }
+}
+
+/**
+ * What differs between a request as first recorded and as it is now, by the
+ * names of its parts, never their values: a request can carry the User's
+ * details. A status or summary is compared only when both sides give one.
+ */
+function changedRequest(
+  first: { readonly issuer: string; readonly label: string; readonly request: string; readonly summary?: string; readonly status?: string },
+  now: { readonly issuer: string; readonly label: string; readonly request: string; readonly summary?: string; readonly status?: string }
+): Shown {
+  const changed = [
+    ...(first.status !== undefined && now.status !== undefined && first.status !== now.status ? [ours("status")] : []),
+    ...(first.issuer !== now.issuer ? [ours("Company")] : []),
+    ...(first.label !== now.label ? [ours("account")] : []),
+    ...(first.request !== now.request ? [ours("details")] : []),
+    ...(first.summary !== undefined && now.summary !== undefined && first.summary !== now.summary ? [ours("summary")] : [])
+  ];
+  return changed.length ? shown`one whose ${show.list(changed)} changed` : ours("a different one");
+}
+
+/** The parts of a Company's terms a revision fixes (0.4 Ops 3), by name. */
+const TERM_PARTS = { expiresAt: ours("expiry"), highlights: ours("highlights"), total: ours("total"), previews: ours("previews"), differences: ours("differences") } as const;
+
+function changedTerms(first: ApprovalTerms, now: ApprovalTerms): Shown {
+  const before = toJson(first);
+  const after = toJson(now);
+  const changed = isObject(before) && isObject(after) ? Object.entries(TERM_PARTS).filter(([key]) => canonicalJson(before[key]) !== canonicalJson(after[key])).map(([, name]) => name) : [];
+  return changed.length ? shown`terms whose ${show.list(changed)} changed` : ours("other terms");
 }
 
 /** How an approved local action of one kind is carried out (registered by the APIs and browser). */
@@ -375,7 +412,11 @@ export async function proposeLocal(
 ): Promise<string> {
   if (publish && ((approval.kind === "mcp" && !approval.call.approval) ||
       (approval.kind === "openapi" && !approval.call.approval && !Object.keys(approval.call.files ?? {}).length))) {
-    throw new PoppyError("approval_changed", "Preliminary API-write approvals are not supported. Start the task again for the Company's current terms.", 0);
+    throw new PoppyError(
+      "approval_changed",
+      departure(ours("this write's approval"), ours("an approval of the Company's own terms"), ours("a preliminary approval, which isn't supported"), ours("Start the task again for the Company's current terms")),
+      0
+    );
   }
   const id = fixedId ?? randomId("apr_");
   const action = await actionIdentity(approval);
@@ -383,7 +424,13 @@ export async function proposeLocal(
   const attachments = approvalAttachments(stored);
   const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!publish && existing) {
-    if (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored) throw new PoppyError("approval_changed", "This tool call already made a different request. Nothing will be sent again.", 0);
+    if (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored) {
+      throw new PoppyError(
+        "approval_changed",
+        departure(ours("this tool call's request"), ours("the request it made first"), changedRequest(existing, { issuer: company.issuer, label, request: stored }), ours("Nothing will be sent again")),
+        0
+      );
+    }
     return recordTask?.(id) ?? id;
   }
   if (!publish) {
@@ -416,7 +463,12 @@ export async function proposeLocal(
   // the words the User was shown. Other terms under a revision already shown break the Company's MUST, and aren't used.
   if (terms && existing?.terms && existing.issuer === company.issuer && existing.label === label && existing.request === stored) {
     if (canonicalJson(toJson({ ...existing.terms, summary: "" })) !== canonicalJson(toJson({ ...terms, summary: "" }))) {
-      throw new PoppyError("unusable_proposal", `${company.name} sent other terms under a revision it had already sent, so they weren't used. The earlier card stands.`, 0);
+      // A sentence's full stop closes it: a notice adds one of its own after it (conversations.ts).
+      throw new PoppyError(
+        "unusable_proposal",
+        departure(shown`${show.name(company.name)}'s terms under a revision it had already sent`, ours("the terms it sent first under that revision"), changedTerms(existing.terms, terms), ours("They weren't used. The earlier card stands")),
+        0
+      );
     }
     summary = existing.summary;
     terms = existing.terms;
@@ -429,7 +481,11 @@ export async function proposeLocal(
   // replace its request or make a self-link. Decision records are immutable.
   if (terms && existing?.status === "executing" && id === replacesExecuting && existing.issuer === company.issuer && existing.label === label && existing.summary === summary) return id;
   if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
-    throw new PoppyError("approval_changed", "This tool call already proposed a different request. Use a new call for fresh approval.", 0);
+    throw new PoppyError(
+      "approval_changed",
+      departure(ours("this tool call's request"), ours("the request it proposed first"), changedRequest(existing, { issuer: company.issuer, label, request: stored, summary }), ours("Use a new call for fresh approval")),
+      0
+    );
   }
   if (publish) traceApproval(id);
   if (existing && existing.status !== "pending") return id;
@@ -505,11 +561,15 @@ export async function dispatchTaskRequest(client: PoppyClient, company: Company,
   const { binding: _binding, ...intent } = request;
   const hash = await sha256(canonicalJson(toJson({ issuer: company.issuer, label, request: intent })));
   const bound = one(client.sql, taskCallsTable.row, "SELECT * FROM poppy_task_calls WHERE call_id = ?", fixedId);
-  if (bound && bound.request_hash !== hash) throw new PoppyError("approval_changed", "This tool call already made a different task request. Nothing will be sent again.", 0);
+  if (bound && bound.request_hash !== hash) {
+    throw new PoppyError("approval_changed", departure(ours("this tool call's task request"), ours("the request it made first"), ours("a different one"), ours("Nothing will be sent again")), 0);
+  }
   const record = (target: string): string => {
     client.sql.exec("INSERT OR IGNORE INTO poppy_task_calls (call_id, request_id, request_hash) VALUES (?, ?, ?)", fixedId, target, hash);
     const saved = one(client.sql, taskCallsTable.row, "SELECT * FROM poppy_task_calls WHERE call_id = ?", fixedId);
-    if (!saved || saved.request_hash !== hash) throw new PoppyError("approval_changed", "The task call's durable identity changed. Nothing will be sent.", 0);
+    if (!saved || saved.request_hash !== hash) {
+      throw new PoppyError("approval_changed", departure(ours("this task call's recorded request"), ours("the request this call makes"), saved ? ours("a different one") : ours("none"), ours("Nothing will be sent")), 0);
+    }
     return saved.request_id;
   };
   const id = bound?.request_id ?? await proposeLocal(client, company, label, summary, request, fixedId, undefined, undefined, false, record);
@@ -526,7 +586,7 @@ export async function dispatchTaskRequest(client: PoppyClient, company: Company,
 export function taskProjection(client: PoppyClient, id: string): { id: string; result: import("./approval-outcome").ApprovalResult } {
   const projection = approvalsTable.pick("id", "issuer", "label", "status", "outcome_resolution", "outcome_resolved_at");
   const initial = one(client.sql, projection, "SELECT id, issuer, label, status, outcome_resolution, outcome_resolved_at FROM poppy_approvals WHERE id = ?", id);
-  if (!initial) throw new PoppyError("invalid_response", "The recorded lifecycle is missing. Nothing will be resent.", 0);
+  if (!initial) throw new PoppyError("invalid_response", ours("The recorded lifecycle is missing. Nothing will be resent."), 0);
   let row: RowOf<typeof projection> = initial;
   const seen = new Set<string>([row.id]);
   for (;;) {
@@ -535,7 +595,7 @@ export function taskProjection(client: PoppyClient, id: string): { id: string; r
       const actual = linkedDecision(client.sql, row.id) ?? row;
       return { id: row.id, result: approvalResult(actual.status, storedResolution(actual)) };
     }
-    if (seen.has(parent.id)) throw new PoppyError("invalid_response", "The task's lifecycle links are cyclic. Nothing will be resent.", 0);
+    if (seen.has(parent.id)) throw new PoppyError("invalid_response", ours("The task's lifecycle links are cyclic. Nothing will be resent."), 0);
     seen.add(parent.id);
     row = parent;
   }
@@ -571,7 +631,7 @@ export async function resumeRecordedTask(client: PoppyClient, callId: string, be
   const bound = one(client.sql, taskCallsTable.pick("request_id"), "SELECT request_id FROM poppy_task_calls WHERE call_id = ?", callId);
   if (!bound) return undefined;
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", bound.request_id);
-  if (!row) throw new PoppyError("invalid_response", "The recorded task is missing. Nothing will be resent.", 0);
+  if (!row) throw new PoppyError("invalid_response", ours("The recorded task is missing. Nothing will be resent."), 0);
   const trace = currentTool();
   if (trace) { trace.task_request_id = logId(row.id); trace.reused_pending = row.id !== callId; }
   return completeTaskRequest(client, row.id, beforeDispatch);
@@ -596,10 +656,11 @@ async function completeTaskRequest(client: PoppyClient, id: string, beforeDispat
   // success, and an unknown outcome retains its own durable reference.
   if (row?.status === "done" && row.result) return jsonText(json)(row.result, "stored task result");
   if (row && failure && !(failure instanceof TermsRequested)) {
-    const error = failure instanceof PoppyError ? failure : new PoppyError("approval_changed", failure instanceof Error ? failure.message : "The task failed", 0);
-    throw new PoppyError(error.code, error.message, error.status, { ...error.detail, poppyTask: taskProjection(client, row.id) });
+    const problem = failure instanceof ProblemError ? failure.problem : failure instanceof Error ? shown`The task failed: ${show.text(failure.message)}` : ours("The task failed");
+    const error = failure instanceof PoppyError ? failure : new PoppyError("approval_changed", problem, 0);
+    throw new PoppyError(error.code, error.problem, error.status, { ...error.detail, poppyTask: taskProjection(client, row.id) });
   }
-  if (!row) throw new PoppyError("invalid_response", "The task's durable request is missing. Nothing will be resent.", 0);
+  if (!row) throw new PoppyError("invalid_response", ours("The task's durable request is missing. Nothing will be resent."), 0);
   if (row.status === "terms" || (row.status === "pending" && !isTaskRequest(id))) {
     const trace = currentTool();
     if (trace) trace.approval_id = logId(row.terms_approval_id ?? id);
@@ -610,7 +671,9 @@ async function completeTaskRequest(client: PoppyClient, id: string, beforeDispat
       : { proposed, note: "Waiting for the User's decision on the Company's terms. Do not make this request again." };
   }
   if (row.status === "pending" || row.status === "executing") return { status: "in_progress", note: "This request is already being handled. Do not send it again." };
-  throw new PoppyError("approval_changed", row.result ?? "This request was already handled. Check its outcome rather than sending it again.", 0, { poppyTask: taskProjection(client, row.id) });
+  // Its recorded outcome can quote a Company's answer.
+  const handled = row.result ? shown`This request was already handled: ${show.text(row.result, 1_000)}` : ours("This request was already handled. Check its outcome rather than sending it again.");
+  throw new PoppyError("approval_changed", handled, 0, { poppyTask: taskProjection(client, row.id) });
 }
 
 /** Links reach the User without a model having to transcribe a signed checkout URL. */
@@ -738,7 +801,13 @@ async function repairTerminalApprovalCard(client: PoppyClient, id: string): Prom
  */
 export async function resolveApprovalOutcome(client: PoppyClient, id: string, outcome: "performed" | "not_performed"): Promise<void> {
   const selected = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
-  if (!selected || selected.status !== "unknown") throw new PoppyError("invalid_request", "Only a receipt with an unknown outcome can be reconciled. Nothing was sent.", 0);
+  if (!selected || selected.status !== "unknown") {
+    throw new PoppyError(
+      "invalid_request",
+      departure(ours("the receipt to reconcile"), ours("one with an unknown outcome"), selected ? shown`one whose status is ${show.code(selected.status)}` : ours("no such receipt"), ours("Nothing was sent")),
+      0
+    );
+  }
   // One request can have an internal task record and several Company revisions.
   const candidates = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND label = ? AND status IN ('unknown', 'terms')", selected.issuer, selected.label);
   const linked = new Set([id]);
@@ -878,11 +947,15 @@ async function decideOne(
     result = await run(client, company, read.value, row.label, { approvalId: id, approvedAt, ...(agent ? { approver: "agent" as const } : {}), beforeDispatch: () => {
       const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
       if (!current || current.status !== "executing" || current.request !== row.request || current.issuer !== row.issuer || current.label !== row.label) {
-        throw new PoppyError("approval_changed", "The stored approval changed; no further attempt will be sent", 0);
+        throw new PoppyError(
+          "approval_changed",
+          departure(ours("the stored approval"), ours("the request as approved, still being sent"), current ? changedRequest({ ...row, status: "executing" }, current) : ours("none"), ours("No further attempt will be sent")),
+          0
+        );
       }
       // Ops 5: an instruction withdrawn before the approval is sent stops it.
       if (agent && !standingInstructionFor(client, id)) {
-        throw new PoppyError("approval_changed", `The User withdrew the instruction "${agent.text}", so this approval wasn't sent`, 0);
+        throw new PoppyError("approval_changed", shown`The User withdrew the instruction ${show.text(agent.text)}, so this approval wasn't sent`, 0);
       }
       task?.beforeDispatch?.();
       if (current.action_key && current.action_owner) requireKnownOutcome(client, current.issuer, { key: current.action_key, owner: current.action_owner, operationId: current.operation_id }, [id]);
@@ -911,7 +984,7 @@ async function decideOne(
       return `[system] Sent as ${approvedBy}, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
     }
     // A Company's refusal keeps its code, as tool failures show it.
-    const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
+    const message = error instanceof PoppyError ? `${sentence(error.problem)} [${error.code}]` : error instanceof Error ? error.message : String(error);
     const answer = answerOf(error);
     const name = company.name;
     const unreadableStatus = unreadableAnswerOf(error);
@@ -1005,7 +1078,8 @@ export const BATCH_LIMIT = 100;
 export async function decideLocalBatch(client: PoppyClient, decisions: readonly { approvalId: string; decision: "approve" | "decline" }[]): Promise<void> {
   const ids = decisions.map((item) => item.approvalId);
   if (decisions.length === 0 || decisions.length > BATCH_LIMIT || new Set(ids).size !== ids.length) {
-    throw new PoppyError("batch_refused", `Decide 1 to ${BATCH_LIMIT} different requests at once.`, 0);
+    const got = new Set(ids).size !== ids.length ? ours("the same request more than once") : show.count(decisions.length, ours("request"), ours("requests"));
+    throw new PoppyError("batch_refused", departure(ours("the requests decided at once"), shown`1 to ${BATCH_LIMIT} different requests`, got), 0);
   }
   const waiting = decisions.flatMap((item) => {
     const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", item.approvalId);
@@ -1014,7 +1088,16 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
   if (waiting.length === 0) return;
   const keys = new Set(waiting.map((item) => approvalBatchKey(item.row.issuer, item.row.request)));
   if (keys.size !== 1 || keys.has(undefined)) {
-    throw new PoppyError("batch_refused", "These requests can't be decided together. Decide each on its own card.", 0);
+    throw new PoppyError(
+      "batch_refused",
+      departure(
+        ours("the requests decided together"),
+        ours("uploads of the User's photos to one Company's same method and URL"),
+        keys.has(undefined) ? ours("a request that isn't such an upload") : ours("uploads to different places"),
+        ours("Decide each on its own card")
+      ),
+      0
+    );
   }
   // Only IDs read from validated, owned rows—not arbitrary frame strings.
   currentEvent()?.set({ approval_ids: waiting.map(item => logId(item.row.id)).flatMap(value => value ?? []) });

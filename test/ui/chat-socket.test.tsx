@@ -271,6 +271,145 @@ describe("the Companies your agent can contact", () => {
   });
 });
 
+describe("Clear chat", () => {
+  const said = (id: number, text: string) => ({ id, conversationId: 1, kind: "pi.user", model: [{ role: "user", content: text, timestamp: id }] });
+  const reset = (id: number) => ({ id, conversationId: 1, kind: "pi.reset", head: id });
+  const snapshot = (...entries: object[]) => socket.receive({ type: "events", session: "1", events: [{ type: "snapshot", entries, tools: [], compactions: [], inbox: [], agent: {}, usage: {} }] });
+  const resetArrives = (id: number) => socket.receive({ type: "events", session: "1", events: [{ type: "entry_appended", entry: reset(id) }] });
+  const field = () => screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement;
+  const clear = () => screen.queryByRole("button", { name: "Clear chat" });
+  const confirmation = () => screen.queryByRole("group", { name: "Clear chat?" });
+  const resets = () => socket.frames.filter((frame) => frame.type === "reset");
+  const remembered = (companies: Promise<string[]> | string[]) => vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+    String(input) === "/api/task-companies" ? Response.json({ companies: await companies }) : Response.json({ workspaceId: "workspace-a" })));
+  const confirm = () => {
+    fireEvent.click(clear()!);
+    fireEvent.click(within(confirmation()!).getByRole("button", { name: "Clear chat" }));
+  };
+
+  it("asks first, sends nothing on Keep it, and resets once on Clear chat", () => {
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    fireEvent.click(clear()!);
+    fireEvent.click(within(confirmation()!).getByRole("button", { name: "Keep it" }));
+    expect(confirmation()).toBeNull();
+    expect(resets()).toEqual([]);
+    confirm();
+    expect(resets()).toHaveLength(1);
+    resetArrives(3);
+    expect(screen.getByText("Context reset")).toBeTruthy();
+    expect(clear()).toBeNull();
+  });
+
+  it("empties the selected Companies when the reset arrives, whichever tab sent it, and not before", async () => {
+    remembered(["shop.example"]);
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    confirm();
+    // Sent, but the agent hasn't reset: it may yet refuse.
+    expect(field().value).toBe("shop.example");
+    resetArrives(3);
+    expect(field().value).toBe("");
+    type("A new demo");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(1));
+    expect(socket.submits()[0]).toMatchObject({ taskAccess: { companies: [], uploads: [] } });
+  });
+
+  it("follows a reset made in another tab while this one was away, from the reconnect's snapshot", async () => {
+    remembered(["shop.example"]);
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    socket.close();
+    socket.open();
+    await waitFor(() => expect(screen.queryByText(CONNECTING)).toBeNull());
+    snapshot(reset(3));
+    expect(field().value).toBe("");
+  });
+
+  it("keeps the remembered selection when the page loads after a reset", async () => {
+    remembered(["shop.example"]);
+    render(<Page />);
+    socket.open();
+    snapshot(reset(3), said(4, "A new demo"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+  });
+
+  it("doesn't let a remembered list that arrives after the reset bring the old selection back", async () => {
+    let answer: (companies: string[]) => void = () => undefined;
+    remembered(new Promise<string[]>((resolve) => { answer = resolve; }));
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    resetArrives(3);
+    await act(async () => answer(["shop.example"]));
+    expect(field().value).toBe("");
+  });
+
+  it("doesn't let a list remembered before the reset replace one chosen after it", async () => {
+    let answer: (companies: string[]) => void = () => undefined;
+    remembered(new Promise<string[]>((resolve) => { answer = resolve; }));
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    resetArrives(3);
+    fireEvent.change(field(), { target: { value: "new.example" } });
+    await act(async () => answer(["shop.example"]));
+    expect(field().value).toBe("new.example");
+  });
+
+  it("drops a half-made confirmation when something new arrives in the chat", () => {
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    fireEvent.click(clear()!);
+    socket.receive({ type: "events", session: "1", events: [{ type: "entry_appended", entry: said(3, "Sent from another tab") }] });
+    expect(confirmation()).toBeNull();
+    expect(clear()).not.toBeNull();
+  });
+
+  it("drops a half-made confirmation when a run starts, rather than showing it again once the run ends", () => {
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    fireEvent.click(clear()!);
+    expect(confirmation()).not.toBeNull();
+    socket.receive({ type: "events", session: "1", events: [{ type: "run_start" }] });
+    expect(clear()).toBeNull();
+    socket.receive({ type: "events", session: "1", events: [{ type: "run_end" }] });
+    expect(confirmation()).toBeNull();
+    expect(clear()).not.toBeNull();
+  });
+
+  it("isn't offered while a message waits for the agent's answer", () => {
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    type("Size L");
+    SEND_WITH.Enter();
+    expect(clear()).toBeNull();
+    socket.receive({ type: "error", id: String(socket.submits()[0]!.id), message: "Refused" });
+    expect(clear()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(clear()).not.toBeNull();
+  });
+
+  it("doesn't send on a socket that has just closed, and says so", () => {
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    socket.readyState = WebSocket.CLOSED;
+    confirm();
+    expect(resets()).toEqual([]);
+    expect(screen.getByRole("alert").textContent).toBe(NOT_SENT);
+  });
+});
+
 describe("sending before the socket is open", () => {
   it("keeps an explicit recipient selection with its original message across reconnect and composer changes", async () => {
     render(<Page />);

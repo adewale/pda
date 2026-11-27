@@ -99,7 +99,10 @@ describe("conversation SSE transport chunk boundaries", () => {
           }), { headers: { "Content-Type": "text/event-stream" } });
         });
         restoreRemote = () => remote.mockRestore();
-        await expect(readConversation(client, opened.conversationId, 0)).rejects.toMatchObject({ code: "invalid_response" });
+        // Both sides: the bound, and the size that came (`data: ` and the payload; for a message, its two deltas).
+        const what = { "unfinished event": "unfinished stream event", "complete event": "stream event", "unfinished message": "unfinished streamed message" }[kind];
+        const size = kind === "unfinished message" ? MAX_SSE_CHARS + 2 : MAX_SSE_CHARS + 7;
+        await expect(readConversation(client, opened.conversationId, 0)).rejects.toMatchObject({ code: "invalid_response", message: `${C.name}'s ${what}: expected at most ${MAX_SSE_CHARS} characters, got ${size}` });
         expect(cancelled).toBe(1);
         expect(conversation(client, opened.conversationId)).toMatchObject({ cursor: saved.id, ...("status" in opened ? { status: opened.status } : {}) });
         expect(recentMessages(client, opened.conversationId)).toMatchObject([{ text: saved.message.text }]);

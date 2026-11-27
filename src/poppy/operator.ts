@@ -21,6 +21,7 @@
 import { calculateJwkThumbprint, exportJWK, importJWK, type JWK } from "jose";
 
 import { ConfigError } from "../config";
+import { departure, ours, show, shown } from "../diagnostic";
 
 export const DIRECTORY_PATH = "/.well-known/http-message-signatures-directory";
 export const DIRECTORY_TYPE = "application/http-message-signatures-directory+json";
@@ -49,10 +50,11 @@ async function importOperatorKey(source: string): Promise<OperatorKey> {
   try {
     jwk = JSON.parse(source) as JWK;
   } catch {
-    throw new ConfigError("POPPY_OPERATOR_KEY must be a private Ed25519 JWK");
+    throw new ConfigError(departure(ours("POPPY_OPERATOR_KEY"), ours("a private Ed25519 JWK"), ours("text that isn't JSON")));
   }
   if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.d !== "string" || typeof jwk.x !== "string") {
-    throw new ConfigError("POPPY_OPERATOR_KEY must be a private Ed25519 JWK");
+    // Never the key itself: its type and curve are enough.
+    throw new ConfigError(departure(ours("POPPY_OPERATOR_KEY"), ours("a private Ed25519 JWK"), shown`kty ${show.value(jwk.kty)}, crv ${show.value(jwk.crv)}${typeof jwk.d === "string" ? ours("") : ours(", no private part")}`));
   }
   const privateKey = (await importJWK({ kty: "OKP", crv: "Ed25519", x: jwk.x, d: jwk.d }, "EdDSA")) as CryptoKey;
   const keyid = await calculateJwkThumbprint({ kty: "OKP", crv: "Ed25519", x: jwk.x }, "sha256");

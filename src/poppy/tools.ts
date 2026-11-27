@@ -31,8 +31,9 @@ import { sendAgentMessage } from "./agent-message";
 import { stateForModel } from "./conversation-state";
 import { instructionForModel, instructions } from "./instructions";
 import { operationsVersion } from "./operations-v2";
-import { NO_TASK_ACCESS, companyDomain } from "../task-access";
+import { NO_TASK_ACCESS, TaskAccessError, companyDomain } from "../task-access";
 import { attachmentInfo } from "../attachments";
+import { departure, isDeparture, ours, partsOf, ProblemError, render, sentence, show, shown } from "../diagnostic";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Company access comes from the Companies selected in the composer, not domain names in prose. When the User's request names a company that isn't selected, call poppy_request_company with its domain, and the attached photos the task would send it, then end your turn: the User allows it on a card. Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -73,12 +74,25 @@ function text(value: unknown): { output: { type: "text"; text: string }[]; detai
 
 function failure(error: unknown): { output: { type: "text"; text: string }[]; details: Json; isError: true } {
   const message =
-    error instanceof PoppyError || error instanceof DiscoveryError
-      ? `${error.message}${error instanceof PoppyError ? ` [${error.code}]` : ""}`
-      : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
-  // The error's code, and the extension an `extension_required` names, as data (spec 3.3).
+    // An error's code follows its sentence, closed with its full stop: "… Nothing was sent. [invalid_args]".
+    error instanceof PoppyError
+      ? `${sentence(error.problem)} [${error.code}]`
+      : error instanceof DiscoveryError
+      ? error.message
+      : error instanceof ProblemError
+        ? `Unexpected error: ${error.message}`
+        // Not ours: its words are shown as someone else's.
+        : render(shown`Unexpected error: ${show.text(error instanceof Error ? error.message : String(error), 500)}`);
+  // The error's code, the extension an `extension_required` names (spec 3.3), and a departure's parts, as data,
+  // so the model can act on what was expected and what was got without reading them back out of the sentence.
+  const parts = error instanceof ProblemError ? partsOf(error.problem) : undefined;
+  const problem: { [key: string]: Json } = parts ? { problem: { subject: parts.subject, expected: parts.expected, got: parts.got, ...(parts.detail === undefined ? {} : { detail: parts.detail }) } } : {};
   const details: Json =
-    error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}), ...(error.detail.poppyTask ? { poppyTask: { ...error.detail.poppyTask } } : {}) } : null;
+    error instanceof PoppyError
+      ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}), ...(error.detail.poppyTask ? { poppyTask: { ...error.detail.poppyTask } } : {}), ...problem }
+      : parts
+        ? problem
+        : null;
   return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
@@ -104,6 +118,11 @@ function tool<T extends TSchema>(
       }
     }
   } as ToolRegistration<T>;
+}
+
+/** A conversation id the model gave that names none of the agent's. */
+function noConversation(id: string) {
+  return departure(ours("conversation"), ours("the id of one of the agent's conversations"), show.value(id));
 }
 
 const Domain = Type.String({ description: "The company's domain, such as example.com" });
@@ -139,7 +158,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     if (owner === undefined) return null;
     if (domain !== undefined && (typeof domain !== "string" || recipient(domain) !== recipient(owner))) {
       // As for a conversation of another issuer (requireCompany): it isn't this Company's.
-      throw new PoppyError("conversation_not_found", `Conversation ${row.id} is with ${owner}, not ${String(domain)}. Name the conversation's own Company, or start a new conversation.`, 404);
+      throw new PoppyError(
+        "conversation_not_found",
+        departure(shown`the domain for conversation ${show.name(row.id)}`, shown`${show.name(owner)}, its Company`, show.value(domain), ours("Name the conversation's own Company, or start a new conversation")),
+        404
+      );
     }
     return owner;
   };
@@ -165,7 +188,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
     // poppy_read sends nothing, but what it returns is the Company's.
     if (target !== undefined && definition.name !== "poppy_api_call" && definition.name !== "poppy_read") {
       const selected = task?.active() ? task.access.companies : [];
-      if (target === null || !(scope.allow(target) || selected.some(domain => client().discoveredDomain(domain) === recipient(target)))) throw new PoppyError("refused", "This Company isn't selected for this chat. Ask the User with poppy_request_company, then end your turn.", 0);
+      if (target === null || !(scope.allow(target) || selected.some(domain => client().discoveredDomain(domain) === recipient(target)))) throw new PoppyError("refused", ours("This Company isn't selected for this chat. Ask the User with poppy_request_company, then end your turn."), 0);
     }
     const answer = await run(args, key, signal, invocation);
     return answer;
@@ -201,20 +224,22 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ domain, photos }, _key, _signal, invocation) => {
           // Only a run the User's own message started: a Company's reply can't put this card in front of them (decision 50).
           if (!invocation || !fromUser || !(await fromUser(invocation.api, invocation.context))) {
-            throw new PoppyError("refused", "Only the User's own request can ask to contact another Company. Nothing was asked.", 0);
+            throw new PoppyError("refused", ours("Only the User's own request can ask to contact another Company. Nothing was asked."), 0);
           }
           let host: string;
           try {
             host = companyDomain(domain);
           } catch (error) {
-            throw new PoppyError("invalid_request", error instanceof Error ? error.message : "That isn't a Company domain.", 0);
+            // What the domain was instead, as companyDomain says it: never its credentials, path or query.
+            const said = error instanceof TaskAccessError && isDeparture(error.problem) ? error.problem : null;
+            throw new PoppyError("invalid_request", departure(ours("domain"), said?.expected ?? ours("a public HTTPS Company domain, without a path, query or credentials"), said?.got ?? show.value(domain)), 0);
           }
           const task = await taskOf(invocation);
           if (task?.active() && task.access.companies.includes(host)) return { domain: host, selected: true, note: "Already selected; go ahead." };
           const c = client();
-          const shown = [...new Set(photos ?? [])].map((id) => {
+          const listed = [...new Set(photos ?? [])].map((id) => {
             const info = attachmentInfo(c.sql, id, c.host.now());
-            if (!info) throw new PoppyError("invalid_request", `${id} isn't a photo the User attached, or it has expired. Nothing was asked.`, 0);
+            if (!info) throw new PoppyError("invalid_request", departure(ours("photos"), ours("ids of photos the User attached, not yet expired"), show.value(id), ours("Nothing was asked")), 0);
             return { id: info.id, name: info.name, size: info.size };
           });
           // Its public poppy.json, for the name it gives itself; the User decides on the domain.
@@ -222,12 +247,12 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const found = await c.lookup(host).catch((error: unknown) => {
             // Not its message, which can quote the domain's own documents.
             if (error instanceof DiscoveryError) {
-              throw new PoppyError("refused", `${host} didn't answer with a poppy.json your agent can use: it may not offer Poppy, may serve a version your agent doesn't speak, or couldn't be reached. Nothing was asked. Tell the User, and check the domain with them.`, 0);
+              throw new PoppyError("refused", shown`${show.name(host)} didn't answer with a poppy.json your agent can use: it may not offer Poppy, may serve a version your agent doesn't speak, or couldn't be reached. Nothing was asked. Tell the User, and check the domain with them.`, 0);
             }
             throw error;
           });
           const name = found.name;
-          await c.host.showCard({ id: `company-access-${host}`, kind: "company_access", company: name, domain: host, open: true, photos: shown });
+          await c.host.showCard({ id: `company-access-${host}`, kind: "company_access", company: name, domain: host, open: true, photos: listed });
           return {
             domain: host,
             company: name,
@@ -239,7 +264,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
       scopedTool(
         {
           name: "poppy_discover",
-          description: "Find out what a company offers personal agents: sign-in types and scopes, APIs, its agent, website, extensions, and the tasks it chose not to offer (with another way to do some of them). Doesn't start a session or sign in.",
+          description: "Find out what a company offers personal agents: sign-in types and scopes, APIs, its agent, website, extensions, and the tasks it chose not to offer (with another way to do some of them). Doesn't start a session or sign in. The company name is the one its poppy.json gives: nothing confirms the domain belongs to that company, so when you aren't sure it's the company the User means, show the User the domain with the name.",
           parameters: Type.Object({ domain: Domain }),
           replay: "safe"
         },
@@ -261,7 +286,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             // 3.2: no issuer, or auth.disabled: signed-out use only.
             ...(found.issuerless ? { account: "No OAuth issuer: this company offers signed-out use only, with no sign-in." } : {}),
             scopes: toJson(describeScopes(found, [...scopes], await openApiScopeDescriptions(client(), found))),
-            agent: found.conversations ? "available (poppy_message)" : "none",
+            // 1.0 (8.1): the Company's own account of what its agent can help with, to choose it or an API.
+            agent: !found.conversations ? "none" : found.conversations.description ? `available (poppy_message): ${found.conversations.description}` : "available (poppy_message)",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),
             website: !found.web ? "not offered"
               : found.web.disabled ? "pages readable only: the company asks agents not to use its website in a browser, so no form is filled or sent; use its agent and APIs"
@@ -351,7 +377,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const scoped = typeof invocation?.api.snapshot === "function";
           const task = await taskOf(invocation);
           const beforeDispatch = () => {
-            if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0);
+            if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", ours("The User's task is no longer active. Ask for a fresh request; nothing was sent."), 0);
           };
           beforeDispatch();
           const found = await company(domain);
@@ -371,7 +397,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
-          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          if (!row) throw new PoppyError("conversation_not_found", noConversation(id), 404);
           return { conversation: id, ...stateForModel(row), messages: recentMessages(client(), id) };
         }
       ),
@@ -384,7 +410,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ conversation: id, summary }, callKey) => {
           const row = conversation(client(), id);
-          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          if (!row) throw new PoppyError("conversation_not_found", noConversation(id), 404);
           return handoff(client(), client().companyByIssuer(row.issuer), id, summary, callKey);
         }
       ),
@@ -397,7 +423,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ conversation: id }, callKey) => {
           const row = conversation(client(), id);
-          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          if (!row) throw new PoppyError("conversation_not_found", noConversation(id), 404);
           return cancelHandoff(client(), client().companyByIssuer(row.issuer), id, callKey);
         }
       ),
@@ -423,7 +449,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ conversation: id }) => {
           const row = conversation(client(), id);
-          if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+          if (!row) throw new PoppyError("conversation_not_found", noConversation(id), 404);
           const { status, waiting } = await closeConversation(client(), client().companyByIssuer(row.issuer), id);
           // 0.4: the Company acts on the close later; a read reports it (8.12).
           if (status === "closed") return { conversation: id, status };
@@ -501,7 +527,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ domain, operation: name, api, params, body, bodyValue, files, session }, callKey, signal, invocation) => {
           if (body !== undefined && bodyValue !== undefined) {
-            throw new PoppyError("invalid_body", "Pass either body or bodyValue, not both. Nothing was sent.", 0);
+            throw new PoppyError("invalid_body", departure(ours("body and bodyValue"), ours("one of them"), ours("both"), ours("Nothing was sent")), 0);
           }
           const requestBody = body !== undefined ? body : bodyValue;
           const c = client();
@@ -516,10 +542,10 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const selectedFiles = originatingTask ? TaskFiles.selected(originatingTask.access, recipient(domain)) : TaskFiles.none();
           const apiScope = new TaskCompanyScope();
           if (scoped) apiScope.update(originatingTask?.access);
-          const beforeDispatch = () => { if (signal?.aborted || (scoped && !originatingTask?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0); };
+          const beforeDispatch = () => { if (signal?.aborted || (scoped && !originatingTask?.active())) throw new PoppyError("refused", ours("The User's task is no longer active. Ask for a fresh request; nothing was sent."), 0); };
           const replay = await replayOpenApiCall(c, domain, label, request, beforeDispatch);
           if (replay !== undefined) return replay;
-          if (!apiScope.allow(domain)) throw new PoppyError("refused", "This Company isn't selected for this chat. Ask the User with poppy_request_company, then end your turn.", 0);
+          if (!apiScope.allow(domain)) throw new PoppyError("refused", ours("This Company isn't selected for this chat. Ask the User with poppy_request_company, then end your turn."), 0);
           const found = await c.company(domain);
           checkpoint?.(found);
           return callOpenApi(c, found, label, request, selectedFiles, domain, beforeDispatch);
@@ -557,7 +583,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const scoped = typeof invocation?.api.snapshot === "function";
           const task = await taskOf(invocation);
           const beforeDispatch = () => {
-            if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", "The User's task is no longer active. Ask for a fresh request; nothing was sent.", 0);
+            if (signal?.aborted || (scoped && !task?.active())) throw new PoppyError("refused", ours("The User's task is no longer active. Ask for a fresh request; nothing was sent."), 0);
           };
           return callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: json(args ?? {}, "args"), callKey, ...(api ? { apiUrl: api } : {}) }, beforeDispatch);
         }
@@ -580,10 +606,10 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ domain, action, url, selector, value, session }) => {
           let step: BrowseAction;
           if (action === "open") step = { kind: "open", url: url ?? "/" };
-          else if (!selector) throw new PoppyError("invalid_request", "A selector is required", 0);
+          else if (!selector) throw new PoppyError("invalid_request", departure(ours("selector"), shown`the selector of the element to ${ours(action)}`, selector === undefined ? ours("nothing") : ours("an empty one")), 0);
           else if (action === "fill") {
             // A missing value isn't an empty one: filling "" would clear the field the model meant to fill.
-            if (value === undefined) throw new PoppyError("invalid_request", 'fill needs a value; to clear a field, give value "".', 0);
+            if (value === undefined) throw new PoppyError("invalid_request", departure(ours("fill's value"), ours("the text to fill in"), ours("nothing"), ours('To clear a field, give value ""')), 0);
             step = { kind: "fill", selector, value };
           }
           else step = { kind: action, selector };

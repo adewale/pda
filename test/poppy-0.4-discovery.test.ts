@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed, type Company } from "../src/poppy/discovery";
+import { named } from "./named-fetcher.ts";
 
 /**
  * Discovery under the 0.4 draft (F1 in docs/poppy-0.4-upgrade.md): the
  * version the agent chooses from poppy.json and `supported_versions` (3.4),
  * and what it reads from a 0.4 document (3.3, 6, 9). The agent speaks 0.4
- * alone; the 0.3 document is one it no longer reads (decision 49).
+ * and 1.0 (decision 51); the 0.3 document is one it no longer reads
+ * (decision 49).
  */
 
 const ISSUER = "https://auth.shop.test";
@@ -55,11 +57,11 @@ function serving(documents: { poppy: unknown; linked?: Record<string, unknown> }
     ...Object.entries(documents.linked ?? {})
   ]);
   const requests: string[] = [];
-  const fetcher = async (request: Request) => {
+  const fetcher = named(async (request: Request) => {
     requests.push(request.url);
     const body = served.get(request.url);
     return body === undefined ? new Response("not found", { status: 404 }) : Response.json(body);
-  };
+  });
   return { fetcher, requests };
 }
 

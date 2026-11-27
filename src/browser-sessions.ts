@@ -1,4 +1,5 @@
 import { LifecycleCapability, type CapabilityWebSocketUpgradeContext } from "agents/lifecycle";
+import { ours } from "./diagnostic";
 import { AuthError } from "./session";
 
 /** Internal Worker → agent header, overwritten at the authenticated edge. */
@@ -41,7 +42,7 @@ export class BrowserSessions extends LifecycleCapability {
 
   tags(request: Request): string[] {
     const id = request.headers.get(BROWSER_SESSION_HEADER);
-    if (!id || !this.active(id)) throw new AuthError("Session revoked");
+    if (!id || !this.active(id)) throw new AuthError(ours("Session revoked"));
     return [`${SESSION_TAG}${id}`];
   }
 

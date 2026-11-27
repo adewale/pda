@@ -52,6 +52,10 @@ jobs:
       - if: steps.scope.outputs.runtime == 'true'
         run: npm run typecheck
 
+      # The deploy check under Node's type stripping, which Vite-run tests can't see; it needs npm ci.
+      - if: steps.scope.outputs.runtime == 'true'
+        run: npm run test:node-runtime
+
       # Keep whole-runtime resets in the durability suite as an explicit policy.
       # File workers are currently isolated; this boundary also permits future pooling.
       - name: Whole-runtime resets belong in durability tests
@@ -82,12 +86,26 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-04-wrangler
 
+      - name: Pinned upstream final 1.0 Company kit and reviewed findings
+        if: steps.scope.outputs.specialist == 'true'
+        run: node scripts/check-company-kit.mjs --protocol 1.0 --reviewed-findings --output "$RUNNER_TEMP/company-kit-1.0.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-10-wrangler
+
       - name: Separate DPoP-capable kit copy and independent proof controls
         if: steps.scope.outputs.specialist == 'true'
         run: node scripts/check-company-kit.mjs --protocol 0.4 --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-dpop-wrangler
+
+      - name: Final 1.0 kit with DPoP prerequisites and independent proof controls
+        if: steps.scope.outputs.specialist == 'true'
+        run: node scripts/check-company-kit.mjs --protocol 1.0 --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-1.0-dpop.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-10-dpop-wrangler
 
       - name: Upload upstream Company-kit results
         if: always() && steps.scope.outputs.specialist == 'true'
@@ -97,6 +115,8 @@ jobs:
           name: company-kit-results
           path: |
             ${{ runner.temp }}/company-kit-0.4.json
+            ${{ runner.temp }}/company-kit-1.0.json
+            ${{ runner.temp }}/company-kit-1.0-dpop.json
             ${{ runner.temp }}/company-kit-dpop.json
             ${{ runner.temp }}/approval-crashes.json
           if-no-files-found: ignore

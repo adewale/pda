@@ -6,6 +6,8 @@ import { toIssuer } from "../../src/poppy/issuer.ts";
 import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { migrate } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
+import type { Fetcher } from "../../src/poppy/fetch.ts";
 
 const SERVICE = "https://api.books.example/v1";
 const ISSUER = "https://auth.books.example";
@@ -28,7 +30,7 @@ function fixture(answer: (url: string) => Response) {
       POPPY_LOGO_URI: "https://agent.example/logo.svg", TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64")
     } as unknown as Env,
     sql: memorySql(),
-    fetcher: async (request) => { requests.push(request.url); return answer(request.url); },
+    fetcher: named(async (request) => { requests.push(request.url); return answer(request.url); }),
     showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
@@ -95,7 +97,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function resourceFixture(answer: PoppyHost["fetcher"]) {
+async function resourceFixture(answer: Fetcher) {
   const f = fixture(() => Response.json({}));
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   Object.assign(f.client.host.env, {
@@ -103,7 +105,7 @@ async function resourceFixture(answer: PoppyHost["fetcher"]) {
     CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
   });
   migrate(f.client.sql);
-  vi.spyOn(f.client.host, "fetcher").mockImplementation(answer);
+  vi.spyOn(f.client.host, "fetcher").mockImplementation(named(answer));
   const target: Company = { ...company("books.example", ISSUER), conversations: { endpoint: SERVICE } };
   const outgoing = EndpointRequest.to(target, { method: "GET", url: `${SERVICE}/events` });
   return { client: f.client, target, outgoing };

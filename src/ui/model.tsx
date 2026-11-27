@@ -2,6 +2,7 @@ import { KeyIcon, WarningIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import type { Entitlement } from "../model-router";
 import { Action } from "./controls";
+import { sentence, show, shown } from "../diagnostic";
 
 /**
  * How the agent pays for its model calls, from `GET /api/entitlement`: the
@@ -177,7 +178,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
       });
       const body = (await response.json().catch(() => ({}))) as Entitlement & { error?: string };
       if (!response.ok) {
-        setError(body.error ?? `That didn't work (${response.status}).`);
+        setError(body.error ?? sentence(shown`That didn't work (${show.status(response.status)})`));
         return;
       }
       setKey("");
@@ -196,7 +197,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
     try {
       const response = await fetch("/api/model-key", { method: "DELETE", credentials: "same-origin" });
       if (response.ok) onChange((await response.json()) as Entitlement);
-      else setError(`Couldn't remove the key (${response.status}).`);
+      else setError(sentence(shown`Couldn't remove the key (${show.status(response.status)})`));
     } finally {
       setBusy(false);
     }

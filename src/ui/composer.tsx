@@ -72,13 +72,67 @@ function useRememberedCompanies(show: (companies: string) => void): boolean {
   return loaded;
 }
 
+/** What the composer selects for the next message: its Companies, and a photo destination and files. */
+type Selection = { readonly companies: string; readonly uploadCompany: string; readonly uploadFiles: ReadonlySet<string> };
+
+const NO_SELECTION: Selection = { companies: "", uploadCompany: "", uploadFiles: new Set() };
+
+/**
+ * The selection, for one conversation. A reset, from this tab or another,
+ * starts a new one with nothing selected, as the agent's remembered list
+ * does (decision 41). Each write carries the conversation it was made in, so
+ * one made before a reset (the remembered list arriving late, say) can't
+ * bring the old selection back.
+ */
+function useSelection(conversation: number) {
+  const [stored, setStored] = useState({ conversation, ...NO_SELECTION });
+  const selection: Selection = stored.conversation === conversation ? stored : NO_SELECTION;
+  const update = (change: (current: Selection) => Partial<Selection>) => setStored((previous) => {
+    if (previous.conversation > conversation) return previous;
+    const current = previous.conversation === conversation ? previous : { conversation, ...NO_SELECTION };
+    return { ...current, ...change(current) };
+  });
+  return [selection, update] as const;
+}
+
+/**
+ * Clear chat, asked twice, as "Delete all saved notes" is. Its state lives
+ * here so it can't outlast what it was about: the parent renders it only
+ * while a reset can go and keys it to the newest message, so a run, a
+ * disconnect or a new message ends a half-made confirmation or a Not sent.
+ */
+function ClearChat({ reset }: { reset: () => boolean }) {
+  const [stage, setStage] = useState<"idle" | "confirming" | "notSent">("idle");
+  return (
+    <>
+      {stage === "confirming" ? (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Clear chat?">
+          <Action type="button" variant="secondary-destructive" onClick={() => setStage(reset() ? "idle" : "notSent")}>
+            Clear chat
+          </Action>
+          <Action type="button" variant="secondary" onClick={() => setStage("idle")}>
+            Keep it
+          </Action>
+        </div>
+      ) : (
+        <Action type="button" variant="ghost" onClick={() => setStage("confirming")}>
+          Clear chat
+        </Action>
+      )}
+      {stage === "notSent" ? (
+        <p role="alert" className="basis-full text-[13px] text-kumo-danger">
+          {NOT_SENT}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function Composer({ session, ref }: { session: PiSession; ref?: Ref<ComposerHandle> }) {
   const [prompt, setPrompt] = useState("");
-  const [companies, setCompanies] = useState("");
-  const companiesLoaded = useRememberedCompanies(saved => setCompanies(current => current || saved));
+  const [{ companies, uploadCompany, uploadFiles }, select] = useSelection(session.conversation);
+  const companiesLoaded = useRememberedCompanies(saved => select(current => ({ companies: current.companies || saved })));
   const companiesEdited = useRef(false);
-  const [uploadCompany, setUploadCompany] = useState("");
-  const [uploadFiles, setUploadFiles] = useState<ReadonlySet<string>>(new Set());
   const [accessError, setAccessError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const companyOptions = useMemo(() => { try { return companyDomains(companies); } catch { return []; } }, [companies]);
@@ -87,8 +141,7 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
   const editor = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({ edit(text) {
     setPrompt(current => current.trim() ? `${current}\n\n${text}` : text);
-    setUploadCompany("");
-    setUploadFiles(new Set());
+    select(() => ({ uploadCompany: "", uploadFiles: new Set() }));
     setAccessError(null);
     setReviewing(true);
     editor.current?.focus();
@@ -102,12 +155,12 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
       return false;
     }
     companiesEdited.current = true;
-    setCompanies(access.companies.join(", "));
+    select(() => ({ companies: access.companies.join(", ") }));
     setAccessError(null);
     // The User's own message, in the chat for them to see: what it selects is what they allowed.
     session.submit(`Yes, you can contact ${domain}${photos.length ? ` and send it ${photos.length === 1 ? "that photo" : "those photos"}` : ""}.`, "followUp", access);
     return true;
-  } }), [companies, session]);
+  } }), [companies, session, select]);
   const connected = session.status === "open";
   const [stopNotSent, setStopNotSent] = useState(false);
   const hintId = "composer-hint";
@@ -130,9 +183,7 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
     }
     const text = withMarkers(prompt, attachments.ready);
     setPrompt("");
-    setCompanies(access.companies.join(", "));
-    setUploadCompany("");
-    setUploadFiles(new Set());
+    select(() => ({ companies: access.companies.join(", "), uploadCompany: "", uploadFiles: new Set() }));
     setAccessError(null);
     setReviewing(false);
     attachments.clear();
@@ -165,7 +216,7 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
           <label className="flex flex-wrap items-center gap-2">
             <span>Companies your agent can contact</span>
             <input aria-label="Companies your agent can contact" aria-describedby="companies-hint" value={companies} maxLength={2048}
-              onChange={event => { companiesEdited.current = true; setCompanies(event.currentTarget.value); setUploadCompany(""); setUploadFiles(new Set()); }}
+              onChange={event => { const value = event.currentTarget.value; companiesEdited.current = true; select(() => ({ companies: value, uploadCompany: "", uploadFiles: new Set() })); }}
               placeholder="shop.example, another.example (optional)" className="min-h-9 min-w-0 flex-1 rounded-md px-2 ring ring-kumo-line" />
           </label>
           <p id="companies-hint" className="text-[12px]">Stays selected for your next messages until you change it.</p>
@@ -174,13 +225,13 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
               <summary className="cursor-pointer">Allow selected photos to upload to a Company</summary>
               <p className="my-2">Photos are shown to your model. Company uploads need a disclosure card unless you select the files and their destination here.</p>
               <label className="block">Photo destination
-                <select aria-label="Photo upload destination" value={uploadCompany} onChange={event => setUploadCompany(event.currentTarget.value)} className="ml-2 min-h-9 max-w-full rounded-md px-2 ring ring-kumo-line">
+                <select aria-label="Photo upload destination" value={uploadCompany} onChange={event => { const value = event.currentTarget.value; select(() => ({ uploadCompany: value })); }} className="ml-2 min-h-9 max-w-full rounded-md px-2 ring ring-kumo-line">
                   <option value="">Choose a Company above</option>
                   {companyOptions.map(domain => <option key={domain} value={domain}>{domain}</option>)}
                 </select>
               </label>
               {attachments.ready.map(file => <label key={file.id} className="mt-2 flex items-center gap-2">
-                <input type="checkbox" aria-label={`Allow upload of ${file.name}`} checked={uploadFiles.has(file.id)} onChange={event => setUploadFiles(current => { const next = new Set(current); if (event.target.checked) next.add(file.id); else next.delete(file.id); return next; })} />
+                <input type="checkbox" aria-label={`Allow upload of ${file.name}`} checked={uploadFiles.has(file.id)} onChange={event => { const checked = event.target.checked; select(current => { const next = new Set(current.uploadFiles); if (checked) next.add(file.id); else next.delete(file.id); return { uploadFiles: next }; }); }} />
                 <span className="min-w-0 break-words">Allow {file.name} to upload to this destination for this message</span>
               </label>)}
             </details>
@@ -255,13 +306,17 @@ export function Composer({ session, ref }: { session: PiSession; ref?: Ref<Compo
             />
           )}
         </div>
-        <p id={hintId} className="mt-1.5 text-[13px] text-kumo-subtle max-sm:sr-only">
-          {session.status === "unauthenticated" ? "Sign in again to send. Copy any draft you want to keep before reloading." : connected
-            ? session.running
-              ? "Enter queues a follow-up · Steer adds it to the current answer"
-              : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
-            : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
-        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p id={hintId} className="min-w-0 flex-1 text-[13px] text-kumo-subtle max-sm:sr-only">
+            {session.status === "unauthenticated" ? "Sign in again to send. Copy any draft you want to keep before reloading." : connected
+              ? session.running
+                ? "Enter queues a follow-up · Steer adds it to the current answer"
+                : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
+              : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
+          </p>
+          {/* Keyed to the newest message, and gone whenever a reset can't go: a confirmation is only ever for the chat the User saw. */}
+          {session.canReset ? <ClearChat key={session.messages.at(-1)?.id} reset={session.reset} /> : null}
+        </div>
         {stopNotSent && session.running ? (
           <p role="alert" className="mt-1.5 text-[13px] text-kumo-danger">
             {NOT_SENT}

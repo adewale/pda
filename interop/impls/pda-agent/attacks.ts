@@ -1,5 +1,5 @@
 /**
- * Raw, deliberately invalid Poppy 0.4 requests. Only the local adversarial
+ * Raw, deliberately invalid Poppy requests, declaring the Company's version. Only the local adversarial
  * adapter imports this; no production client relaxation or live identity.
  * Every probe first establishes an accepted, otherwise equivalent request.
  */

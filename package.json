@@ -15,10 +15,11 @@
     "start": "vite dev",
     "build": "vite build",
     "deploy": "vite build && node scripts/check-deployment.ts && wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
     "types": "wrangler types env.d.ts --include-runtime false",
     "test": "node scripts/run-tests.mjs",
     "test:tooling": "node --test scripts/*.test.mjs",
+    "test:node-runtime": "node --test scripts/node-runtime.check.mjs",
     "test:ui": "vitest run --config test/ui/vitest.config.ts",
     "test:properties": "vitest run --config test/properties/vitest.config.ts",
     "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",
@@ -32,6 +33,7 @@
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
     "spec:import": "node scripts/spec-import.mjs",
     "spec:docs": "node scripts/spec-ledger.mjs --write",
+    "spec:keywords": "node scripts/keyword-changes.mjs",
     "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": {
@@ -61,6 +63,7 @@
     "@tailwindcss/vite": "^4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

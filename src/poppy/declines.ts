@@ -14,13 +14,14 @@ import type { Company } from "./discovery";
 import { isObject } from "./json";
 import { operationsVersion } from "./operations-v2";
 import { intent, intentsTable } from "./store";
+import { show, shown } from "../diagnostic";
 
 /** The most of a decline's `reason` we keep: "short plain language for the User". */
 const REASON_LIMIT = 500;
 
 export class ApprovalDeclined extends PoppyError {
   constructor(company: Company, readonly operationId: string, readonly revision: string, readonly reason: string | null, readonly alternative: Alternative | null) {
-    super("approval_declined", `${company.name} declined the approval, so nothing was done`, 403);
+    super("approval_declined", shown`${show.name(company.name)} declined the approval, so nothing was done`, 403);
   }
 }
 

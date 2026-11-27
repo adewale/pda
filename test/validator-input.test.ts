@@ -35,7 +35,7 @@ describe("validator input resource limits", () => {
   it("rejects an oversized no-length envelope even when its document is small", async () => {
     const result = await handleValidator(streamed(JSON.stringify({ document: "{}", ignored: "x".repeat(500_000) })), options());
     expect(result!.status).toBe(413);
-    expect(await result!.json()).toMatchObject({ error: "The request is larger than 200 KB." });
+    expect(await result!.json()).toEqual({ error: "the request: expected at most 200 KB, got more.", expected: "at most 200 KB", got: "more" });
   });
 
   it("counts streamed bytes rather than a smaller declared length, and cancels without waiting", async () => {
@@ -89,7 +89,7 @@ describe("validator input resource limits", () => {
       expect((await handleValidator(streamed(body), options()))!.status).toBe(413);
     }
     expect(() => checkJsonWork(JSON.stringify({ text: '[escaped brackets] \\" {}' }))).not.toThrow();
-    expect(() => checkJsonWork(JSON.stringify(Array.from({ length: 21_000 }, () => 0)))).toThrow("too many members");
+    expect(() => checkJsonWork(JSON.stringify(Array.from({ length: 21_000 }, () => 0)))).toThrow("the JSON: expected at most 20000 members and values, got more.");
   });
 
   it("ends a stalled read and cancels its stream even when cancellation never resolves", async () => {
@@ -143,5 +143,13 @@ describe("validator input resource limits", () => {
     expect(calls).toEqual(["input"]);
     expect((await handleValidator(new Request(`${origin}/validator/api?url=example.com`), limits))!.status).toBe(429);
     expect(calls).toEqual(["input", "input", "fetch"]);
+  });
+});
+
+describe("the form's error banner", () => {
+  it("escapes the refusal's quotes and apostrophes instead of dropping them", async () => {
+    const request = new Request(`${origin}/validator`, { method: "POST", body: new URLSearchParams({ document: "{}", kind: 'x"y' }) });
+    const page = await (await handleValidator(request, options()))!.text();
+    expect(page).toContain("<strong>kind: expected one of poppy, protected-resource, oauth-metadata, client-metadata or jwks, got &#34;x\\&#34;y&#34;.</strong>");
   });
 });

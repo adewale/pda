@@ -1,7 +1,9 @@
 import type { BrowserContextHandle, BrowserCookie, FormSubmission, PageGuard, PageHeaders, PageSnapshot, PoppyBrowser, UserStep } from "./browser";
 import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from "./client";
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
+import { refusedBeforeSending } from "../validator/fetch.ts";
 import { isObject, parseStrictJson } from "./json";
+import { departure, ours, show, shown, type Shown } from "../diagnostic";
 
 /**
  * Poppy web browsing without a real browser (6): plain HTTPS requests
@@ -476,11 +478,14 @@ function isSubmitter(control: Control): boolean {
  * A step the Company marked for the User (Browser Control 4, 5): the agent
  * doesn't take it, whatever the model asks. `browse` adds how the User can.
  */
-function userStep(what: string, verb: string): PoppyError {
-  return new PoppyError("user_step", `The website marks ${what} as a step for the User to take themselves, so the agent doesn't ${verb} it`, 0);
+function userStep(what: Shown, verb: "follow" | "fill in" | "submit"): PoppyError {
+  return new PoppyError("user_step", shown`The website marks ${what} as a step for the User to take themselves, so the agent doesn't ${ours(verb)} it`, 0);
 }
 
-const SUBMIT_ADVICE = "This browser only follows links: fill the form's fields with fill, then send it with submit, which waits for the User's approval";
+const SUBMIT_ADVICE = ours("This browser only follows links: fill the form's fields with fill, then send it with submit, which waits for the User's approval");
+
+/** What the model named, as it wrote it: a selector, quoted. */
+const named = (raw: string): Shown => show.text(raw);
 
 /** Whether a page's 400 is `invalid_session` (5.3), in its JSON body. */
 function refusedSession(bytes: Uint8Array): boolean {
@@ -515,11 +520,13 @@ class FetchContext implements BrowserContextHandle {
 
   /** Every request and every redirect: HTTPS, a public host, and whatever the Company's rules allow. */
   #check(url: URL): void {
-    if (url.protocol !== "https:") throw new PoppyError("refused", `The browser only loads HTTPS pages, not ${url.protocol.replace(/:$/, "")}`, 0);
+    if (url.protocol !== "https:") {
+      throw new PoppyError("refused", departure(ours("the page's address"), ours("an HTTPS one, as the browser only loads HTTPS pages"), shown`one with ${show.name(url.protocol)}`), 0);
+    }
     try {
       assertPublicHost(url);
     } catch (error) {
-      if (error instanceof PoppyFetchError) throw new PoppyError("refused", error.message, 0);
+      if (error instanceof PoppyFetchError) throw new PoppyError("refused", error.problem, 0);
       throw error;
     }
     this.#guard(url);
@@ -529,7 +536,7 @@ class FetchContext implements BrowserContextHandle {
     start: URL,
     init: { method: "GET" | "POST"; body?: URLSearchParams | FormData; origin?: string; discardBody?: boolean; beforeDispatch?: () => void }
   ): Promise<Fetched> {
-    if (this.#closed) throw new PoppyError("invalid_request", "The page is no longer open", 0);
+    if (this.#closed) throw new PoppyError("invalid_request", ours("The page is no longer open"), 0);
     const signal = AbortSignal.timeout(this.#options.timeoutMs);
     let current = start;
     let method = init.method;
@@ -560,12 +567,14 @@ class FetchContext implements BrowserContextHandle {
         const location = response.headers.get("Location");
         if (response.status >= 300 && response.status < 400 && location) {
           await response.body?.cancel();
-          if (hop >= this.#options.maxRedirects) throw new PoppyError("refused", `Too many redirects from ${start.href}`, 0);
+          if (hop >= this.#options.maxRedirects) {
+            throw new PoppyError("refused", departure(shown`the redirects from ${show.url(start)}`, shown`at most ${this.#options.maxRedirects}`, shown`${hop + 1}`), 0);
+          }
           let next: URL;
           try {
             next = new URL(location, current);
           } catch {
-            throw new PoppyError("refused", `${current.href} redirected to something that isn't a URL`, 0);
+            throw new PoppyError("refused", departure(shown`the redirect from ${show.url(current)}`, ours("a URL in its Location"), ours("something that isn't one")), 0);
           }
           // 303, and 301 or 302 after a POST, continue as a GET (Fetch, "HTTP-redirect fetch").
           if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
@@ -580,7 +589,7 @@ class FetchContext implements BrowserContextHandle {
           if (init.discardBody) await response.body?.cancel();
           else bytes = await readLimitedBytes(response, this.#options.maxBytes, signal);
         } catch (error) {
-          const failure = error instanceof PoppyFetchError ? new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0) : error;
+          const failure = error instanceof PoppyFetchError ? new PoppyError("too_large", departure(show.url(current), shown`a page of at most ${this.#options.maxBytes} bytes`, ours("a larger one")), 0) : error;
           throw init.method === "POST" ? withUnreadableAnswer(failure, response.status) : failure;
         }
         // A page that verifies the header and rejects it may be fetched once more without it (5.2). A form isn't sent again.
@@ -599,10 +608,11 @@ class FetchContext implements BrowserContextHandle {
         };
       }
     } catch (error) {
-      const failure = signal.aborted ? new PoppyError("timeout", `${current.host} took longer than ${this.#options.timeoutMs / 1000} s`, 0) : error;
+      const failure = signal.aborted ? new PoppyError("timeout", shown`${show.name(current.host)} took longer than ${this.#options.timeoutMs / 1000} s`, 0) : error;
       const unreadable = unreadableAnswerOf(error);
       if (unreadable !== undefined) throw withUnreadableAnswer(failure, unreadable);
-      if (init.method === "POST" && sent) throw withAnswer(failure, answered ?? "none");
+      // A form a fetcher refused before sending (a port a Worker won't honour) never reached the Company.
+      if (init.method === "POST" && sent && !refusedBeforeSending(error)) throw withAnswer(failure, answered ?? "none");
       throw failure;
     }
   }
@@ -688,7 +698,7 @@ class FetchContext implements BrowserContextHandle {
   }
 
   #current(): Page {
-    if (!this.#page) throw new PoppyError("invalid_request", "Open a page first", 0);
+    if (!this.#page) throw new PoppyError("invalid_request", ours("Open a page first"), 0);
     return this.#page;
   }
 
@@ -769,14 +779,18 @@ class FetchContext implements BrowserContextHandle {
         /\b(button|input|select|textarea|form|submit)\b/i.test(raw) ||
         this.#findForm(page, selector) !== undefined ||
         this.#findControls(page, raw).length > 0;
-      if (formish) throw new PoppyError("refused", `${raw} is part of a form, not a link. ${SUBMIT_ADVICE}.`, 0);
-      throw new PoppyError("invalid_request", `No link ${raw} on this page; use a selector from the page's links`, 0);
+      if (formish) throw new PoppyError("refused", departure(shown`the selector ${named(raw)}`, ours("a link"), ours("part of a form"), SUBMIT_ADVICE), 0);
+      throw new PoppyError("invalid_request", departure(shown`the selector ${named(raw)}`, ours("a link on this page"), ours("none"), ours("Use a selector from the page's links")), 0);
     }
-    if (link.userStep) throw userStep(`the link ${raw}`, "follow");
+    if (link.userStep) throw userStep(shown`the link ${named(raw)}`, "follow");
     const url = this.#resolve(page, link.href);
-    if (!url) throw new PoppyError("invalid_request", `The link ${raw} doesn't go anywhere`, 0);
+    if (!url) throw new PoppyError("invalid_request", departure(shown`the link ${named(raw)}`, ours("an href that is a URL"), ours("one that isn't, so it doesn't go anywhere")), 0);
     if (url.protocol !== "https:" && url.protocol !== "http:") {
-      throw new PoppyError("refused", `The link ${raw} needs JavaScript or another app (${url.protocol}), which this browser doesn't have`, 0);
+      throw new PoppyError(
+        "refused",
+        departure(shown`the link ${named(raw)}`, ours("an http or https link"), shown`a ${show.name(url.protocol)} link`, ours("It needs JavaScript or another app, which this browser doesn't have")),
+        0
+      );
     }
     // A link within the page: nothing to load.
     if (url.href.split("#")[0] === page.url.href.split("#")[0] && url.hash) return this.#snapshot();
@@ -786,32 +800,47 @@ class FetchContext implements BrowserContextHandle {
   async fill(raw: string, value: string): Promise<PageSnapshot> {
     const page = this.#current();
     const found = this.#findControls(page, raw);
-    if (found.length === 0) throw new PoppyError("invalid_request", `No field ${raw} on this page`, 0);
+    if (found.length === 0) throw new PoppyError("invalid_request", departure(shown`the selector ${named(raw)}`, ours("a field on this page"), ours("none")), 0);
     const forms = new Set(found.map((match) => match.form));
     if (forms.size > 1) {
-      throw new PoppyError("invalid_request", `${raw} is in more than one form; put the form's selector first, as in "${this.#formSelector(page, found[0]!.form)} ${raw}"`, 0);
+      const scoped = show.text(`${this.#formSelector(page, found[0]!.form)} ${raw}`);
+      throw new PoppyError(
+        "invalid_request",
+        departure(shown`the field ${named(raw)}`, ours("a field in one form"), shown`fields in ${forms.size} forms`, shown`Put the form's selector first, as in ${scoped}`),
+        0
+      );
     }
     const controls = found.map((match) => match.control);
     const first = controls[0]!;
     if (controls.some(isCredential)) {
-      throw new PoppyError("refused", "The agent never types credentials or codes into a website; sign in with poppy_sign_in instead", 0);
+      throw new PoppyError("refused", ours("The agent never types credentials or codes into a website; sign in with poppy_sign_in instead"), 0);
     }
-    if (isSubmitter(first)) throw new PoppyError("refused", `${raw} is a button. ${SUBMIT_ADVICE}.`, 0);
+    if (isSubmitter(first)) throw new PoppyError("refused", departure(shown`the field ${named(raw)}`, ours("a field to fill"), ours("a button"), SUBMIT_ADVICE), 0);
     // A submission form's fields are the agent's to fill, but not a field marked for the User (Browser Control 4).
     const form = found[0]!.form;
-    if (controls.some((control) => control.userStep)) throw userStep(`the field ${raw}`, "fill in");
-    if (form.userStep === "interaction") throw userStep(`the form ${this.#formSelector(page, form)}`, "fill in");
-    if (NOT_FILLABLE.has(first.type)) throw new PoppyError("refused", `${raw} is a ${first.type} field, which the website sets itself`, 0);
-    if (first.disabled || first.readonly) throw new PoppyError("refused", `${raw} can't be changed`, 0);
+    if (controls.some((control) => control.userStep)) throw userStep(shown`the field ${named(raw)}`, "fill in");
+    if (form.userStep === "interaction") throw userStep(shown`the form ${show.text(this.#formSelector(page, form))}`, "fill in");
+    if (NOT_FILLABLE.has(first.type)) {
+      throw new PoppyError("refused", departure(shown`the field ${named(raw)}`, ours("a field the agent can fill"), shown`a ${show.name(first.type)} field, which the website sets itself`), 0);
+    }
+    if (first.disabled || first.readonly) {
+      throw new PoppyError("refused", departure(shown`the field ${named(raw)}`, ours("a field that can be changed"), first.disabled ? ours("a disabled one") : ours("a read-only one")), 0);
+    }
     if (first.type === "radio") {
       const choice = controls.find((control) => control.type === "radio" && (control.value || "on") === value);
-      if (!choice) throw new PoppyError("invalid_request", `${raw} has no choice ${JSON.stringify(value)}; the choices are ${controls.map((control) => JSON.stringify(control.value || "on")).join(", ")}`, 0);
+      if (!choice) {
+        const choices = show.list(controls.map((control) => show.value(control.value || "on")), "or");
+        throw new PoppyError("invalid_request", departure(shown`the field ${named(raw)}`, shown`one of its choices, ${choices}`, show.value(value)), 0);
+      }
       for (const control of controls) page.filled.set(control, control === choice ? "checked" : "");
     } else if (first.type === "checkbox") {
       page.filled.set(first, /^(|false|off|no|0|unchecked)$/i.test(value.trim()) ? "" : "checked");
     } else if (first.tag === "select") {
       const choice = first.options.find((option) => !option.disabled && (option.value === value || option.label === value));
-      if (!choice) throw new PoppyError("invalid_request", `${raw} has no option ${JSON.stringify(value)}; the options are ${first.options.map((option) => JSON.stringify(option.label)).join(", ")}`, 0);
+      if (!choice) {
+        const options = show.list(first.options.map((option) => show.value(option.label)), "or");
+        throw new PoppyError("invalid_request", departure(shown`the field ${named(raw)}`, shown`one of its options, ${options}`, show.value(value)), 0);
+      }
       page.filled.set(first, choice.value);
     } else {
       page.filled.set(first, value);
@@ -828,10 +857,10 @@ class FetchContext implements BrowserContextHandle {
       const buttons = this.#findControls(page, raw).filter((match) => isSubmitter(match.control));
       if (buttons.length === 1) ({ form, control: submitter } = buttons[0]!);
     }
-    if (!form) throw new PoppyError("invalid_request", `No form ${raw} on this page; use a selector from the page's forms`, 0);
+    if (!form) throw new PoppyError("invalid_request", departure(shown`the selector ${named(raw)}`, ours("a form on this page"), ours("none"), ours("Use a selector from the page's forms")), 0);
     // Submitting a form without naming a button activates its default button (HTML 4.10.21.2), whose mark counts too.
     const activated = submitter ?? form.controls.find(isSubmitter);
-    if (form.userStep || activated?.userStep) throw userStep(`the form ${this.#formSelector(page, form)}`, "submit");
+    if (form.userStep || activated?.userStep) throw userStep(shown`the form ${show.text(this.#formSelector(page, form))}`, "submit");
     const fields: { name: string; value: string; hidden: boolean }[] = [];
     for (const control of form.controls) {
       if (!control.name || control.disabled) continue;
@@ -860,10 +889,12 @@ class FetchContext implements BrowserContextHandle {
       fields.push({ name: control.name, value: filled ?? control.value, hidden: control.type === "hidden" || control.type === "password" });
     }
     const method = (submitter?.formMethod ?? form.method) === "post" ? "POST" : "GET";
-    if ((submitter?.formMethod ?? form.method) === "dialog") throw new PoppyError("refused", `The form ${raw} only closes a dialog, which needs JavaScript`, 0);
+    if ((submitter?.formMethod ?? form.method) === "dialog") {
+      throw new PoppyError("refused", departure(shown`the form ${named(raw)}`, ours("a GET or POST form"), ours("one that only closes a dialog, which needs JavaScript")), 0);
+    }
     const actionAttribute = submitter?.formAction ?? form.action;
     const action = actionAttribute ? this.#resolve(page, actionAttribute) : page.url;
-    if (!action) throw new PoppyError("invalid_request", `The form ${raw} has an action that isn't a URL`, 0);
+    if (!action) throw new PoppyError("invalid_request", departure(shown`the action of the form ${named(raw)}`, ours("a URL"), ours("something that isn't one")), 0);
     // Checked now, so an approval card never names somewhere the browser won't go.
     this.#check(action);
     const enctype = (submitter?.formEnctype ?? form.enctype) === "multipart/form-data" && method === "POST" ? "multipart/form-data" : "application/x-www-form-urlencoded";

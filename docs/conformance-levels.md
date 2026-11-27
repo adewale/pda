@@ -71,7 +71,7 @@ Profiles no longer filter what a Company reports. Both mocks report every record
 A refusal made for safety stays in the behaviour, but its level comes from its basis. It is never promoted to a failure blamed on the other side. RFC 2119 section 6 allows imperatives "to limit behavior which has potential for causing harm". Where the draft gives only a SHOULD or the Guides, the protection is the refusing side's own choice. The other side departed from a recommendation, and a recommendation is not a requirement. So:
 
 - **The mock** keeps refusing on the Guides' hardening, at the warning level:
-  - the `.alg` allow-lists, ES256 and RS256 (S19);
+  - the `.alg` allow-lists: ES256 and PS384 for client assertions, ES256 and RS256 for DPoP (S19);
   - a client assertion without a `jti`;
   - an `iat` in the future;
   - `Idempotency-Key` reuse.
@@ -82,10 +82,11 @@ A refusal made for safety stays in the behaviour, but its level comes from its b
 
   The harm oracle `exchange.performed-twice` and the record-only `secret.one-time-code` are warnings too, because their basis is the Guides.
 - **The validator** gives each message a `refuses` flag, separate from its severity: whether our client refuses a Company over it. The report's `refused` says whether our client refuses the documents.
+  - A basis is only as current as the text it was read from. Each MUST, SHOULD or Rule message quotes its sentence in `requires`, and each such mock check quotes it in its basis; `npm run check:spec` fails when a runtime pin no longer has the sentence with that key word (`scripts/check-requirements.mjs`). `scope-undescribed` and `mediated-scope-unsupported` were written from 0.3's 28 October text as MUSTs, and stayed errors after the text made them SHOULDs on 3 November, until this check found them.
   - Our client still refuses everything it refused before, with one exception: an extension `version` written as a number now makes it ignore that extension instead of refusing the Company. It also now refuses a URL with an empty host label, such as `https://.`. The reports no longer call our policy the draft's requirement.
   - Warnings our client refuses:
     - the Guides' fetch limits: `http-non-public-host`, `http-non-public-address` (added later, for the Node CLI, which checks what a name resolves to), `http-too-many-redirects`, `http-redirect-not-allowed`, `http-too-large`. These now make a report **indeterminate**, because the document was never read.
-    - `json-duplicate-member` (a SHOULD);
+    - `json-duplicate-member` (the Guides; RFC 8259's SHOULD);
     - HTTPS and no fragment where the draft doesn't ask for them, which is spec-issues N9: `not-https-url-unstated`, `url-has-fragment-unstated`;
     - `mediated-fields-empty`.
   - Errors our client tolerates, because the draft or an RFC tells a reader to, or because it has a safe fallback:

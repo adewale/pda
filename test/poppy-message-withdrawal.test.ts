@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import { sendAgentMessage } from "../src/poppy/agent-message";
 import { PoppyError } from "../src/poppy/client";
 import { agent, company, requests } from "./agent-helpers";
+import { ours } from "../src/diagnostic";
 
 it("checks message withdrawal after token preparation and still sends a fresh authorized message", async () => {
   const a = await agent();
@@ -21,7 +22,7 @@ it("checks message withdrawal after token preparation and still sends a fresh au
       return held;
     });
     let active = true;
-    const beforeDispatch = () => { if (!active) throw new PoppyError("refused", "Task stopped before message dispatch", 0); };
+    const beforeDispatch = () => { if (!active) throw new PoppyError("refused", ours("Task stopped before message dispatch"), 0); };
     try {
       const pending = sendAgentMessage(client, found, { callKey: "withdrawn-message", text: "Please check my order", beforeDispatch });
       const refused = expect(pending).rejects.toMatchObject({ code: "refused" });

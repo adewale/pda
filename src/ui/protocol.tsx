@@ -16,6 +16,8 @@ import type { ProtocolLogView, ProtocolView } from "../use-pi-session";
 import { useConnected, type Send } from "./connection";
 import { Action, EmptyState, SkeletonRows } from "./controls";
 import { fullDate, when } from "./format";
+import { RichText, UrlValue } from "./rich";
+import { codeSpan, markdownText, markdownWords } from "../rich-text";
 
 /**
  * The protocol view, inside Activity: for each Company, the Poppy exchanges
@@ -67,6 +69,34 @@ export function protocolText(log: ProtocolLogView, exportedAt = Date.now()): str
   return `${[...head, ...lines].join("\n")}\n`;
 }
 
+/**
+ * The log as Markdown, to paste into an issue: the same facts as the text,
+ * a list item per exchange, each value a code span and every other word
+ * escaped (src/rich-text.ts), so nothing a Company said becomes a link or
+ * markup in someone else's issue.
+ */
+export function protocolMarkdown(log: ProtocolLogView, exportedAt = Date.now()): string {
+  const name = `${log.company}${log.domain && log.domain !== log.company ? ` (${log.domain})` : ""}`;
+  const head = [
+    `# Poppy protocol log: ${markdownText(name)}`,
+    "",
+    ...(log.issuer ? [`Company identifier: ${codeSpan(log.issuer)}`, ""] : []),
+    `Exported ${new Date(exportedAt).toISOString()}; ${log.entries.length} entr${log.entries.length === 1 ? "y" : "ies"}, oldest first; times in UTC.`,
+    "",
+    "Recorded: time, spec section, method, URL (origin and path), status, error code, what was sent and what came back. Never recorded: headers, bodies, tokens, assertions, DPoP proofs, keys, codes, state, verifiers, sign-in values, query strings.",
+    ""
+  ];
+  const lines = log.entries.map((entry) => {
+    const request = [entry.method, entry.url].filter(Boolean).join(" ");
+    return [
+      `- ${codeSpan(new Date(entry.at).toISOString())} · **${markdownWords(`${entry.section} ${entry.title}`)}**${request ? ` · ${codeSpan(request)}` : ""}`,
+      `  ${markdownText(entry.summary)}`,
+      `  → ${markdownText(entry.result)} (${markdownWords(entry.outcome)})`
+    ].join("\n");
+  });
+  return `${[...head, ...lines].join("\n")}\n`;
+}
+
 /** A file name for the download: the Company's domain or key, and the date. */
 function fileName(log: ProtocolLogView): string {
   const name = (log.domain ?? log.key).replace(/^https?:\/\//, "").replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^-|-$/g, "");
@@ -94,11 +124,19 @@ function Entry({ entry }: { entry: ProtocolEntry }) {
         <span className="tabular-nums">{entry.section}</span> {entry.title}
       </span>
       <div className="col-span-3 row-start-2 min-w-0 md:col-span-1 md:col-start-3 md:row-start-1">
-        <p className="text-pretty break-words">{entry.summary}</p>
+        <p className="text-pretty break-words">
+          <RichText text={entry.summary} />
+        </p>
         {entry.method || entry.url ? (
-          <p className="mt-0.5 font-mono text-[12px] break-all text-kumo-subtle">{[entry.method, entry.url].filter(Boolean).join(" ")}</p>
+          // The URL breaks between its segments, not mid-word as break-all did.
+          <p className="mt-0.5 text-[12px] text-kumo-subtle">
+            {entry.method ? <code className="font-mono">{entry.method} </code> : null}
+            {entry.url ? <UrlValue url={entry.url} /> : null}
+          </p>
         ) : null}
-        <p className="mt-0.5 text-[13px] text-pretty break-words text-kumo-subtle">→ {entry.result}</p>
+        <p className="mt-0.5 text-[13px] text-pretty break-words text-kumo-subtle">
+          → <RichText text={entry.result} />
+        </p>
       </div>
       <span className="col-start-3 row-start-1 justify-self-end md:col-start-4">
         <Outcome outcome={entry.outcome} />
@@ -110,10 +148,10 @@ function Entry({ entry }: { entry: ProtocolEntry }) {
 /** Copy and download: what a person filing an interop report needs. */
 function Export({ log }: { log: ProtocolLogView }) {
   const [said, setSaid] = useState("");
-  const copy = async () => {
+  const copy = async (as: "text" | "Markdown") => {
     try {
-      await navigator.clipboard.writeText(protocolText(log));
-      setSaid("Copied as text.");
+      await navigator.clipboard.writeText(as === "text" ? protocolText(log) : protocolMarkdown(log));
+      setSaid(`Copied as ${as}.`);
     } catch {
       setSaid("Couldn't copy here; use Download instead.");
     }
@@ -131,8 +169,11 @@ function Export({ log }: { log: ProtocolLogView }) {
   };
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-      <Action variant="secondary" icon={<CopyIcon size={16} aria-hidden />} onClick={() => void copy()}>
+      <Action variant="secondary" icon={<CopyIcon size={16} aria-hidden />} onClick={() => void copy("text")}>
         Copy as text
+      </Action>
+      <Action variant="secondary" icon={<CopyIcon size={16} aria-hidden />} onClick={() => void copy("Markdown")}>
+        Copy as Markdown
       </Action>
       <Action variant="secondary" icon={<DownloadSimpleIcon size={16} aria-hidden />} onClick={download}>
         Download .txt

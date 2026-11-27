@@ -6,6 +6,8 @@ import { toIssuer } from "../../src/poppy/issuer.ts";
 import { EndpointRequest } from "../../src/poppy/outgoing.ts";
 import { migrate } from "../../src/poppy/store.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
+import { named } from "../../test/named-fetcher.ts";
+import type { Fetcher } from "../../src/poppy/fetch.ts";
 
 const ISSUER = "https://auth.books.example";
 const SERVICE = "https://api.books.example/v1";
@@ -22,7 +24,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function fixture(fetcher: PoppyHost["fetcher"]) {
+async function fixture(answer: Fetcher) {
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const sql = memorySql();
   migrate(sql);
@@ -32,7 +34,7 @@ async function fixture(fetcher: PoppyHost["fetcher"]) {
       TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64"), POPPY_SIGNING_JWKS: JSON.stringify([{ ...await exportJWK(privateKey), kid: "metadata-test" }]),
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
-    sql, fetcher, showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
+    sql, fetcher: named(answer), showCard: async () => {}, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
   const company: Company = {

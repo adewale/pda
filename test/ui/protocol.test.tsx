@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { PoppyClientFrame, ProtocolCompany, ProtocolEntry } from "../../src/poppy/wire";
 import { ActivityPage } from "../../src/ui/activity";
-import { protocolText } from "../../src/ui/protocol";
+import { protocolMarkdown, protocolText } from "../../src/ui/protocol";
 import { toIssuer } from "../../src/poppy/issuer";
 import { reducePoppy, type PoppyView, type ProtocolLogView, type ProtocolView } from "../../src/use-pi-session";
 
@@ -173,6 +173,34 @@ describe("protocol view", () => {
     expect(created[0]!.type).toBe("text/plain;charset=utf-8");
     expect(await created[0]!.text()).toContain("GET https://print.example/.well-known/poppy.json");
     expect(await created[0]!.text()).toBe(protocolText(log));
+  });
+
+  it("copies the log as Markdown: each exchange a list item, values as code, nothing a Company said made a link", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    page({ companies: [company], logs: { [ISSUER]: log } });
+    fireEvent.click(screen.getByRole("button", { name: /Protocol · Print with Poppy/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy as Markdown" }));
+    });
+    const markdown = writeText.mock.calls[0]![0];
+    expect(markdown).toBe(protocolMarkdown(log, Date.parse(markdown.match(/Exported (\S+);/)![1]!)));
+    expect(markdown.split("\n").slice(0, 3)).toEqual(["# Poppy protocol log: Print with Poppy (print.example)", "", `Company identifier: \`${ISSUER}\``]);
+    expect(markdown).toContain(`- \`${new Date(AT).toISOString()}\` · **§3 Discovery** · \`GET https://print.example/.well-known/poppy.json\`\n  Fetch poppy.json, without credentials\n  → 200 · application/json (ok)`);
+    expect(screen.getByText("Copied as Markdown.")).toBeTruthy();
+    // Words a Company chose are escaped; a URL in them is code, not a link.
+    const hostile: ProtocolLogView = { ...log, company: "*[Pay](https://evil.example)*", entries: [{ ...entries[0]!, summary: "see [here](https://evil.example)" }] };
+    const escaped = protocolMarkdown(hostile, AT);
+    expect(escaped).toContain("# Poppy protocol log: \\*\\[Pay\\](`https://evil.example`)\\*");
+    expect(escaped).toContain("  see \\[here\\](`https://evil.example`)");
+  });
+
+  it("shows each exchange's URL as a value that breaks between its segments, not mid-word", () => {
+    page({ companies: [company], logs: { [ISSUER]: log } });
+    fireEvent.click(screen.getByRole("button", { name: /Protocol · Print with Poppy/ }));
+    const url = document.querySelector('code[data-url="https://print.example/.well-known/poppy.json"]')!;
+    expect(url.innerHTML).toBe("https://<b class=\"font-semibold\">print.example</b>/<wbr>.well-known/<wbr>poppy.json");
+    expect(document.querySelector(".break-all")).toBeNull();
   });
 
   it("folds the index and each log into the page's view", () => {

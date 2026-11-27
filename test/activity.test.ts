@@ -125,6 +125,14 @@ describe("poppy.activity", () => {
       p.socket.close();
       return task && "note" in task ? task.note : undefined;
     };
+    // The send started the background read (scheduleRead): a long poll that, whenever it returns,
+    // applies the Company's own state over what this test writes. Under load the test outlasts a poll
+    // and failed. Let the read in flight finish, then drop its job, so nothing reads while the test
+    // owns the row.
+    await until(async () => {
+      await a.stub.poppySql("DELETE FROM cf_agents_jobs WHERE id = ? AND running = 0", `read-${sent.conversationId}`);
+      return (JSON.parse(await a.stub.poppySql("SELECT id FROM cf_agents_jobs WHERE id = ?", `read-${sent.conversationId}`)) as unknown[]).length === 0;
+    });
     const shop = `Mock Shop ${c.id}`;
     await a.stub.poppySql("UPDATE poppy_conversations SET working = 1, handoff = 'pending', responder = 'agent' WHERE id = ?", sent.conversationId);
     expect(await note()).toBe(`${shop}'s agent is working on it. A person at ${shop} has been asked to join.`);
