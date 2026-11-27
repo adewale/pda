@@ -23,6 +23,7 @@ import { PoppyError } from "../src/poppy/client";
 import { DiscoveryError } from "../src/poppy/discovery";
 import { agent, authenticatedWsRequest, cards, chat, company, connect, fetchWorker, follow, ORIGIN, person, signInDirect, tool, until, wideEvents, type Agent } from "./agent-helpers";
 import { obey } from "./worker";
+import { ours, show, shown } from "../src/diagnostic";
 
 type Event = Record<string, any>;
 
@@ -111,7 +112,7 @@ describe("turn events", () => {
       const held = new Promise<void>(resolve => { release = resolve; });
       const pending = log.tool(toolName("calculate")!, async () => {
         await held;
-        reportError(new PoppyError("invalid_client", "private-company-refusal", 401), { source: literal("held-tool") });
+        reportError(new PoppyError("invalid_client", ours("private-company-refusal"), 401), { source: literal("held-tool") });
         return { isError: true, details: { error: "invalid_client" } };
       }, "late-result");
       try {
@@ -276,11 +277,11 @@ describe("redaction", () => {
   it("can't find a name or a short password in a sentence, so a Company's words never reach it", () => {
     // Why errors built around a Company's words are logged by class and code alone (`ForeignText`).
     expect(redact(COMPANY_SAID)).toContain("hunter2");
-    const error = new PoppyError("invalid_grant", `Mock Shop refused the token request (invalid_grant): ${COMPANY_SAID}`, 400);
+    const error = new PoppyError("invalid_grant", shown`Mock Shop refused the token request (invalid_grant): ${show.text(COMPANY_SAID)}`, 400);
     const line = wideEvent("job", { job: literal("test") }).fail(error).emit();
     expect(JSON.parse(line).error).toEqual({ type: "PoppyError", code: "invalid_grant" });
     expect(leaked(line)).toEqual([]);
-    const discovery = JSON.parse(wideEvent("job", { job: literal("test") }).fail(new DiscoveryError(`organization.name is ${COMPANY_SAID}`)).emit());
+    const discovery = JSON.parse(wideEvent("job", { job: literal("test") }).fail(new DiscoveryError(shown`organization.name is ${show.text(COMPANY_SAID)}`)).emit());
     expect(discovery.error).toEqual({ type: "DiscoveryError" });
     // An error of ours keeps its message, redacted.
     expect(JSON.parse(wideEvent("job", { job: literal("test") }).fail(new Error("Code 482913 refused")).emit()).error.message).toBe("Code [number] refused");

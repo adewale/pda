@@ -9,6 +9,7 @@ import { migrate } from "../../src/poppy/store";
 import type { Card } from "../../src/poppy/wire";
 import { MockCompany } from "../mock-company/index";
 import { companyIdFromHost, hostsFor } from "../mock-company/types";
+import { named } from "../named-fetcher.ts";
 
 const ORIGIN = "https://agent.test";
 
@@ -51,8 +52,8 @@ export async function world(config: Record<string, unknown>) {
     const host: PoppyHost = {
       env,
       sql,
-      fetcher: async (request) =>
-        companyIdFromHost(new URL(request.url).host) === id ? mock.fetch(request) : new Response("No network here", { status: 502 }),
+      fetcher: named(async (request) =>
+        companyIdFromHost(new URL(request.url).host) === id ? mock.fetch(request) : new Response("No network here", { status: 502 })),
       showCard: async (card) => void cards.set(card.id, card),
       notifyModel: async (text, operationId) => { notices.push({ text, operationId }); },
       schedule: async (...args) => { jobs.set(args[3], args); },

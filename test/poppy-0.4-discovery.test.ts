@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed, type Company } from "../src/poppy/discovery";
+import { named } from "./named-fetcher.ts";
 
 /**
  * Discovery under the 0.4 draft (F1 in docs/poppy-0.4-upgrade.md): the
@@ -56,11 +57,11 @@ function serving(documents: { poppy: unknown; linked?: Record<string, unknown> }
     ...Object.entries(documents.linked ?? {})
   ]);
   const requests: string[] = [];
-  const fetcher = async (request: Request) => {
+  const fetcher = named(async (request: Request) => {
     requests.push(request.url);
     const body = served.get(request.url);
     return body === undefined ? new Response("not found", { status: 404 }) : Response.json(body);
-  };
+  });
   return { fetcher, requests };
 }
 

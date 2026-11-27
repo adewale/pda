@@ -19,6 +19,7 @@ This is the remaining product and maintenance backlog. [Deployment tasks](docs/d
 - [ ] **Sign-in recovery**: completing sign-in through recovery should run the saved after-sign-in step, without replaying an uncertain action.
 - [ ] **Protocol log gaps**: OpenAPI and MCP protected-resource fetches, ordinary website pages, and the Direct Sign-In callback's issuer check. Keep the existing secret filtering.
 - [ ] **HEIC photos**: convert where the browser supports decoding; otherwise ask for a JPEG.
+- [ ] **Clear chat across a summary**: a tab offline while the chat is reset elsewhere, and summarised (about 150,000 tokens) before it reconnects, gets a snapshot that starts at the summary with no reset in it, so `followResets` (`src/ui/history.ts`) misses the reset and the composer keeps its Company selection. That selection is visible, and sending it is what grants it. Fix: treat the page's starting point as unsettled until the history pages reach the newest reset (`entriesBefore` includes it), count that reset as the start, and count only later resets as new. Test both the reconnect case and that an ordinary reload after an old reset and a summary keeps the remembered selection.
 - [ ] **Operator signatures, live**: set `POPPY_OPERATOR_KEY` on the deployment and check one Company edge that verifies Web Bot Auth accepts its signatures (the draft revision, components and directory caching). The guides warn products differ.
 
 ## Maintenance

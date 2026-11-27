@@ -61,6 +61,38 @@ export function historyFromEvents(events: readonly AgentEvent[]): {
   return { summaries: summaryIds(entriesOf(events)), askBefore, clear };
 }
 
+/**
+ * Which conversation the page is in. `epoch` counts the resets this page
+ * has seen since it loaded; `newest` is the newest reset entry's id, `null`
+ * when there has been none, and `undefined` until the first snapshot.
+ */
+export type Conversation = { readonly epoch: number; readonly newest: number | null | undefined };
+
+export const FIRST_CONVERSATION: Conversation = { epoch: 0, newest: undefined };
+
+/**
+ * Moves to a new conversation on a reset newer than any seen, live or in a
+ * reconnect's snapshot (one made in another tab while this one was away).
+ * The first snapshot only sets where the page starts: a reset made before
+ * the page loaded is the conversation it loaded into. The count never goes
+ * back, so a snapshot that no longer holds a reset (pi compacted it away)
+ * can't start another.
+ */
+export function followResets(conversation: Conversation, events: readonly AgentEvent[]): Conversation {
+  let { epoch, newest } = conversation;
+  for (const event of events) {
+    const found = event.type === "snapshot"
+      ? event.entries.reduce<number | null>((max, entry) => entry.kind === "pi.reset" ? Math.max(max ?? 0, Number(entry.id)) : max, null)
+      : (event.type === "entry_appended" || event.type === "message_end") && event.entry.kind === "pi.reset" ? Number(event.entry.id) : null;
+    if (newest === undefined && event.type === "snapshot") newest = found;
+    else if (found !== null && (newest === undefined || newest === null || found > newest)) {
+      epoch++;
+      newest = found;
+    }
+  }
+  return { epoch, newest };
+}
+
 /** Message ids are pi entry ids; `live` (the message being streamed) sorts last. */
 function order(id: string): number {
   const number = Number(id);

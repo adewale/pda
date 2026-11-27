@@ -18,6 +18,32 @@ import { TaskFiles } from "./task-files";
 import { isTaskRequest } from "./approval-outcome";
 import { companyErrorCode } from "./error-codes";
 import { readDecline } from "./declines";
+import { departure, ours, show, shown, type Shown } from "../diagnostic";
+
+/**
+ * What changed between the request a tool call first recorded and the one it
+ * makes now, by the names of its parts, never their values: they can carry
+ * the User's details. Both are JSON objects of ours; a part not in `parts`
+ * isn't named.
+ */
+function changedParts(before: string, now: string, parts: Readonly<Record<string, Shown>>): Shown {
+  let first: Json;
+  let second: Json;
+  try {
+    first = parseStrictJson(before);
+    second = parseStrictJson(now);
+  } catch {
+    return ours("a different one");
+  }
+  if (!isObject(first) || !isObject(second)) return ours("a different one");
+  const changed = Object.entries(parts)
+    .filter(([key]) => canonicalJson(first[key] ?? null) !== canonicalJson(second[key] ?? null))
+    .map(([, name]) => name);
+  return changed.length ? shown`one whose ${show.list(changed)} changed` : ours("a different one");
+}
+
+const API_INPUT_PARTS = { domain: ours("Company"), label: ours("account"), operation: ours("operation"), apiUrl: ours("API"), params: ours("parameters"), body: ours("body"), files: ours("files") } as const;
+const UPLOAD_PARTS = { issuer: ours("Company"), label: ours("account"), ids: ours("files"), binding: ours("authority") } as const;
 
 /** What a sent API call got back. */
 type ApiAnswer =
@@ -135,7 +161,9 @@ function apiInput(client: PoppyClient, domain: string, label: string, request: O
   const value = canonicalJson(toJson({ domain: domainFromInput(domain), label, ...fields, operation: named, params: params ?? {}, ...(files && Object.keys(files).length ? { files } : {}), ...(api !== undefined ? { apiUrl: api } : {}) }));
   const key = `api-input|${callKey}`;
   const previous = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key);
-  if (previous && previous.value !== value) throw new PoppyError("approval_changed", "This tool call already asked for a different API request. Nothing will be sent again.", 0);
+  if (previous && previous.value !== value) {
+    throw new PoppyError("approval_changed", departure(ours("this tool call's API request"), ours("the request it first asked for"), changedParts(previous.value, value, API_INPUT_PARTS), ours("Nothing will be sent again")), 0);
+  }
   const requestId = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `request|${callKey}`)?.value;
   const bound = requestId !== undefined && hasTaskCall(client, requestId);
   // A pre-existing mapping without this input proof still takes the ordinary
@@ -146,7 +174,7 @@ function apiInput(client: PoppyClient, domain: string, label: string, request: O
 
 function taskReference(client: PoppyClient, callId: string, result: Json): Json {
   const bound = one(client.sql, taskCallsTable.pick("request_id"), "SELECT request_id FROM poppy_task_calls WHERE call_id = ?", callId);
-  if (!bound || !isObject(result)) throw new PoppyError("invalid_response", "The task's recorded outcome is unavailable. Nothing will be resent.", 0);
+  if (!bound || !isObject(result)) throw new PoppyError("invalid_response", ours("The task's recorded outcome is unavailable. Nothing will be resent."), 0);
   return { ...result, poppyTask: taskProjection(client, bound.request_id) };
 }
 
@@ -195,7 +223,9 @@ export async function callOpenApi(
     // cannot turn a pending, declined or completed disclosure into a new send.
     const priorConsent = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `approval|${request.callKey}`);
     const route = intent(client.sql, `file-policy|${request.callKey}`, () => !priorConsent && taskFiles.includes(ids) ? task : consent);
-    if (route !== task && route !== consent) throw new PoppyError("approval_changed", "This upload call already selected different files or authority. Nothing will be sent again.", 0);
+    if (route !== task && route !== consent) {
+      throw new PoppyError("approval_changed", departure(ours("this upload call's selection"), ours("the files and authority it first selected"), changedParts(route, task, UPLOAD_PARTS), ours("Nothing will be sent again")), 0);
+    }
     if (route === consent) {
       return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
     }
@@ -222,7 +252,11 @@ export async function callOpenApi(
  */
 registerExecutor("openapi", async (client, company, approval, label, execution) => {
   if (!isTaskRequest(execution.approvalId) && !approval.call.approval && !Object.keys(approval.call.files ?? {}).length) {
-    throw new PoppyError("approval_changed", "Preliminary API-write approvals are no longer supported. Ask for current Company terms.", 0);
+    throw new PoppyError(
+      "approval_changed",
+      departure(ours("this stored API write's approval"), ours("an approval of the Company's own terms"), ours("a preliminary approval, which is no longer supported"), ours("Ask for current Company terms")),
+      0
+    );
   }
   const guard = executionGuard(client, company, label, approval.binding, execution);
   if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
@@ -230,24 +264,30 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   const sending = approval.call.approval ? { ...approval.call, approval: toSend(company, approval.call.approval, execution) } : approval.call;
   const checked = await CheckedApiRequest.check(client, company, sending);
   if (checked.method !== approval.method || checked.url !== approval.url) {
+    // The approved URL was on the card, so it is shown whole; the one now made, without a query that differs.
     throw new PoppyError(
       "approval_changed",
-      `Not sent: ${company.name}'s description now makes this ${checked.method} ${checked.url}, not the ${approval.method} ${approval.url} you approved. Ask again to see the request it would make now.`,
+      departure(
+        shown`the request ${show.name(company.name)}'s description now makes`,
+        shown`the ${show.name(approval.method)} ${show.url(approval.url, approval.url)} you approved`,
+        shown`${show.name(checked.method)} ${show.url(checked.url, approval.url)}`,
+        ours("Not sent. Ask again to see the request it would make now")
+      ),
       0
     );
   }
   const answer = await sendApi(client, label, checked, guard, execution.approvalId);
   if (answer.kind === "unusable") {
-    throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
+    throw withAnswer(new PoppyError("unusable_proposal", shown`${show.name(company.name)} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
   }
   // The Company wants the User's approval of its terms (Ops 4): nothing was done, and its card waits.
   if (answer.kind === "approval" && (!approval.call.approval ||
       answer.operation.operation_id !== approval.call.approval.operation_id || answer.operation.revision !== approval.call.approval.revision)) {
-    throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, answer.approvalId);
+    throw new TermsRequested(shown`${show.name(company.name)} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, answer.approvalId);
   }
   // An already-approved revision returned unchanged is a refusal, not a new card or a self-link.
   if (answer.kind === "approval") {
-    throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
+    throw withAnswer(new PoppyError("approval_required", shown`${show.name(company.name)} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
   }
   // 0.4 Ops 6: the Company declined the approval we sent; nothing was done.
   const declined = answer.kind === "answered" && answer.status === 403 && approval.call.approval ? readDecline(company, answer.body, approval.call.approval, true) : null;
@@ -256,12 +296,12 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
     const { status, body } = answer;
     const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
     throw withAnswer(
-      new PoppyError(code, `${company.name} answered ${status}: ${JSON.stringify(body).slice(0, 1_000)}`, status, body !== null ? { body } : {}),
+      new PoppyError(code, shown`${show.name(company.name)} answered ${show.status(status)}: ${show.text(typeof body === "string" ? body : JSON.stringify(body), 1_000)}`, status, body !== null ? { body } : {}),
       status
     );
   }
   if (answer.kind === "answered" && answer.status === 202) {
-    throw new OperationOutcomeUnknown(`${company.name} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
+    throw new OperationOutcomeUnknown(shown`${show.name(company.name)} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
   }
   if (answer.kind === "answered" && approval.call.approval && answer.retryAfter !== null) {
     const notReady = (latest: ApiAnswer & { kind: "answered" }) => JSON.stringify({

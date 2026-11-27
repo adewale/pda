@@ -1,8 +1,9 @@
 import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
-import type { Fetcher } from "./fetch";
+import type { IdentifiedFetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
+import { departure, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /**
  * Extensions this client supports under each protocol version, with the
@@ -130,12 +131,12 @@ export type WebsiteOnly = {
 };
 
 /** Discovery refused a Company. Its message quotes what the Company published (the validator's findings, its name), so a wide event records only its class (`ForeignText`, src/log.ts). */
-export class DiscoveryError extends Error implements ForeignText {
+export class DiscoveryError extends ProblemError implements ForeignText {
   override name = "DiscoveryError";
   readonly [FOREIGN_TEXT] = true as const;
   /** The validator's report, when discovery refused what it read (for the protocol log). */
-  constructor(message: string, readonly report?: CompanyReport) {
-    super(message);
+  constructor(problem: Problem, readonly report?: CompanyReport) {
+    super(problem);
   }
 }
 
@@ -186,16 +187,16 @@ export type Discovered = {
  * limit or reading of ours the message names); or a document that couldn't
  * be fetched. What follows reads fields the validator has checked.
  */
-export async function discover(fetcher: Fetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
+export async function discover(fetcher: IdentifiedFetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
   // 3.4: the newest version both sides speak, from poppy.json or a document its supported_versions links.
   const checked = await validateCompany(fetcher, domain, { versions });
   if (checked.refused || checked.outcome === "indeterminate" || !isObj(checked.poppy)) {
-    throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
+    throw new DiscoveryError(summarize(checked) || ours("poppy.json couldn't be used"), checked);
   }
   const doc = checked.poppy;
   // 3.4: the validator chose a document compatible with a version we speak.
   const version = implementedVersion(doc.protocol_version as string, versions);
-  if (!version) throw new DiscoveryError(`poppy.json is protocol version ${String(doc.protocol_version)}, which isn't compatible with one this agent speaks`, checked);
+  if (!version) throw new DiscoveryError(departure(ours("poppy.json's protocol_version"), shown`a version compatible with one this agent speaks (${show.list(versions.map((known) => show.code(known)), "or")})`, show.value(doc.protocol_version)), checked);
   const organization = doc.organization as Obj;
   const orgDomain = (organization.domain as string).toLowerCase();
   const name = str(organization.name) ?? orgDomain;
@@ -212,7 +213,7 @@ export async function discover(fetcher: Fetcher, domain: string, versions: reado
   }
   const issuer = parseIssuer(checked.issuer);
   // The validator has refused anything else already; this keeps the type honest.
-  if (!issuer) throw new DiscoveryError("The issuer isn't an https URL without a query or fragment", checked);
+  if (!issuer) throw new DiscoveryError(departure(ours("the issuer"), ours("an https URL without a query or fragment"), show.url(checked.issuer)), checked);
   const resource = isObj(checked.protectedResource) ? checked.protectedResource : null;
   return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, checked.metadata, resource, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
 }

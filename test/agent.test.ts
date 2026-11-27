@@ -658,7 +658,7 @@ describe("configuration", () => {
     expect(await unset.text()).toContain("PRIVACY_CONTACT");
     const tricky = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "https://example.com/a?b=<script>" } as unknown as Partial<Env>);
     expect(tricky.status).toBe(500);
-    expect(await tricky.text()).not.toContain("<script>");
+    expect(await tricky.text()).toBe('PRIVACY_CONTACT: expected an email address or an https:// URL, got a URL with a space, <, > or " in it');
     const rendered = await fetchWorker(new Request(`${ORIGIN}/privacy`), {
       PRIVACY_CONTACT: "privacy@example.com", POPPY_CLIENT_NAME: "Agent <script>alert(1)</script>"
     } as unknown as Partial<Env>);

@@ -1,3 +1,4 @@
+import type { Shown } from "../../diagnostic.ts";
 import type { Checker } from "../primitives.ts";
 
 /** What the poppy.json check learned, for checking the OAuth metadata against it. */
@@ -17,7 +18,7 @@ export type PoppyFacts = {
    * What in poppy.json offers sign-in, so the Company MUST have an issuer
    * (3.2): `auth.issuer`, Mediated Sign-In or `signed_in` access.
    */
-  needsIssuer?: readonly string[];
+  needsIssuer?: readonly Shown[];
   /** `auth.disabled` (3.2): no sign-in for Personal Agents, though there is an issuer. */
   disabled?: boolean;
   /** The Mediated Sign-In extension's `scopes`, when it is listed. */

@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import { departure, ours, ProblemError, show, shown, type Departure, type Problem, type Shown } from "./diagnostic.ts";
 
 /** Pi's thinking levels; anything else in `THINKING_LEVEL` is a config error. */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -48,8 +49,11 @@ export type ProviderConfig = {
 };
 
 /** A missing or invalid deploy setting; the message names the variable. */
-export class ConfigError extends Error {
+export class ConfigError extends ProblemError {
   override name = "ConfigError";
+  constructor(problem: Problem) {
+    super(problem);
+  }
 }
 
 /**
@@ -77,10 +81,21 @@ export type ConfigEnv = {
   readonly GITHUB_CLIENT_SECRET?: unknown;
 };
 
+/**
+ * A required setting that is missing or empty: what it held by kind alone,
+ * since it may be a secret. For every module that reads a required setting.
+ * A setting that isn't a secret shows its value (`show.value`) when it is
+ * wrong; a secret's value is never shown, only named.
+ */
+export function missingSetting(name: Shown, value: unknown): Departure {
+  const got = value === undefined ? ours("nothing") : typeof value === "string" ? ours("an empty value") : show.kind(value);
+  return departure(name, ours("a value (a required setting)"), got);
+}
+
 function required(env: ConfigEnv, name: keyof ConfigEnv): string {
   const value = env[name];
   if (typeof value !== "string" || value.trim() === "") {
-    throw new ConfigError(`Missing required setting ${name}`);
+    throw new ConfigError(missingSetting(ours(name), value));
   }
   return value.trim();
 }
@@ -89,7 +104,7 @@ function dollars(env: ConfigEnv, name: keyof ConfigEnv): number {
   const raw = env[name];
   const value = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new ConfigError(`${name} must be a number of US dollars, 0 or more`);
+    throw new ConfigError(departure(ours(name), ours("a number of US dollars (0 or more)"), show.value(raw)));
   }
   return value;
 }
@@ -102,9 +117,7 @@ function isThinkingLevel(value: string): value is ThinkingLevel {
 export function readModelConfig(env: ConfigEnv): ModelConfig {
   const thinkingLevel = required(env, "THINKING_LEVEL");
   if (!isThinkingLevel(thinkingLevel)) {
-    throw new ConfigError(
-      `THINKING_LEVEL must be one of ${THINKING_LEVELS.join(", ")}; got ${JSON.stringify(thinkingLevel)}`
-    );
+    throw new ConfigError(departure(ours("THINKING_LEVEL"), shown`one of ${show.list(THINKING_LEVELS.map((level) => ours(level)), "or")}`, show.value(thinkingLevel)));
   }
   return {
     thinkingLevel,
@@ -130,7 +143,7 @@ export function readDemoCaps(env: ConfigEnv): DemoCaps {
 export function readSignup(env: ConfigEnv): Signup {
   const value = required(env, "SIGNUP");
   if (value !== "allowlist" && value !== "open") {
-    throw new ConfigError(`SIGNUP must be allowlist or open; got ${JSON.stringify(value)}`);
+    throw new ConfigError(departure(ours("SIGNUP"), ours("allowlist or open"), show.value(value)));
   }
   return value;
 }
@@ -147,14 +160,16 @@ export function readSignInProviders(env: ConfigEnv): readonly Provider[] {
     try {
       value = JSON.parse(value);
     } catch {
-      throw new ConfigError(`SIGNIN_PROVIDERS must be a list such as ["github"]; got ${JSON.stringify(value)}`);
+      throw new ConfigError(departure(ours("SIGNIN_PROVIDERS"), ours('a list such as ["github"]'), show.value(value)));
     }
   }
   const known: readonly string[] = ["google", "github"];
-  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !known.includes(item))) {
-    throw new ConfigError(`SIGNIN_PROVIDERS must be a non-empty list of google and github; got ${JSON.stringify(value)}`);
-  }
-  if (new Set(value).size !== value.length) throw new ConfigError("SIGNIN_PROVIDERS lists a provider twice");
+  const expected = ours("a non-empty list of google and github");
+  if (!Array.isArray(value) || value.length === 0) throw new ConfigError(departure(ours("SIGNIN_PROVIDERS"), expected, show.value(value)));
+  const unknown = value.find((item) => typeof item !== "string" || !known.includes(item));
+  if (unknown !== undefined) throw new ConfigError(departure(ours("SIGNIN_PROVIDERS"), expected, shown`a list with ${show.value(unknown)}`));
+  const twice = value.find((item, index) => value.indexOf(item) !== index);
+  if (twice !== undefined) throw new ConfigError(departure(ours("SIGNIN_PROVIDERS"), ours("each provider once"), shown`${show.value(twice)} twice`));
   return value as Provider[];
 }
 
@@ -162,7 +177,7 @@ export function readSignInProviders(env: ConfigEnv): readonly Provider[] {
 export function readSessionSecret(env: ConfigEnv): string {
   const secret = required(env, "SESSION_SECRET");
   if (secret.length < 32) {
-    throw new ConfigError("SESSION_SECRET must be at least 32 characters");
+    throw new ConfigError(departure(ours("SESSION_SECRET"), ours("at least 32 characters"), ours("fewer")));
   }
   return secret;
 }
@@ -191,7 +206,7 @@ export function readProviderConfig(
 export function readBrowserRun(env: ConfigEnv): "on" | "off" {
   const value = required(env, "BROWSER_RUN");
   if (value !== "on" && value !== "off") {
-    throw new ConfigError(`BROWSER_RUN must be on or off; got ${JSON.stringify(value)}`);
+    throw new ConfigError(departure(ours("BROWSER_RUN"), ours("on or off"), show.value(value)));
   }
   return value;
 }
@@ -206,7 +221,7 @@ export function readBrowserRun(env: ConfigEnv): "on" | "off" {
 export function readBrowserControl(env: ConfigEnv): "on" | "off" {
   const value = required(env, "BROWSER_CONTROL");
   if (value !== "on" && value !== "off") {
-    throw new ConfigError(`BROWSER_CONTROL must be on or off; got ${JSON.stringify(value)}`);
+    throw new ConfigError(departure(ours("BROWSER_CONTROL"), ours("on or off"), show.value(value)));
   }
   return value;
 }

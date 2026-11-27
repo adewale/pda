@@ -45,8 +45,8 @@ describe("Browser Control: declaring the extension (3)", () => {
     expect(handoverAvailable({ BROWSER_CONTROL: "off", BROWSER_RUN: "on", BROWSER: {} })).toBe(false);
     expect(handoverAvailable({ BROWSER_CONTROL: "on", BROWSER_RUN: "off", BROWSER: {} })).toBe(false);
     expect(handoverAvailable({ BROWSER_CONTROL: "on", BROWSER_RUN: "on" })).toBe(false);
-    expect(() => handoverAvailable({ BROWSER_CONTROL: "yes", BROWSER_RUN: "on", BROWSER: {} })).toThrow("BROWSER_CONTROL must be on or off");
-    expect(() => handoverAvailable({ BROWSER_RUN: "on", BROWSER: {} })).toThrow("Missing required setting BROWSER_CONTROL");
+    expect(() => handoverAvailable({ BROWSER_CONTROL: "yes", BROWSER_RUN: "on", BROWSER: {} })).toThrow('BROWSER_CONTROL: expected on or off, got "yes"');
+    expect(() => handoverAvailable({ BROWSER_RUN: "on", BROWSER: {} })).toThrow("BROWSER_CONTROL: expected a value (a required setting), got nothing");
   });
 
   it("declares browser-control on the Session's join where the Company lists it and this agent can hand over a browser", async () => {

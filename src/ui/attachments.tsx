@@ -1,6 +1,7 @@
 import { ImageIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
-import { ATTACHMENT_TYPES, attachmentMarker, humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../attachments";
+import { ATTACHMENT_TYPES, attachmentMarker, humanSize, sizeOver, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../attachments";
 import { IconAction } from "./controls";
+import { departure, ours, sentence, show, shown } from "../diagnostic";
 
 /**
  * Photos in the chat (src/attachments.ts): attaching one in the composer,
@@ -22,8 +23,12 @@ const PREVIEW_SIDE = 1568;
 
 /** Why this file can't be attached, before sending it anywhere; null if it can. */
 export function attachProblem(file: File): string | null {
-  if (!(ATTACHMENT_TYPES as readonly string[]).includes(file.type)) return `${file.name || "That file"} isn't a JPEG, PNG, WebP or GIF photo.`;
-  if (file.size > MAX_ATTACHMENT_BYTES) return `${file.name || "That photo"} is ${humanSize(file.size)}; the most your agent takes is ${humanSize(MAX_ATTACHMENT_BYTES)}.`;
+  if (!(ATTACHMENT_TYPES as readonly string[]).includes(file.type)) {
+    return sentence(departure(file.name ? show.text(file.name, 80) : ours("that file"), ours("a JPEG, PNG, WebP or GIF photo"), file.type ? show.type(file.type) : ours("a file of unknown type")));
+  }
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return sentence(departure(file.name ? shown`${show.text(file.name, 80)}'s size` : ours("that photo's size"), shown`at most ${humanSize(MAX_ATTACHMENT_BYTES)}, the most your agent takes`, sizeOver(file.size, MAX_ATTACHMENT_BYTES)));
+  }
   return null;
 }
 
@@ -59,7 +64,7 @@ export async function uploadAttachment(file: File): Promise<AttachmentInfo> {
   if (preview) form.append("preview", preview, "preview.jpg");
   const response = await fetch("/api/attachments", { method: "POST", credentials: "same-origin", body: form });
   const body = (await response.json().catch(() => null)) as (AttachmentInfo & { error?: string }) | null;
-  if (!response.ok || !body?.id) throw new Error(body?.error ?? `Couldn't attach ${file.name || "the photo"} (${response.status}).`);
+  if (!response.ok || !body?.id) throw new Error(body?.error ?? sentence(shown`Couldn't attach ${file.name ? show.text(file.name, 80) : ours("the photo")} (${show.status(response.status)})`));
   return body;
 }
 

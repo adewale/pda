@@ -14,6 +14,7 @@ import { LiveIdentityClient, liveIdentityFrom } from "../impls/pda-agent/live-id
 import { liveAgentEnv, loadRegistry, selected } from "../runner/cli.ts";
 import { LIVE_CLIENT_ID_VAR, LIVE_KEY_VAR, liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "../runner/live-identity.ts";
 import type { RegistryEntry } from "../runner/types.ts";
+import { named } from "../../test/named-fetcher.ts";
 
 /**
  * The live lane's identity (docs/interop-spec.md §10), without Docker: the
@@ -171,7 +172,7 @@ describe("the agent adapter under the live identity", () => {
     migrate(sql);
     const host: PoppyHost = {
       env: hostEnv as unknown as Env, sql,
-      fetcher: async (request) => { requests.push(request.clone()); return Response.json({}); },
+      fetcher: named(async (request) => { requests.push(request.clone()); return Response.json({}); }),
       showCard: async () => undefined, notifyModel: async () => undefined,
       schedule: async () => undefined, hasJob: () => false, pushDirect: () => undefined,
       userContext: () => ({ user_available: true }), now: () => Date.now(),

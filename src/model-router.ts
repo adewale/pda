@@ -32,6 +32,7 @@ import {
   type ModelKeys
 } from "./model-keys";
 import type { Identity } from "./session";
+import { departure, ours, show, shown } from "./diagnostic";
 
 /**
  * Which model lane a person's agent uses, decided before every model call:
@@ -162,7 +163,7 @@ export function demoCatalogModel(env: ConfigEnv): Model<Api> {
   const config = readModelConfig(env);
   const model = createAI({ binding: {} as Ai, id: config.demo.gatewayId })(config.demo.modelId) as Model<Api>;
   if (!model.cost || model.cost.input <= 0 || model.cost.output <= 0) {
-    throw new ConfigError("DEMO_MODEL_ID has no known price, so the demo's caps couldn't be enforced");
+    throw new ConfigError(departure(ours("DEMO_MODEL_ID"), ours("a model with a known price in pi-ai's catalog"), show.value(config.demo.modelId), ours("Without one, the demo's caps couldn't be enforced")));
   }
   return model;
 }
@@ -271,8 +272,8 @@ export class ModelAccess {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
-      const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" }[provider];
-      throw new ConfigError(`${name} ${JSON.stringify(id)} isn't in pi-ai's ${PROVIDER_LABEL[provider]} catalog`);
+      const name = ({ anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" } as const)[provider];
+      throw new ConfigError(departure(ours(name), shown`a model in pi-ai's ${show.name(PROVIDER_LABEL[provider])} catalog`, show.value(id)));
     }
     // A key that belongs to a whole Anthropic organisation names its workspace on every request.
     return provider === "anthropic" && workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;

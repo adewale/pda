@@ -42,7 +42,8 @@ npm run interop -- --image-tag adv --require-supported --agents evil-personal-ag
 Each run writes:
 
 - `results.json`: every cell's outcome, blame, rule, steps and checks (spec section 9).
-- `index.html`: one grid per scenario, agents as rows and Companies as columns; a cell links to its steps, checks and HAR.
+- `index.html`: one grid per scenario, agents as rows and Companies as columns; a cell links to its steps, checks and HAR. A check that found a departure shows its subject, then what was expected and what was got.
+- `results.md`: the counts, every failed or errored cell with its error findings (expected and got apart) and the grids, as Markdown to paste into an issue or a pull request. URLs are code spans, never links.
 - `<scenario>/<agent>__<company>.har`: everything that crossed the proxy in that cell, unredacted (every key and token is made for the run).
 - `logs/`: image builds and each container's output.
 

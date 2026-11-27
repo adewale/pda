@@ -15,7 +15,7 @@ import { protocolRevision, PROTOCOL_REVISION, PROTOCOL_VERSIONS } from "../../sr
  * /healthz, reads /manifest, then runs each scenario × agent × Company
  * cell, resetting both adapters first.
  * A cell that fails or errors runs once more; one that then passes is flaky.
- * Writes interop/results/<run>/results.json, a HAR per cell and index.html.
+ * Writes interop/results/<run>/results.json, a HAR per cell, index.html and results.md.
  * Exits 1 when a cell fails or errors and isn't in known-failures.json, or
  * when a known failure the run could judge matched no failed cell (stale).
  * Everything it makes on Docker is labelled interop.run=<tag> and removed on
@@ -51,7 +51,7 @@ import {
   relayCreateArgs
 } from "./network.ts";
 import { readingChecks, refusedReadingChecks } from "./readings.ts";
-import { cellId, renderReport } from "./report.ts";
+import { cellId, renderMarkdown, renderReport } from "./report.ts";
 import { runWithRetry } from "./retry.ts";
 import { inlineFiles, lintScenario } from "./scenario.ts";
 import { assertTrace } from "./traces.ts";
@@ -898,6 +898,7 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
   };
   writeFileSync(path.join(runDir, "results.json"), `${JSON.stringify(summary, null, 2)}\n`);
   writeFileSync(path.join(runDir, "index.html"), renderReport({ ...summary, scenarios }));
+  writeFileSync(path.join(runDir, "results.md"), renderMarkdown({ ...summary, scenarios }));
 
   const bad = unexpected(cells);
   const counts = ["pass", "fail", "unsupported", "error"].map((outcome) => `${cells.filter((cell) => cell.outcome === outcome).length} ${outcome}`);

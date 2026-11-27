@@ -35,4 +35,14 @@ describe("explicit task access", () => {
   ])("rejects invalid structured permission: %j", input => {
     expect(() => readTaskAccess(input)).toThrow();
   });
+
+  it("says what it expected and what it got, never an address's credentials", () => {
+    const refusal = (input: unknown) => { try { readTaskAccess(input); } catch (error) { return (error as Error).message; } return null; };
+    expect(refusal({ companies: ["shop.example/path"], uploads: [] })).toBe("the Company domain: expected a public HTTPS Company domain, without a path, query or credentials, got shop.example with a path or query.");
+    expect(refusal({ companies: ["https://user:pass@shop.example"], uploads: [] })).toBe("the Company domain: expected a public HTTPS Company domain, without a path, query or credentials, got an address with credentials.");
+    expect(refusal({ companies: ["127.0.0.1"], uploads: [] })).toBe("the Company domain: expected a public HTTPS Company domain, without a path, query or credentials, got 127.0.0.1, which isn't public.");
+    expect(refusal({ companies: ["shop.example"], uploads: [{ company: "excluded.example", files: [photo] }] })).toBe("a photo selection's company: expected one of the selected Companies, got excluded.example.");
+    expect(refusal({ companies: ["shop.example"], uploads: [{ company: "shop.example", files: ["not-an-id"] }] })).toBe('a photo selection\'s files: expected attachment ids, got "not-an-id".');
+    expect(refusal({ companies: ["shop.example"], uploads: [], authorizeAll: true })).toBe('the task access: expected companies and uploads only, got also "authorizeAll".');
+  });
 });

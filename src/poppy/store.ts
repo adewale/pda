@@ -1,4 +1,5 @@
-import { ConfigError } from "../config";
+import { ConfigError, missingSetting } from "../config";
+import { departure, ours, shown } from "../diagnostic";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
 import { flag, jsonText, literal, object, string } from "../decode";
@@ -609,16 +610,16 @@ export const cardsTable = table("poppy_cards", { card: text, id: text, open: int
 /** The format of everything `Sealer.seal` writes: `v1.<base64url(iv | ciphertext)>`. */
 const SEALED_PREFIX = "v1.";
 
-function importKey(name: string, encoded: string | undefined): Promise<CryptoKey> | null {
+function importKey(name: "TOKEN_ENC_KEY" | "TOKEN_ENC_KEY_PREVIOUS", encoded: string | undefined): Promise<CryptoKey> | null {
   const value = encoded?.trim();
   if (!value) return null;
   let raw: Uint8Array<ArrayBuffer>;
   try {
     raw = Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
   } catch {
-    throw new ConfigError(`${name} must be base64`);
+    throw new ConfigError(departure(ours(name), ours("32 bytes as base64"), ours("text that isn't base64")));
   }
-  if (raw.byteLength !== 32) throw new ConfigError(`${name} must be 32 bytes, base64`);
+  if (raw.byteLength !== 32) throw new ConfigError(departure(ours(name), ours("32 bytes as base64"), shown`${raw.byteLength} bytes`));
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
@@ -639,7 +640,7 @@ export class Sealer {
 
   constructor(env: { readonly TOKEN_ENC_KEY?: string; readonly TOKEN_ENC_KEY_PREVIOUS?: string }) {
     const key = importKey("TOKEN_ENC_KEY", env.TOKEN_ENC_KEY);
-    if (!key) throw new ConfigError("Missing required setting TOKEN_ENC_KEY");
+    if (!key) throw new ConfigError(missingSetting(ours("TOKEN_ENC_KEY"), env.TOKEN_ENC_KEY));
     this.#key = key;
     this.#previous = importKey("TOKEN_ENC_KEY_PREVIOUS", env.TOKEN_ENC_KEY_PREVIOUS);
   }

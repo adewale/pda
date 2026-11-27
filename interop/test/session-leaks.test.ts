@@ -69,7 +69,7 @@ describe("Session JWT leakage evidence", () => {
 
   it("attributes the claimed issuer to its Company, not to the host receiving the JWT", () => {
     const all = recording(...discovery, { url: "https://api.other.company.interop.test/products", headers: { "poppy-session": session() } });
-    expect(unlistedHostChecks(all)).toMatchObject([{ side: "agent", detail: "a token from acme sent to api.other.company.interop.test" }]);
+    expect(unlistedHostChecks(all)).toMatchObject([{ side: "agent", detail: "a token from acme: expected a host its Company's documents list: api.acme.company.interop.test or auth.acme.company.interop.test, got api.other.company.interop.test" }]);
   });
 
   it("uses protected-resource metadata when the issuer metadata was not recorded", () => {

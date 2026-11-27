@@ -6,7 +6,7 @@ import { tryDecode } from "./decode";
 import type { ApprovalDecision } from "./poppy/approval-outcome";
 import { historyFrame, serverFrame } from "./poppy/frames";
 import { projectEntries } from "./transcript";
-import { historyFromEvents, summaryIds, withEarlier } from "./ui/history";
+import { FIRST_CONVERSATION, followResets, historyFromEvents, summaryIds, withEarlier, type Conversation } from "./ui/history";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
@@ -134,6 +134,8 @@ type State = SessionView & {
   readonly summaries: readonly string[];
   /** What the User sent that the agent hasn't answered, oldest first. */
   readonly outbox: readonly Outgoing[];
+  /** Resets seen, so state that belongs to one conversation can end with it. */
+  readonly resets: Conversation;
 };
 
 const INITIAL_STATE: State = {
@@ -143,7 +145,8 @@ const INITIAL_STATE: State = {
   poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], instructions: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
   summaries: [],
-  outbox: []
+  outbox: [],
+  resets: FIRST_CONVERSATION
 };
 
 export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
@@ -326,7 +329,8 @@ export function usePiSession(workspaceId: string) {
             ...current,
             ...reduceEvents(current, message.events),
             earlier: history.clear ? [] : current.earlier,
-            summaries: [...(history.clear ? [] : current.summaries), ...history.summaries]
+            summaries: [...(history.clear ? [] : current.summaries), ...history.summaries],
+            resets: followResets(current.resets, message.events)
           }));
           if (history.clear) askHistory(history.askBefore);
           return;
@@ -408,9 +412,17 @@ export function usePiSession(workspaceId: string) {
     [send]
   );
 
+  const messages = useMemo(() => withEarlier(state.earlier, state.messages), [state.earlier, state.messages]);
+  /**
+   * A reset only while connected, idle, with nothing the User sent still
+   * unanswered (it would land in one conversation or the other, by timing,
+   * or a refused one's Try again would carry it into the new one), and with
+   * something to clear.
+   */
+  const canReset = state.status === "open" && !state.running && state.outbox.length === 0 && messages.some((message) => message.role !== "notice");
   const reset = useCallback(
-    () => send({ type: "reset", id: crypto.randomUUID() }),
-    [send]
+    () => canReset && send({ type: "reset", id: crypto.randomUUID() }),
+    [send, canReset]
   );
 
   // Using the page (not just having it open) keeps the User available to Companies.
@@ -429,10 +441,9 @@ export function usePiSession(workspaceId: string) {
     };
   }, [sendPoppy]);
 
-  const messages = useMemo(() => withEarlier(state.earlier, state.messages), [state.earlier, state.messages]);
   const summaries = useMemo(() => new Set(state.summaries), [state.summaries]);
 
-  return { ...state, messages, summaries, submit, resend, discard, abort, reset, sendPoppy };
+  return { ...state, messages, summaries, conversation: state.resets.epoch, canReset, submit, resend, discard, abort, reset, sendPoppy };
 }
 
 /** Everything the page gets from its agent, as `usePiSession` returns it. */

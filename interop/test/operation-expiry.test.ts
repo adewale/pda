@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { approvable, parseOperationV2 } from "../../src/poppy/operations-v2";
+import { render } from "../../src/diagnostic.ts";
 
 // Operations 3 requires terms (0.4 Ops 3).
 const operation = (expires_at: string) => ({ operation_id: "op_expiry", revision: "r1", summary: "Exchange the jacket", terms: { replacement_sku: "stormline-insulated-m" }, expires_at });
@@ -12,7 +13,8 @@ describe("operation expiry timestamps", () => {
     "2026-01-32T12:00:00Z", "2026-01-01T12:60:00Z", "2026-01-01T12:00:00+24:00",
     "2026-01-01T12:00:00+01:60", "2026-01-01", "2026-01-01T12:00:00"
   ])("refuses an invalid calendar or clock value: %s", expiresAt => {
-    expect(parseOperationV2(operation(expiresAt))).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
+    const parsed = parseOperationV2(operation(expiresAt));
+    expect("problem" in parsed ? render(parsed.problem) : parsed).toBe(`its expires_at: expected an RFC 3339 time, got ${JSON.stringify(expiresAt)}`);
   });
 
   it.each([
@@ -22,7 +24,7 @@ describe("operation expiry timestamps", () => {
   ])("keeps a valid RFC 3339 instant and its exact expiry boundary: %s", expiresAt => {
     const parsed = parseOperationV2(operation(expiresAt));
     expect(parsed).toEqual(operation(expiresAt));
-    if ("problem" in parsed) throw new Error(parsed.problem);
+    if ("problem" in parsed) throw new Error(render(parsed.problem));
     const at = Date.parse(expiresAt);
     expect(approvable(parsed, at - 1)).toBe(true);
     expect(approvable(parsed, at)).toBe(false);

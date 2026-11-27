@@ -116,7 +116,14 @@ export type Card =
    * card itself grants nothing, and closes once a message of theirs selects that domain.
    */
   | (CardBase & { readonly kind: "company_access"; readonly domain: string; readonly photos: readonly { readonly id: string; readonly name: string; readonly size: number }[] })
-  | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
+  | (CardBase & {
+      readonly kind: "notice";
+      /** A sentence that stands on its own: what happened. */
+      readonly text: string;
+      readonly links?: readonly { readonly label: string; readonly url: string }[];
+      /** For a notice about a departure: its parts, which the page shows as the validator does, the subject, then expected and got (src/diagnostic.ts). */
+      readonly problem?: import("./diagnostic-notice").NoticeProblem;
+    });
 
 /**
  * What an approval card shows of an operation a Company returned (Ops 5):
