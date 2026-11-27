@@ -30,6 +30,8 @@ Use Node 24 (`.nvmrc`) and `npm ci --legacy-peer-deps`.
 - `npm run test:properties`: ordinary property cases; deep runs stay local.
 - `npm run test:hypothesis`: occasional independent Python check after protocol or major mock changes; not a feature-by-feature maintenance obligation.
 - `npm run check:approval-crashes`: actual process termination and replay checks.
+- `npm run deps:dry-run`: before moving the pi family or `agents`, the newest compatible pair, the breaking changes between, open upstream issues (with `GITHUB_TOKEN`) and a trial typecheck and `npm test` in a throwaway worktree; `--no-install` reads upstream only.
+- `npm run record:wire`: with a vendor's key in the environment, one small real call per vendor, recorded as shapes in `test/contracts/fixtures/`, which `test/contracts/wire.test.ts` then holds the fakes to; after a pi upgrade or a vendor's wire change.
 - `npm run interop -- --agents pda --companies lenient-company`: Docker grid.
 - `npm run deploy`: configured build and deploy; see deployment-tasks before promotion.
 

@@ -1,7 +1,10 @@
 # The monthly dependency check: `npm outdated` and `npm audit` (production,
 # then production and dev), written to the job summary by
 # scripts/deps-check.mjs. It fails only for an audit finding at "high" or
-# above; outdated packages are information. Report only, by the owner's
+# above; outdated packages are information. Then the pi family's upgrade dry
+# run (scripts/upgrade-dry-run.mjs): the newest compatible pi and agents, the
+# breaking changes in between, open upstream issues, and a trial typecheck in
+# a throwaway worktree; information only. Report only, by the owner's
 # choice: no Dependabot, no pull requests, no commits, no secrets. About a
 # minute a month.
 name: Dependencies
@@ -22,7 +25,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -36,3 +39,10 @@ jobs:
       - run: npm ci --legacy-peer-deps
 
       - run: npm run deps:check
+
+      # Information only: it never fails the job. The job's own token reads public issues; nothing is written.
+      - run: npm run deps:dry-run -- --typecheck-only
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

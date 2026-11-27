@@ -76,3 +76,6 @@ The upgrade lands first, on its own. The Gemini lane ([adewale/pda#74](https://g
 - [x] Specialist checks: typecheck, `check:docs`, `check:spec`, `check:approval-crashes` (16 scenarios), `test:tooling` (37), `npm run build`. The Worker bundle grows from 4.77 MB to 5.25 MB (about 1.11 MB to 1.22 MB gzipped).
 - [ ] Not run here: `npm run interop` (needs Docker) and `test:hypothesis` (no protocol or mock change).
 - [ ] Deploy and live checks (owner): [deployment-tasks](deployment-tasks.md#remaining-live-checks).
+- [x] Review findings fixed (a reset hidden in a reconnect's gap, the turn log's run boundaries, error banners, frame decoding, the extension install flag, the submission lookup), each with a test that fails without the fix.
+- [x] Tooling for the next upgrade ([decision 57](decisions.md#57-pi-161-and-agents-0341-a-forward-only-storage-and-the-watch-transport)): the deploy check resolves the models, a property test of the page's history, `npm run deps:dry-run`, and contracts for the fakes. No live recording yet: `npm run record:wire` needs the vendors' keys.
+

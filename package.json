@@ -28,6 +28,8 @@
     "check:company-kit": "node scripts/check-company-kit.mjs",
     "check:approval-crashes": "node scripts/check-approval-crashes.mjs",
     "deps:check": "node scripts/deps-check.mjs",
+    "deps:dry-run": "node --use-env-proxy scripts/upgrade-dry-run.mjs",
+    "record:wire": "node --use-env-proxy scripts/record-wire.mjs",
     "interop": "node interop/runner/cli.ts",
     "check:spec": "node scripts/check-spec.mjs",
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
