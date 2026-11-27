@@ -933,7 +933,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   async #keyRefusedNotice(provider: KeyProvider): Promise<void> {
     await this.#showModelCard(
-      `${PROVIDER_LABEL[provider]} refused your key (401), so your agent has stopped calling the model. It won't use the demo instead. Add a working key in Settings.`,
+      `${PROVIDER_LABEL[provider]} refused your key, so your agent has stopped calling the model. It won't use the demo instead. Add a working key in Settings.`,
       true
     );
   }

@@ -34,7 +34,7 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS model_keys (
 /** What the page may know about the key: never the key, nor any part of it. */
 export type KeyInfo = {
   readonly provider: KeyProvider;
-  /** `invalid` after the provider refused it (401): no model calls until it is replaced. */
+  /** `invalid` after the provider refused it: no model calls until it is replaced. */
   readonly status: "valid" | "invalid";
   /** Pasted in Settings: the only way a key arrives. */
   readonly source: "pasted";
@@ -337,7 +337,8 @@ export async function checkKey(
     return { ok: false, status: 400, error: sentence(shown`${label} refused that key.`) };
   }
   const reason = await providerReason(response, key);
-  if (response.status === 400 && reason !== null && isKeyRefused(reason)) {
+  // Google refuses a bad key with 400 and a reason, not 401 (decision 58); another vendor's 400 is about the request.
+  if (provider === "google" && response.status === 400 && reason !== null && isKeyRefused(reason)) {
     return { ok: false, status: 400, error: sentence(shown`${label} refused that key.`) };
   }
   // The provider's own words, redacted: shown as theirs, quoted.
@@ -358,5 +359,6 @@ export function redactKeys(text: string, key?: string): string {
 /** A provider's error that means the key itself was refused. */
 export function isKeyRefused(errorMessage: string | undefined): boolean {
   if (!errorMessage) return false;
-  return /\b401\b|authentication_error|invalid_api_key|invalid x-api-key|incorrect api key|unauthorized|\bapi_key_invalid\b|api key not valid/i.test(errorMessage);
+  // Google names the key's own failures `API_KEY_INVALID`, `API_KEY_EXPIRED`, `API_KEY_SERVICE_BLOCKED` and other `API_KEY_*` reasons.
+  return /\b401\b|authentication_error|invalid_api_key|invalid x-api-key|incorrect api key|unauthorized|\bapi_key_[a-z_]+\b|api key not valid|api key expired/i.test(errorMessage);
 }

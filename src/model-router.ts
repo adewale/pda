@@ -42,7 +42,7 @@ import { departure, ours, show, shown } from "./diagnostic";
  *    the provider through pi-ai's own provider, never through the operator's
  *    gateway, so a request that lost its key can never be billed to the
  *    operator.
- * 2. A key the provider refused (401) stops model calls until it is replaced.
+ * 2. A key the provider refused stops model calls until it is replaced.
  *    It never falls back to the demo.
  * 3. The demo, for owners and people on `DEMO_ALLOWLIST`, while today's
  *    spend is under both the per-person and the per-domain cap: the AI
@@ -198,53 +198,49 @@ export function withVendorCompat(model: Model<Api>, specifier: string): Model<Ap
 }
 
 /**
- * Fallback catalog entry for `gemini-4-hydrogen` until `@earendil-works/pi-ai`
- * adds it to `data/google.json`. Ignored automatically once `googleProvider()`
- * lists `gemini-4-hydrogen` itself.
+ * Google's documented value for a function call Gemini didn't make, which
+ * has no thought signature of its own: the conversation started on the demo's
+ * Claude, or on another vendor's key. pi-ai 1.6.1 sends such a call unsigned,
+ * and Gemini 3 and later can refuse the whole request for it
+ * (earendil-works/pi#12420, #10467).
  */
-const HYDROGEN_FALLBACK: Model<"google-generative-ai"> = {
-  id: "gemini-4-hydrogen",
-  name: "Gemini 4 Hydrogen",
-  api: "google-generative-ai",
-  provider: "google",
-  baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-  reasoning: true,
-  thinkingLevelMap: {
-    off: null,
-    minimal: null,
-    low: "low",
-    medium: "medium",
-    high: "high",
-    xhigh: null,
-    max: null
-  },
-  input: ["text", "image"],
-  cost: { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 },
-  contextWindow: 1_048_576,
-  maxTokens: 65_536,
-  inputLimits: {
-    maxRequestBytes: 20_971_520,
-    images: {
-      maxPerRequest: 3600,
-      resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4_718_592, jpegQuality: 80 }
-    }
-  },
-  type: "chat"
-};
+export const FOREIGN_CALL_SIGNATURE = "skip_thought_signature_validator";
 
-function withGeminiFallback(provider: Provider): Provider {
+/** A Generative Language request body with every unsigned function call in a model turn given `FOREIGN_CALL_SIGNATURE`. */
+export function signForeignCalls(payload: unknown): unknown {
+  const contents = (payload as { contents?: unknown } | null)?.contents;
+  if (!Array.isArray(contents)) return payload;
+  let changed = false;
+  const signed = contents.map((content: unknown) => {
+    const turn = content as { role?: unknown; parts?: unknown };
+    if (turn?.role !== "model" || !Array.isArray(turn.parts)) return content;
+    const parts = turn.parts.map((part: unknown) => {
+      const each = part as { functionCall?: unknown; thoughtSignature?: unknown };
+      if (!each?.functionCall || typeof each.thoughtSignature === "string") return part;
+      changed = true;
+      return { ...each, thoughtSignature: FOREIGN_CALL_SIGNATURE };
+    });
+    return { ...turn, parts };
+  });
+  return changed ? { ...(payload as object), contents: signed } : payload;
+}
+
+/** pi-ai's Google provider, with `signForeignCalls` after any `onPayload` the caller passed. */
+function withForeignCallSignatures(provider: Provider): Provider {
+  const signing = <T extends StreamOptions | undefined>(options: T): T => ({
+    ...options,
+    onPayload: async (payload: unknown, model: Model<Api>) => signForeignCalls((await options?.onPayload?.(payload, model)) ?? payload)
+  }) as T;
   return {
     ...provider,
-    getModels: () => {
-      const models = provider.getModels();
-      return models.some((model) => model.id === HYDROGEN_FALLBACK.id) ? models : [...models, HYDROGEN_FALLBACK];
-    }
+    stream: (model, context, options) => provider.stream(model, context, signing(options)),
+    streamSimple: (model, context, options) => provider.streamSimple(model, context, signing(options))
   };
 }
 
 /** pi-ai's Anthropic, OpenAI and Google providers: straight to each vendor, with the person's key. */
 export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider(), withGeminiFallback(googleProvider())];
+  return [anthropicProvider(), openaiProvider(), withForeignCallSignatures(googleProvider())];
 }
 
 /** A text explaining a refusal: the model error pi records, and the notice the person sees. */
@@ -252,7 +248,7 @@ export function refusalText(entitlement: Entitlement): string {
   const key = entitlement.key ? PROVIDER_LABEL[entitlement.key.provider] : "";
   switch (entitlement.reason) {
     case "key_invalid":
-      return `Model calls are stopped: ${key} refused your key (401). Add a working key in Settings.`;
+      return `Model calls are stopped: ${key} refused your key. Add a working key in Settings.`;
     case "user_cap":
       return "Model calls are paused: you've used today's demo allowance. It resets at midnight UTC, or add your own key in Settings.";
     case "domain_cap":
@@ -545,7 +541,7 @@ export class ModelAccess {
       const explanation = this.#options.keys.isCurrent(lane.version)
         ? "Model calls are stopped until you add a working key in Settings."
         : "This call used an earlier key. Your current key has not been changed.";
-      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key (401). ${explanation}` };
+      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key. ${explanation}` };
     }
     return message.errorMessage === undefined ? message : { ...message, errorMessage: redactKeys(message.errorMessage) };
   }

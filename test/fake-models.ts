@@ -310,8 +310,10 @@ async function openai(request: Request, url: URL): Promise<Response> {
  * Every streamed answer starts with a `thought: true` part carrying a base64
  * `thoughtSignature`, followed by `functionCall` or text parts and
  * `usageMetadata`. It refuses (400) requests that pass `?key=` in the URL,
- * omit or alter an earlier turn's `thoughtSignature`, send a `functionResponse`
- * without a matching `functionCall`, or send malformed `inlineData` parts.
+ * alter a thinking part's `thoughtSignature`, send a `functionCall` with
+ * neither its turn's verified thinking part nor Google's documented skip
+ * value, send a `functionResponse` without a matching `functionCall`, or send
+ * malformed `inlineData` parts.
  */
 
 type GeminiPart = {
@@ -343,6 +345,19 @@ const INVALID_KEY_GOOGLE = () =>
         message: "API key not valid. Please pass a valid API key.",
         status: "INVALID_ARGUMENT",
         details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID", domain: "googleapis.com" }]
+      }
+    },
+    { status: 400 }
+  );
+
+const EXPIRED_KEY_GOOGLE = () =>
+  Response.json(
+    {
+      error: {
+        code: 400,
+        message: "API key expired. Please renew the API key.",
+        status: "INVALID_ARGUMENT",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_EXPIRED", domain: "googleapis.com" }]
       }
     },
     { status: 400 }
@@ -407,7 +422,9 @@ function geminiRefusal(contents: readonly GeminiContent[]): string | null {
         if (part.functionCall) {
           const callName = typeof part.functionCall.name === "string" ? part.functionCall.name : "";
           if (!callName) return "Model functionCall part is missing its name.";
-          if (!turnThoughtVerified) {
+          // Gemini 3+ wants a signature on a function call: its turn's own, or Google's documented skip value for a
+          // call another model made.
+          if (!turnThoughtVerified && part.thoughtSignature !== "skip_thought_signature_validator") {
             return `Function call '${callName}' in model turn is missing its preceding thought part and thoughtSignature.`;
           }
           const callId = typeof part.functionCall.id === "string" ? part.functionCall.id : "";
@@ -551,6 +568,8 @@ function fakeGemini(url: URL, method: string, headers: Headers, rawBody: string)
       return geminiError(400, "INVALID_ARGUMENT", "streamGenerateContent requires alt=sse.");
     }
     if (state !== "ok") return INVALID_KEY_GOOGLE();
+    // `expired`: a key that passed its check and has since expired, which Google refuses with 400 `API_KEY_EXPIRED`.
+    if (key.split("-").includes("expired")) return EXPIRED_KEY_GOOGLE();
     let body: GeminiBody;
     try {
       body = JSON.parse(rawBody || "{}") as GeminiBody;

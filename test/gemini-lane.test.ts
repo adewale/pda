@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { attachmentMarker, type AttachmentInfo } from "../src/attachments";
+import { FOREIGN_CALL_SIGNATURE, signForeignCalls } from "../src/model-router";
 import { DEFAULT_QUESTION } from "../src/tools/extensions";
 import { agent, chat, company, connect, fetchWorker, ORIGIN, person, until, type Agent } from "./agent-helpers";
 import { fakeModels } from "./fake-models";
@@ -76,6 +77,45 @@ async function send(a: Awaited<ReturnType<typeof onGemini>>, text: string) {
 const BULK = `[bulk] ${"words that fill the context ".repeat(5_300)}`;
 
 describe("the own-key Gemini lane", () => {
+  it("carries on a conversation whose tool calls another model made, giving them Google's skip value", async () => {
+    // On the demo (the faux Claude), with a tool call in the history.
+    const a = await agent(person());
+    const connection = await connect(a.identity);
+    await chat(connection.socket, connection.client, `What is 6 times 7? ${obey("calculate", { expression: "6 * 7" })}`);
+    expect(await a.stub.demoCallCount()).toBeGreaterThan(0);
+    // Then on the person's own Gemini key: fakeGemini refuses an unsigned call another model made, as Gemini 3+ may.
+    const saved = await fetchWorker(
+      new Request(`${ORIGIN}/api/model-key`, {
+        method: "POST",
+        headers: { Cookie: a.cookie, Origin: ORIGIN, "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "google", key: `AIza-test-good-${crypto.randomUUID()}` })
+      })
+    );
+    expect(saved.status).toBe(200);
+    await chat(connection.socket, connection.client, "And now?", "fake Gemini (gemini-4-hydrogen) answers: And now?");
+    connection.socket.close();
+  });
+
+  it("signs only the unsigned function calls of model turns, and leaves a request without any alone", () => {
+    const own = { functionCall: { name: "calculate", args: {} }, thoughtSignature: "c2ln" };
+    const foreign = { functionCall: { name: "calculate", args: {} } };
+    const payload = {
+      model: "gemini-4-hydrogen",
+      contents: [
+        { role: "user", parts: [{ text: "hi" }, { functionResponse: { name: "calculate", response: {} } }] },
+        { role: "model", parts: [{ text: "Working it out." }, foreign] },
+        { role: "model", parts: [own] }
+      ]
+    };
+    expect(signForeignCalls(payload)).toEqual({
+      ...payload,
+      contents: [payload.contents[0], { role: "model", parts: [{ text: "Working it out." }, { ...foreign, thoughtSignature: FOREIGN_CALL_SIGNATURE }] }, payload.contents[2]]
+    });
+    const plain = { contents: [{ role: "user", parts: [{ text: "hi" }] }] };
+    expect(signForeignCalls(plain)).toBe(plain);
+    expect(signForeignCalls(undefined)).toBeUndefined();
+  });
+
   it("carries each answer's thought signature into the next turn", async () => {
     const a = await onGemini();
     await say(a, "Hello");

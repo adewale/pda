@@ -10,7 +10,7 @@ import { ConfigError, missingSetting } from "./config.ts";
 import { departure, ours } from "./diagnostic.ts";
 
 /** Bumped whenever the policy's text changes. */
-export const PRIVACY_UPDATED = "13 November 2026";
+export const PRIVACY_UPDATED = "27 November 2026";
 
 export type PrivacyEnv = {
   readonly PRIVACY_CONTACT?: unknown;

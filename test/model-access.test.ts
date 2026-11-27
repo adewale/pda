@@ -10,7 +10,7 @@ import type { Entitlement } from "../src/model-router";
 import { demoCatalogModel, gatewayDemoLane, modelErrorCode, nativeProviders, refusalText } from "../src/model-router";
 import { calculateCost } from "@earendil-works/pi-ai";
 import { message } from "../src/log";
-import { keyContext, keyFormatProblem, redactKeys, workspaceProblem } from "../src/model-keys";
+import { isKeyRefused, keyContext, keyFormatProblem, redactKeys, workspaceProblem } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
 import { keyState } from "./fake-models";
@@ -191,7 +191,7 @@ describe("own keys: the key never leaves the agent", () => {
     const broke = await saveKey(identity, "google", brokeKey);
     expect(broke.status).toBe(400);
     const brokeBody = await broke.text();
-    expect(brokeBody).toContain("Gemini answered 400 (FAILED_PRECONDITION: Billing not enabled for key [key]); the key wasn't saved.");
+    expect(JSON.parse(brokeBody).error).toBe("Gemini answered HTTP 400 (\"FAILED_PRECONDITION: Billing not enabled for key [key]\"); the key wasn't saved.");
     expect(brokeBody).not.toContain("AIza-test-broke");
     expect((await entitlement(identity)).key).toBeNull();
 
@@ -217,6 +217,16 @@ describe("own keys: the key never leaves the agent", () => {
     expect((await stub.poppyLogsSince(mark)).join("\n")).not.toContain(brokeKey);
     expect(await stub.demoCallCount()).toBe(0);
     connection.socket.close();
+  });
+});
+
+describe("Google's key refusals", () => {
+  it("counts every API_KEY_* reason as the key's, and an ordinary 400 as the request's", () => {
+    expect(isKeyRefused("INVALID_ARGUMENT: API_KEY_INVALID: API key not valid. Please pass a valid API key.")).toBe(true);
+    expect(isKeyRefused("INVALID_ARGUMENT: API_KEY_EXPIRED: API key expired. Please renew the API key.")).toBe(true);
+    expect(isKeyRefused("PERMISSION_DENIED: API_KEY_SERVICE_BLOCKED: Requests to this API are blocked.")).toBe(true);
+    expect(isKeyRefused("INVALID_ARGUMENT: Request contains an invalid argument.")).toBe(false);
+    expect(isKeyRefused("FAILED_PRECONDITION: User location is not supported for the API use.")).toBe(false);
   });
 });
 
@@ -491,7 +501,7 @@ describe("a key the vendor stops accepting", () => {
 
     const connection = await connect(identity);
     await send(connection, "are you there?");
-    expect((await stub.lastAssistant()).error).toContain("Anthropic refused your key (401)");
+    expect((await stub.lastAssistant()).error).toContain("Anthropic refused your key.");
     expect(await entitlement(identity)).toMatchObject({ lane: "none", reason: "key_invalid", key: { provider: "anthropic", status: "invalid" } });
     const card = (JSON.parse(await stub.poppyCards()) as Array<{ id: string; open: boolean; text: string }>).find((item) => item.id === "model-access");
     expect(card).toMatchObject({ open: true });
@@ -513,11 +523,11 @@ describe("a key the vendor stops accepting", () => {
 
     const connection = await connect(identity);
     await send(connection, "are you there Gemini?");
-    expect((await stub.lastAssistant()).error).toContain("Gemini refused your key (401)");
+    expect((await stub.lastAssistant()).error).toContain("Gemini refused your key.");
     expect(await entitlement(identity)).toMatchObject({ lane: "none", reason: "key_invalid", key: { provider: "google", status: "invalid" } });
     const card = (JSON.parse(await stub.poppyCards()) as Array<{ id: string; open: boolean; text: string }>).find((item) => item.id === "model-access");
     expect(card).toMatchObject({ open: true });
-    expect(card?.text).toContain("Gemini refused your key (401)");
+    expect(card?.text).toContain("Gemini refused your key,");
     expect(card?.text).toContain("It won't use the demo instead.");
 
     const recentLogs = (await stub.poppyLogsSince(mark)).join("\n");
@@ -526,6 +536,18 @@ describe("a key the vendor stops accepting", () => {
     expect(recentLogs).not.toContain(key);
     expect(await stub.demoCallCount()).toBe(0);
     expect(await stub.poppyDumpStorage()).not.toContain(key);
+    connection.socket.close();
+  });
+
+  it("marks an expired Gemini key invalid on Google's HTTP 400 API_KEY_EXPIRED, as a revoked one", async () => {
+    const identity = someone("workspace.example");
+    const stub = await stubFor(identity);
+    expect((await saveKey(identity, "google", `AIza-test-expired-${crypto.randomUUID()}`)).status).toBe(200);
+    const connection = await connect(identity);
+    await send(connection, "still on?");
+    expect((await stub.lastAssistant()).error).toContain("Gemini refused your key.");
+    expect(await entitlement(identity)).toMatchObject({ lane: "none", reason: "key_invalid", key: { provider: "google", status: "invalid" } });
+    expect(await stub.demoCallCount()).toBe(0);
     connection.socket.close();
   });
 });
