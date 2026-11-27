@@ -190,7 +190,6 @@ export function ChatPage({
               live={live}
               runningTools={runningTools}
               onRetry={reviewMessage}
-              summaries={session.summaries}
               decisions={decisions}
               events={events}
               {...(onProtocol ? { onProtocol } : {})}

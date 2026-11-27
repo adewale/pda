@@ -188,7 +188,9 @@ export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
 export function withVendorCompat(model: Model<Api>, specifier: string): Model<Api> {
   const slash = specifier.indexOf("/");
   if (slash === -1 || specifier.slice(0, slash) !== "anthropic" || model.api !== "anthropic-messages") return model;
-  const vendorId = specifier.slice(slash + 1);
+  // AI Gateway's catalog puts a dot between version numbers (`claude-sonnet-5.5`) where Anthropic, and so pi-ai's
+  // Anthropic catalog, puts a dash (`claude-sonnet-5-5`).
+  const vendorId = specifier.slice(slash + 1).replace(/(\d)\.(\d)(?!\d)/g, "$1-$2");
   const vendor = anthropicProvider().getModels().find((candidate) => candidate.id === vendorId);
   if (!vendor?.compat) return model;
   return { ...model, compat: { ...model.compat, ...vendor.compat } } as Model<Api>;

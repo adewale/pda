@@ -43,7 +43,7 @@ CI runs documentation references on every PR. Runtime checks run for code/config
 - Credentials never reach models, tools, transcripts or logs. Use `src/log.ts`, its safe constructors and redaction; no other source `console` calls. Decode boundary data and SQL rows through the existing decoders.
 - Poppy tests fail on unexpected strict-mock violations or warnings. A new protocol check needs its stable id/basis in `violations.ts` and a negative `TAMPERS` case; [Company testing](docs/company-testing.md) explains why. Keep independent oracles independent.
 - Whole-runtime Durable Object resets belong only in `test/durability/`. Ordinary tests fake external services. Interop-only fault injection stays in adapters.
-- `src/protocol.ts`, `src/sockets.ts`, `src/view.ts` and `src/transcript.ts` are unchanged Cloudflare example copies; re-sync instead of editing them.
+- `src/protocol.ts`, `src/sockets.ts`, `src/view.ts`, `src/transcript.ts` and `src/mirror.ts` are unchanged Cloudflare example copies; re-sync instead of editing them.
 - Deployment identities stay in untracked `deployment.local.json`; never commit private configuration. Regenerate `env.d.ts` after changing Wrangler bindings. Preserve pinned Docker digests.
 - Ambiguous protocol readings belong in [readings](docs/readings.md), distinguishing requirements from recommendations and local policy. Use the pinned text, never dynamic rules at runtime.
 - Findings in others' code follow [SECURITY.md](SECURITY.md): private disclosure first, and owner approval before any external post or email. Preparing a draft does not authorize sending it.

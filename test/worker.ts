@@ -1429,8 +1429,8 @@ export type GatewayUsage = { readonly input_tokens: number; readonly output_toke
 const gatewayUsage = new Map<string, GatewayUsage>();
 
 /**
- * An AI binding whose gateway answers every Anthropic Messages request with
- * a short streamed reply and `usage`, as AI Gateway relays Anthropic's.
+ * An AI binding that answers every gateway model request with a short
+ * streamed Anthropic reply and `usage`, as AI Gateway relays Anthropic's.
  */
 function fakeGateway(usage: GatewayUsage): Ai {
   const events: Array<[string, unknown]> = [
@@ -1442,10 +1442,9 @@ function fakeGateway(usage: GatewayUsage): Ai {
     ["message_stop", { type: "message_stop" }]
   ];
   const body = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  // `agents` sends a gateway model through `env.AI.run` with a `gateway` option.
   return {
-    gateway: () => ({
-      run: async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })
-    })
+    run: async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })
   } as unknown as Ai;
 }
 

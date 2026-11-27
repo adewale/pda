@@ -114,14 +114,14 @@ it("does not claim an upload was sent when its stopped tool has no result", () =
 });
 
 it("counts three confirmed automatic uploads as three sent photos", () => {
-  const messages = uploadMessages(3).map(message => message.id === "t1" ? { ...message, parts: PHOTOS.map((_, index) => ({ ...proposed(index), details: { status: 201, body: { id: `pho_${index}` } }, content: [{ type: "text" as const, text: "Uploaded" }] })) } : message);
+  const messages = uploadMessages(3).map((message): TranscriptMessage => message.id === "t1" && message.role !== "gap" ? { ...message, parts: PHOTOS.map((_, index) => ({ ...proposed(index), details: { status: 201, body: { id: `pho_${index}` } }, content: [{ type: "text" as const, text: "Uploaded" }] })) } : message);
   open("/", session({ messages }));
   expect(screen.getByRole("button", { name: `Sent 3 of 3 photos to ${SHOP}` })).toBeTruthy();
   expect(screen.queryByText(`Sent 0 of 3 photos to ${SHOP}`)).toBeNull();
 });
 
 it("projects an unknown automatic request onto its originating upload step", () => {
-  const messages = uploadMessages(1).map(message => message.id === "t1" ? { ...message, parts: [{ ...proposed(0), error: true, details: { error: "server_error", poppyTask: { id: "req_unknown", result: "unknown" } }, content: [{ type: "text" as const, text: "The upload outcome is unknown" }] }] } : message);
+  const messages = uploadMessages(1).map((message): TranscriptMessage => message.id === "t1" && message.role !== "gap" ? { ...message, parts: [{ ...proposed(0), error: true, details: { error: "server_error", poppyTask: { id: "req_unknown", result: "unknown" } }, content: [{ type: "text" as const, text: "The upload outcome is unknown" }] }] } : message);
   open("/", session({ messages }));
   expect(screen.getByText("Outcome unknown")).toBeTruthy();
   expect(screen.queryByText("Failed")).toBeNull();

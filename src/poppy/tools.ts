@@ -1,4 +1,5 @@
-import { Type, type TSchema, type SystemMessage } from "@earendil-works/pi-ai";
+import type { SystemMessage } from "@earendil-works/pi-ai";
+import { Type, type TSchema } from "typebox";
 import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { TaskCompanyScope } from "./task-scope";
 import { recipient } from "./task-text";
@@ -96,7 +97,7 @@ function failure(error: unknown): { output: { type: "text"; text: string }[]; de
   return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
-type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;
+type Args<T extends TSchema> = import("@earendil-works/pi-schema").Static<T>;
 type Invocation = { readonly api: TurnReader; readonly context: Context };
 
 function tool<T extends TSchema>(

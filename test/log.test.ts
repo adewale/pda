@@ -14,6 +14,7 @@
 import { env } from "cloudflare:workers";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { ConversationView } from "@earendil-works/pi-durable";
 import { AgentLog, DIAGNOSTIC_EVENTS } from "../src/agent-log";
 import { base64url } from "../src/base64url";
 import { agentId as pseudonym, code, domain, id, literal, message, modelId, origin, redact, reportError, SERVICE, toolName, wideEvent } from "../src/log";
@@ -101,13 +102,18 @@ describe("http events", () => {
   });
 });
 
+/** pi's view of a session, idle and running, as `session.watch()` gives it. */
+const idle = { entries: [], docs: { "pi.live": {} } } as unknown as ConversationView;
+const running = { entries: [], docs: { "pi.live": { run: { taskId: 1, inputs: [], turns: 0 } } } } as unknown as ConversationView;
+
 describe("turn events", () => {
   it("settles in-flight tool diagnostics before emitting an ended turn, without holding the next run", async () => {
     const a = await agent();
     await runInDurableObject(a.stub, async (_instance, state) => {
       const log = new AgentLog({ sql: state.storage.sql, agentId: pseudonym(a.stub.id.toString())! });
       const before = log.events().length;
-      log.onPiEvents([{ type: "run_start", inputs: [] }]);
+      await log.onPiView(idle);
+      await log.onPiView(running);
       let release!: () => void;
       const held = new Promise<void>(resolve => { release = resolve; });
       const pending = log.tool(toolName("calculate")!, async () => {
@@ -116,9 +122,10 @@ describe("turn events", () => {
         return { isError: true, details: { error: "invalid_client" } };
       }, "late-result");
       try {
-        log.onPiEvents([{ type: "run_end", inputs: [] }]);
+        await log.onPiView(idle);
         expect(log.events().slice(before)).toEqual([]);
-        log.onPiEvents([{ type: "run_start", inputs: [] }, { type: "run_end", inputs: [] }]);
+        await log.onPiView(running);
+        await log.onPiView(idle);
         expect(log.events().slice(before).map(line => JSON.parse(line).tool_count)).toEqual([0]);
       } finally { release(); await pending; }
       const lines = log.events().slice(before);
@@ -139,7 +146,7 @@ describe("turn events", () => {
     const socket = response.webSocket!;
     socket.accept();
     const client = follow(socket);
-    await client.until(() => client.frames.some((f) => f.type === "events"));
+    await client.until(() => client.frames.some((f) => f.type === "view"));
     await chat(socket, client, "hello there, private words");
     const turn = await until(async () => (await eventsOf(a, mark)).find((event) => event.kind === "turn"));
     expectEnvironment(turn);
@@ -397,9 +404,9 @@ describe("safe values", () => {
   });
 });
 
-/** Every source file, by path: only src/log.ts writes to the console (and Cloudflare's four upstream files, which we don't edit). */
+/** Every source file, by path: only src/log.ts writes to the console (and Cloudflare's five upstream files, which we don't edit). */
 const sources = import.meta.glob(["../src/**/*.ts", "../src/**/*.tsx"], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
-const UPSTREAM = new Set(["../src/protocol.ts", "../src/sockets.ts", "../src/view.ts", "../src/transcript.ts"]);
+const UPSTREAM = new Set(["../src/protocol.ts", "../src/sockets.ts", "../src/view.ts", "../src/transcript.ts", "../src/mirror.ts"]);
 
 describe("one logger", () => {
   it("writes to the console only from src/log.ts", () => {

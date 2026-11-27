@@ -1,7 +1,6 @@
 import { array, boolean, integer, literal, nullable, number, object, optional, record, refuse, string, tagged, type Decoder } from "../decode";
 import { ours, shown } from "../diagnostic";
 import { APPROVAL_READ_LIMIT, isApprovalId, isDiagnosticFlowId } from "./approval-outcome";
-import type { HistoryFrame } from "../history";
 import { issuerDecoder } from "./issuer";
 import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
 
@@ -115,12 +114,4 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   }),
   "poppy.diagnostics": object({ type: literal("poppy.diagnostics"), text: string, at: number, flowId: optional(flowId) }),
   "poppy.browser.view": object({ type: literal("poppy.browser.view"), handoverId: string, url: string, expiresAt: number })
-});
-
-/** The answer to the page's `history.before`. */
-export const historyFrame: Decoder<HistoryFrame> = object({
-  type: literal("history"),
-  before: integer,
-  entries: array(built<HistoryFrame["entries"][number]>()),
-  more: boolean
 });

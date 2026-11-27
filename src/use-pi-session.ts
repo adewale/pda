@@ -1,19 +1,17 @@
 import { readTaskAccess, type TaskAccess } from "./task-access";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { HistoryRequest } from "./history";
 import { tryDecode } from "./decode";
+import { PiSessionMirror } from "./mirror";
 import type { ApprovalDecision } from "./poppy/approval-outcome";
-import { historyFrame, serverFrame } from "./poppy/frames";
-import { projectEntries } from "./transcript";
-import { FIRST_CONVERSATION, followResets, historyFromEvents, summaryIds, withEarlier, type Conversation } from "./ui/history";
-import { EMPTY_VIEW, reduceEvents } from "./view";
+import { serverFrame } from "./poppy/frames";
+import { FIRST_CONVERSATION, firstGap, followResets, shownMessages, type Conversation } from "./ui/history";
+import { EMPTY_VIEW } from "./view";
 import type {
   ClientMessage,
   ServerMessage,
   SessionView,
-  ToolInfo,
-  TranscriptMessage
+  ToolInfo
 } from "./protocol";
 import type {
   ActivityEntry,
@@ -128,10 +126,8 @@ type State = SessionView & {
   /** Every registered tool, from the server's hello. */
   readonly catalog: readonly ToolInfo[];
   readonly poppy: PoppyView;
-  /** Messages before a summary, which pi's snapshot leaves out, fetched from the agent. */
-  readonly earlier: readonly TranscriptMessage[];
-  /** Ids of the messages that are summaries of earlier conversation, shown as notices. */
-  readonly summaries: readonly string[];
+  /** A page of earlier or skipped entries is loading. */
+  readonly loading: boolean;
   /** What the User sent that the agent hasn't answered, oldest first. */
   readonly outbox: readonly Outgoing[];
   /** Resets seen, so state that belongs to one conversation can end with it. */
@@ -143,8 +139,7 @@ const INITIAL_STATE: State = {
   status: "connecting",
   catalog: [],
   poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], instructions: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
-  earlier: [],
-  summaries: [],
+  loading: false,
   outbox: [],
   resets: FIRST_CONVERSATION
 };
@@ -188,13 +183,23 @@ const PRESENCE_EVERY_MS = 2 * 60_000;
 /**
  * The signed-in person's one conversation over the harness's WebSocket
  * protocol, connected with `useAgent` at `/ws`. The Worker picks the agent
- * from the app session, so the client never names an instance. The
- * server sends pi's own agent events; this folds them with the same
- * `reduceEvents` the tests use. A reconnect gets a fresh snapshot, so there
- * is nothing to resume from.
+ * from the app session, so the client never names an instance. Each time a
+ * socket opens and its workspace is confirmed, the example's
+ * `PiSessionMirror` asks to watch the session after the newest entry it has,
+ * applies the server's view and pi's operations, and projects them with the
+ * same `projectView` the tests use. The page pages in earlier entries, back
+ * to the newest reset, and any a reconnect skipped, one page at a time.
  */
 export function usePiSession(workspaceId: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
+  /** The session as the page has it: pi's view, merged into the whole transcript the page has seen. */
+  const [mirror] = useState(() => new PiSessionMirror((view) => setState((current) => ({
+    ...current,
+    ...view,
+    resets: followResets(current.resets, view.messages)
+  }))));
+  /** A page load failed on this socket: wait for the next one instead of asking again at once. */
+  const historyStalled = useRef(false);
   const agentRef = useRef<{ send(data: string): void; close?(code?: number, reason?: string): void; readonly readyState: number } | null>(null);
   const accessEnded = useRef(false);
   const connectionEpoch = useRef(0);
@@ -230,14 +235,6 @@ export function usePiSession(workspaceId: string) {
     setOutbox(outbox);
     for (const item of send) socket.send(JSON.stringify(submitFrame(item)));
   };
-  /** The `history.before` the page is waiting for, so an answer a newer snapshot overtook is dropped. */
-  const historyRef = useRef<number | null>(null);
-  const askHistory = (before: number | null) => {
-    historyRef.current = before;
-    if (before === null) return;
-    const frame: HistoryRequest = { type: "history.before", before };
-    agentRef.current?.send(JSON.stringify(frame));
-  };
 
   const agent = useAgent({
     agent: "personal-agent",
@@ -252,7 +249,10 @@ export function usePiSession(workspaceId: string) {
       const finishOpen = () => {
         if (epoch !== connectionEpoch.current || accessEnded.current || agentRef.current?.readyState !== WebSocket.OPEN) return;
         verifiedSocket.current = true;
+        historyStalled.current = false;
         setState((current) => ({ ...current, status: "open" }));
+        // Watch the session from after the newest entry the page has.
+        mirror.open((message) => agentRef.current?.send(JSON.stringify(message)));
         const frame: PoppyClientFrame = {
           type: "poppy.context",
           locale: navigator.language,
@@ -278,6 +278,7 @@ export function usePiSession(workspaceId: string) {
     onClose: event => {
       const epoch = ++connectionEpoch.current;
       verifiedSocket.current = false;
+      mirror.close();
       if (event.code === 1008) accessEnded.current = true;
       setOutbox(unanswered(outboxRef.current));
       setState((current) => ({ ...current, status: accessEnded.current ? "unauthenticated" : "closed" }));
@@ -298,20 +299,6 @@ export function usePiSession(workspaceId: string) {
         return;
       }
       const type = (message as { type?: string }).type;
-      if (type === "history") {
-        const decoded = tryDecode(historyFrame, message, "history frame");
-        if (!decoded.ok) return;
-        const frame = decoded.value;
-        if (frame.before !== historyRef.current) return;
-        const entries = frame.entries;
-        setState((current) => ({
-          ...current,
-          earlier: [...projectEntries(entries), ...current.earlier],
-          summaries: [...current.summaries, ...summaryIds(entries)]
-        }));
-        askHistory(frame.more && entries.length > 0 ? Number(entries[0]!.id) : null);
-        return;
-      }
       if (typeof type === "string" && type.startsWith("poppy.")) {
         const decoded = tryDecode(serverFrame, message, "Poppy frame");
         if (!decoded.ok) return;
@@ -319,22 +306,12 @@ export function usePiSession(workspaceId: string) {
         setState((current) => ({ ...current, poppy: reducePoppy(current.poppy, frame) }));
         return;
       }
+      // The view, pi's operations, and the answers to its own page requests.
+      if (!accessEnded.current) mirror.receive(message);
       switch (message.type) {
         case "hello":
           setState((current) => ({ ...current, catalog: message.tools }));
           return;
-        case "events": {
-          const history = historyFromEvents(message.events);
-          setState((current) => ({
-            ...current,
-            ...reduceEvents(current, message.events),
-            earlier: history.clear ? [] : current.earlier,
-            summaries: [...(history.clear ? [] : current.summaries), ...history.summaries],
-            resets: followResets(current.resets, message.events)
-          }));
-          if (history.clear) askHistory(history.askBefore);
-          return;
-        }
         case "result": {
           const { id } = message;
           if (outboxRef.current.some((item) => item.id === id)) setOutbox(answered(outboxRef.current, id));
@@ -412,7 +389,24 @@ export function usePiSession(workspaceId: string) {
     [send]
   );
 
-  const messages = useMemo(() => withEarlier(state.earlier, state.messages), [state.earlier, state.messages]);
+  /**
+   * Earlier entries, back to the newest reset, and entries a reconnect
+   * skipped, load one page at a time while the socket is open, as the
+   * whole conversation since the last reset was shown before pi's view
+   * became a window. A failed page waits for the next socket.
+   */
+  const gap = firstGap(state.messages);
+  useEffect(() => {
+    if (state.status !== "open" || state.loading || historyStalled.current) return;
+    const loading = gap ? mirror.fillGap(gap) : state.earlier ? mirror.loadEarlier() : null;
+    if (!loading) return;
+    setState((current) => ({ ...current, loading: true }));
+    loading
+      .catch(() => { historyStalled.current = true; })
+      .finally(() => setState((current) => ({ ...current, loading: false })));
+  }, [state.status, state.loading, state.earlier, gap?.id, mirror]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const messages = useMemo(() => shownMessages(state.messages), [state.messages]);
   /**
    * A reset only while connected, idle, with nothing the User sent still
    * unanswered (it would land in one conversation or the other, by timing,
@@ -441,9 +435,7 @@ export function usePiSession(workspaceId: string) {
     };
   }, [sendPoppy]);
 
-  const summaries = useMemo(() => new Set(state.summaries), [state.summaries]);
-
-  return { ...state, messages, summaries, conversation: state.resets.epoch, canReset, submit, resend, discard, abort, reset, sendPoppy };
+  return { ...state, messages, conversation: state.resets.epoch, canReset, submit, resend, discard, abort, reset, sendPoppy };
 }
 
 /** Everything the page gets from its agent, as `usePiSession` returns it. */

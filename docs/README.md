@@ -10,7 +10,7 @@ Use the source below for the question it owns. Link to that source when another 
 | How do I use my agent? | [Using your agent](using.md) |
 | How do I configure and deploy a copy? | [Setup](setup.md) |
 | What is deployed, and which live checks remain? | [Deployment tasks](deployment-tasks.md) |
-| How do I upgrade PDA or refresh its Poppy support? | [Upgrade procedure](upgrading.md) |
+| How do I upgrade PDA or refresh its Poppy support? | [Upgrade procedure](upgrading.md); the [pi 1.6.1 and `agents` 0.34.1 upgrade](pi-1.6-upgrade.md) |
 | How do I run or join the interop grid? | [Harness instructions](../interop/README.md) |
 | What should another project's maintainer expect? | [Testing with us](testing-with-us.md) |
 | How do I contribute and run checks? | [Contributor guide](../CLAUDE.md) |

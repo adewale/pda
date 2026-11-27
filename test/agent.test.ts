@@ -11,7 +11,6 @@ import {
   SESSION_COOKIE,
   type Identity
 } from "../src/session";
-import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
 import { CONTENT_SECURITY_POLICY } from "../src/csp";
 import indexHtml from "../index.html?raw";
 import assetHeaders from "../public/_headers?raw";
@@ -177,11 +176,12 @@ describe("the /ws route", () => {
     expect(client.frames.find((f) => f.type === "hello")).toMatchObject({
       session: "1"
     });
-    const events = client.frames.find((f) => f.type === "events") as Extract<
+    // The watch the page asked for starts with pi's whole view of the session.
+    const view = client.frames.find((f) => f.type === "view") as Extract<
       PiServerMessage,
-      { type: "events" }
+      { type: "view" }
     >;
-    expect(events.events[0]?.type).toBe("snapshot");
+    expect(view).toMatchObject({ session: "1", view: { entries: expect.any(Array) } });
     socket.close();
   });
 

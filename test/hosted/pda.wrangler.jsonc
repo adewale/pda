@@ -23,7 +23,7 @@
   "vars": {
     "THINKING_LEVEL": "medium",
     "DEMO_GATEWAY_ID": "hosted-disabled",
-    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5-5",
+    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5.5",
     "DEMO_DAILY_USD_PER_USER": 0,
     "DEMO_DAILY_USD_PER_DOMAIN": 0,
     "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",

@@ -194,9 +194,9 @@ export function compactionExtension(
       hook(CompactionTask, {
         beforeCompact: async (compaction, api, context) => {
           const kept = await api.memo<string>(SUMMARY_MEMO, context);
-          if (typeof kept === "string") return { summary: kept };
+          if (typeof kept === "string") return { kind: "summary", summary: kept };
           const target = api.models.getModel(model.provider, model.id);
-          if (!target) return { decline: true };
+          if (!target) return { kind: "decline" };
           let summary: string | undefined;
           try {
             const answer = await api.models.completeSimple(target, summaryRequest(compaction.messages), {
@@ -211,8 +211,8 @@ export function compactionExtension(
           } catch (error) {
             onSummary({ summary: "failed", error });
           }
-          if (summary === undefined) return { decline: true };
-          return { summary: await api.memo(SUMMARY_MEMO, summary, context) };
+          if (summary === undefined) return { kind: "decline" };
+          return { kind: "summary", summary: await api.memo(SUMMARY_MEMO, summary, context) };
         }
       })
     ]

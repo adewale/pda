@@ -489,15 +489,14 @@ function thinkingByTurn(messages: readonly TranscriptMessage[]): Map<string, str
  * per thing the agent did at a Company, several in a row folded into one.
  * Tool calls are paired with their results by id, so each call is one line
  * wherever its result arrives; a request the User decided shows its outcome
- * on that line. `events` (an order's outcome, a notice) go in by time.
- * `summaries` names the messages that are summaries of earlier conversation.
+ * on that line. `events` (an order's outcome, a notice) go in by time. A
+ * summary of earlier conversation shows as a notice where pi placed it.
  */
 export function Transcript({
   messages,
   live,
   runningTools,
   onRetry,
-  summaries,
   decisions,
   events = [],
   onProtocol
@@ -506,7 +505,6 @@ export function Transcript({
   live: TranscriptMessage | null;
   runningTools: readonly string[];
   onRetry?: (text: string) => void;
-  summaries?: ReadonlySet<string>;
   decisions?: ReturnType<typeof stepDecisions>;
   events?: readonly TimelineEvent[];
   onProtocol?: (domain: string) => void;
@@ -544,8 +542,12 @@ export function Transcript({
 
   function renderMessage(message: TranscriptMessage): ReactNode {
     switch (message.role) {
+      case "summary":
+        return <SummaryNotice key={message.id} message={message} />;
+      case "gap":
+        // Entries the page is still loading.
+        return null;
       case "user": {
-        if (summaries?.has(message.id)) return <SummaryNotice key={message.id} message={message} />;
         const text = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
         const notice = agentNotice(text);
         if (notice) return <AgentNotice key={message.id} notice={notice} />;
