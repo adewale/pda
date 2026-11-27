@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
 import type { TranscriptMessage } from "../../src/protocol";
 import { projectEntries } from "../../src/transcript";
-import { historyFromEvents, SUMMARY_NOTICE, withEarlier } from "../../src/ui/history";
+import { FIRST_CONVERSATION, followResets, historyFromEvents, SUMMARY_NOTICE, withEarlier } from "../../src/ui/history";
 import { Transcript } from "../../src/ui/transcript";
 
 /**
@@ -49,6 +49,29 @@ describe("historyFromEvents", () => {
   it("clears on a reset, as pi's own view does", () => {
     const reset = { id: 12, conversationId: 1, kind: "pi.reset", head: 12 } as unknown as EntryRecord;
     expect(historyFromEvents([{ type: "entry_appended", entry: reset } as unknown as AgentEvent]).clear).toBe(true);
+  });
+});
+
+describe("followResets", () => {
+  const reset = (id: number) => ({ id, conversationId: 1, kind: "pi.reset", head: id }) as unknown as EntryRecord;
+  const appended = (entry: EntryRecord) => ({ type: "entry_appended", entry }) as unknown as AgentEvent;
+
+  it("starts where the first snapshot is, even after a reset made before the page loaded", () => {
+    expect(followResets(FIRST_CONVERSATION, [snapshot([reset(4), after])])).toEqual({ epoch: 0, newest: 4 });
+    expect(followResets(FIRST_CONVERSATION, [snapshot([...kept, after])])).toEqual({ epoch: 0, newest: null });
+  });
+
+  it("moves on for a reset that arrives live, or in a reconnect's snapshot, once each", () => {
+    const loaded = followResets(FIRST_CONVERSATION, [snapshot([...kept, after])]);
+    const live = followResets(loaded, [appended(reset(12))]);
+    expect(live).toEqual({ epoch: 1, newest: 12 });
+    expect(followResets(live, [snapshot([reset(12), after])])).toEqual(live);
+    expect(followResets(live, [snapshot([reset(20)])])).toEqual({ epoch: 2, newest: 20 });
+  });
+
+  it("never goes back, when a later snapshot no longer holds the reset", () => {
+    const live = followResets(followResets(FIRST_CONVERSATION, [snapshot([])]), [appended(reset(12))]);
+    expect(followResets(live, [snapshot([summary, after])])).toEqual(live);
   });
 });
 
