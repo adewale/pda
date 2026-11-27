@@ -57,13 +57,18 @@ export function shortSegment(segment: string, limit = SEGMENT_LIMIT): string {
  * Text as Markdown that renders as itself: emphasis, code, link, table and
  * HTML punctuation escaped anywhere, and a heading, list or quote marker
  * escaped where it would start a line. Parentheses need none once square
- * brackets are escaped.
+ * brackets are escaped. Markdown escapes only punctuation, so a numbered
+ * list's marker is escaped at its `.` or `)`, never its digits: `\1.` would
+ * show its backslash. A marker escaped mid-line, where it is no marker, still
+ * renders as written.
  */
 export function markdownWords(text: string): string {
   return text
     .replace(/[\\`*_[\]<>|~]/g, (char) => `\\${char}`)
     .replace(/\n+/g, " ")
-    .replace(/^(\s*)([#+\->=]|\d+[.)])/, (_, space: string, marker: string) => `${space}\\${marker}`);
+    .replace(/^(\s*)(?:([#+\->=])|(\d+)([.)]))/, (_, space: string, mark: string | undefined, digits: string | undefined, end: string | undefined) =>
+      mark !== undefined ? `${space}\\${mark}` : `${space}${digits}\\${end}`
+    );
 }
 
 /** A value as a code span, fenced with more backticks than it holds, so it can't close early. */
