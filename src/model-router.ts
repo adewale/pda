@@ -13,14 +13,14 @@ import {
   type TranscriptContext
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, maySignIn, onDemo, type ListEnv } from "./allowlist";
 import { budgetWindow } from "./compaction";
 import { nextUtcMidnight, utcDay, type BudgetCall, type Ledger, type SharedBudget } from "./budget";
 import { ConfigError, readModelConfig, readDemoCaps, type ConfigEnv, type KeyProvider } from "./config";
+import { demoCatalogModel, nativeProviders, OWN_KEY_SETTING, withVendorCompat } from "./model-catalog";
+
+export { demoCatalogModel, FOREIGN_CALL_SIGNATURE, nativeProviders, signForeignCalls, withVendorCompat } from "./model-catalog";
 import {
   ANTHROPIC_WORKSPACE_HEADER,
   isKeyRefused,
@@ -159,16 +159,6 @@ export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "e
   return status ? `http_${status}` : "error";
 }
 
-/** The demo model's catalog entry: its name, limits and prices. Builds metadata only; nothing is called. */
-export function demoCatalogModel(env: ConfigEnv): Model<Api> {
-  const config = readModelConfig(env);
-  const model = createAI({ binding: {} as Ai, id: config.demo.gatewayId })(config.demo.modelId) as Model<Api>;
-  if (!model.cost || model.cost.input <= 0 || model.cost.output <= 0) {
-    throw new ConfigError(departure(ours("DEMO_MODEL_ID"), ours("a model with a known price in pi-ai's catalog"), show.value(config.demo.modelId), ours("Without one, the demo's caps couldn't be enforced")));
-  }
-  return model;
-}
-
 /** The production demo lane: the AI binding, through the demo gateway, tagged with who spent. */
 export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   const config = readModelConfig(env);
@@ -176,72 +166,6 @@ export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   return { provider: ai.provider, model: withVendorCompat(ai(config.demo.modelId) as Model<Api>, config.demo.modelId) };
 }
 
-/**
- * A gateway model with the compat flags of the vendor's own catalog entry for
- * the same model, so the demo lane sends Anthropic the request the own-key
- * lane sends. pi-ai's gateway entry for Claude Sonnet 5.5 lacks
- * `supportsMidConvoEffort`, and without it pi-ai doesn't ask Anthropic to
- * drop thinking blocks whose prefix changed (`block_binding:
- * { prefix_mismatch_behavior: "drop_block" }`), as a compacted history's do.
- * Models of other vendors, and ones pi-ai's Anthropic catalog doesn't list,
- * are left as they are.
- */
-export function withVendorCompat(model: Model<Api>, specifier: string): Model<Api> {
-  const slash = specifier.indexOf("/");
-  if (slash === -1 || specifier.slice(0, slash) !== "anthropic" || model.api !== "anthropic-messages") return model;
-  // AI Gateway's catalog puts a dot between version numbers (`claude-sonnet-5.5`) where Anthropic, and so pi-ai's
-  // Anthropic catalog, puts a dash (`claude-sonnet-5-5`).
-  const vendorId = specifier.slice(slash + 1).replace(/(\d)\.(\d)(?!\d)/g, "$1-$2");
-  const vendor = anthropicProvider().getModels().find((candidate) => candidate.id === vendorId);
-  if (!vendor?.compat) return model;
-  return { ...model, compat: { ...model.compat, ...vendor.compat } } as Model<Api>;
-}
-
-/**
- * Google's documented value for a function call Gemini didn't make, which
- * has no thought signature of its own: the conversation started on the demo's
- * Claude, or on another vendor's key. pi-ai 1.6.1 sends such a call unsigned,
- * and Gemini 3 and later can refuse the whole request for it
- * (earendil-works/pi#12420, #10467).
- */
-export const FOREIGN_CALL_SIGNATURE = "skip_thought_signature_validator";
-
-/** A Generative Language request body with every unsigned function call in a model turn given `FOREIGN_CALL_SIGNATURE`. */
-export function signForeignCalls(payload: unknown): unknown {
-  const contents = (payload as { contents?: unknown } | null)?.contents;
-  if (!Array.isArray(contents)) return payload;
-  let changed = false;
-  const signed = contents.map((content: unknown) => {
-    const turn = content as { role?: unknown; parts?: unknown };
-    if (turn?.role !== "model" || !Array.isArray(turn.parts)) return content;
-    const parts = turn.parts.map((part: unknown) => {
-      const each = part as { functionCall?: unknown; thoughtSignature?: unknown };
-      if (!each?.functionCall || typeof each.thoughtSignature === "string") return part;
-      changed = true;
-      return { ...each, thoughtSignature: FOREIGN_CALL_SIGNATURE };
-    });
-    return { ...turn, parts };
-  });
-  return changed ? { ...(payload as object), contents: signed } : payload;
-}
-
-/** pi-ai's Google provider, with `signForeignCalls` after any `onPayload` the caller passed. */
-function withForeignCallSignatures(provider: Provider): Provider {
-  const signing = <T extends StreamOptions | undefined>(options: T): T => ({
-    ...options,
-    onPayload: async (payload: unknown, model: Model<Api>) => signForeignCalls((await options?.onPayload?.(payload, model)) ?? payload)
-  }) as T;
-  return {
-    ...provider,
-    stream: (model, context, options) => provider.stream(model, context, signing(options)),
-    streamSimple: (model, context, options) => provider.streamSimple(model, context, signing(options))
-  };
-}
-
-/** pi-ai's Anthropic, OpenAI and Google providers: straight to each vendor, with the person's key. */
-export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider(), withForeignCallSignatures(googleProvider())];
-}
 
 /** A text explaining a refusal: the model error pi records, and the notice the person sees. */
 export function refusalText(entitlement: Entitlement): string {
@@ -316,8 +240,7 @@ export class ModelAccess {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
-      const name = ({ anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID", google: "GEMINI_MODEL_ID" } as const)[provider];
-      throw new ConfigError(departure(ours(name), shown`a model in pi-ai's ${show.name(PROVIDER_LABEL[provider])} catalog`, show.value(id)));
+      throw new ConfigError(departure(show.name(OWN_KEY_SETTING[provider]), shown`a model in pi-ai's ${show.name(PROVIDER_LABEL[provider])} catalog`, show.value(id)));
     }
     // A key that belongs to a whole Anthropic organisation names its workspace on every request.
     return provider === "anthropic" && workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;

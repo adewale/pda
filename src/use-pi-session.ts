@@ -3,6 +3,7 @@ import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tryDecode } from "./decode";
 import { PiSessionMirror } from "./mirror";
+import { piServerFrame } from "./pi-frames";
 import type { ApprovalDecision } from "./poppy/approval-outcome";
 import { serverFrame } from "./poppy/frames";
 import { FIRST_CONVERSATION, firstGap, followResets, shownMessages, type Conversation } from "./ui/history";
@@ -128,6 +129,13 @@ type State = SessionView & {
   readonly poppy: PoppyView;
   /** A page of earlier or skipped entries is loading. */
   readonly loading: boolean;
+  /**
+   * The agent's last `error` frame that no message of the outbox owns (a
+   * Stop or Clear chat it refused, a page it couldn't load), until a run
+   * starts or the socket opens again. pi's view has its own `error`, the
+   * last run's failure, which every change of the view sets afresh.
+   */
+  readonly socketError: string | null;
   /** What the User sent that the agent hasn't answered, oldest first. */
   readonly outbox: readonly Outgoing[];
   /** Resets seen, so state that belongs to one conversation can end with it. */
@@ -140,6 +148,7 @@ const INITIAL_STATE: State = {
   catalog: [],
   poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], instructions: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   loading: false,
+  socketError: null,
   outbox: [],
   resets: FIRST_CONVERSATION
 };
@@ -196,7 +205,8 @@ export function usePiSession(workspaceId: string) {
   const [mirror] = useState(() => new PiSessionMirror((view) => setState((current) => ({
     ...current,
     ...view,
-    resets: followResets(current.resets, view.messages)
+    socketError: view.running && !current.running ? null : current.socketError,
+    resets: followResets(current.resets, view.messages, view.earlier)
   }))));
   /** A page load failed on this socket: wait for the next one instead of asking again at once. */
   const historyStalled = useRef(false);
@@ -250,7 +260,7 @@ export function usePiSession(workspaceId: string) {
         if (epoch !== connectionEpoch.current || accessEnded.current || agentRef.current?.readyState !== WebSocket.OPEN) return;
         verifiedSocket.current = true;
         historyStalled.current = false;
-        setState((current) => ({ ...current, status: "open" }));
+        setState((current) => ({ ...current, status: "open", socketError: null }));
         // Watch the session from after the newest entry the page has.
         mirror.open((message) => agentRef.current?.send(JSON.stringify(message)));
         const frame: PoppyClientFrame = {
@@ -306,6 +316,9 @@ export function usePiSession(workspaceId: string) {
         setState((current) => ({ ...current, poppy: reducePoppy(current.poppy, frame) }));
         return;
       }
+      const decoded = tryDecode(piServerFrame, message, "chat frame");
+      if (!decoded.ok) return;
+      message = decoded.value;
       // The view, pi's operations, and the answers to its own page requests.
       if (!accessEnded.current) mirror.receive(message);
       switch (message.type) {
@@ -323,7 +336,7 @@ export function usePiSession(workspaceId: string) {
             setOutbox(answered(outboxRef.current, id, text));
             return;
           }
-          setState((current) => ({ ...current, error: text }));
+          setState((current) => ({ ...current, socketError: text }));
           return;
         }
         default:
@@ -435,7 +448,7 @@ export function usePiSession(workspaceId: string) {
     };
   }, [sendPoppy]);
 
-  return { ...state, messages, conversation: state.resets.epoch, canReset, submit, resend, discard, abort, reset, sendPoppy };
+  return { ...state, error: state.error ?? state.socketError, messages, conversation: state.resets.epoch, canReset, submit, resend, discard, abort, reset, sendPoppy };
 }
 
 /** Everything the page gets from its agent, as `usePiSession` returns it. */

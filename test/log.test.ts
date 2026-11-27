@@ -106,6 +106,69 @@ describe("http events", () => {
 const idle = { entries: [], docs: { "pi.live": {} } } as unknown as ConversationView;
 const running = { entries: [], docs: { "pi.live": { run: { taskId: 1, inputs: [], turns: 0 } } } } as unknown as ConversationView;
 
+/** A view of the root session: its entries, and `pi.live`. */
+function viewOf(live: object, entries: object[] = []): ConversationView {
+  return { entries, docs: { "pi.live": live } } as unknown as ConversationView;
+}
+
+/** An answer entry, as pi appends one. */
+function answer(id: number, stopReason = "stop") {
+  return { id, conversationId: 1, kind: "pi.assistant", model: [{ role: "assistant", content: [], stopReason }] };
+}
+
+describe("turns from pi's view", () => {
+  async function withLog(fn: (log: AgentLog, turns: () => Array<Record<string, unknown>>) => Promise<void>) {
+    const a = await agent();
+    await runInDurableObject(a.stub, async (_instance, state) => {
+      const log = new AgentLog({ sql: state.storage.sql, agentId: pseudonym(a.stub.id.toString())! });
+      const before = log.events().length;
+      const turns = () => log.events().slice(before).map((line) => JSON.parse(line) as Record<string, unknown>).filter((event) => event.kind === "turn");
+      await fn(log, turns);
+    });
+  }
+
+  it("keeps one turn when the User steers a run, or the run waits on its after-run tasks", async () => {
+    await withLog(async (log, turns) => {
+      await log.onPiView(idle);
+      await log.onPiView(viewOf({ run: { taskId: 1, inputs: [5], turns: 0 } }));
+      // A steer joins the run; then the run answers and its inputs settle while after-run tasks finish.
+      await log.onPiView(viewOf({ run: { taskId: 2, inputs: [5, 7], turns: 1 } }, [answer(10, "toolUse")]));
+      await log.onPiView(viewOf({ run: { taskId: 3, inputs: [], turns: 1, afterRun: {} } }, [answer(10, "toolUse"), answer(12)]));
+      expect(turns()).toEqual([]);
+      await log.onPiView(viewOf({}, [answer(10, "toolUse"), answer(12)]));
+      expect(turns()).toHaveLength(1);
+      expect(turns()[0]).toMatchObject({ model_rounds: 2, stop_reason: "stop", operation_ids: ["5"] });
+    });
+  });
+
+  it("writes a turn for a run that started and ended between two views", async () => {
+    await withLog(async (log, turns) => {
+      await log.onPiView(idle);
+      await log.onPiView(viewOf({}, [answer(4)]));
+      expect(turns()).toHaveLength(1);
+      expect(turns()[0]).toMatchObject({ model_rounds: 1, stop_reason: "stop" });
+      // One that failed without an answer shows by its failure.
+      await log.onPiView(viewOf({ runFailure: { taskId: 9, inputs: [8], reason: "faulted" } }, [answer(4)]));
+      expect(turns()).toHaveLength(2);
+      expect(turns()[1]).toMatchObject({ operation_ids: ["8"], errors: [{ type: "TaskFailed", code: "faulted" }] });
+    });
+  });
+
+  it("ends a run and starts the next when one replaces the other in a commit", async () => {
+    await withLog(async (log, turns) => {
+      await log.onPiView(idle);
+      await log.onPiView(viewOf({ run: { taskId: 1, inputs: [5], turns: 0 } }));
+      await log.onPiView(viewOf({ run: { taskId: 6, inputs: [7], turns: 0 }, runFailure: { taskId: 1, inputs: [5], reason: "orphaned" } }));
+      expect(turns()).toHaveLength(1);
+      expect(turns()[0]).toMatchObject({ operation_ids: ["5"], errors: [{ type: "TaskFailed", code: "orphaned" }] });
+      await log.onPiView(viewOf({ runFailure: { taskId: 1, inputs: [5], reason: "orphaned" } }, [answer(9)]));
+      expect(turns()).toHaveLength(2);
+      expect(turns()[1]).toMatchObject({ operation_ids: ["7"], model_rounds: 1 });
+      expect(turns()[1]).not.toHaveProperty("errors");
+    });
+  });
+});
+
 describe("turn events", () => {
   it("settles in-flight tool diagnostics before emitting an ended turn, without holding the next run", async () => {
     const a = await agent();

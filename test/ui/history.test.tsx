@@ -33,25 +33,45 @@ const gap = (after: number, upTo: number): TranscriptMessage => ({ id: `gap-${af
 
 describe("followResets", () => {
   it("starts where the first view is, even after a reset made before the page loaded", () => {
-    expect(followResets(FIRST_CONVERSATION, projectEntries([reset(4), after]))).toEqual({ epoch: 0, newest: 4, seen: 10 });
-    expect(followResets(FIRST_CONVERSATION, projectEntries([...kept, after]))).toEqual({ epoch: 0, newest: null, seen: 10 });
+    expect(followResets(FIRST_CONVERSATION, projectEntries([reset(4), after]))).toMatchObject({ epoch: 0, newest: 4, seen: 10 });
+    expect(followResets(FIRST_CONVERSATION, projectEntries([...kept, after]))).toMatchObject({ epoch: 0, newest: null, seen: 10 });
   });
 
-  it("waits for a first view with messages before it sets where the page starts", () => {
-    expect(followResets(FIRST_CONVERSATION, [])).toEqual(FIRST_CONVERSATION);
+  it("starts from an empty first view, and counts what turns up before a later window as new", () => {
+    const empty = followResets(FIRST_CONVERSATION, []);
+    expect(empty).toEqual({ epoch: 0, newest: null, seen: 0, whole: true });
+    // Back after another tab cleared chat and wrote on: the view starts at 2, with entry 1 still to load.
+    const back = followResets(empty, projectEntries([entry(2, "pi.user", "user", "One"), entry(3, "pi.user", "user", "Two")]), true);
+    expect(back).toMatchObject({ epoch: 0, seen: 0 });
+    expect(followResets(back, projectEntries([reset(1), entry(2, "pi.user", "user", "One"), entry(3, "pi.user", "user", "Two")]))).toMatchObject({ epoch: 1, newest: 1, seen: 3 });
+  });
+
+  it("pages back without starting anything when the first view held only the newest entries", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([after]), true);
+    expect(loaded).toEqual({ epoch: 0, newest: null, seen: 10, whole: false });
+    expect(followResets(loaded, projectEntries([reset(4), ...kept, after]), false)).toMatchObject({ epoch: 0, newest: null });
   });
 
   it("moves on for a reset that arrives live, or after a reconnect, once each", () => {
     const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
     const live = followResets(loaded, projectEntries([...kept, after, reset(12)]));
-    expect(live).toEqual({ epoch: 1, newest: 12, seen: 12 });
-    expect(followResets(live, projectEntries([reset(12), entry(13, "pi.user", "user", "Hello")]))).toEqual({ epoch: 1, newest: 12, seen: 13 });
-    expect(followResets(live, projectEntries([reset(20)]))).toEqual({ epoch: 2, newest: 20, seen: 20 });
+    expect(live).toMatchObject({ epoch: 1, newest: 12, seen: 12 });
+    expect(followResets(live, projectEntries([reset(12), entry(13, "pi.user", "user", "Hello")]))).toMatchObject({ epoch: 1, newest: 12, seen: 13 });
+    expect(followResets(live, projectEntries([reset(20)]))).toMatchObject({ epoch: 2, newest: 20, seen: 20 });
   });
 
   it("starts nothing for a reset found by paging back, older than what the page had", () => {
     const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
-    expect(followResets(loaded, projectEntries([reset(4), ...kept, after]))).toEqual({ epoch: 0, newest: null, seen: 10 });
+    expect(followResets(loaded, projectEntries([reset(4), ...kept, after]))).toMatchObject({ epoch: 0, newest: null, seen: 10 });
+  });
+
+  it("moves on for a reset found in the gap a reconnect left, newer than what the page had", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
+    // Back after a while: the view starts at 40, with what lies between 10 and 40 still to load.
+    const back = followResets(loaded, [...projectEntries([...kept, after]), gap(10, 40), ...projectEntries([entry(40, "pi.user", "user", "Latest")])]);
+    expect(back).toMatchObject({ epoch: 0, newest: null, seen: 10 });
+    // Loading the gap finds the other tab's reset at 20: from it on is the conversation now.
+    expect(followResets(back, projectEntries([reset(20), entry(40, "pi.user", "user", "Latest")]))).toMatchObject({ epoch: 1, newest: 20, seen: 40 });
   });
 
   it("never goes back, when a later view no longer holds the reset", () => {

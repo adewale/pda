@@ -423,7 +423,6 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** pi's extensions, into this object's registry: once, however often the harness opens pi. */
   #installExtensions(): void {
-    this.#extensionsInstalled = true;
     this.registry.install({
       name: "persona",
       sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
@@ -446,6 +445,8 @@ export class PersonalAgent extends DurableObject<Env> {
     this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql, () => this.clockNow())));
     // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
     this.registry.install(compactionExtension(ROUTER_MODEL, (outcome) => this.log.compactionSummary(outcome)));
+    // Only now: an install that throws leaves the flag unset, so the next open fails the same way, not without tools.
+    this.#extensionsInstalled = true;
   }
 
   /** pi's storage, as the harness opens it. Tests wrap it to make a write fail. */
