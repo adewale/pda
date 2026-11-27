@@ -30,6 +30,12 @@ Keep Node 24 while supported and compatible with dependencies. A new LTS release
 
 ## Testing and interop
 
+- [ ] Checks whose behaviour the quote audit of 13 November found broader than their sentence. Each needs its own id, basis and `TAMPERS` row, not only a new quote:
+  - `message.author`: under 1.0 a Company ignores `id`, `name` and `image` on the Personal Agent's messages, and treats an unknown `author.type` as `agent` (8.8); the mock records the first and refuses the second at both versions.
+  - `session-jwt.sub-changed`: a known `sid` with another User ID starts a new Session under 0.4 (5.3, step 4), and the Company no longer checks the Agent ID; the mock still refuses. The agent's fault (5.2: "MUST NOT use it for any other Session") stands.
+  - `authorize.secret-in-url`: 5.6's MUST NOT covers tokens and Session JWTs; an assertion in the URL rests only on the Guides ("Handling secrets").
+  - `http-non-public-host`: section 3's MUST covers loopback, private and link-local addresses; refusing public IP literals, single-label and special-use names is our fetch policy, reported as that MUST.
+  - The grid's own `company.*` checks (`interop/runner/checks.ts`) quote nothing; extend `scripts/check-requirements.mjs` to them.
 - [ ] Remaining attack coverage: two-Company mix-up (`XM`), a private-host test suffix (`XS`), and the consent-code/browser cases (`YF`, `YC`). [Attack definitions and limits](docs/adversarial-interop.md) own the details; retired Operations 1 scenarios are not current tasks.
 - [ ] Evaluate an additional independent peer when it can exercise a missing current-version interface. Historical candidates (openavt, Alpine Retail and typo3) remain in the dated backlog; do not build adapters for incompatible protocols merely to expand the grid. Adversarial use of another project's code retains the consent and disclosure rules in SECURITY.md.
 

@@ -10,6 +10,7 @@ import { MEDIATED_GRANT } from "../../src/poppy/discovery";
 import { startSignIn, submitCredentials, submitSignInCode, expireSignIn, describeScopes } from "../../src/poppy/signin";
 import { openApiScopeDescriptions } from "../../src/poppy/apis";
 import type { Card, DirectUpdate } from "../../src/poppy/wire";
+import { named } from "../../test/named-fetcher.ts";
 
 const ISSUER = "https://auth.shop.example";
 
@@ -33,7 +34,7 @@ async function fixture(options: {
       CompanyLimiter: { getByName: () => ({ delay: async () => 0, observe: async () => {}, blockUntil: async () => {} }) }
     } as unknown as Env,
     sql,
-    fetcher: async request => {
+    fetcher: named(async request => {
       requests.push({ url: request.url, method: request.method, body: request.body ? await request.clone().text() : "" });
       const overridden = await options.response?.(request);
       if (overridden) return overridden;
@@ -46,7 +47,7 @@ async function fixture(options: {
         protected_resources: ["https://shop.example", "https://other.example"]
       });
       throw new Error(`Unexpected protocol fixture request: ${request.method} ${request.url}`);
-    },
+    }),
     showCard: async card => { cards.push(card); }, notifyModel: async text => { notices.push(text); },
     schedule: async () => {}, hasJob: () => false, pushDirect: update => { direct.push(update); },
     userContext: () => ({ user_available: true }), sleep: async () => {}, now: Date.now

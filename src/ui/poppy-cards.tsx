@@ -15,6 +15,7 @@ import { SignInLinkCard, DeviceCard, CredentialsCard, CodeCard, DirectInvite } f
 import { BrowserControlCard, browserOutcome } from "./poppy-browser";
 import { CompanyAccessCard } from "./poppy-company";
 import { type PoppyView } from "../use-pi-session";
+import { ProblemView, RichText } from "./rich";
 
 /** A one-line record of something resolved: its state's mark and word, what happened, and where. */
 function Receipt({ result, detail, company, children, action, note }: { result: ActivityResult; detail?: string | null; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
@@ -79,13 +80,17 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
       const error = card.id.startsWith("error-");
       return error ? (
         <Receipt result="failed" company={card.company} action={dismiss} note={note}>
-          <p>{card.text}</p>
+          <p>
+            <RichText text={card.text} />
+          </p>
+          {card.problem ? <ProblemView problem={card.problem} /> : null}
         </Receipt>
       ) : (
         <div className={cn("flex min-h-10 items-start gap-2 text-[13px] text-kumo-subtle", inPanel ? "px-4 py-3" : "enter py-1")}>
           <InfoIcon size={16} aria-hidden className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1 text-pretty break-words">
-            <p>{card.company ? <span className="font-medium">{card.company} · </span> : null}{card.text}{note}</p>
+            <p>{card.company ? <span className="font-medium">{card.company} · </span> : null}<RichText text={card.text} />{note}</p>
+            {card.problem ? <ProblemView problem={card.problem} /> : null}
             {card.links?.length ? <NoticeLinks card={card} send={send} enabled={!disabled} /> : null}
           </div>
           {dismiss}

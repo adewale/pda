@@ -16,6 +16,7 @@ import { one } from "../rows";
 import { intent, intentsTable } from "./store";
 import { randomId } from "./jwt";
 import { feedbackHasPersonalData } from "./model-policy";
+import { departure, ours, show, shown, type Shown } from "../diagnostic";
 
 /** One place to do a task instead (9.2): an operation or tool of an API `poppy.json` lists, or a page on the Company's own hosts. */
 export type Reference =
@@ -181,6 +182,11 @@ export type FeedbackAnswer =
   | { readonly kind: "excluded"; readonly task: ExcludedTask }
   | { readonly kind: "already_sent" };
 
+/** How long a field the model wrote is, for a departure: its length, never its words. */
+function length(text: string): Shown {
+  return text === "" ? ours("nothing") : show.count(text.length, ours("character"), ours("characters"));
+}
+
 /** Concurrent attempts queue by this User's Company/task; only acknowledged reports become durable. */
 const feedbackInFlight = new WeakMap<PoppyClient, Map<string, Promise<FeedbackAnswer>>>();
 
@@ -193,12 +199,12 @@ const feedbackInFlight = new WeakMap<PoppyClient, Map<string, Promise<FeedbackAn
  */
 export async function sendFeedback(client: PoppyClient, company: Company, label: string, task: string, description: string): Promise<FeedbackAnswer> {
   const endpoint = await feedbackEndpoint(client, company, label);
-  if (!endpoint) throw new PoppyError("no_feedback", `${company.name} takes no feedback through the protocol`, 0);
+  if (!endpoint) throw new PoppyError("no_feedback", shown`${show.name(company.name)} takes no feedback through the protocol`, 0);
   const trimmed = task.trim();
-  if (trimmed === "" || trimmed.length > TASK_LIMIT) throw new PoppyError("invalid_request", `task must be a short phrase, at most ${TASK_LIMIT} characters`, 0);
-  if (description.trim() === "" || description.length > INSTRUCTIONS_LIMIT) throw new PoppyError("invalid_request", `description must be at most ${INSTRUCTIONS_LIMIT} characters`, 0);
+  if (trimmed === "" || trimmed.length > TASK_LIMIT) throw new PoppyError("invalid_request", departure(ours("task"), shown`a short phrase, at most ${TASK_LIMIT} characters`, length(trimmed)), 0);
+  if (description.trim() === "" || description.length > INSTRUCTIONS_LIMIT) throw new PoppyError("invalid_request", departure(ours("description"), shown`some words, at most ${INSTRUCTIONS_LIMIT} characters`, length(description.trim() === "" ? "" : description)), 0);
   if (feedbackHasPersonalData(task, description)) {
-    throw new PoppyError("invalid_request", "Feedback was not sent. Describe the task in general terms without secrets, contact details or personal identifiers.", 0);
+    throw new PoppyError("invalid_request", ours("Feedback was not sent. Describe the task in general terms without secrets, contact details or personal identifiers."), 0);
   }
   const excluded = await excludedTasks(client, company, label);
   const listed = Array.isArray(excluded) ? excluded.find((entry) => phrase(entry.task) === phrase(trimmed)) : undefined;
@@ -229,7 +235,7 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
       return alternative ? { kind: "alternative", alternative } : { kind: "accepted" };
     }
     const body: Json = await client.readJson(response).catch(() => null);
-    throw new PoppyError(companyErrorCode(isObject(body) ? body.error : undefined, response.status), `${company.name} refused the report (${response.status})`, response.status);
+    throw new PoppyError(companyErrorCode(isObject(body) ? body.error : undefined, response.status), departure(shown`${show.name(company.name)}'s answer to the report`, ours("HTTP 202, or HTTP 200 with an alternative"), show.status(response.status)), response.status);
   };
   const queued = (pending.get(key) ?? Promise.resolve()).then(send, send);
   pending.set(key, queued);

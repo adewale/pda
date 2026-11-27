@@ -4,6 +4,7 @@ import { PoppyClient, type PoppyHost } from "../../src/poppy/client";
 import { migrate } from "../../src/poppy/store";
 import type { Company } from "../../src/poppy/discovery";
 import type { Card } from "../../src/poppy/wire";
+import { named } from "../named-fetcher.ts";
 
 const ISSUER = "https://auth.shop.example";
 
@@ -23,7 +24,7 @@ function fixture() {
   const host: PoppyHost = {
     env: { PUBLIC_ORIGIN: "https://agent.example", POPPY_CLIENT_NAME: "Upgrade test", POPPY_LOGO_URI: "https://agent.example/logo.svg", TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64") } as unknown as Env,
     sql,
-    fetcher: async (request) => {
+    fetcher: named(async (request) => {
       requests.push(request.url);
       const url = new URL(request.url);
       if (url.pathname.startsWith("/.well-known/oauth-authorization-server")) {
@@ -38,7 +39,7 @@ function fixture() {
       }
       if (url.pathname === "/.well-known/oauth-protected-resource") return Response.json({ resource: `https://${url.hostname}`, authorization_servers: [ISSUER] });
       return Response.json({ protocol_version: version, organization: { name: "Shop", domain: url.hostname }, auth: { scopes }, agent: { protocols: [{ type: "poppy", endpoint: conversations }] } });
-    },
+    }),
     showCard: async (card) => { cards.push(card); }, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };

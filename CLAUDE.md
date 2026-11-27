@@ -23,8 +23,9 @@ The design owns architecture and requirements. [Decisions](docs/decisions.md) pr
 Use Node 24 (`.nvmrc`) and `npm ci --legacy-peer-deps`.
 
 - `npm test`: five offline Vitest projects. Use a targeted Vitest command during development; run the full suite for code changes.
-- `npm run typecheck`: types; the optional `.githooks/pre-push` runs this too.
+- `npm run typecheck`: types, for the Workers program and for `scripts/` with Node's types (`tsconfig.scripts.json`); the optional `.githooks/pre-push` runs this too.
 - `npm run check:docs`: dependency-free documentation file/scenario references, independent of test titles.
+- `npm run test:tooling`: dependency-free Node tests of `scripts/`, the validator CLI under Node's type stripping included; CI runs them before `npm ci`. `npm run test:node-runtime` loads the deploy check under Node after `npm ci`.
 - `npm run check:spec`: pinned specification integrity and generated requirement ledger.
 - `npm run test:properties`: ordinary property cases; deep runs stay local.
 - `npm run test:hypothesis`: occasional independent Python check after protocol or major mock changes; not a feature-by-feature maintenance obligation.
@@ -38,6 +39,7 @@ CI runs documentation references on every PR. Runtime checks run for code/config
 
 - No authentication bypass, including development and tests. Identity, Company, account and approval authority come from trusted state, never model arguments.
 - Only the person's interface can approve a Company's exact terms: directly, or under 0.4 through a standing instruction the person wrote there, matched to the exact terms by a deterministic check ([decision 44](docs/decisions.md#44-operations-3-with-agent-approvals-a-real-browser-and-the-fetch-browser-under-04)). Content from a Company, a page or the model never approves. Task-selected photos need no extra disclosure click; unselected files and website forms retain local consent. Preserve unknown-outcome holds and durable replay/notification state.
+- Every error we build is a `Problem` from `src/diagnostic.ts`: a departure says what was expected and what was got, and values reach text only through `show.*` ([decision 54](docs/decisions.md#54-every-diagnostic-says-what-was-expected-and-what-was-got)). Internal invariants stay plain `Error`s.
 - Credentials never reach models, tools, transcripts or logs. Use `src/log.ts`, its safe constructors and redaction; no other source `console` calls. Decode boundary data and SQL rows through the existing decoders.
 - Poppy tests fail on unexpected strict-mock violations or warnings. A new protocol check needs its stable id/basis in `violations.ts` and a negative `TAMPERS` case; [Company testing](docs/company-testing.md) explains why. Keep independent oracles independent.
 - Whole-runtime Durable Object resets belong only in `test/durability/`. Ordinary tests fake external services. Interop-only fault injection stays in adapters.

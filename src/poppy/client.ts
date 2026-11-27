@@ -1,3 +1,4 @@
+import type { JWK } from "jose";
 import {
   boundedCacheSeconds,
   discover,
@@ -7,25 +8,27 @@ import {
   type Company,
   type WebsiteOnly
 } from "./discovery";
-import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
-import { isObject, parseStrictJson, type Json } from "./json";
+import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type IdentifiedFetcher, type PoppyTimeouts } from "./fetch";
+import { isObject, JsonError, parseStrictJson, type Json } from "./json";
 import { sameAuthority, sessionAuthority } from "./authority";
-import { number, object, optional, string, tryDecode, type Decoded } from "../decode";
+import { DecodeError, number, object, optional, string, type Decoded } from "../decode";
 import {
   clientAssertion,
   delegate,
   delegationUsable,
   dpopProof,
   newDpopKey,
+  newStoredDpopKey,
   randomId,
   sessionJwt,
+  storedDpopKey,
   type Delegated,
   type DpopKey
 } from "./jwt";
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup, type ResourceAuth } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
-import { accountsTable, domainsTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
+import { accountsTable, domainsTable, dpopKeysTable, dpopNoncesTable, intentsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { declaration, declarationHeaders, sameDeclaration, type Declaration } from "./declaration";
@@ -36,12 +39,14 @@ import { FOREIGN_TEXT, literal, reportError, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
 import { operatorKey, signRequest } from "./operator";
 import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
+import { refusedBeforeSending } from "../validator/fetch.ts";
+import { departure, isDeparture, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
   readonly env: Env;
   readonly sql: Sql;
-  readonly fetcher: Fetcher;
+  readonly fetcher: IdentifiedFetcher;
   /** Show or update a card in the person's chat page. */
   readonly showCard: (card: Card, options?: import("./cards").CardWriteOptions) => Promise<void>;
   /** Tell the model something happened, at most once per `operationId`. */
@@ -79,12 +84,12 @@ export type JobName = "poppy-read" | "poppy-device" | "poppy-revoke" | "poppy-si
  * the Company sent (its `error_description`, its body), so a wide event
  * records only its class and code (`ForeignText`, src/log.ts).
  */
-export class PoppyError extends Error implements ForeignText {
+export class PoppyError extends ProblemError implements ForeignText {
   override name = "PoppyError";
   readonly [FOREIGN_TEXT] = true as const;
   constructor(
     readonly code: PoppyErrorCode,
-    message: string,
+    problem: Problem,
     readonly status: number,
     readonly detail: {
       readonly scope?: string;
@@ -96,7 +101,7 @@ export class PoppyError extends Error implements ForeignText {
       readonly poppyTask?: { readonly id: string; readonly result: import("./approval-outcome").ApprovalResult };
     } = {}
   ) {
-    super(message);
+    super(problem);
   }
 
   /** Whether the code is one of these. Only codes we or the draft define can be named, so a misspelt one is a type error. */
@@ -111,7 +116,7 @@ export class PoppyError extends Error implements ForeignText {
  * refused before a request is built.
  */
 export function issuerEndpoints(company: Company): NonNullable<Company["endpoints"]> {
-  if (!company.endpoints) throw new PoppyError("no_sign_in", `${company.name} has no OAuth issuer, so it offers no sign-in: only signed-out use`, 0);
+  if (!company.endpoints) throw new PoppyError("no_sign_in", shown`${show.name(company.name)} has no OAuth issuer, so it offers no sign-in: only signed-out use`, 0);
   return company.endpoints;
 }
 
@@ -183,7 +188,7 @@ export function withoutAnswer<T>(error: T): T {
 /** The Company asked us to wait longer than we hold a request open for. */
 export class RateLimitedError extends PoppyError {
   constructor(readonly waitMs: number) {
-    super("rate_limited", `The company asked us to wait ${Math.ceil(waitMs / 1000)} s`, 429, {
+    super("rate_limited", shown`The company asked us to wait ${Math.ceil(waitMs / 1000)} s`, 429, {
       retryAfter: Math.ceil(waitMs / 1000)
     });
   }
@@ -323,7 +328,7 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
  */
 export function extensionRequired(company: Company, extension: string | undefined, status: number, body?: Json): PoppyError {
   return withAnswer(
-    new PoppyError("extension_required", `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`, status, {
+    new PoppyError("extension_required", shown`${show.name(company.name)} requires the extension ${extension === undefined ? ours("(unnamed)") : show.name(extension)}, which this agent doesn't support`, status, {
       ...(body !== undefined ? { body } : {}),
       ...(extension ? { extension } : {})
     }),
@@ -423,14 +428,14 @@ export class PoppyClient {
   readonly host: PoppyHost;
   readonly identity: AgentIdentity;
   readonly sealer: Sealer;
-  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use and never stored. */
+  /** DPoP keys by issuer and User ID, so each key serves one User ID (4.5); generated on first use, then kept sealed in `poppy_dpop_keys` (1.0: 4.4). */
   readonly #dpopKeys = new Map<string, Promise<DpopKey>>();
   /** Access tokens by issuer, Session label, resource and scope. */
   readonly #tokens = new Map<string, HeldToken>();
   /** New sign-ins and withdrawals invalidate held access; ordinary refresh rotation does not. */
   readonly #accountGenerations = new Map<string, number>();
-  /** The latest `DPoP-Nonce` from each server origin. */
-  readonly #nonces = new Map<string, string>();
+  /** The latest `DPoP-Nonce` from each server origin, read through from `poppy_dpop_nonces`. */
+  readonly #nonces = new Map<string, string | null>();
   /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
   readonly #delegated = new Map<Issuer, Promise<Delegated>>();
   /** Cache public service metadata by URL; its issuer and host checks are specific to each Company (4.5). */
@@ -487,14 +492,14 @@ export class PoppyClient {
    */
   async readBody(response: Response, maxBytes = 2_000_000): Promise<string> {
     return withDeadline(this.timeouts.bodyMs, (signal) => readLimited(response, maxBytes, signal)).catch((error: unknown) => {
-      throw timeoutError(error, `Reading ${response.url || "the response"}`);
+      throw timeoutError(error, response.url ? shown`Reading ${show.url(response.url)}` : ours("Reading the response"));
     });
   }
 
   /** `readBody`, as JSON: null for an empty or unreadable one. */
   async readJson(response: Response): Promise<Json> {
     return withDeadline(this.timeouts.bodyMs, (signal) => readJson(response, signal)).catch((error: unknown) => {
-      throw timeoutError(error, `Reading ${response.url || "the response"}`);
+      throw timeoutError(error, response.url ? shown`Reading ${show.url(response.url)}` : ours("Reading the response"));
     });
   }
 
@@ -504,9 +509,7 @@ export class PoppyClient {
   async company(domain: string): Promise<Company> {
     const found = await this.lookup(domain);
     if (!isCompany(found)) {
-      throw new DiscoveryError(
-        `${found.name} publishes poppy.json without auth, so it can only be browsed as a website`
-      );
+      throw new DiscoveryError(shown`${show.name(found.name)} publishes poppy.json without auth, so it can only be browsed as a website`);
     }
     return found;
   }
@@ -553,7 +556,7 @@ export class PoppyClient {
     // that lists no authorization server does; a 404 alone, which a misconfiguration can produce, doesn't.
     if (isCompany(result) && result.issuerless && known && !known.issuerless && discovered.report.protectedResource === undefined) {
       recordDiscovery(this.sql, key, discovered.report, null);
-      throw new DiscoveryError(`${result.name} named the OAuth issuer ${known.issuer} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${key} as signed-out only.`);
+      throw new DiscoveryError(shown`${show.name(result.name)} named the OAuth issuer ${show.url(known.issuer)} before, and its protected resource metadata is now missing (HTTP 404). A missing document doesn't show the issuer was removed, so the agent won't treat ${show.name(key)} as signed-out only.`);
     }
     // A removed issuer ends account access even when the identifier stays the same: an issuer of exactly
     // https://{domain} gives way to the same domain identifier, with nothing left to sign in with or refresh at.
@@ -588,7 +591,7 @@ export class PoppyClient {
       "SELECT company FROM poppy_domains WHERE issuer = ? ORDER BY expires_at DESC LIMIT 1",
       issuer
     ) ?? one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE issuer = ? ORDER BY rowid DESC LIMIT 1", issuer);
-    if (!row) throw new DiscoveryError(`No company known for issuer ${issuer}`);
+    if (!row) throw new DiscoveryError(shown`No company known for issuer ${show.url(issuer)}`);
     return JSON.parse(row.company) as Company;
   }
 
@@ -685,19 +688,20 @@ export class PoppyClient {
     if (!context) {
       const candidates = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer);
       const domains = new Set(candidates.map((row) => (JSON.parse(row.company) as Company).domain));
-      if (domains.size !== 1) throw new PoppyError("company_changed", "This older task has no unambiguous Company domain; start it again", 0);
+      if (domains.size !== 1) throw new PoppyError("company_changed", ours("This older task has no unambiguous Company domain; start it again"), 0);
       context = candidates[0];
     }
-    if (!context) throw new DiscoveryError("No discovery context for this task");
+    if (!context) throw new DiscoveryError(ours("No discovery context for this task"));
     const original = JSON.parse(context.company) as Company;
     let current = await this.company(original.domain);
     const moved = options.keepVersion && current.issuer === issuer && current.protocolVersion !== original.protocolVersion;
     if (moved) {
       const kept = await this.#companyAt(original.domain, original.protocolVersion);
-      if (!kept) throw new PoppyError("version_mismatch", `${current.name} no longer serves Poppy ${original.protocolVersion}, the version this began in`, 0);
+      if (!kept) throw new PoppyError("version_mismatch", shown`${show.name(current.name)} no longer serves Poppy ${show.code(original.protocolVersion)}, the version this began in`, 0);
       current = kept;
     }
-    const interfaces = (company: Company) => [company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url])];
+    // The conversation endpoint, not its description: rewording what the agent can help with (1.0 8.1) changes no interface.
+    const interfaces = (company: Company) => [company.endpoints, company.signIn, company.web, company.conversations?.endpoint, company.extensions, company.apis.map((api) => [api.type, api.url])];
     // A Company that moved to another version may add to what it shares across versions, such as the
     // poppy:browser-sign-in scope (6); work kept in the old version needs only that nothing it had changed.
     const same = (before: unknown, after: unknown) => moved ? keeps(before, after) : JSON.stringify(before) === JSON.stringify(after);
@@ -705,7 +709,7 @@ export class PoppyClient {
         (original.authFingerprint && !same(JSON.parse(original.authFingerprint), current.authFingerprint ? JSON.parse(current.authFingerprint) : null)) || interfaces(original).some((part, index) => !same(part, interfaces(current)[index])) ||
         (original.specificationRevision && current.specificationRevision !== original.specificationRevision)) {
       await this.host.showCard({ id: `company-changed-${kind}-${id}`, kind: "notice", company: original.name, domain: original.domain, open: false, text: "This Company changed its protocol or interfaces while work was pending. Review its current status before starting a new task; an uncertain action must not be repeated." });
-      throw new PoppyError("company_changed", "The Company's issuer, protocol or interfaces changed while this task was pending; reconcile it before continuing", 0);
+      throw new PoppyError("company_changed", ours("The Company's issuer, protocol or interfaces changed while this task was pending; reconcile it before continuing"), 0);
     }
     this.rememberCompany(kind, id, current);
     return current;
@@ -765,14 +769,61 @@ export class PoppyClient {
 
   // ---------------------------------------------------------------- Keys
 
+  /**
+   * The DPoP key for this Company and User ID. It outlives restarts, so a
+   * refresh token is always refreshed with the key it was issued with, as 1.0
+   * requires (4.4) and 0.4 allows; it is the same key until the agent's data
+   * is deleted.
+   */
   dpopKey(issuer: Issuer): Promise<DpopKey> {
-    const id = `${issuer}|${this.userId(issuer)}`;
+    const userId = this.userId(issuer);
+    const id = `${issuer}|${userId}`;
     let key = this.#dpopKeys.get(id);
     if (!key) {
-      key = newDpopKey();
+      key = this.#storedDpopKey(issuer, userId);
       this.#dpopKeys.set(id, key);
+      // A failure to open or store it isn't remembered: the next request tries again.
+      key.catch(() => this.#dpopKeys.delete(id));
     }
     return key;
+  }
+
+  async #storedDpopKey(issuer: Issuer, userId: string): Promise<DpopKey> {
+    const context = `dpop|${issuer}|${userId}`;
+    const stored = () => one(this.sql, dpopKeysTable.pick("key"), "SELECT key FROM poppy_dpop_keys WHERE issuer = ? AND user_id = ?", issuer, userId);
+    const row = stored();
+    if (row) {
+      const { plaintext, current } = await this.sealer.openChecked(row.key, context);
+      // Sealed under TOKEN_ENC_KEY_PREVIOUS: seal it again under the current key.
+      if (!current) this.sql.exec("UPDATE poppy_dpop_keys SET key = ? WHERE issuer = ? AND user_id = ? AND key = ?", await this.sealer.seal(plaintext, context), issuer, userId, row.key);
+      return storedDpopKey(JSON.parse(plaintext) as JWK);
+    }
+    const { key, privateJwk } = await newStoredDpopKey();
+    const sealed = await this.sealer.seal(JSON.stringify(privateJwk), context);
+    // One lookup at a time per key (#dpopKeys), so no other key for this User ID is stored meanwhile.
+    this.sql.exec("INSERT INTO poppy_dpop_keys (issuer, user_id, key, created_at) VALUES (?, ?, ?, ?)", issuer, userId, sealed, Date.now());
+    return key;
+  }
+
+  /**
+   * The latest nonce from `origin`. It is stored, since the keys that used it
+   * outlive a restart, so their next proof carries it instead of being
+   * challenged again (RFC 9449 8).
+   */
+  #nonce(origin: string): string | undefined {
+    let nonce = this.#nonces.get(origin);
+    if (nonce === undefined) {
+      // null: the server has sent none, kept so most requests read no row (#keepNonce is the only writer).
+      nonce = one(this.sql, dpopNoncesTable.pick("nonce"), "SELECT nonce FROM poppy_dpop_nonces WHERE origin = ?", origin)?.nonce ?? null;
+      this.#nonces.set(origin, nonce);
+    }
+    return nonce ?? undefined;
+  }
+
+  #keepNonce(origin: string, nonce: string): void {
+    if (this.#nonce(origin) === nonce) return;
+    this.#nonces.set(origin, nonce);
+    this.sql.exec("INSERT OR REPLACE INTO poppy_dpop_nonces (origin, nonce) VALUES (?, ?)", origin, nonce);
   }
 
   // ---------------------------------------------------------------- Rate limits
@@ -864,9 +915,9 @@ export class PoppyClient {
       });
       const origin = new URL(endpoint).origin;
       // For the protocol log, which reads only the fields it names (never a token, code, verifier or assertion).
-      const logged = { endpoint, form: fields, dpop, nonce: dpop && this.#nonces.has(origin) };
+      const logged = { endpoint, form: fields, dpop, nonce: dpop && this.#nonce(origin) !== undefined };
       if (dpop) {
-        const nonce = this.#nonces.get(origin);
+        const nonce = this.#nonce(origin);
         headers.set(
           "DPoP",
           await dpopProof(await this.dpopKey(company.issuer), {
@@ -887,10 +938,10 @@ export class PoppyClient {
         return { response, body: await readJson(response, signal) };
       }).catch((error: unknown) => {
         recordOauth(this.sql, company, logged, { failed: noAnswer(error) });
-        throw timeoutError(error, endpoint);
+        throw timeoutError(error, show.url(endpoint));
       });
       const nonce = response.headers.get("DPoP-Nonce");
-      if (nonce) this.#nonces.set(origin, nonce);
+      if (nonce) this.#keepNonce(origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
       const answer = { status: response.status, body };
@@ -909,7 +960,7 @@ export class PoppyClient {
       recordOauth(this.sql, company, logged, answer);
       return { status: response.status, body, headers: response.headers };
     }
-    throw new PoppyError("rate_limited", "The company kept refusing the request", 429);
+    throw new PoppyError("rate_limited", ours("The company kept refusing the request"), 429);
   }
 
   /** A token request that must succeed; OAuth errors become `PoppyError`s. */
@@ -920,16 +971,22 @@ export class PoppyClient {
   ): Promise<TokenResponse> {
     const { status, body } = await this.oauthRequest(company, issuerEndpoints(company).token, params, options);
     if (status === 200 && isObject(body) && typeof body.access_token === "string") {
-      const decoded = tryDecode(tokenResponse, body, "token response");
-      if (!decoded.ok || !(decoded.value.expires_in > 0)) {
-        throw new PoppyError("invalid_response", `The company's token response is malformed${decoded.ok ? ": expires_in isn't positive" : ` (${decoded.problem})`}`, status);
+      let decoded: TokenResponse;
+      try {
+        decoded = tokenResponse(body, "the token response");
+      } catch (error) {
+        // Where and what: a member of the wrong type. The access token is a string by now, so never shown.
+        if (error instanceof DecodeError) throw new PoppyError("invalid_response", error.problem, status);
+        throw error;
       }
-      return decoded.value;
+      if (!(decoded.expires_in > 0)) {
+        throw new PoppyError("invalid_response", departure(ours("the token response's expires_in"), ours("a positive number of seconds"), show.value(decoded.expires_in)), status);
+      }
+      return decoded;
     }
     const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
-    const description =
-      isObject(body) && typeof body.error_description === "string" ? `: ${body.error_description}` : "";
-    throw new PoppyError(code, `${company.name} refused the token request (${code})${description}`, status, {
+    const description = isObject(body) && typeof body.error_description === "string" ? shown`: ${show.text(body.error_description)}` : ours("");
+    throw new PoppyError(code, shown`${show.name(company.name)} refused the token request (${show.code(code)})${description}`, status, {
       ...(body !== null ? { body } : {})
     });
   }
@@ -1026,13 +1083,13 @@ export class PoppyClient {
 
   #checkAccountGeneration(issuer: Issuer, account: string, expected: number): void {
     if (this.accountGeneration(issuer, account) !== expected) {
-      throw new PoppyError("approval_changed", "The account's access changed while this request was being prepared. Start it again.", 0);
+      throw new PoppyError("approval_changed", ours("The account's access changed while this request was being prepared. Start it again."), 0);
     }
   }
 
   #checkAccount(row: AccountRow): void {
     if (this.account(row.issuer, row.account)?.token !== row.token) {
-      throw new PoppyError("approval_changed", "The account's refresh token changed while this request was being prepared. Start it again.", 0);
+      throw new PoppyError("approval_changed", ours("The account's refresh token changed while this request was being prepared. Start it again."), 0);
     }
   }
 
@@ -1122,7 +1179,7 @@ export class PoppyClient {
         sealed, account.scope, response.refresh_token_expires_in ? Date.now() + response.refresh_token_expires_in * 1000 : null,
         Date.now(), company.issuer, account.account, account.token
       ).toArray();
-      if (!changed.length) throw new PoppyError("approval_changed", "The account's refresh token changed before its rotated token could be stored. Start it again.", 0);
+      if (!changed.length) throw new PoppyError("approval_changed", ours("The account's refresh token changed before its rotated token could be stored. Start it again."), 0);
     }
   }
 
@@ -1213,7 +1270,7 @@ export class PoppyClient {
       const dpop = company.dpop ? await this.dpopKey(company.issuer) : null;
       this.#checkAccountGeneration(company.issuer, account, generation);
       if (!sameAuthority(bound, sessionAuthority(this.session(company.issuer, label)))) {
-        throw new PoppyError("approval_changed", "The Session changed while sign-in was being completed. Start it again.", 0);
+        throw new PoppyError("approval_changed", ours("The Session changed while sign-in was being completed. Start it again."), 0);
       }
       const held = response.access_token ? this.#usable(response, dpop, account, generation) : null;
       if (held) this.#tokens.set(`${company.issuer}|${label}|||access`, held);
@@ -1418,13 +1475,22 @@ export class PoppyClient {
   async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
     this.#serviceResources.delete(service);
     const url = serviceMetadataUrl(company, hint, service);
-    if (!url) throw new PoppyError("invalid_response", "The service's resource_metadata challenge names an untrusted metadata URL", 0);
+    if (!url) throw new PoppyError("invalid_response", departure(ours("the service's resource_metadata challenge"), ours("a public HTTPS metadata URL on one of this Company's hosts or the service's origin"), show.url(hint)), 0);
     let fetched: Awaited<ReturnType<typeof fetchJson>>;
     try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
-    catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
+    catch { throw new PoppyError("invalid_response", ours("The service's challenged resource metadata could not be fetched safely"), 0); }
     const resource = metadataResource(company, fetched.json, service);
     if (!resource || !identifiesService(resource, service) || (expectedResource !== undefined && resource !== expectedResource)) {
-      throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
+      const wanted = expectedResource ?? service;
+      throw new PoppyError(
+        "invalid_response",
+        departure(
+          ours("the refreshed resource metadata"),
+          shown`the resource ${show.url(wanted, wanted)}, under this Company's issuer`,
+          resource ? shown`the resource ${show.url(resource, resource)}` : ours("no resource this Company's issuer vouches for")
+        ),
+        0
+      );
     }
     this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
     // An explicitly selected resource (MCP's exact URL) remains explicit even if it names the Company domain.
@@ -1499,7 +1565,7 @@ export class PoppyClient {
   /** An access token: its scheme is the one `token_type` names (4.5), and a DPoP-bound one needs the proof we sent. */
   #held(response: TokenResponse, dpop: DpopKey | null, account: string, generation: number): HeldToken {
     const held = this.#usable(response, dpop, account, generation);
-    if (!held) throw new PoppyError("invalid_response", "The token response names a token_type this request can't use", 0);
+    if (!held) throw new PoppyError("invalid_response", ours("The token response names a token_type this request can't use"), 0);
     return held;
   }
 
@@ -1537,7 +1603,7 @@ export class PoppyClient {
     const url = new URL(request.url);
     if (url.protocol !== "https:") {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "not_https" });
-      throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+      throw new PoppyError("invalid_request", departure(ours("the request's URL"), ours("an https:// URL"), show.url(url)), 0);
     }
     // Tokens and Session JWTs go only to the Company's own hosts (N10), or to a server a description
     // poppy.json lists names, which 5.2 makes a Session destination; a checked API request carries it.
@@ -1549,7 +1615,12 @@ export class PoppyClient {
       recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",
-        `${url.hostname} isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or a URL in its issuer's protected_resources), so it never gets a token or Session JWT`,
+        departure(
+          ours("the request's host"),
+          shown`one of ${show.name(company.name)}'s hosts: listed in its poppy.json, under ${show.name(company.domain)}, or in a URL in its issuer's protected_resources`,
+          show.name(url.hostname),
+          ours("It never gets a token or Session JWT")
+        ),
         0
       );
     }
@@ -1569,7 +1640,7 @@ export class PoppyClient {
       const sameBinding = () => sameSession() && (!preparedToken ||
         preparedToken.accountGeneration === this.accountGeneration(company.issuer, preparedToken.account));
       const checkRetry = () => {
-        if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed after this request was sent. No further attempt will be sent.", 0);
+        if (!sameBinding()) throw new PoppyError("approval_changed", ours("The account or Session changed after this request was sent. No further attempt will be sent."), 0);
       };
       // A signed-in request to a service that takes only its own tokens asks for one (4.5).
       let effective = options;
@@ -1583,19 +1654,19 @@ export class PoppyClient {
       const token = effective.noToken ? null : await this.token(company, effective);
       preparedToken = token;
       if (!sameBinding()) {
-        if (sameSession()) throw new PoppyError("approval_changed", "The account's access changed while this request was being prepared. Start it again.", 0);
+        if (sameSession()) throw new PoppyError("approval_changed", ours("The account's access changed while this request was being prepared. Start it again."), 0);
         // A sign-in or sign-out may have won while refresh was pending. Its
         // old response must neither travel nor populate the new Session's cache.
         this.#forgetTokens(company.issuer, label);
-        if (attempt === 3) throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
+        if (attempt === 3) throw new PoppyError("approval_changed", ours("The account or Session changed while this request was being prepared. Start it again."), 0);
         continue;
       }
       // Tokens never travel in a URL (5.6), whatever a description or a model supplies.
       if (token && url.href.includes(token.value)) {
         recordResource(this.sql, company, request, { token: token.type, nonce: false }, { refused: "token_in_url" });
-        throw new PoppyError("invalid_request", "Refusing a URL that contains a token", 0);
+        throw new PoppyError("invalid_request", departure(ours("the request's URL"), ours("a URL without the access token in it"), ours("one that contains it")), 0);
       }
-      const auth: ResourceAuth = { token: token?.type ?? "none", nonce: token?.type === "DPoP" && this.#nonces.has(url.origin) };
+      const auth: ResourceAuth = { token: token?.type ?? "none", nonce: token?.type === "DPoP" && this.#nonce(url.origin) !== undefined };
       const log = (answer: Parameters<typeof recordResource>[4], next?: Followup) => recordResource(this.sql, company, request, auth, answer, next);
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
@@ -1610,7 +1681,7 @@ export class PoppyClient {
       } else if (token.type === "Bearer") {
         headers.set("Authorization", `Bearer ${token.value}`);
       } else {
-        const nonce = this.#nonces.get(url.origin);
+        const nonce = this.#nonce(url.origin);
         headers.set("Authorization", `DPoP ${token.value}`);
         headers.set(
           "DPoP",
@@ -1638,7 +1709,7 @@ export class PoppyClient {
       // must observe the same binding as the already prepared outbound request.
       if (!sameBinding()) {
         if (!sameSession()) this.#forgetTokens(company.issuer, label);
-        throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
+        throw new PoppyError("approval_changed", ours("The account or Session changed while this request was being prepared. Start it again."), 0);
       }
       options.beforeDispatch?.();
       // A deadline for the answer to start; the caller reads the body with `readBody`.
@@ -1649,10 +1720,12 @@ export class PoppyClient {
         )
       ).catch((error: unknown) => {
         log({ failed: noAnswer(error) });
-        throw withAnswer(timeoutError(error, `${url.origin}${url.pathname}`), "none");
+        // Refused before anything was sent (a port a Worker won't honour): it never reached the Company, so no unknown outcome.
+        if (refusedBeforeSending(error)) throw withoutAnswer(error);
+        throw withAnswer(timeoutError(error, show.url(url)), "none");
       });
       const nonce = response.headers.get("DPoP-Nonce");
-      if (nonce) this.#nonces.set(url.origin, nonce);
+      if (nonce) this.#keepNonce(url.origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
       const challenge = parseWwwAuthenticate(response.headers.get("WWW-Authenticate"));
       if (wait !== null) {
@@ -1679,13 +1752,13 @@ export class PoppyClient {
         this.dropToken(company, options);
         if (challenge.resourceMetadataAmbiguous) {
           this.#serviceResources.delete(options.service ?? options.resource ?? url.href);
-          throw new PoppyError("invalid_response", "The service's authentication challenge has conflicting or malformed resource metadata", 401);
+          throw new PoppyError("invalid_response", ours("The service's authentication challenge has conflicting or malformed resource metadata"), 401);
         }
         if (challenge.resourceMetadata) {
           const service = options.service ?? options.resource ?? url.href;
-          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed before refreshing service metadata", 0);
+          if (!sameBinding()) throw new PoppyError("approval_changed", ours("The account or Session changed before refreshing service metadata"), 0);
           const value = await this.#refreshServiceMetadata(company, service, challenge.resourceMetadata, options.resource);
-          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed while service metadata was being refreshed", 0);
+          if (!sameBinding()) throw new PoppyError("approval_changed", ours("The account or Session changed while service metadata was being refreshed"), 0);
           challengedResource = { value };
         }
         renewed = true;
@@ -1718,14 +1791,14 @@ export class PoppyClient {
         const fresh = await this.lookup(company.domain, { fresh: true }).catch(() => null);
         const again = fresh && isCompany(fresh) && fresh.issuer === company.issuer && fresh.protocolVersion !== sent ? fresh : null;
         log({ status: 400, error: "version_unsupported" }, again && options.versionNeutral ? { kind: "restart" } : undefined);
-        if (!again) throw withAnswer(new PoppyError("version_unsupported", `${company.name} refused protocol version ${sent}, and its poppy.json offers no other this agent speaks. Nothing was handled.`, 400), 400);
+        if (!again) throw withAnswer(new PoppyError("version_unsupported", shown`${show.name(company.name)} refused protocol version ${show.code(sent)}, and its poppy.json offers no other this agent speaks. Nothing was handled.`, 400), 400);
         if (!options.versionNeutral) {
-          throw withAnswer(new PoppyError("version_unsupported", `${company.name} no longer serves protocol version ${sent}; the agent now uses ${again.protocolVersion} there. Nothing was handled, and this request wasn't sent again because it belongs to ${sent}. Start it again.`, 400), 400);
+          throw withAnswer(new PoppyError("version_unsupported", shown`${show.name(company.name)} no longer serves protocol version ${show.code(sent)}; the agent now uses ${show.code(again.protocolVersion)} there. Nothing was handled, and this request wasn't sent again because it belongs to ${show.code(sent)}. Start it again.`, 400), 400);
         }
         checkRetry();
         company = again;
         if (!tokenHostAllowed(company, url) && !listed && !("describedServer" in outgoing && outgoing.company.issuer === company.issuer)) {
-          throw new PoppyError("untrusted_host", `${url.hostname} isn't one of ${company.name}'s hosts in its new poppy.json, so the request wasn't sent again`, 0);
+          throw new PoppyError("untrusted_host", departure(ours("the request's host"), shown`one of ${show.name(company.name)}'s hosts in its new poppy.json`, show.name(url.hostname), ours("The request wasn't sent again")), 0);
         }
         // The new declaration starts a new Session (#declaredSession), which a task's guard follows.
         options.onSessionRestart?.(sid, this.preparedSession(company, label).session_id);
@@ -1737,7 +1810,7 @@ export class PoppyClient {
       if (code && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
         throw withAnswer(
-          new PoppyError(companyErrorCode(code, response.status), `${company.name}: ${code}`, response.status, {
+          new PoppyError(companyErrorCode(code, response.status), shown`${show.name(company.name)}: ${show.code(code)}`, response.status, {
             ...(challenge.scope ? { scope: challenge.scope } : {})
           }),
           response.status
@@ -1745,7 +1818,7 @@ export class PoppyClient {
       }
       return response;
     }
-    throw new PoppyError("server_error", `${company.name} kept refusing the request`, 0);
+    throw new PoppyError("server_error", shown`${show.name(company.name)} kept refusing the request`, 0);
   }
 
   /** `resource()` for JSON endpoints: non-2xx bodies with an `error` become `PoppyError`s. */
@@ -1759,13 +1832,17 @@ export class PoppyClient {
     try {
       const text = await this.readBody(response);
       try { body = text ? parseStrictJson(text) : null; }
-      catch { throw new PoppyError("invalid_response", `${company.name} returned malformed JSON`, response.status); }
+      catch (error) {
+        // Where the JSON broke, and what came there.
+        const at = error instanceof JsonError && isDeparture(error.problem) ? error.problem : null;
+        throw new PoppyError("invalid_response", at ? departure(shown`${show.name(company.name)}'s answer at ${at.subject}`, at.expected, at.got) : shown`${show.name(company.name)} returned malformed JSON`, response.status);
+      }
     } catch (error) { throw withUnreadableAnswer(error, response.status); }
     if (response.status >= 400) {
       const required = extensionRequiredBody(company, body, response.status);
       if (required) throw required;
       const code = companyErrorCode(isObject(body) ? body.error : undefined, response.status);
-      throw withAnswer(new PoppyError(code, `${company.name} returned ${code}`, response.status, {
+      throw withAnswer(new PoppyError(code, shown`${show.name(company.name)} returned ${show.code(code)}`, response.status, {
         ...(body !== null ? { body } : {})
       }), response.status);
     }

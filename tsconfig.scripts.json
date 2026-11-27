@@ -1,0 +1,11 @@
+{
+  // The Node scripts (the CLI validator and its fetcher, the build and deploy
+  // helpers), with Node's types. They can't share tsconfig.json's program:
+  // Node's and Workers' type packages declare the same globals differently.
+  "extends": "agents/tsconfig",
+  "compilerOptions": {
+    "strict": true,
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts"]
+}

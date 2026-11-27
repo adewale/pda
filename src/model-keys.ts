@@ -2,6 +2,7 @@ import type { AuthContext, Credential, CredentialInfo, CredentialStore } from "@
 import { isKeyProvider, type KeyProvider } from "./config";
 import type { Sealer } from "./poppy/store";
 import { literal } from "./decode";
+import { departure, ours, sentence, show, shown, type Problem } from "./diagnostic";
 import { integer, nullable, one, table, text, textOf } from "./rows";
 
 /**
@@ -223,13 +224,17 @@ export const NO_AMBIENT_AUTH: AuthContext = {
 
 const PREFIX: Record<KeyProvider, string> = { anthropic: "sk-ant-", openai: "sk-" };
 
-/** A format problem with a pasted key, or null. Never repeats the key. */
-export function keyFormatProblem(provider: KeyProvider, key: string): string | null {
+/**
+ * A format problem with a pasted key, or null. Never repeats the key, not
+ * even in part, so these are facts about the rule: what was got is a secret.
+ */
+export function keyFormatProblem(provider: KeyProvider, key: string): Problem | null {
+  const label = show.name(PROVIDER_LABEL[provider]);
   if (key.length < 20 || key.length > 512 || !/^[\x21-\x7e]+$/.test(key)) {
-    return `That doesn't look like an ${PROVIDER_LABEL[provider]} API key.`;
+    return shown`That doesn't look like an ${label} API key.`;
   }
   if (!key.startsWith(PREFIX[provider])) {
-    return `${PROVIDER_LABEL[provider]} API keys start with ${PREFIX[provider]}.`;
+    return shown`${label} API keys start with ${show.name(PREFIX[provider])}.`;
   }
   return null;
 }
@@ -242,10 +247,10 @@ export function keyFormatProblem(provider: KeyProvider, key: string): string | n
 export const ANTHROPIC_WORKSPACE_HEADER = "anthropic-workspace-id";
 
 /** A problem with an optional workspace ID, or null. */
-export function workspaceProblem(provider: KeyProvider, workspace: string | null): string | null {
+export function workspaceProblem(provider: KeyProvider, workspace: string | null): Problem | null {
   if (workspace === null) return null;
-  if (provider !== "anthropic") return `Only Anthropic keys take a workspace ID.`;
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(workspace)) return "A workspace ID is letters, digits, _ and -, like wrkspc_01…, from the Anthropic Console.";
+  if (provider !== "anthropic") return ours("Only Anthropic keys take a workspace ID.");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(workspace)) return departure(ours("the workspace ID"), ours("letters, digits, _ and -, like wrkspc_01…"), show.value(workspace), ours("Copy it from the Anthropic Console"));
   return null;
 }
 
@@ -304,11 +309,12 @@ export async function checkKey(
   fetcher: (request: Request) => Promise<Response>,
   workspace: string | null = null
 ): Promise<KeyCheck> {
+  const label = show.name(PROVIDER_LABEL[provider]);
   let response: Response;
   try {
     response = await fetcher(keyCheckRequest(provider, key, workspace));
   } catch {
-    return { ok: false, status: 502, error: `Couldn't reach ${PROVIDER_LABEL[provider]} to check the key. Try again.` };
+    return { ok: false, status: 502, error: sentence(shown`Couldn't reach ${label} to check the key. Try again.`) };
   }
   if (response.ok) {
     await response.body?.cancel();
@@ -316,16 +322,15 @@ export async function checkKey(
   }
   if (response.status === 401 || response.status === 403) {
     await response.body?.cancel();
-    return { ok: false, status: 400, error: `${PROVIDER_LABEL[provider]} refused that key.` };
+    return { ok: false, status: 400, error: sentence(shown`${label} refused that key.`) };
   }
   const reason = await providerReason(response, key);
-  let said = `${PROVIDER_LABEL[provider]} answered ${response.status}${reason ? ` (${reason})` : ""}; the key wasn't saved.`;
-  if (provider === "anthropic" && !workspace && reason?.includes(ANTHROPIC_WORKSPACE_HEADER)) {
-    said += " Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.";
-  }
+  // The provider's own words, redacted: shown as theirs, quoted.
+  const answered = reason ? shown`${label} answered ${show.status(response.status)} (${show.text(reason, REASON_MAX_CHARS)}); the key wasn't saved.` : shown`${label} answered ${show.status(response.status)}; the key wasn't saved.`;
+  const said = provider === "anthropic" && !workspace && reason?.includes(ANTHROPIC_WORKSPACE_HEADER) ? shown`${answered} Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.` : answered;
   // Throttling and the provider's own failures may clear on a retry; another 4xx is its answer about this key or account.
   const transient = response.status === 408 || response.status === 429 || response.status >= 500;
-  return transient ? { ok: false, status: 502, error: `${said} Try again.` } : { ok: false, status: 400, error: said };
+  return transient ? { ok: false, status: 502, error: sentence(shown`${said} Try again.`) } : { ok: false, status: 400, error: sentence(said) };
 }
 
 /** `text` with the key, and anything shaped like a provider key, replaced. For error messages that reach the transcript. */

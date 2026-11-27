@@ -1,0 +1,68 @@
+{
+  "catalogChecks": 133,
+  "dpopPrerequisite": {
+    "response": "400 Bad Request, error invalid_dpop_proof",
+    "warningProfiles": [
+      "lenient",
+      "strict"
+    ],
+    "warningIds": [
+      "assertion.ps384",
+      "assertion.signature",
+      "assertion.expired",
+      "assertion.lifetime",
+      "assertion.claims",
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.jti-reuse"
+    ],
+    "failureProfiles": [
+      "lenient",
+      "strict"
+    ],
+    "failureId": "mediated.unknown-sign-in",
+    "reason": "The upstream validator omits DPoP from token requests even when the issuer advertises it. The bearer profile supplies accepted controls for all eight checks without disabling any DPoP requirement on the other profiles."
+  },
+  "skips": {
+    "mock": [
+      "discovery.supported-versions",
+      "discovery.versions-same-company"
+    ],
+    "issuerless": [
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.claims",
+      "assertion.expired",
+      "assertion.jti-reuse",
+      "assertion.lifetime",
+      "assertion.ps384",
+      "assertion.signature",
+      "discovery.supported-versions",
+      "discovery.versions-same-company",
+      "mcp.authorization-servers",
+      "mcp.invalid-token",
+      "mcp.metadata",
+      "mcp.no-token",
+      "mediated.unknown-sign-in",
+      "metadata.authorization-endpoint",
+      "metadata.device-authorization-endpoint",
+      "metadata.grant-types",
+      "metadata.issuer-chosen",
+      "metadata.issuer-matches",
+      "metadata.mediated-grant",
+      "metadata.protected-resources",
+      "metadata.published",
+      "metadata.resource-metadata",
+      "metadata.revocation-endpoint",
+      "metadata.same-auth",
+      "metadata.same-issuer",
+      "metadata.schema",
+      "metadata.scopes-described",
+      "metadata.scopes-supported",
+      "metadata.token-endpoint",
+      "token.invented"
+    ]
+  },
+  "positiveControlProfile": "bearer",
+  "notes": "Published 1.0 kit retrieved 19 November. All 133 upstream verdicts are retained. The added assertion.lifetime check has the same reviewed missing-DPoP prerequisite on lenient/strict profiles; the bearer profile supplies an accepted five-minute lifetime control. Any new or disappeared finding fails review. Issuerless skips remain explicit."
+}

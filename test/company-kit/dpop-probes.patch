@@ -1,36 +1,91 @@
 --- a/validate/checks/assertion.ts
 +++ b/validate/checks/assertion.ts
-@@ -5,0 +6 @@
+@@ -2,8 +2,9 @@
+ // token that doesn't exist, so nothing is issued: a Company that accepts the assertion answers
+ // invalid_grant, and one that refuses it answers invalid_client (RFC 7523 §3.2).
+-
++
+ import { errorCode, type Exchange } from "../http.ts";
 +import { prepareTokenEndpoint, rememberTokenNonce, tokenHeaders } from "./token-request.ts";
-@@ -62 +63 @@
+ import { generateKey, nowSeconds, randomId, signJwt, signPs384 } from "../jose.ts";
+ import { mediatedSignIn, skipRest, type Context, type Detail, type Recorder } from "./types.ts";
+-
++
+ export const ASSERTION_IDS = [
+@@ -58,26 +59,26 @@
+         key.privateKey,
+     );
+ }
+-
++
 -function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
 +async function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
-@@ -70 +71 @@
+     const body = new URLSearchParams({
+         grant_type: "refresh_token",
+         refresh_token: `rt_validator${randomId(16)}`,
+         client_id: ctx.identity!.clientId,
+         client_assertion_type: ASSERTION_TYPE,
+         client_assertion: assertion,
+     });
 -    return ctx.http.request({
 +    const exchange = await ctx.http.request({
-@@ -73,4 +74,2 @@
+         method: "POST",
+         url: endpoint,
 -        headers: {
 -            Accept: "application/json",
 -            "Content-Type": "application/x-www-form-urlencoded",
 -        },
 +        headers: await tokenHeaders(ctx, endpoint),
 +        refreshHeaders: () => tokenHeaders(ctx, endpoint),
-@@ -79,0 +79,2 @@
+         body: body.toString(),
+         note,
+     });
 +    rememberTokenNonce(ctx, exchange);
 +    return exchange;
-@@ -114,0 +116 @@
+ }
+-
++
+ const accepted = (ex: Exchange) => errorCode(ex) === "invalid_grant";
+ const refused = (ex: Exchange) => errorCode(ex) === "invalid_client";
+@@ -111,8 +112,9 @@
+     if (typeof endpoint !== "string" || !endpoint.startsWith("https://")) {
+         skipRest(r, ASSERTION_IDS, "The issuer's metadata has no token_endpoint.");
+         return;
+     }
 +    await prepareTokenEndpoint(ctx, endpoint);
-@@ -280,0 +283 @@
+     const jti = randomId(16);
+     const assertion = await clientAssertion(ctx, { jti });
+     const control = await refresh(
+         ctx,
+@@ -277,8 +279,9 @@
+     if (typeof endpoint !== "string" || !endpoint.startsWith("https://")) {
+         r.skip(id, "The issuer's metadata has no token_endpoint.");
+         return;
+     }
 +    await prepareTokenEndpoint(ctx, endpoint);
-@@ -292,4 +295,2 @@
+     const body = new URLSearchParams({
+         grant_type: MEDIATED_GRANT,
+         sign_in_id: `sgn_validator${randomId(12)}`,
+         one_time_code: "000000",
+@@ -288,15 +291,14 @@
+     });
+     const ex = await ctx.http.request({
+         method: "POST",
+         url: endpoint,
 -        headers: {
 -            Accept: "application/json",
 -            "Content-Type": "application/x-www-form-urlencoded",
 -        },
 +        headers: await tokenHeaders(ctx, endpoint),
 +        refreshHeaders: () => tokenHeaders(ctx, endpoint),
-@@ -298,0 +300 @@
+         body: body.toString(),
+         note: "a Mediated Sign-In code for a sign_in_id the Company never issued",
+     });
 +    rememberTokenNonce(ctx, ex);
+     if (ex.status === 400 && errorCode(ex) === "invalid_grant") r.pass(id);
+     else if (refused(ex))
+         r.inconclusive(id, {
+             exchange: ex,
 --- /dev/null
 +++ b/validate/checks/token-request.ts
 @@ -0,0 +1,67 @@

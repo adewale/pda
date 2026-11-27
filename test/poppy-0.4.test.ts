@@ -5,10 +5,15 @@
  * test also passes the strict check in agent-helpers: the mock recorded no
  * violation or warning, and what the agent sent passes the 0.4 kit's schemas.
  */
+import { runInDurableObject } from "cloudflare:test";
 import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { agent, cards, company, fetchWorker, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig, MockRequest } from "./mock-company";
+import { POPPY_USER_AGENT } from "../src/poppy/fetch";
+import { conversation, readConversation, sendMessage } from "../src/poppy/conversations";
+import { sendFeedback } from "../src/poppy/coverage";
+import { EndpointRequest } from "../src/poppy/outgoing";
 import type { AgentPayload } from "./mock-company/types";
 
 const V4: Partial<MockConfig> = { protocolVersion: "0.4" };
@@ -203,6 +208,48 @@ describe("0.4: conversation state (8.5 to 8.7, 8.9, 8.12)", () => {
     expect(await state(a, first.conversationId)).toEqual({ status: "idle", responder: "human", working: 0, handoff: "none" });
   });
 
+  it("names the member of an events answer that isn't as 8.5 requires, and what came in its place", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      const C = await client.company(c.domain);
+      const schedule = vi.spyOn(client.host, "schedule").mockResolvedValue(undefined);
+      const fetcher = client.host.fetcher;
+      let answer: Record<string, unknown> = {};
+      const remote = vi.spyOn(client.host, "fetcher").mockImplementation(async (request) =>
+        new URL(request.url).pathname.endsWith("/events") ? Response.json(answer) : fetcher(request)
+      );
+      try {
+        const sent = await sendMessage(client, C, { label: "main", callKey: "state-members", sender: "agent", text: "Hello" });
+        const remoteId = conversation(client, sent.conversationId)!.remote_id;
+        const whole = { conversation_id: remoteId, events: [], cursor: "c1", has_more: false, responder: "agent", working: false, handoff: "none", closed: false };
+        const { has_more: _, ...noHasMore } = whole;
+        for (const [body, message] of [
+          [noHasMore, `${C.name}'s events answer's has_more: expected true or false, got nothing`],
+          [{ ...whole, conversation_id: "conv_other" }, `${C.name}'s events answer's conversation_id: expected this conversation's ID, ${remoteId}, got "conv_other"`],
+          [{ ...whole, events: {} }, `${C.name}'s events answer's events: expected an array, got an object`],
+          [{ ...whole, handoff: 1 }, `${C.name}'s events answer's handoff: expected a string, got a whole number`]
+        ] as const) {
+          answer = body;
+          await expect(readConversation(client, sent.conversationId, 0)).rejects.toThrow(expect.objectContaining({ code: "invalid_response", message: message, status: 200 }));
+        }
+      } finally { remote.mockRestore(); schedule.mockRestore(); }
+    });
+  });
+});
+
+describe("0.4: the agent names itself to Companies", () => {
+  it("sends its User-Agent on discovery and every other request a Company receives", async () => {
+    const c = await company(V4);
+    const a = await agent();
+    // Setting the Company up also validates it, with the validator's own User-Agent.
+    const before = (await requests(c)).length;
+    await tool(a, "poppy_discover", { domain: c.domain });
+    const seen = (await requests(c)).slice(before);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen.map((request) => request.headers["user-agent"]))).toEqual(new Set([POPPY_USER_AGENT]));
+  });
 });
 
 describe("0.4: task coverage from the tasks endpoint (9)", () => {
@@ -252,6 +299,38 @@ describe("0.4: task coverage from the tasks endpoint (9)", () => {
     const refused = await tool(a, "poppy_feedback", { domain: c.domain, task: "Pay with a gift card", description: "No API or page takes one." });
     expect(refused.isError).toBe(true);
     expect(await tasksRequests(c)).toHaveLength(0);
+  });
+  it("says what a report's task and description must be and how long they were, and what the Company answered instead of taking it", async () => {
+    const c = await company({ ...V4, feedback: true });
+    const a = await agent();
+    await runInDurableObject(a.stub, async (instance) => {
+      const client = instance.poppy.client;
+      const C = await client.company(c.domain);
+      const words = "No API or page takes one.";
+      await expect(sendFeedback(client, C, "main", "x".repeat(201), words)).rejects.toThrow(expect.objectContaining({ code: "invalid_request", message: "task: expected a short phrase, at most 200 characters, got 201 characters", status: 0 }));
+      await expect(sendFeedback(client, C, "main", "  ", words)).rejects.toThrow(expect.objectContaining({ code: "invalid_request", message: "task: expected a short phrase, at most 200 characters, got nothing", status: 0 }));
+      await expect(sendFeedback(client, C, "main", "Pay with a gift card", " ")).rejects.toThrow(expect.objectContaining({ code: "invalid_request", message: "description: expected some words, at most 2000 characters, got nothing", status: 0 }));
+      await expect(sendFeedback(client, C, "main", "Pay with a gift card", "y".repeat(2001))).rejects.toThrow(expect.objectContaining({ code: "invalid_request", message: "description: expected some words, at most 2000 characters, got 2001 characters", status: 0 }));
+      const fetcher = client.host.fetcher;
+      const remote = vi.spyOn(client.host, "fetcher").mockImplementation(async (request) =>
+        new URL(request.url).pathname.endsWith("/feedback") ? new Response(null, { status: 503 }) : fetcher(request)
+      );
+      try {
+        await expect(sendFeedback(client, C, "main", "Pay with a gift card", words)).rejects.toThrow(expect.objectContaining({ code: "http_503", message: `${C.name}'s answer to the report: expected HTTP 202, or HTTP 200 with an alternative, got HTTP 503`, status: 503 }));
+      } finally { remote.mockRestore(); }
+    });
+  });
+
+  it("names where a request was going, without its query, when it isn't an address of the Company's it may go to", async () => {
+    const c = await company({ ...V4, feedback: true });
+    const a = await agent();
+    await runInDurableObject(a.stub, async (instance) => {
+      const C = await instance.poppy.client.company(c.domain);
+      const elsewhere = "https://elsewhere.example/poppy?token=abc";
+      expect(() => EndpointRequest.to(C, { method: "GET", url: elsewhere })).toThrow(expect.objectContaining({ code: "invalid_request", message: `the request's address: expected one of ${C.name}'s Poppy endpoints, or a path under one, got https://elsewhere.example/poppy?…`, status: 0 }));
+      expect(() => EndpointRequest.mcp(C, { method: "POST", url: elsewhere })).toThrow(expect.objectContaining({ code: "no_api", message: `the MCP request's address: expected exactly the URL of an MCP API ${C.name} lists, got https://elsewhere.example/poppy?…`, status: 0 }));
+      expect(() => EndpointRequest.listed("http://elsewhere.example/feedback", { method: "POST", url: "http://elsewhere.example/feedback" })).toThrow(expect.objectContaining({ code: "invalid_request", message: "the request's address: expected exactly the endpoint the Company named, on a public HTTPS host, got http://elsewhere.example/feedback", status: 0 }));
+    });
   });
 });
 

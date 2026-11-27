@@ -1,6 +1,6 @@
 import { literal, reportError } from "../log";
 import { covers, grantedScope, issuerEndpoints, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
-import { tryDecode } from "../decode";
+import { departure, ours, show, shown, type Shown } from "../diagnostic";
 import { BROWSER_SIGN_IN, MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
@@ -135,10 +135,10 @@ export async function startSignIn(
   request: { label: string; scopes: readonly string[]; reason: string; account?: string; type?: SignInType }
 ): Promise<SignInStart> {
   const requested = [...new Set(request.scopes)];
-  if (requested.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
+  if (requested.length === 0) throw new PoppyError("invalid_scope", departure(ours("scopes"), ours("at least one scope to request"), ours("none")), 0);
   // 6: requested only from a Company that lists browser_session_endpoint.
   if (requested.includes(BROWSER_SIGN_IN) && !company.web?.browserSessionEndpoint) {
-    throw new PoppyError("invalid_scope", `${company.name} has no browser join, so ${BROWSER_SIGN_IN} can't be requested there; its website is used signed out`, 0);
+    throw new PoppyError("invalid_scope", shown`${show.name(company.name)} has no browser join, so ${ours(BROWSER_SIGN_IN)} can't be requested there; its website is used signed out`, 0);
   }
   if (Object.keys(company.signIn).length === 0) {
     // 3.2: with auth.disabled, refresh tokens the Company issued earlier keep working until it revokes
@@ -147,7 +147,7 @@ export async function startSignIn(
       return { status: "signed_in", scope: client.session(company.issuer, request.label)?.scope ?? "" };
     }
     // 3.2: no issuer, or auth.disabled: a Personal Agent MUST NOT start any sign-in.
-    throw new PoppyError("no_sign_in", `${company.name} offers personal agents no sign-in${company.issuerless ? ": it has no OAuth issuer" : ""}, so only signed-out use is possible`, 0);
+    throw new PoppyError("no_sign_in", shown`${show.name(company.name)} offers personal agents no sign-in${company.issuerless ? ours(": it has no OAuth issuer") : ours("")}, so only signed-out use is possible`, 0);
   }
   const apiScopes = await openApiScopeDescriptions(client, company);
   // 4.7: besides scopes_supported, a Personal Agent can request scopes the Company documents.
@@ -156,7 +156,7 @@ export async function startSignIn(
     // The protocol defines no scopes (4.7): a scope is one the Company describes or a sign-in type can request.
     const known = documented.has(scope) || offeredBySignIn(company, scope);
     if (!known) {
-      throw new PoppyError("invalid_scope", `${company.name} doesn't define the scope ${scope}`, 0);
+      throw new PoppyError("invalid_scope", departure(ours("a scope to request"), shown`one ${show.name(company.name)} describes, or one a sign-in type of its offers`, show.code(scope)), 0);
     }
   }
   const account = request.account ?? "default";
@@ -181,13 +181,13 @@ export async function startSignIn(
   const refusedTypes = refusedSignInTypes(client, company.issuer);
   const type = request.type ?? chooseSignInType(company, scopes, issuerWide, refusedTypes);
   if (type && refusedTypes.has(type)) {
-    throw new PoppyError("unauthorized_client", `${company.name} refused this agent ${type} sign-in recently (unauthorized_client). It continues signed out; try again later or use the company's own website.`, 0);
+    throw new PoppyError("unauthorized_client", shown`${show.name(company.name)} refused this agent ${ours(type)} sign-in recently (unauthorized_client). It continues signed out; try again later or use the company's own website.`, 0);
   }
   if (!type || !grantable(company, type, scopes, issuerWide)) {
-    const refusedNote = refusedTypes.size ? ` (it recently refused this agent ${[...refusedTypes].join(" and ")} sign-in)` : "";
+    const refusedNote = refusedTypes.size ? shown` (it recently refused this agent ${show.list([...refusedTypes].map((refusedType) => ours(refusedType)))} sign-in)` : ours("");
     throw new PoppyError(
       refusedTypes.size && !type ? "unauthorized_client" : "invalid_scope",
-      `${company.name} offers no sign-in that can grant ${scopes.join(" ")}${refusedNote}`,
+      shown`${show.name(company.name)} offers no sign-in that can grant ${show.list(scopes.map(show.code))}${refusedNote}`,
       0
     );
   }
@@ -226,14 +226,14 @@ export async function startSignIn(
       client.host.now() + SIGN_IN_TTL_MS
     );
     await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
-    const url = new URL(issuerEndpoints(company).authorization!);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", client.identity.clientId);
-    url.searchParams.set("redirect_uri", client.identity.redirectUri);
-    url.searchParams.set("scope", scopeText);
-    url.searchParams.set("state", state);
-    url.searchParams.set("code_challenge", await sha256(verifier));
-    url.searchParams.set("code_challenge_method", "S256");
+    // With Pushed Authorization Requests (RFC 9126), the link is a page of ours that pushes the request when
+    // the User opens it, since a request_uri expires quickly (1.0: 4.2); pushDirectSignIn. Otherwise, the Company's own page.
+    const url = issuerEndpoints(company).pushedAuthorization
+      ? new URL(`/poppy/sign-in?id=${encodeURIComponent(id)}`, client.identity.redirectUri)
+      : new URL(issuerEndpoints(company).authorization!);
+    if (!issuerEndpoints(company).pushedAuthorization) {
+      for (const [name, value] of Object.entries(await authorizationRequest(client, company, scopeText, state, verifier))) url.searchParams.set(name, value);
+    }
     await client.host.showCard({
       id: `signin-${id}`,
       kind: "signin_link",
@@ -261,11 +261,11 @@ export async function startSignIn(
     ) {
       const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
       if (code === "unauthorized_client") rememberRefusal(client, company.issuer, "device");
-      throw new PoppyError(code, `${company.name} refused the device sign-in (${code})${code === "unauthorized_client" ? "; your agent continues signed out" : ""}`, status);
+      throw new PoppyError(code, shown`${show.name(company.name)} refused the device sign-in (${show.code(code)})${code === "unauthorized_client" ? ours("; your agent continues signed out") : ours("")}`, status);
     }
     const verificationUri = deviceLink(company, body.verification_uri);
     if (!verificationUri) {
-      throw new PoppyError("invalid_response", `${company.name}'s device sign-in link isn't an HTTPS page of theirs`, status);
+      throw new PoppyError("invalid_response", departure(shown`${show.name(company.name)}'s device sign-in link`, ours("an HTTPS page of theirs"), show.url(body.verification_uri)), status);
     }
     const verificationUriComplete = deviceLink(company, body.verification_uri_complete);
     const interval = typeof body.interval === "number" && body.interval > 0 ? body.interval : 5;
@@ -313,6 +313,93 @@ export async function startSignIn(
 
 type TokenResponse = Parameters<PoppyClient["completeSignIn"]>[3];
 
+/** Direct Sign-In's authorization request (4.2), in the URL or pushed (RFC 9126). */
+async function authorizationRequest(client: PoppyClient, company: Company, scope: string, state: string, verifier: string): Promise<Record<string, string>> {
+  return {
+    response_type: "code",
+    client_id: client.identity.clientId,
+    redirect_uri: client.identity.redirectUri,
+    scope,
+    state,
+    code_challenge: await sha256(verifier),
+    code_challenge_method: "S256",
+    // 1.0 (4.2, 10.8): the redirect comes back to our web callback, not only to the device that opened the
+    // link, so ask the Company to show its consent page even for scopes the account granted before.
+    ...(company.protocolVersion.startsWith("0.") ? {} : { prompt: "consent" })
+  };
+}
+
+/**
+ * `GET /poppy/sign-in?id=…`, the link on a Direct Sign-In card for a Company
+ * that lists `pushed_authorization_request_endpoint`: push the authorization
+ * request with our client assertion, and a DPoP proof when the Company uses
+ * DPoP, so the code is bound to the key (1.0: 4.2; RFC 9126, RFC 9449 §10.1),
+ * then send the User to the `authorization_endpoint` with only `client_id`
+ * and the `request_uri`. Each opening pushes again, because a `request_uri`
+ * expires quickly; `state` stays single use at the callback.
+ */
+export async function pushDirectSignIn(client: PoppyClient, id: string): Promise<{ ok: true; location: string } | { ok: false; status: number; message: Shown }> {
+  const row = signIn(client, id);
+  if (!row || row.type !== "direct" || row.status !== "pending") {
+    return { ok: false, status: 404, message: ours("This sign-in has expired or was already used. Start it again from the chat.") };
+  }
+  const gone = { ok: false, status: 404, message: ours("This sign-in has expired or was already used. Start it again from the chat.") } as const;
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
+  if (row.expires_at <= client.host.now()) {
+    const claimed = claim(client, id, "expired");
+    if (!claimed) return gone;
+    await finish(client, claimed, { ok: false, message: ours("the sign-in link expired"), expired: true });
+    return { ok: false, status: 410, message: ours("This sign-in has expired. Start it again from the chat.") };
+  }
+  const endpoints = issuerEndpoints(company);
+  if (!endpoints.pushedAuthorization || !endpoints.authorization) {
+    // No link to this sign-in can work any more, so it ends rather than waiting for its expiry.
+    const claimed = claim(client, id, "failed");
+    if (!claimed) return gone;
+    await finish(client, claimed, { ok: false, message: ours("the company no longer takes pushed sign-in requests") });
+    return { ok: false, status: 409, message: shown`${show.name(company.name)} no longer takes this sign-in. Start it again from the chat.` };
+  }
+  const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { state: string; verifier: string };
+  const { client_id: _clientId, ...request } = await authorizationRequest(client, company, row.scopes, secret.state, secret.verifier);
+  let answer: { status: number; body: Json };
+  try {
+    // oauthRequest adds client_id and the client assertion (RFC 9126 §2.1).
+    answer = await client.oauthRequest(company, endpoints.pushedAuthorization, async () => request, { dpop: true });
+  } catch (error) {
+    reportError(error, { source: literal("poppy.signin_push") });
+    return { ok: false, status: 502, message: shown`${show.name(company.name)} didn't answer. Try the link again in a moment.` };
+  }
+  const { status, body } = answer;
+  if ((status === 201 || status === 200) && isObject(body) && typeof body.request_uri === "string" && body.request_uri !== "") {
+    const url = new URL(endpoints.authorization);
+    url.search = "";
+    url.searchParams.set("client_id", client.identity.clientId);
+    url.searchParams.set("request_uri", body.request_uri);
+    return { ok: true, location: url.href };
+  }
+  if (status >= 400 && status < 500 && isObject(body) && typeof body.error === "string") {
+    // The Company refused the request itself: no link to it will work.
+    const code = companyErrorCode(body.error, status);
+    const claimed = claim(client, id, "failed");
+    if (!claimed) return gone;
+    await refused(client, claimed, code, shown`the company refused the sign-in request (${show.code(code)})`);
+    return { ok: false, status: 400, message: shown`${show.name(company.name)} refused the sign-in (${show.code(code)}).` };
+  }
+  return { ok: false, status: 502, message: shown`${show.name(company.name)} couldn't start the sign-in. Try the link again in a moment.` };
+}
+
+/**
+ * Take a sign-in that is still pending to end it, before anything is
+ * awaited: a push awaits the Company, and meanwhile the callback, a cancel or
+ * the expiry job may have moved it on. Null when one has.
+ */
+function claim(client: PoppyClient, id: string, status: "expired" | "failed"): SignInRow | null {
+  const current = signIn(client, id);
+  if (current?.status !== "pending") return null;
+  setStatus(client, id, status);
+  return current;
+}
+
 /** Close a Direct or Mediated sign-in nobody finished at its deadline, so its card doesn't wait for ever. */
 async function scheduleExpiry(client: PoppyClient, id: string, at: number): Promise<void> {
   await client.host.schedule("poppy-signin-expiry", at, { id }, `signin-expiry-${id}`);
@@ -327,7 +414,7 @@ export async function expireSignIn(client: PoppyClient, id: string): Promise<voi
   const row = signIn(client, id);
   if (!row || (row.status !== "pending" && row.status !== "code")) return;
   if (row.expires_at > client.host.now()) return;
-  await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
+  await finish(client, row, { ok: false, message: ours("the sign-in took too long"), expired: true });
 }
 
 /** What a finished sign-in granted: `who` is "you" on the User's card and "the User" for the model. */
@@ -356,7 +443,7 @@ async function report(client: PoppyClient, row: SignInRow, text: string, cardTex
 async function finish(
   client: PoppyClient,
   row: SignInRow,
-  outcome: { ok: true; response: TokenResponse } | { ok: false; message: string; expired?: boolean }
+  outcome: { ok: true; response: TokenResponse } | { ok: false; message: Shown; expired?: boolean }
 ): Promise<void> {
   const company = await client.resumeCompany(row.issuer, "signin", row.id);
   setStatus(client, row.id, outcome.ok ? "done" : outcome.expired ? "expired" : "failed");
@@ -371,7 +458,7 @@ async function finish(
     text = signedInText(company, row, response.scope, "the User");
     cardText = signedInText(company, row, response.scope, "you");
   } else {
-    text = `Sign-in to ${company.name} didn't complete: ${outcome.message}`;
+    text = shown`Sign-in to ${show.name(company.name)} didn't complete: ${outcome.message}`;
   }
   await report(client, row, text, cardText);
 }
@@ -382,9 +469,9 @@ async function finish(
  * nothing about the User's Sessions changes. Nothing is retried: a code is
  * single use, and credentials are gone.
  */
-async function refused(client: PoppyClient, row: SignInRow, code: string, message: string): Promise<void> {
+async function refused(client: PoppyClient, row: SignInRow, code: string, message: Shown): Promise<void> {
   if (code === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
-  await finish(client, row, { ok: false, message: code === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : message });
+  await finish(client, row, { ok: false, message: code === "unauthorized_client" ? ours("the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out") : message });
 }
 
 // ---------------------------------------------------------------- Direct Sign-In's code exchange
@@ -444,7 +531,7 @@ async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<voi
   await report(
     client,
     row,
-    `Sign-in to ${company.name} was interrupted before it finished. Ask the User to sign in again if the task needs it.`
+    shown`Sign-in to ${show.name(company.name)} was interrupted before it finished. Ask the User to sign in again if the task needs it.`
   );
 }
 
@@ -491,9 +578,9 @@ async function signInWork<T>(client: PoppyClient, id: string, work: () => Promis
  * use, this Company, not expired) and `iss`, then exchange the code at that
  * Company's token endpoint with the verifier.
  */
-export async function completeDirectSignIn(client: PoppyClient, url: URL): Promise<{ ok: boolean; message: string }> {
+export async function completeDirectSignIn(client: PoppyClient, url: URL): Promise<{ ok: boolean; message: Shown }> {
   const state = url.searchParams.get("state");
-  if (!state) return { ok: false, message: "This sign-in link is missing its state." };
+  if (!state) return { ok: false, message: ours("This sign-in link is missing its state.") };
   const row = one(
     client.sql,
     signInRow,
@@ -503,7 +590,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
   if (!row || row.status !== "pending") {
     // A reload of an interrupted sign-in's callback: resolve it now.
     if (row) await recoverSignIns(client, row.issuer);
-    return { ok: false, message: "This sign-in has expired or was already used. Start it again from the chat." };
+    return { ok: false, message: ours("This sign-in has expired or was already used. Start it again from the chat.") };
   }
   return signInWork(client, row.id, async () => {
     // Single use, whatever happens next.
@@ -514,25 +601,25 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
       verifier: string;
     };
     if (secret.state !== state || row.expires_at <= client.host.now()) {
-      await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
-      return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
+      await finish(client, row, { ok: false, message: ours("the sign-in link expired"), expired: true });
+      return { ok: false, message: ours("This sign-in has expired. Start it again from the chat.") };
     }
     // The response must come from the Company we sent the User to (RFC 9207, 4.2).
     if (url.searchParams.get("iss") !== company.issuer) {
-      await finish(client, row, { ok: false, message: "the response came from a different sign-in server" });
-      return { ok: false, message: "This sign-in response didn't come from the expected company." };
+      await finish(client, row, { ok: false, message: ours("the response came from a different sign-in server") });
+      return { ok: false, message: ours("This sign-in response didn't come from the expected company.") };
     }
     const error = url.searchParams.get("error");
     if (error) {
       if (error === "unauthorized_client") rememberRefusal(client, row.issuer, row.type);
-      const message = error === "access_denied" ? "the User declined" : error === "unauthorized_client" ? "the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out" : `the company returned ${error}`;
+      const message = error === "access_denied" ? ours("the User declined") : error === "unauthorized_client" ? ours("the company doesn't offer this agent this sign-in (unauthorized_client), so it continues signed out") : shown`the company returned ${show.code(error)}`;
       await finish(client, row, { ok: false, message });
-      return { ok: false, message: `Sign-in to ${company.name} didn't complete (${error}).` };
+      return { ok: false, message: shown`Sign-in to ${show.name(company.name)} didn't complete (${show.code(error)}).` };
     }
     const code = url.searchParams.get("code");
     if (!code) {
-      await finish(client, row, { ok: false, message: "no authorization code came back" });
-      return { ok: false, message: "The company didn't send an authorization code." };
+      await finish(client, row, { ok: false, message: ours("no authorization code came back") });
+      return { ok: false, message: ours("The company didn't send an authorization code.") };
     }
     // The code is spent from here on: record that before sending it.
     const key = EXCHANGE(row.id);
@@ -550,15 +637,15 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
       } catch (error) {
         if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
           // The Company refused the code: it issued no tokens.
-          await refused(client, row, error.code, error.code);
+          await refused(client, row, error.code, show.code(error.code));
           return {
             ok: false,
-            message: `Sign-in to ${company.name} failed (${error.code}).`
+            message: shown`Sign-in to ${show.name(company.name)} failed (${show.code(error.code)}).`
           };
         }
         // No answer, or one we can't read: the Company may have issued tokens we never got.
         await abandonExchange(client, row);
-        return { ok: false, message: `Sign-in to ${company.name} was interrupted. Go back to the chat and start it again.` };
+        return { ok: false, message: shown`Sign-in to ${show.name(company.name)} was interrupted. Go back to the chat and start it again.` };
       }
       // Keep the answer before using it, so an interruption from here still stores its tokens.
       const answer = keepable(response);
@@ -571,9 +658,9 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
         await finishExchange(client, signIn(client, row.id)!, answer);
       } catch (error) {
         reportError(error, { source: literal("poppy.signin_finish") });
-        return { ok: false, message: `Signing in to ${company.name} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${company.name}.` };
+        return { ok: false, message: shown`Signing in to ${show.name(company.name)} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${show.name(company.name)}.` };
       }
-      return { ok: true, message: `Connected to ${company.name}. You can close this tab.` };
+      return { ok: true, message: shown`Connected to ${show.name(company.name)}. You can close this tab.` };
     } finally {
       client.inFlight.delete(key);
     }
@@ -589,7 +676,7 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   const row = signIn(client, id);
   if (!row || row.status !== "pending") return null;
   if (row.expires_at <= client.host.now()) {
-    await finish(client, row, { ok: false, message: "the code expired before the User approved", expired: true });
+    await finish(client, row, { ok: false, message: ours("the code expired before the User approved"), expired: true });
     return null;
   }
   const company = await client.resumeCompany(row.issuer, "signin", row.id);
@@ -610,9 +697,9 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
       return client.host.now() + (interval + 5) * 1000;
     }
     if (error.is("rate_limited")) return client.host.now() + (error.detail.retryAfter ?? interval) * 1000;
-    if (error.is("access_denied")) await finish(client, row, { ok: false, message: "the User declined" });
-    else if (error.is("expired_token")) await finish(client, row, { ok: false, message: "the code expired", expired: true });
-    else await refused(client, row, error.code, `the company returned ${error.code}`);
+    if (error.is("access_denied")) await finish(client, row, { ok: false, message: ours("the User declined") });
+    else if (error.is("expired_token")) await finish(client, row, { ok: false, message: ours("the code expired"), expired: true });
+    else await refused(client, row, error.code, shown`the company returned ${show.code(error.code)}`);
     return null;
   }
 }
@@ -640,10 +727,10 @@ async function mediatedGrant(
     const body = error.detail.body;
     if (error.is("code_required") && isObject(body)) return codeRequired(client, company, row, body);
     if (error.is("expired_token")) {
-      await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
+      await finish(client, row, { ok: false, message: ours("the sign-in took too long"), expired: true });
       return "failed";
     }
-    await refused(client, row, error.code, error.code);
+    await refused(client, row, error.code, show.code(error.code));
     return "failed";
   }
 }
@@ -652,7 +739,7 @@ async function mediatedGrant(
 async function codeRequired(client: PoppyClient, company: Company, row: SignInRow, body: { readonly [key: string]: Json }): Promise<"code" | "failed"> {
   const signInId = typeof body.sign_in_id === "string" ? body.sign_in_id : null;
   if (!signInId || !/^[A-Za-z0-9_-]{1,256}$/.test(signInId)) {
-    await finish(client, row, { ok: false, message: "the company's code request was malformed" });
+    await finish(client, row, { ok: false, message: ours("the company's code request was malformed") });
     return "failed";
   }
   client.sql.exec(
@@ -723,7 +810,7 @@ export async function submitSignInCode(
 export async function cancelSignIn(client: PoppyClient, id: string): Promise<void> {
   const row = signIn(client, id);
   if (!row || (row.status !== "pending" && row.status !== "code")) return;
-  await finish(client, row, { ok: false, message: "the User cancelled it" });
+  await finish(client, row, { ok: false, message: ours("the User cancelled it") });
 }
 
 /** Signing out (5.5) lives in signout.ts. */

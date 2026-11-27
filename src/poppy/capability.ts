@@ -14,13 +14,14 @@ import {
   startDirectConversation,
   updateAvailability
 } from "./conversations";
-import type { Fetcher, PoppyTimeouts } from "./fetch";
+import type { IdentifiedFetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
 import { decideAsAgent, decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
 import {
   expireSignIn,
   cancelSignIn,
   completeDirectSignIn,
+  pushDirectSignIn,
   pollDeviceSignIn,
   recoverSignIns,
   signOut,
@@ -39,11 +40,13 @@ import { array, jsonText, object, optional, string, tryDecode } from "../decode"
 import { isDiagnosticFlowId } from "./approval-outcome";
 import { writeCard, type CardWriteOptions } from "./cards";
 import { approvalDecisions } from "./approval-decisions";
+import { ours, shown } from "../diagnostic";
+import { noticeOf } from "./diagnostic-notice";
 
 export type PoppyOptions = {
   readonly env: Env;
   readonly storage: DurableObjectStorage;
-  readonly fetcher: Fetcher;
+  readonly fetcher: IdentifiedFetcher;
   readonly browser: () => PoppyBrowser;
   /** Browsers to hand a website to the User in (handover.ts): Browser Run, or null while it is off. */
   readonly handover?: () => HandoverLauncher | null;
@@ -412,7 +415,7 @@ export class PoppyCapability extends LifecycleCapability {
     const frame = decoded.value;
     if (frame.type !== "poppy.result_links.checked") this.#lastActivity = Date.now();
     try {
-      if (this.#options.framesRefused?.()) throw new PoppyError("refused", "Your agent is being deleted.", 0);
+      if (this.#options.framesRefused?.()) throw new PoppyError("refused", ours("Your agent is being deleted."), 0);
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
       else await this.#units.frame(code(frame.type) ?? literal("poppy.unknown"), frameFields(frame), () => this.#handleFrame(socket, frame));
       if (!QUIET_FRAMES.has(frame.type)) this.#sendActivity();
@@ -426,7 +429,7 @@ export class PoppyCapability extends LifecycleCapability {
             kind: "notice",
             company: "",
             open: false,
-            text: `That didn't work: ${error instanceof Error ? error.message : String(error)}`
+            ...noticeOf(ours("That didn't work"), error)
           }
         ]
       });
@@ -550,11 +553,11 @@ export class PoppyCapability extends LifecycleCapability {
         // From the User's page only; the model has no way to send this frame.
         const decoded = tryDecode(newInstructionDecoder, { issuer: frame.issuer, account: frame.account ?? null, text: frame.text, conditions: frame.conditions, budget: frame.budget ?? null }, "instruction");
         try {
-          if (!decoded.ok) throw new InstructionRefused(`That instruction can't be used: ${decoded.problem}.`);
+          if (!decoded.ok) throw new InstructionRefused(shown`That instruction can't be used: ${decoded.problem}`);
           addInstruction(client, decoded.value);
         } catch (error) {
           if (!(error instanceof InstructionRefused)) throw error;
-          await this.#showCard({ id: `instruction-refused-${Date.now()}`, kind: "notice", company: "Your agent", open: true, text: error.message });
+          await this.#showCard({ id: `instruction-refused-${Date.now()}`, kind: "notice", company: "Your agent", open: true, ...noticeOf(ours("Your instruction wasn't saved"), error) });
         }
         this.#sendSettings();
         return;
@@ -573,11 +576,26 @@ export class PoppyCapability extends LifecycleCapability {
 
   // ---------------------------------------------------------------- HTTP
 
-  /** `GET /poppy/callback`, forwarded by the Worker for the signed-in person. */
+  /** `GET /poppy/callback` and `GET /poppy/sign-in`, forwarded by the Worker for the signed-in person. */
   async onRequest({ request }: { request: Request }): Promise<Response | undefined> {
     const url = new URL(request.url);
-    if (url.pathname !== "/poppy/callback") return undefined;
     const requestId = id(request.headers.get("x-request-id"));
+    if (url.pathname === "/poppy/sign-in") {
+      return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/sign-in"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
+        let pushed: Awaited<ReturnType<typeof pushDirectSignIn>>;
+        try {
+          pushed = await pushDirectSignIn(this.client, url.searchParams.get("id") ?? "");
+        } catch (error) {
+          event.fail(error).set({ status: 500 });
+          return html(500, "Signing in didn't start. Go back to the chat and start it again.");
+        }
+        event.set({ status: pushed.ok ? 303 : pushed.status, outcome: literal(pushed.ok ? "success" : "refused") });
+        return pushed.ok
+          ? new Response(null, { status: 303, headers: { Location: pushed.location, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+          : html(pushed.status, pushed.message);
+      });
+    }
+    if (url.pathname !== "/poppy/callback") return undefined;
     return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/callback"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
       let result: Awaited<ReturnType<typeof completeDirectSignIn>>;
       try {

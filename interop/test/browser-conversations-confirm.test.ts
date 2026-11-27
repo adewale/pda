@@ -44,8 +44,8 @@ describe("browser Session joins (spec 6, scenario W)", () => {
     expect(ids(answer({ location: `${SITE}/`, "set-cookie": COOKIE }, 200))).toEqual(["company.browser-session-response:error"]);
     expect(ids(answer({ location: `${SITE}/` }))).toEqual(["company.browser-session-response:error"]);
     for (const [cookie, detail] of [
-      ["sid=abc; Path=/; HttpOnly; SameSite=Lax", "cookie sid: no Secure"],
-      ["sid=abc; Path=/; Secure; SameSite=Lax", "cookie sid: no HttpOnly"]
+      ["sid=abc; Path=/; HttpOnly; SameSite=Lax", "cookie sid: expected Secure and HttpOnly, got no Secure"],
+      ["sid=abc; Path=/; Secure; SameSite=Lax", "cookie sid: expected Secure and HttpOnly, got no HttpOnly"]
     ]) {
       expect(answer({ location: `${SITE}/`, "set-cookie": cookie! })).toEqual([expect.objectContaining({ id: "company.browser-cookie", severity: "warning", detail })]);
     }

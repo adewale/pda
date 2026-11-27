@@ -55,7 +55,7 @@ export function CardFrame({
           </h3>
           {domain ? (
             <p className="mt-0.5 text-[13px] text-kumo-subtle">
-              <code className="font-mono break-all" title="The Company's verified domain">
+              <code className="font-mono [overflow-wrap:anywhere]" title="The Company's verified domain">
                 {domain}
               </code>
             </p>

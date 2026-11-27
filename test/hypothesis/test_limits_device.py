@@ -42,8 +42,9 @@ LIMITS_CONFIGS = st.tuples(
 def limit_kind(exchange: Exchange) -> str | None:
     """
     Which of the mock's limits a request counts against (its `rateLimit`
-    calls in test/mock-company): `token` for the token, device and
-    revocation endpoints (Mediated Sign-In among them, a grant there);
+    calls in test/mock-company): `token` for the token, device,
+    revocation and pushed authorization endpoints (Mediated Sign-In among
+    them, a grant there);
     `other` for API, conversation, tasks, feedback and MCP requests; `page` for the
     website; none for discovery, metadata and the browser join.
     """
@@ -51,7 +52,7 @@ def limit_kind(exchange: Exchange) -> str | None:
     sub = (parts.hostname or "").split(".")[0]
     path, method = parts.path, exchange.method
     if sub == "auth":
-        return "token" if method == "POST" and path in ("/oauth/token", "/oauth/revoke", "/oauth/device") else None
+        return "token" if method == "POST" and path in ("/oauth/token", "/oauth/revoke", "/oauth/device", "/oauth/par") else None
     if sub == "mcp":
         return "other" if path == "/mcp" else None
     if sub == "api":
@@ -281,7 +282,7 @@ class LimitRules:
             return
         assert device.account is not None and device.granted is not None
         body = self.token_body(reply, scope=frozenset(device.granted), sign_in=True, requested=device.scopes)
-        grant = MGrant(device.user, device.account, frozenset(device.granted), body["refresh_token"])
+        grant = MGrant(device.user, device.account, frozenset(device.granted), body["refresh_token"], key)
         device.user.grants.append(grant)
         ms = self.target_session(data, device.user, device.account)
         self.set_token(ms, self.token_from(body, grant, frozenset(device.granted), key))

@@ -19,6 +19,7 @@ import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, 
 import { Ledger } from "./budget";
 import { BrowserSessions } from "./browser-sessions";
 import { AuthError, type BrowserIdentity } from "./session";
+import { ours, sentence } from "./diagnostic";
 import { TurnAuthority } from "./tools/turn-authority";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
@@ -42,7 +43,8 @@ import { Sealer } from "./poppy/store";
 import type { Card } from "./poppy/wire";
 import type { PoppyBrowser } from "./poppy/browser";
 import { PoppyCapability } from "./poppy/capability";
-import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
+import { identifiedFetcher, type Fetcher, type PoppyTimeouts } from "./poppy/fetch";
+import { workerPorts } from "./validator/fetch.ts";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { browserRunHandover } from "./poppy/browser-run";
 import type { HandoverLauncher } from "./poppy/handover";
@@ -219,7 +221,7 @@ export class PersonalAgent extends DurableObject<Env> {
     this.poppy = new PoppyCapability({
       env,
       storage: ctx.storage,
-      fetcher: this.#stoppedByDeletion(this.poppyFetcher()),
+      fetcher: identifiedFetcher(this.#stoppedByDeletion(workerPorts(this.poppyFetcher()))),
       browser: () => (browser ??= this.poppyBrowser()),
       handover: () => (handover === undefined ? (handover = this.poppyHandover()) : handover),
       framesRefused: () => this.data.deleting || this.#deleting !== undefined,
@@ -551,7 +553,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
   protected poppyBrowser(): PoppyBrowser {
-    return new FetchBrowser(this.#stoppedByDeletion(this.poppyFetcher()));
+    return new FetchBrowser(this.#stoppedByDeletion(workerPorts(this.poppyFetcher())));
   }
 
   /**
@@ -627,8 +629,8 @@ export class PersonalAgent extends DurableObject<Env> {
    * model goes through if calls are allowed again.
    */
   async recordIdentity(identity: Caller): Promise<void> {
-    if (this.data.deleting || this.#deleting) throw new AuthError("Agent deletion is in progress");
-    if ("sessionId" in identity && (typeof identity.sessionId !== "string" || !this.browserSessions.active(identity.sessionId))) throw new AuthError("Session revoked");
+    if (this.data.deleting || this.#deleting) throw new AuthError(ours("Agent deletion is in progress"));
+    if ("sessionId" in identity && (typeof identity.sessionId !== "string" || !this.browserSessions.active(identity.sessionId))) throw new AuthError(ours("Session revoked"));
     this.#storeIdentity(identity);
     // Native RPC bypasses fetch/alarm/WebSocket startup.
     await this.lifecycle.start();
@@ -666,7 +668,7 @@ export class PersonalAgent extends DurableObject<Env> {
       if (this.data.deleting || this.#deleting) {
         const metadata = request.method === "GET" && !["Authorization", "Poppy-Session", "DPoP", "Cookie"].some(name => request.headers.has(name));
         const revocation = request.method === "POST" && this.#deletionRevocations.has(new URL(request.url).href);
-        if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", "Agent deletion has stopped Company requests.", 0));
+        if (!metadata && !revocation) throw withoutAnswer(new PoppyError("refused", ours("Agent deletion has stopped Company requests."), 0));
       }
       return fetcher(request);
     };
@@ -674,7 +676,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** The authenticated edge alone exposes the stream to this agent's owner. */
   async exportData(identity: BrowserIdentity): Promise<ReadableStream<Uint8Array>> {
-    if (!await this.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+    if (!await this.admitBrowserSession(identity)) throw new AuthError(ours("Session revoked"));
     await this.lifecycle.start();
     return exportAgentData(this.ctx.storage.sql);
   }
@@ -684,7 +686,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** `waivers` name unrevoked credentials the person, shown them, agreed to abandon. */
   async deleteData(identity: BrowserIdentity, receipt: string, waivers: readonly string[] = []): Promise<DeletionRetained> {
-    if (!await this.admitBrowserSession(identity, true)) throw new AuthError("Session revoked");
+    if (!await this.admitBrowserSession(identity, true)) throw new AuthError(ours("Session revoked"));
     return this.#runDeletion(receipt, waivers);
   }
 
@@ -804,13 +806,13 @@ export class PersonalAgent extends DurableObject<Env> {
     if (typeof key !== "string") return { ok: false, status: 400, error: "Paste a key." };
     const trimmed = key.trim();
     const problem = keyFormatProblem(provider, trimmed);
-    if (problem) return { ok: false, status: 400, error: problem };
+    if (problem) return { ok: false, status: 400, error: sentence(problem) };
     if (workspace !== undefined && workspace !== null && typeof workspace !== "string") {
       return { ok: false, status: 400, error: "A workspace ID is text." };
     }
     const space = workspace?.trim() || null;
     const spaceProblem = workspaceProblem(provider, space);
-    if (spaceProblem) return { ok: false, status: 400, error: spaceProblem };
+    if (spaceProblem) return { ok: false, status: 400, error: sentence(spaceProblem) };
     const checked = await checkKey(provider, trimmed, this.modelFetcher(), space);
     if (!checked.ok) return checked;
     await this.keys.put(provider, trimmed, space);
@@ -832,7 +834,7 @@ export class PersonalAgent extends DurableObject<Env> {
       await this.attachmentExpiry.arm();
       return { ok: true, attachment };
     } catch (error) {
-      if (error instanceof AttachmentError) return { ok: false, status: error.status, error: error.message };
+      if (error instanceof AttachmentError) return { ok: false, status: error.status, error: sentence(error.problem) };
       throw error;
     }
   }

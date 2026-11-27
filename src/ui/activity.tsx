@@ -10,6 +10,7 @@ import { activityGroups } from "./steps";
 import { Status } from "./status";
 import { PROTOCOL_LOG_LIMIT } from "../poppy/wire";
 import { Diagnostics, ProtocolList } from "./protocol";
+import { RichText } from "./rich";
 
 function Result({ result }: { result: ActivityResult }) {
   return <Status result={result} />;
@@ -20,13 +21,13 @@ function What({ entry }: { entry: ActivityEntry }) {
   return (
     <div className="min-w-0 max-w-[60ch]">
       <p className="text-pretty break-words">
-        {entry.what}
+        <RichText text={entry.what} />
         {entry.quote ? <> “{entry.quote}”</> : null}
       </p>
       {entry.outcome ? (
         <p className="mt-0.5 text-[13px] text-pretty break-words text-kumo-subtle">
           {entry.outcomeBy === "company" ? `${entry.company} says: ` : ""}
-          {entry.outcome}
+          <RichText text={entry.outcome} />
         </p>
       ) : null}
       {entry.account ? <p className="mt-0.5 text-[13px] text-kumo-subtle">Account {entry.account}</p> : null}

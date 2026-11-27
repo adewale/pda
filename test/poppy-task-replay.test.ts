@@ -44,6 +44,18 @@ describe("durable task replay adversarial regressions", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
+  it("names what changed when a tool call comes again with other arguments, never their values", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, ...openapi }, "changed")).isError).toBe(false);
+    const before = (await requests(c)).length;
+    const again = await tool(a, "poppy_api_call", { domain: c.domain, ...openapi, params: { order_id: "ord_other" }, body: { ...openapi.body, replacement_sku: "sku_other" } }, "changed");
+    expect(again.isError).toBe(true);
+    expect(again.text).toBe("this tool call's API request: expected the request it first asked for, got one whose parameters and body changed. Nothing will be sent again. [approval_changed]");
+    expect((await requests(c)).slice(before)).toEqual([]);
+  });
+
   it("restores a recorded MCP outcome even when refreshed annotations now call the tool read-only", async () => {
     const c = await company({ operations: false });
     const a = await agent();

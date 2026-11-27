@@ -9,18 +9,22 @@ import {
   validateCompany,
   validateTarget,
   validateText,
+  summarize,
+  VALIDATOR,
   type CompanyReport,
   type DocumentKind,
   type Fetcher,
+  type IdentifiedFetcher,
   type MessageId,
   type Report
 } from "../src/validator/index.ts";
 import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
-import { fetchDocument, isPublicHost, LIMITS, readLimited } from "../src/validator/fetch.ts";
+import { fetchDocument, INVALID_STATUS, isPublicHost, LIMITS, readLimited, retryAfterSeconds, withUserAgent, workerPorts } from "../src/validator/fetch.ts";
 import { Checker } from "../src/validator/primitives.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
 import worker, { testFetcher } from "./worker";
+import { named } from "./named-fetcher.ts";
 
 /**
  * The discovery-document validator. As with feed validators' test suites,
@@ -48,8 +52,32 @@ const ids = (report: Report) => report.messages.map((m) => m.id);
 const declaredIds = (fixture: Fixture): readonly MessageId[] =>
   "contains" in fixture.ids ? fixture.ids.contains : (fixture.ids as readonly MessageId[]);
 
+/**
+ * Every message a departure is (every one but the notes and the `fact`s)
+ * says what was expected and what was got, as fields and in its text; a
+ * fact has neither. The types require it at each report (ProblemFor); this
+ * holds it for every message every fixture produces.
+ */
+function sidesMatchCatalog(report: Report) {
+  for (const message of report.messages) {
+    const definition = MESSAGES[message.id] as { readonly note?: true; readonly fact?: string };
+    const fact = definition.note === true || definition.fact !== undefined;
+    if (fact) {
+      for (const part of ["subject", "expected", "got", "detail"]) expect(message, message.id).not.toHaveProperty(part);
+    } else {
+      expect(message.subject, message.id).toBeTruthy();
+      expect(message.expected, message.id).toBeTruthy();
+      expect(message.got, message.id).toBeTruthy();
+      // The parts rebuild the sentence exactly, so a reader that shows them apart (the results page) loses nothing.
+      const said = `${message.subject}: expected ${message.expected}, got ${message.got}${message.detail === undefined ? "" : `. ${message.detail}`}`;
+      expect(message.text, message.id).toBe(/[.!?…]$/.test(said) ? said : `${said}.`);
+    }
+  }
+}
+
 async function check(fixture: Fixture) {
   const report = await fixture.run();
+  sidesMatchCatalog(report);
   if ("contains" in fixture.ids) {
     expect(ids(report)).toEqual(expect.arrayContaining([...fixture.ids.contains]));
   } else {
@@ -72,12 +100,12 @@ function text(kind: DocumentKind, doc: unknown, options: Parameters<typeof valid
 }
 
 /** A fake network: URL → response. Anything else fails like a DNS error. */
-function network(routes: Record<string, () => Response>): Fetcher {
-  return async (request) => {
+function network(routes: Record<string, () => Response>): IdentifiedFetcher {
+  return named(async (request) => {
     const route = routes[request.url];
     if (!route) throw new TypeError("fetch failed");
     return route();
-  };
+  });
 }
 const jsonResponse = (body: unknown, headers: Record<string, string> = {}) => () =>
   new Response(typeof body === "string" ? body : JSON.stringify(body), {
@@ -191,6 +219,8 @@ const company = (change: { poppy?: (doc: Record<string, any>) => void; prm?: unk
 };
 
 const wellKnown = "https://example.com/.well-known/poppy.json";
+/** The mock Companies, named as a caller must name its fetcher. */
+const mockCompanies = () => named(testFetcher(env));
 const fetchOne = (route: () => Response) => validateCompany(network({ [wellKnown]: route }), "example.com");
 
 const noErrorsOrWarnings = (report: Report) => expect(report.counts.error + report.counts.warning).toBe(0);
@@ -228,7 +258,7 @@ const VALID: readonly Fixture[] = [
     // As the interop grid serves it (MOCK_BASE: no unknown API type). Its deliberately unknown
     // protocol, extension and field are reported as info only.
     name: "accepts the mock Company's documents, as the reference Company in the grid serves them",
-    run: async () => validateCompany(testFetcher(env), await mockCompany({ unknownApi: false })),
+    run: async () => validateCompany(mockCompanies(), await mockCompany({ unknownApi: false })),
     ids: { contains: ["protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: noErrorsOrWarnings
@@ -237,7 +267,7 @@ const VALID: readonly Fixture[] = [
     // The conformance tests' default lists a graphql API on purpose, to check that agents skip
     // it (7: SHOULD skip). Since 0.3 other types are allowed, so that's information, not an error.
     name: "notes the unknown API type the conformance tests' mock lists on purpose",
-    run: async () => validateCompany(testFetcher(env), await mockCompany()),
+    run: async () => validateCompany(mockCompanies(), await mockCompany()),
     ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: (report) => {
@@ -247,13 +277,13 @@ const VALID: readonly Fixture[] = [
   },
   {
     name: "accepts the mock Company's documents without its deliberate oddities, with no messages",
-    run: async () => validateCompany(testFetcher(env), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
+    run: async () => validateCompany(mockCompanies(), await mockCompany({ unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
     ids: [],
     outcome: "valid"
   },
   {
     name: "accepts our own client metadata and keys",
-    run: () => validateClient(testFetcher(env), "https://agent.test/poppy/client.json"),
+    run: () => validateClient(mockCompanies(), "https://agent.test/poppy/client.json"),
     ids: [],
     outcome: "valid",
     also: (report) => expect(report.documents.map((d) => d.kind)).toEqual(["client-metadata", "jwks"])
@@ -279,6 +309,156 @@ const versioned = (change: { root?: Record<string, any>; linked?: Record<string,
     change.versions ? { versions: change.versions } : {}
   );
 };
+
+/** SPEC_POPPY as published 1.0 writes it: a description on each conversation protocol entry (8.1). */
+const POPPY_10 = {
+  ...structuredClone(SPEC_POPPY),
+  protocol_version: "1.0",
+  agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations", description: "Anything about your orders, returns, account, and our products" }] }
+};
+const with10 = (change: (doc: Record<string, any>) => void) => {
+  const doc = structuredClone(POPPY_10) as Record<string, any>;
+  change(doc);
+  return doc;
+};
+/** A Company whose poppy.json is `root`, linking `linked` (each version's document) on the same host. */
+const servedVersions = (root: Record<string, any>, linked: Record<string, Record<string, any>> = {}, versions?: readonly string[]) =>
+  validateCompany(
+    network({
+      "https://example.com/.well-known/poppy.json": jsonResponse(root),
+      ...Object.fromEntries(Object.entries(linked).map(([version, doc]) => [`https://example.com/poppy/${version}.json`, jsonResponse(doc)])),
+      "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM),
+      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA)
+    }),
+    "example.com",
+    versions ? { versions } : {}
+  );
+
+const POPPY_10_FIXTURES: readonly Fixture[] = [
+  {
+    name: "1.0: the spec's poppy.json with a description on its conversation protocol is valid",
+    run: () => served(POPPY_10),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect(report.checkedAgainst).toBe("1.0")
+  },
+  {
+    // refFor: the catalog is written against 0.4's pages; npm run check:spec checks each section is the same in 1.0.
+    name: "1.0: a report links the 1.0 pages, and a 0.4 report the 0.4 pages",
+    run: async () => {
+      const site = (report: Report) => [...new Set(report.messages.map((m) => /personalagentprotocol\.org\/docs\/([^/]+)\//.exec(m.ref.url)?.[1]).filter(Boolean))];
+      const v04 = text("poppy", { ...SPEC_POPPY, organization: { ...SPEC_POPPY.organization, logo_uri: "http://example.com/logo.png" } }, { domain: "example.com" });
+      expect(v04.checkedAgainst).toBe("Draft 0.4");
+      expect(site(v04)).toEqual(["0.4"]);
+      return served(with10((d) => (d.organization.logo_uri = "http://example.com/logo.png")));
+    },
+    ids: { contains: [] },
+    also: (report) => {
+      expect(report.messages.length).toBeGreaterThan(0);
+      expect(report.messages.every((m) => !m.ref.url.includes("/docs/0.4/"))).toBe(true);
+      expect(report.messages.some((m) => m.ref.url.startsWith("https://personalagentprotocol.org/docs/1.0/spec#"))).toBe(true);
+    }
+  },
+  {
+    name: "1.0: every conversation protocol entry needs a description",
+    run: () => served(with10((d) => delete d.agent.protocols[0].description)),
+    ids: ["missing-member"],
+    outcome: "invalid",
+    also: (report) => {
+      expect(report.messages[0]!.pointer).toBe("/agent/protocols/0/description");
+      expect(report.messages[0]!.ref.url).toBe("https://personalagentprotocol.org/docs/1.0/spec#conversation-protocols");
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "1.0: an empty description says nothing",
+    run: () => served(with10((d) => (d.agent.protocols[0].description = "  "))),
+    ids: ["protocol-description-empty"],
+    outcome: "invalid"
+  },
+  {
+    name: "1.0: 0.4 defines no description, so a 0.4 document's is an unknown member",
+    run: () => served(withPoppy((d) => (d.agent.protocols[0].description = "Orders"))),
+    ids: ["unknown-member"],
+    outcome: "valid"
+  },
+  {
+    name: "1.0: a 1.1 document is checked with 1.0's rules, ignoring what 1.1 adds",
+    run: () => served(with10((d) => {
+      d.protocol_version = "1.1";
+      d.loyalty = { tier: "gold" };
+    })),
+    ids: ["version-newer-minor", "unknown-member"],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "1.0", protocolVersion: "1.0", refused: false })
+  },
+  {
+    name: "1.0: a 0.4 poppy.json that links a 1.0 document is used in 1.0, the newest version both speak",
+    run: () => servedVersions({ ...structuredClone(SPEC_POPPY), supported_versions: { "1.0": "https://example.com/poppy/1.0.json" } }, { "1.0": POPPY_10 }),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect((report as CompanyReport).poppy).toMatchObject({ protocol_version: "1.0" })
+  },
+  {
+    name: "1.0: an agent that speaks only 0.4 keeps to 0.4 when the Company links 1.0",
+    run: () => servedVersions({ ...structuredClone(SPEC_POPPY), supported_versions: { "1.0": "https://example.com/poppy/1.0.json" } }, { "1.0": POPPY_10 }, ["0.4"]),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "Draft 0.4", poppy: { protocol_version: "0.4" } })
+  },
+  {
+    name: "1.0: a 1.0 agent uses a Company that serves only 1.1",
+    run: () => servedVersions(with10((d) => (d.protocol_version = "1.1")), {}, ["0.4", "1.0"]),
+    ids: ["version-newer-minor"],
+    outcome: "valid",
+    also: (report) => expect(report).toMatchObject({ checkedAgainst: "1.0", poppy: { protocol_version: "1.1" } })
+  },
+  {
+    name: "1.0: a 0.4 agent doesn't use a Company that serves only 1.0, a version it can't speak",
+    run: () => servedVersions(POPPY_10, {}, ["0.4"]),
+    ids: ["version-unsupported"],
+    outcome: "invalid",
+    also: (report) => expect(report.refused).toBe(true)
+  },
+  {
+    name: "1.0: an issuer that lists client-assertion algorithms lists ES256 and PS384 (4.1)",
+    run: () => company({ poppy: (d) => Object.assign(d, structuredClone(POPPY_10)), metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["ES256"]; } }),
+    ids: ["metadata-assertion-algs"],
+    outcome: "invalid",
+    also: async (report) => {
+      expect(report.messages[0]!.ref.url).toBe("https://personalagentprotocol.org/docs/1.0/spec#agent-identity");
+      const both = await company({ poppy: (d) => Object.assign(d, structuredClone(POPPY_10)), metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["PS384", "ES256"]; } });
+      expect(both.messages).toEqual([]);
+      // 0.4 only recommended PS384.
+      const draft04 = await company({ metadata: (d) => { d.token_endpoint_auth_signing_alg_values_supported = ["ES256"]; } });
+      expect(draft04.messages).toEqual([]);
+    }
+  },
+  {
+    name: "1.0: organization.domain carries its port when that isn't 443 (3.1)",
+    run: () => text("poppy", with10((d) => (d.organization.domain = "example.com:8443")), { domain: "example.com:8443" }),
+    ids: [],
+    outcome: "valid",
+    also: async () => {
+      const ids = async (doc: unknown) => (await text("poppy", doc, {})).messages.map((m) => m.id);
+      expect(await ids(with10((d) => (d.organization.domain = "example.com:443")))).toEqual(["domain-invalid"]);
+      expect(await ids(with10((d) => (d.organization.domain = "example.com:70000")))).toEqual(["domain-invalid"]);
+      expect(await ids(withPoppy((d) => (d.organization.domain = "example.com:8443")))).toEqual(["domain-invalid"]);
+    }
+  },
+  {
+    name: "requires a pushed_authorization_request_endpoint when Pushed Authorization Requests are required (RFC 9126 §5)",
+    run: () => company({ metadata: (doc) => { doc.require_pushed_authorization_requests = true; } }),
+    ids: ["par-endpoint-missing"],
+    outcome: "invalid",
+    also: async () => {
+      const listed = await company({ metadata: (doc) => { doc.require_pushed_authorization_requests = true; doc.pushed_authorization_request_endpoint = "https://auth.example.com/oauth/par"; } });
+      expect(listed.messages).toEqual([]);
+      const insecure = await company({ metadata: (doc) => { doc.pushed_authorization_request_endpoint = "http://auth.example.com/oauth/par"; } });
+      expect(insecure.messages.map((m) => m.pointer)).toEqual(["/pushed_authorization_request_endpoint"]);
+    }
+  }
+];
 
 const POPPY_04: readonly Fixture[] = [
   {
@@ -392,7 +572,7 @@ const POPPY_04: readonly Fixture[] = [
     ids: ["supported-version-unusable", "version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[1]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.messages[1]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.3".');
       expect(report.refused).toBe(true);
     }
   },
@@ -445,9 +625,9 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "chooses rules by protocol_version: an unsupported major version",
-    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "1.0"))),
+    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "2.0"))),
     ids: ["version-unsupported-major"],
-    also: (report) => expect(report.messages[0]!.text).toMatch(/version 1\.0/)
+    also: (report) => expect(report.messages[0]!.text).toMatch(/got "2\.0"/)
   },
   {
     name: "refuses a newer pre-1.0 version before checking its fields",
@@ -460,13 +640,13 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // Before 1.0 every version can break the one before (3.1), and only 0.4 is checked.
+    // Before 1.0 every version can break the one before (3.1), and only 0.4 and 1.0 are checked.
     name: "refuses a 0.3 document, which this validator no longer checks, before checking its fields",
     run: () => text("poppy", POPPY_03, { domain: "example.com" }),
     ids: ["version-unsupported"],
     outcome: "invalid",
     also: (report) => {
-      expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.3; this validator supports 0.4.");
+      expect(report.messages[0]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.3".');
       expect(report.refused).toBe(true);
     }
   },
@@ -475,14 +655,14 @@ const POPPY_JSON: readonly Fixture[] = [
     run: () => text("poppy", withPoppy((d) => (d.protocol_version = "0.2"))),
     ids: ["version-unsupported"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("poppy.json is protocol version 0.2; this validator supports 0.4.")
+    also: (report) => expect(report.messages[0]!.text).toBe('protocol_version: expected a version this validator supports (0.4 or 1.0), got "0.2".')
   },
   {
     name: "chooses rules by protocol_version: none given",
     run: () => text("poppy", withPoppy((d) => delete d.protocol_version)),
     // The newest version the validator knows.
     ids: { contains: ["missing-member"] },
-    also: (report) => expect(report.checkedAgainst).toBe("Draft 0.4")
+    also: (report) => expect(report.checkedAgainst).toBe("1.0")
   },
   {
     name: "checks organization: not an object",
@@ -539,8 +719,10 @@ const POPPY_JSON: readonly Fixture[] = [
   },
   {
     name: "checks the issuer: http",
-    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com"))),
-    ids: ["not-https-url"]
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com/?tenant=1"))),
+    ids: ["not-https-url"],
+    // The URL itself is what was got, without its query.
+    also: (report) => expect(report.messages[0]!.text).toBe("auth.issuer: expected an https URL, got http://auth.example.com/?…")
   },
   {
     name: "checks the issuer: a query",
@@ -595,7 +777,7 @@ const POPPY_JSON: readonly Fixture[] = [
     name: "checks Mediated Sign-In's fields: none",
     run: () => text("poppy", withPoppy((d) => (d.extensions["mediated-sign-in"][0].fields = []))),
     ids: ["mediated-fields-empty"],
-    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in.0.fields is empty.")
+    also: (report) => expect(report.messages[0]!.text).toBe("extensions.mediated-sign-in[0].fields: expected at least one field, got none.")
   },
   {
     name: "checks Mediated Sign-In's fields: secret missing, looks secret, duplicate",
@@ -722,7 +904,7 @@ const DISCOVERY: readonly Fixture[] = [
       }),
     ids: ["organization-domain-mismatch"],
     outcome: "invalid",
-    also: (report) => expect(report.messages[0]!.text).toBe("organization.domain is example.com, but the document was served by www.example.com.")
+    also: (report) => expect(report.messages[0]!.text).toBe('organization.domain: expected "www.example.com", the host that served the document, got "example.com".')
   },
   {
     name: "refuses protected resource metadata for another resource",
@@ -775,13 +957,83 @@ const DISCOVERY: readonly Fixture[] = [
         poppy: (doc) => { delete doc.auth; delete doc.extensions; },
         routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 503 }) }
       }),
-    ids: ["http-status"],
+    ids: ["http-status", "prm-unsettled"],
     outcome: "indeterminate",
     also: (report) => {
       expect((report as CompanyReport).issuerless).toBeUndefined();
       expect((report as CompanyReport).identifier).toBeUndefined();
       expect(report.refused).toBe(true);
+      expect(report.messages[1]!.text).toBe(
+        "Agents can't tell from https://example.com/.well-known/oauth-protected-resource whether the Company has an OAuth issuer, so they don't fall back to https://example.com as its identifier and can't open Sessions with it."
+      );
     }
+  },
+  {
+    // Nothing here uses Sessions, so an unknown issuer stops sign-in, not Sessions.
+    name: "says an unsettled issuer stops sign-in for a Company that names one but uses no Sessions",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": jsonResponse({ protocol_version: "1.0", organization: { name: "Example Company", domain: "example.com" }, web: {}, auth: { issuer: "https://auth.example.com" } }),
+          "https://example.com/.well-known/oauth-protected-resource": () => new Response("", { status: 503 })
+        }),
+        "example.com"
+      ),
+    ids: ["http-status", "prm-unsettled"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[1]!.text).toMatch(/as its identifier and can't sign in with it\.$/)
+  },
+  {
+    // The reported case: a signed-out Company whose site sends every unknown path, /.well-known/ included, to a sign-in page elsewhere.
+    name: "reports a sign-in page where the protected resource metadata should be as a web page, and what it means for the issuer",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": jsonResponse({
+            protocol_version: "1.0",
+            organization: { name: "Example Company", domain: "example.com" },
+            agent: { protocols: [{ type: "poppy", endpoint: "https://agents.example.net/poppy/conversations", description: "Claims and benefits" }] }
+          }),
+          "https://example.com/.well-known/oauth-protected-resource": () => new Response(null, { status: 301, headers: { Location: "/app/portal" } }),
+          "https://example.com/app/portal": () =>
+            new Response(null, { status: 302, headers: { Location: "https://login.example-idp.com/sso/saml?SAMLRequest=fVLRctow&RelayState=https%3A%2F%2Fexample.com%2Fapp%2Fportal" } }),
+          "https://login.example-idp.com/sso/saml?SAMLRequest=fVLRctow&RelayState=https%3A%2F%2Fexample.com%2Fapp%2Fportal": () =>
+            new Response("<!DOCTYPE html>\n<html><head><title>Sign in</title></head><body><form></form></body></html>", {
+              headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-cache, no-store" }
+            })
+        }),
+        "example.com"
+      ),
+    // Nothing about the page's syntax, type or cache lifetime: it isn't the document.
+    ids: ["http-web-page", "prm-unsettled"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.refused).toBe(true);
+      expect((report as CompanyReport).identifier).toBeUndefined();
+      const [page, note] = report.messages;
+      expect(page).toMatchObject({ document: "protected-resource", severity: "error", refuses: true });
+      expect(page!.text).toBe(
+        "https://example.com/.well-known/oauth-protected-resource: expected HTTP 404 (no issuer), or protected resource metadata as application/json, got a web page (HTTP 200, text/html) at https://login.example-idp.com/sso/saml?…, on another host, after redirects."
+      );
+      // The redirect's query can carry one-time values, and this text reaches the agent's model (summarize); the data keeps it.
+      expect(summarize(report)).toBe(page!.text.replace(/\.$/, ""));
+      expect(summarize(report)).not.toMatch(/SAMLRequest|RelayState/);
+      expect(report.documents[1]).toMatchObject({ status: 200, contentType: "text/html;charset=utf-8", finalUrl: expect.stringContaining("SAMLRequest=fVLRctow") });
+      expect(report.documents[1]).not.toHaveProperty("value");
+      expect(note).toMatchObject({ document: "protected-resource", severity: "info", refuses: false });
+      expect(note!.text).toContain("don't fall back to https://example.com as its identifier");
+    }
+  },
+  {
+    // 3.2: invalid metadata settles nothing either; its own messages say what is wrong with it.
+    name: "notes an unsettled issuer after protected resource metadata that isn't JSON",
+    run: () =>
+      company({
+        poppy: (doc) => { delete doc.auth; delete doc.extensions; },
+        routes: { "https://example.com/.well-known/oauth-protected-resource": () => new Response("OK", { headers: { "Content-Type": "text/plain", "Cache-Control": "max-age=300" } }) }
+      }),
+    ids: ["http-content-type", "json-syntax", "prm-unsettled"],
+    outcome: "invalid"
   },
   {
     name: "refuses sign-in without an issuer: auth.issuer or signed_in access with a 404",
@@ -893,19 +1145,34 @@ const METADATA: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    // 4.7: described in an OpenAPI description poppy.json lists, or otherwise in auth.scopes.
-    name: "requires auth.scopes to describe each supported scope when no OpenAPI description could",
+    // 4.7: SHOULD be described in an OpenAPI description poppy.json lists, or otherwise in auth.scopes.
+    name: "recommends auth.scopes describe each supported scope when no OpenAPI description could",
     run: () =>
       company({
         poppy: (doc) => { doc.apis = doc.apis.filter((api: { type: string }) => api.type !== "openapi"); },
         metadata: (doc) => { doc.scopes_supported.push("loyalty"); }
       }),
     ids: ["scope-undescribed"],
-    outcome: "invalid",
+    outcome: "valid",
     also: async (report) => {
-      expect(report.messages[0]!.pointer).toBe("/scopes_supported/4");
+      expect(report.messages[0]).toMatchObject({ severity: "warning", document: "oauth-metadata", pointer: "/scopes_supported/4" });
       // With an OpenAPI description listed, it may describe the scope: nothing to say.
       expect((await company({ metadata: (doc) => { doc.scopes_supported.push("loyalty"); } })).messages).toEqual([]);
+    }
+  },
+  {
+    // Readings: the domain's own scopes_supported names the scopes it offers; the issuer's may serve other clients (3.2).
+    name: "checks the domain's scopes, not the issuer's others, when the protected resource metadata lists them",
+    run: () =>
+      company({
+        poppy: (doc) => { doc.apis = doc.apis.filter((api: { type: string }) => api.type !== "openapi"); },
+        prm: { ...SPEC_PRM, scopes_supported: ["orders:read", "orders:write", "loyalty"] },
+        metadata: (doc) => { doc.scopes_supported.push("openid", "profile", "offline_access"); }
+      }),
+    ids: ["scope-undescribed"],
+    outcome: "valid",
+    also: (report) => {
+      expect(report.messages[0]).toMatchObject({ severity: "warning", document: "protected-resource", pointer: "/scopes_supported/2" });
     }
   },
   {
@@ -1051,7 +1318,7 @@ const CLIENT: readonly Fixture[] = [
     ] }),
     ids: [...Array(6).fill("jwks-key-material"), "jwks-rsa-small"],
     outcome: "invalid",
-    also: report => expect(report.messages.at(-1)?.text).toContain("2041-bit")
+    also: report => expect(report.messages.at(-1)?.text).toContain("expected at least 2048 bits, got 2041 bits")
   },
   {
     name: "rejects supported algorithms paired with the wrong key type or curve",
@@ -1110,6 +1377,170 @@ const FETCHING: readonly Fixture[] = [
     outcome: "indeterminate"
   },
   {
+    // A Worker's fetch answers 520 itself when the site resets the connection, as bot protection does.
+    name: "reports Cloudflare's 520 as a failed fetch that may be bot protection, not as the site's status",
+    run: () => fetchOne(() => new Response("error code: 520", { status: 520, headers: { "Content-Type": "text/plain" } })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toMatch(/dropped the connection.*HTTP 520 is Cloudflare's code for that, not a status the server sent/);
+      expect(report.messages[0]!.text).toMatch(/block automated clients/);
+      // The agent's model reads this text too: nothing only a validator user could act on.
+      expect(report.messages[0]!.text).not.toMatch(/validator|saved copy|npm/);
+      expect(report.documents[0]).toMatchObject({ status: 520 });
+    }
+  },
+  {
+    name: "reports Cloudflare's other connection statuses as failed fetches without the bot-protection hint",
+    run: () => fetchOne(() => new Response(null, { status: 525 })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toMatch(/failed the TLS handshake\. HTTP 525 is Cloudflare's code/);
+      expect(report.messages[0]!.text).not.toMatch(/automated/);
+    }
+  },
+  {
+    name: "reports a connection the server drops as a failed fetch that may be bot protection",
+    run: () =>
+      validateCompany(named(async () => {
+        throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      }), "example.com"),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toMatch(/dropped the connection\. Sites that block automated clients/)
+  },
+  {
+    name: "reports a redirect to something that isn't a URL instead of failing",
+    run: () => fetchOne(() => new Response(null, { status: 302, headers: { Location: "https://[bad" } })),
+    ids: ["http-status"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toBe(`${wellKnown}'s redirect (HTTP 302): expected a Location that is a URL, got "https://[bad".`)
+  },
+  {
+    name: "reports a Cloudflare challenge as bot protection, not the site's status",
+    run: () => fetchOne(() => new Response("<html>Just a moment...</html>", { status: 403, headers: { "cf-mitigated": "challenge", Server: "cloudflare" } })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toBe(
+        `Fetching ${wellKnown} failed: Cloudflare's bot protection answered (HTTP 403) instead of the site, which wasn't asked. It turns away automated clients, agents included, unless the site lets them through.`
+      );
+      expect(report.messages[0]!.text).not.toMatch(/validator|saved copy|npm/);
+    }
+  },
+  {
+    // The block recorded in docs/deployment-tasks.md, from the validator API itself.
+    name: "reports a Cloudflare 1010 block as bot protection",
+    run: () => fetchOne(() => new Response("error code: 1010", { status: 403, headers: { Server: "cloudflare", "Content-Type": "text/plain" } })),
+    ids: ["http-failed"],
+    also: (report) => expect(report.messages[0]!.text).toContain("Cloudflare's bot protection")
+  },
+  {
+    name: "reports an Akamai denial as bot protection",
+    run: () => fetchOne(() => new Response("<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD>Reference #18.1", { status: 403, headers: { Server: "AkamaiGHost" } })),
+    ids: ["http-failed"],
+    also: (report) => expect(report.messages[0]!.text).toContain("Akamai's bot protection")
+  },
+  {
+    name: "reports DataDome and Imperva refusals as bot protection",
+    run: async () => {
+      const datadome = await fetchOne(() => new Response(null, { status: 403, headers: { "x-datadome": "protected" } }));
+      expect(datadome.messages[0]!.text).toContain("DataDome's bot protection");
+      return fetchOne(() => new Response("<html>Request unsuccessful. Incapsula incident ID: 123</html>", { status: 403 }));
+    },
+    ids: ["http-failed"],
+    also: (report) => expect(report.messages[0]!.text).toContain("Imperva's bot protection")
+  },
+  {
+    // A site behind Cloudflare sends Server: cloudflare on its own 403s too, so that alone isn't a bot refusal.
+    name: "leaves a plain 403 as the site's status, with a hint about automated clients",
+    run: () => fetchOne(() => new Response("<html>Forbidden</html>", { status: 403, headers: { Server: "cloudflare" } })),
+    ids: ["http-status"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toBe(
+      `${wellKnown}: expected HTTP 200 with a JSON document, got HTTP 403. If it opens in a browser, the site may be turning away automated clients or cloud addresses, which would turn agents away too.`
+    )
+  },
+  {
+    name: "reports a rate limit as a failed fetch to try again, with its Retry-After",
+    run: () => fetchOne(() => new Response(null, { status: 429, headers: { "Retry-After": "120" } })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server is limiting how often it's asked (HTTP 429), and asks to wait 120 seconds. Try again later.`)
+  },
+  {
+    name: "says a server error is often temporary, with its Retry-After",
+    run: async () => {
+      const plain = await fetchOne(() => new Response(null, { status: 500 }));
+      expect(plain.messages[0]!.text).toBe(`${wellKnown}: expected HTTP 200 with a JSON document, got HTTP 500, a server error. Server errors are often temporary; try again later.`);
+      return fetchOne(() => new Response(null, { status: 503, headers: { "Retry-After": new Date(Date.now() + 60_000).toUTCString() } }));
+    },
+    ids: ["http-status"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toMatch(/: expected HTTP 200 with a JSON document, got HTTP 503, a server error, and asks to wait (59|60) seconds\. Server errors are often temporary/)
+  },
+  {
+    name: "says why a fetch failed when the fetcher knows: DNS, refusal, certificate, impossible status",
+    run: async () => {
+      const failing = (code: string, message = code, status?: number) => validateCompany(named(async () => {
+        throw Object.assign(new Error(message), { code, ...(status === undefined ? {} : { status }) });
+      }), "example.com");
+      expect((await failing("ENOTFOUND")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the host name doesn't resolve.`);
+      expect((await failing("ECONNREFUSED")).messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server refused the connection.`);
+      expect((await failing(INVALID_STATUS, "the server answered with HTTP status 999, which isn't a valid status", 999)).messages[0]!.text)
+        .toBe(`Fetching ${wellKnown} failed: the server answered with HTTP status 999, which isn't a valid status.`);
+      // undici puts the code on the cause.
+      const viaCause = await validateCompany(named(async () => {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }) });
+      }), "example.com");
+      expect(viaCause.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the host name doesn't resolve.`);
+      return failing("CERT_HAS_EXPIRED");
+    },
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toMatch(/its TLS certificate didn't verify \(CERT_HAS_EXPIRED\)\. The Guides ask agents to validate certificates/)
+  },
+  {
+    // A Worker's fetch passes 999 or 600 through (checked against the deployed validator), though no Response can be constructed with it.
+    name: "reports a status outside 200 to 599 as a failed fetch, worded as the CLI words it",
+    run: () => fetchOne(() => Object.defineProperty(new Response("odd", { status: 500 }), "status", { value: 999 })),
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toBe(`Fetching ${wellKnown} failed: the server answered with HTTP status 999, which isn't a valid status.`)
+  },
+  {
+    // Checked against the deployed validator: a name that resolves to 127.0.0.1 or 10.0.0.1 gets 530, as an unknown name does.
+    name: "says a 530 may also mean a name that resolves to a private address",
+    run: () => fetchOne(() => new Response("error code: 1003", { status: 530, headers: { Server: "cloudflare" } })),
+    ids: ["http-failed"],
+    also: (report) => expect(report.messages[0]!.text).toContain("(from a Cloudflare Worker, a name that resolves to a private address gets 530 too)")
+  },
+  {
+    // docs/readings.md#worker-ports: a Worker would silently fetch port 443 instead.
+    name: "refuses, on Workers, a port a Worker wouldn't honour, asked for or redirected to",
+    run: async () => {
+      const asked: string[] = [];
+      const behind = workerPorts(async (request) => {
+        asked.push(request.url);
+        return request.url === wellKnown
+          ? new Response(null, { status: 302, headers: { Location: "https://example.com:4443/.well-known/poppy.json" } })
+          : new Response("{}", { headers: { "Content-Type": "application/json" } });
+      });
+      const direct = await validateTarget(named(behind), "https://api.example.com:9443/openapi.json");
+      expect(direct.messages[0]!.text).toBe(
+        "Fetching https://api.example.com:9443/openapi.json failed: a Cloudflare Worker can't fetch port 9443 over HTTPS (only 443, 2053, 2083, 2087, 2096 and 8443), so it wasn't fetched."
+      );
+      // A port on the list goes through.
+      await validateTarget(named(behind), "https://api.example.com:8443/openapi.json");
+      expect(asked).toEqual(["https://api.example.com:8443/openapi.json"]);
+      return validateCompany(named(behind), "example.com");
+    },
+    ids: ["http-failed"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toContain("can't fetch port 4443")
+  },
+  {
     name: "calls an unreachable host indeterminate, not invalid",
     run: () => validateCompany(network({}), "example.com"),
     ids: ["http-failed"],
@@ -1130,6 +1561,60 @@ const FETCHING: readonly Fixture[] = [
     name: "checks content type and caching headers",
     run: () => fetchOne(() => new Response(JSON.stringify(WEBSITE_ONLY), { headers: { "Content-Type": "text/plain" } })),
     ids: ["http-content-type", "http-no-cache-headers", "website-only"]
+  },
+  {
+    // A single-page app answers every path with its index.
+    name: "reports a web page served where the document should be, without checking it as JSON",
+    run: () => fetchOne(() => new Response("<!doctype html><html><body><div id=root></div></body></html>", { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "max-age=300" } })),
+    ids: ["http-web-page"],
+    // Like a 404: the document isn't there, so nothing in it was checked.
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html).");
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "recognises a web page by its markup when its Content-Type doesn't say HTML, after a byte order mark",
+    run: () => fetchOne(() => new Response("\uFEFF\n  <HTML><body>Moved</body></HTML>", { headers: { "Content-Type": "text/plain" } })),
+    ids: ["http-web-page"],
+    outcome: "indeterminate",
+    also: (report) => expect(report.messages[0]!.text).toContain("got a web page (HTTP 200, text/plain).")
+  },
+  {
+    name: "names a same-host redirect that ends at a web page, without calling it another host",
+    run: () =>
+      validateCompany(
+        network({
+          [wellKnown]: () => new Response(null, { status: 302, headers: { Location: "/home" } }),
+          "https://example.com/home": () => new Response("<!DOCTYPE html><html></html>", { headers: { "Content-Type": "text/html" } })
+        }),
+        "example.com"
+      ),
+    ids: ["http-web-page"],
+    also: (report) =>
+      expect(report.messages[0]!.text).toBe("https://example.com/.well-known/poppy.json: expected HTTP 200 with a JSON document, got a web page (HTTP 200, text/html) at https://example.com/home, after redirects.")
+  },
+  {
+    // The text where the word should be, not just its first letter, which matched.
+    name: "says what stood where true, false or null should be",
+    run: () => text("poppy", '{"a": trux}'),
+    ids: ["json-syntax"],
+    also: (report) => expect(report.messages[0]!.text).toBe('line 1, column 7: expected true, got "trux".')
+  },
+  {
+    // Only markup that is a page: other markup is reported as what it is, a document that isn't JSON.
+    name: "checks XML as a document that isn't JSON, not as a web page",
+    run: () => fetchOne(() => new Response('<?xml version="1.0"?><poppy/>', { headers: { "Content-Type": "application/xml", "Cache-Control": "max-age=300" } })),
+    ids: ["http-content-type", "json-syntax"],
+    outcome: "invalid"
+  },
+  {
+    // A mislabelled document is still a document: a warning, and every rule checked.
+    name: "checks JSON served as text/html as JSON",
+    run: () => fetchOne(() => new Response(JSON.stringify(WEBSITE_ONLY), { headers: { "Content-Type": "text/html", "Cache-Control": "max-age=300" } })),
+    ids: ["http-content-type", "website-only"],
+    outcome: "valid"
   },
   {
     name: "checks a cache lifetime is bounded",
@@ -1159,15 +1644,15 @@ const FETCHING: readonly Fixture[] = [
     // The CLI's fetcher (scripts/node-fetcher.ts) throws this when a public-looking name resolves to a private address.
     name: "refuses a name a fetcher found resolves to a private address",
     run: () =>
-      validateCompany(async (request) => {
+      validateCompany(named(async (request) => {
         throw new NonPublicAddressError(new URL(request.url).hostname, "169.254.169.254");
-      }, "169.254.169.254.nip.io"),
+      }), "169.254.169.254.nip.io"),
     ids: ["http-non-public-address"],
     outcome: "indeterminate",
     also: (report) => {
       expect(report.refused).toBe(true);
       expect(report.messages[0]!.text).toBe(
-        "169.254.169.254.nip.io resolves to 169.254.169.254, which isn't a public address, so https://169.254.169.254.nip.io/.well-known/poppy.json wasn't fetched."
+        "169.254.169.254.nip.io's address: expected a public address, got 169.254.169.254. So https://169.254.169.254.nip.io/.well-known/poppy.json wasn't fetched."
       );
     }
   },
@@ -1181,11 +1666,67 @@ const FETCHING: readonly Fixture[] = [
 describe("valid documents", () => testEach(VALID));
 describe("poppy.json", () => testEach(POPPY_JSON));
 describe("poppy.json in the 0.4 draft, and choosing a version", () => testEach(POPPY_04));
+describe("poppy.json in published 1.0, and choosing between 0.4 and 1.0", () => testEach(POPPY_10_FIXTURES));
 describe("discovery: the issuer from the domain's protected resource metadata", () => testEach(DISCOVERY));
 describe("OAuth server metadata, checked against poppy.json", () => testEach(METADATA));
 describe("client metadata and keys", () => testEach(CLIENT));
 describe("fetching", () => {
   testEach(FETCHING);
+
+  it("reads Retry-After as delay seconds or an HTTP date (RFC 9110 10.2.3)", () => {
+    const now = Date.parse("2026-11-21T12:00:00Z");
+    expect(retryAfterSeconds(new Headers({ "Retry-After": "30" }), now)).toBe(30);
+    expect(retryAfterSeconds(new Headers({ "Retry-After": "Sat, 21 Nov 2026 12:02:00 GMT" }), now)).toBe(120);
+    expect(retryAfterSeconds(new Headers({ "Retry-After": "Sat, 21 Nov 2026 11:00:00 GMT" }), now)).toBe(0);
+    expect(retryAfterSeconds(new Headers({ "Retry-After": "soon" }), now)).toBeUndefined();
+    expect(retryAfterSeconds(new Headers(), now)).toBeUndefined();
+  });
+
+  it("answers the HTTP API with a report, not a server error, for a redirect that isn't a URL", async () => {
+    const response = await handleValidator(new Request("https://validator.test/validator/api?url=example.com"), {
+      fetcher: async () => new Response(null, { status: 301, headers: { Location: "https://exa mple.com/x" } }),
+      allowFetch: async () => true
+    });
+    expect(response!.status).toBe(200);
+    const report = (await response!.json()) as Report;
+    expect(ids(report)).toEqual(["http-status"]);
+  });
+
+  it("reads a 403's first bytes within the deadline, so a stalled error page can't hold the report", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelled = false;
+      const pending = validateCompany(named(async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new TextEncoder().encode("error code: 1010")); },
+        cancel: () => { cancelled = true; }
+      }), { status: 403, headers: { Server: "cloudflare" } })), "example.com");
+      await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+      const report = await pending;
+      expect(ids(report)).toEqual(["http-failed"]);
+      expect(report.messages[0]!.text).toContain("Cloudflare's bot protection");
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names itself with a User-Agent on every fetch the HTTP validator makes, redirects included; the library leaves naming to its caller", async () => {
+    const agents: (string | null)[] = [];
+    const fetcher: Fetcher = async (request) => {
+      agents.push(request.headers.get("User-Agent"));
+      return request.url === wellKnown
+        ? new Response(null, { status: 302, headers: { Location: "https://www.example.com/.well-known/poppy.json" } })
+        : new Response("Not found", { status: 404 });
+    };
+    await handleValidator(new Request("https://validator.test/validator/api?url=example.com"), { fetcher, allowFetch: async () => true });
+    expect(agents.length).toBeGreaterThanOrEqual(2);
+    // Named with the deployment that answered, not a fixed one.
+    expect(new Set(agents)).toEqual(new Set([`PoppyValidator/${VALIDATOR.version} (+https://validator.test/validator)`]));
+    // The library requires a named fetcher and keeps its caller's name: the agent's discovery fetches through it as the agent (src/poppy/fetch.ts).
+    agents.length = 0;
+    await validateCompany(withUserAgent(fetcher, "Caller/1.0"), "example.com");
+    expect(new Set(agents)).toEqual(new Set(["Caller/1.0"]));
+  });
 
   it("reports a body that stalls past the time limit as http-failed, not an exception", async () => {
     vi.useFakeTimers();
@@ -1202,7 +1743,7 @@ describe("fetching", () => {
           }),
           { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300" } }
         );
-      const pending = validateCompany(stalling, "example.com");
+      const pending = validateCompany(named(stalling), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1219,7 +1760,7 @@ describe("fetching", () => {
     let release!: (response: Response) => void;
     const cancel = vi.fn(() => new Promise<void>(() => {}));
     try {
-      const pending = validateCompany(() => new Promise((resolve) => { release = resolve; }), "example.com");
+      const pending = validateCompany(named(() => new Promise((resolve) => { release = resolve; })), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1265,7 +1806,7 @@ describe("fetching", () => {
     // cannot finish while its sibling is still consuming the stalled source.
     const clone = mode === "a clone reader" ? response.clone().text().catch(() => undefined) : undefined;
     try {
-      const pending = validateCompany(async () => response, "example.com");
+      const pending = validateCompany(named(async () => response), "example.com");
       await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
@@ -1290,7 +1831,7 @@ describe("fetching", () => {
       cancel
     }), { status, headers });
     const checker = new Checker("poppy");
-    const result = await fetchDocument(async () => response, wellKnown, checker, { followRedirects: false });
+    const result = await fetchDocument(named(async () => response), wellKnown, checker, { followRedirects: false });
     expect(result.text).toBeUndefined();
     expect(checker.messages.map((entry) => entry.id)).toEqual([message]);
     expect(cancel).toHaveBeenCalledOnce();
@@ -1455,7 +1996,11 @@ describe("over HTTP", () => {
     expect(preflight.status).toBe(204);
     const bad = await call("/validator/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document: "{}", kind: "feed" }) });
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error: string }).error).toMatch(/kind must be/);
+    expect(await bad.json()).toEqual({
+      error: 'kind: expected one of poppy, protected-resource, oauth-metadata, client-metadata or jwks, got "feed".',
+      expected: "one of poppy, protected-resource, oauth-metadata, client-metadata or jwks",
+      got: '"feed"'
+    });
   });
 
   it("answers the form with an escaped results page", async () => {
@@ -1480,12 +2025,21 @@ describe("over HTTP", () => {
 });
 
 describe("the message catalog", () => {
-  const fixtures = [...VALID, ...POPPY_JSON, ...POPPY_04, ...DISCOVERY, ...METADATA, ...CLIENT, ...FETCHING];
+  it("marks as a fact only an error or warning that says why it has nothing to compare", () => {
+    for (const [id, definition] of Object.entries(MESSAGES) as [string, { note?: true; fact?: string }][]) {
+      if (definition.fact === undefined) continue;
+      expect(definition.note, id).toBeUndefined();
+      expect(definition.fact.length, id).toBeGreaterThan(40);
+    }
+    expect(Object.entries(MESSAGES).filter(([, d]) => (d as { fact?: string }).fact !== undefined).map(([id]) => id)).toEqual(["http-failed"]);
+  });
+
+  const fixtures = [...VALID, ...POPPY_JSON, ...POPPY_04, ...POPPY_10_FIXTURES, ...DISCOVERY, ...METADATA, ...CLIENT, ...FETCHING];
 
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));
     // Retired diagnostics, kept for saved reports and never emitted.
-    const retired = new Set<MessageId>(["version-newer-minor", "api-type-newer", "skill-index-schema", "skill-digest"]);
+    const retired = new Set<MessageId>(["api-type-newer", "skill-index-schema", "skill-digest"]);
     const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && !retired.has(id));
     expect(missing).toEqual([]);
   });

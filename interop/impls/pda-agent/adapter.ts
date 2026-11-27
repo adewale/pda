@@ -6,7 +6,7 @@
  * jobs run when a step waits on them instead of by alarms.
  *
  * Port 8080: our client metadata and keys at `$INTEROP_ORIGIN/poppy/*.json`
- * (behind the recording proxy), and `/poppy/callback` for Direct Sign-In.
+ * (behind the recording proxy), and `/poppy/callback` and `/poppy/sign-in` for Direct Sign-In.
  * Port 8081: the manifest and control API, with `Authorization: Bearer $INTEROP_SECRET`.
  *
  * No relaxation of src/poppy is needed: `*.interop.test` names already pass
@@ -25,12 +25,13 @@ import { memorySql } from "./sqlite.ts";
 import { AttachmentError, migrateAttachments, saveAttachment } from "../../../src/attachments.ts";
 import { callMcpTool, callOpenApi, listMcpTools } from "../../../src/poppy/apis.ts";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
+import { departure, ours, shown } from "../../../src/diagnostic.ts";
 import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
 import { browse } from "../../../src/poppy/browser.ts";
 import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
 import { PROTOCOL_VERSIONS } from "../../../src/poppy/protocol-version.ts";
 import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
-import type { Fetcher } from "../../../src/poppy/fetch.ts";
+import { identifiedFetcher, type Fetcher } from "../../../src/poppy/fetch.ts";
 import type { Json } from "../../../src/poppy/json.ts";
 import { randomId } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
@@ -43,6 +44,7 @@ import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
   completeDirectSignIn,
   pollDeviceSignIn,
+  pushDirectSignIn,
   signOut,
   startSignIn,
   submitCredentials,
@@ -82,7 +84,7 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  // Every version src/poppy speaks, 0.4 alone (decision 49); the adversarial agent's raw requests are 0.4 too (attacks.ts).
+  // Every version src/poppy speaks, 0.4 and 1.0 (decision 51); the adversarial agent's raw requests declare the Company's version too (attacks.ts).
   poppy: [...PROTOCOL_VERSIONS],
   extensions: ["operations"],
   scenarios: ADVERSARY ? [...ATTACKS] : [
@@ -238,7 +240,7 @@ async function newAgent(): Promise<Agent> {
   const host: PoppyHost = {
     env,
     sql,
-    fetcher: fetcherFor(env, strict),
+    fetcher: identifiedFetcher(fetcherFor(env, strict)),
     showCard: async (card) => {
       cards.set(card.id, card);
     },
@@ -426,7 +428,17 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     }
     pending.set(`${c.issuer}|${sessionLabel}`, { id: started.signInId, type: started.type, issuer: c.issuer, label: sessionLabel });
     const card = agent.cards.get(`signin-${started.signInId}`);
-    if (card?.kind === "signin_link") return { pending: { type: "direct", url: card.url } };
+    if (card?.kind === "signin_link") {
+      // With Pushed Authorization Requests the card links to the agent's own page (1.0: 4.2). Opening it pushes
+      // the request, as the User's browser would, and the harness gets the Company's URL it redirects to.
+      const page = new URL(card.url);
+      if (page.origin === ORIGIN && page.pathname === "/poppy/sign-in") {
+        const pushed = await pushDirectSignIn(agent.client, page.searchParams.get("id") ?? "");
+        if (!pushed.ok) throw new StepError(pushed.status, "push_refused", pushed.message);
+        return { pending: { type: "direct", url: pushed.location } };
+      }
+      return { pending: { type: "direct", url: card.url } };
+    }
     if (card?.kind === "signin_device") {
       return {
         pending: {
@@ -578,7 +590,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
         buffer += lineEndings.normalize(next.value);
         let split: number;
         while ((split = buffer.indexOf("\n\n")) !== -1 && events.length < max) {
-          if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's stream event is too large", 0);
+          if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(ours("the Company's stream event"), shown`at most ${MAX_SSE_CHARS} characters`, shown`${split}`), 0);
           const block = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);
           let eventId: string | null = null;
@@ -604,7 +616,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
           }
           events.push({ id: eventId, type: eventType, data: payload });
         }
-        if (events.length < max && buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's unfinished stream event is too large", 0);
+        if (events.length < max && buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(ours("the Company's unfinished stream event"), shown`at most ${MAX_SSE_CHARS} characters`, shown`${buffer.length}`), 0);
       }
     } finally {
       await reader.cancel().catch(() => undefined);
@@ -909,6 +921,13 @@ async function site(request: Request): Promise<Response> {
   if (url.pathname === "/poppy/callback" && request.method === "GET") {
     const outcome = await completeDirectSignIn(agent.client, url);
     return new Response(outcome.message, { status: outcome.ok ? 200 : 400, headers: { "content-type": "text/plain" } });
+  }
+  // A Company that lists pushed_authorization_request_endpoint: the card links here, and opening it pushes the request (1.0: 4.2).
+  if (url.pathname === "/poppy/sign-in" && request.method === "GET") {
+    const pushed = await pushDirectSignIn(agent.client, url.searchParams.get("id") ?? "");
+    return pushed.ok
+      ? new Response(null, { status: 303, headers: { Location: pushed.location, "Cache-Control": "no-store" } })
+      : new Response(pushed.message, { status: pushed.status, headers: { "content-type": "text/plain" } });
   }
   return new Response("Not found", { status: 404 });
 }

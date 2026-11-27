@@ -1,16 +1,18 @@
 import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
-import type { Fetcher } from "./fetch";
+import type { IdentifiedFetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
-import { PROTOCOL_VERSIONS, protocolRevision } from "./protocol-version";
+import { PROTOCOL_VERSIONS, implementedVersion, protocolRevision } from "./protocol-version";
+import { departure, ours, ProblemError, show, shown, type Problem } from "../diagnostic";
 
 /**
  * Extensions this client supports under each protocol version, with the
- * major version it implements (3.3): under 0.4, Operations 3, Mediated
- * Sign-In 1 and Browser Control 1.
+ * major version it implements (3.3): under 0.4 and 1.0, Operations 3,
+ * Mediated Sign-In 1 and Browser Control 1.
  */
 export const SUPPORTED_EXTENSIONS: Readonly<Record<string, { readonly operations: string; readonly "mediated-sign-in": string; readonly "browser-control"?: string }>> = {
-  "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
+  "0.4": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" },
+  "1.0": { operations: "3", "mediated-sign-in": "1", "browser-control": "1" }
 };
 /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 1). */
 export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
@@ -53,6 +55,11 @@ export type Company = {
    * device sign-in link may point (4.3).
    */
   readonly poppyDomains?: readonly string[];
+  /**
+   * The version we speak with the Company (3.4): the one we implement that is
+   * compatible with the chosen document's, which `Poppy-Version` declares and
+   * whose rules apply. A 1.1 document gives 1.0.
+   */
   readonly protocolVersion: string;
   readonly specificationRevision?: string;
   /** Canonical `auth`, so cached state keyed by Company notices when the document's `auth` changes. */
@@ -65,6 +72,8 @@ export type Company = {
     readonly revocation: string;
     readonly authorization?: string;
     readonly deviceAuthorization?: string;
+    /** `pushed_authorization_request_endpoint` (RFC 9126 §5), for Direct Sign-In (1.0: 4.2). */
+    readonly pushedAuthorization?: string;
   };
   readonly signIn: {
     /**
@@ -89,8 +98,8 @@ export type Company = {
   readonly dpop?: boolean;
   /** The issuer's `protected_resources` (3.2). */
   readonly protectedResources?: readonly string[];
-  /** The first `poppy` conversation protocol entry, if any. */
-  readonly conversations?: { readonly endpoint: string };
+  /** The first `poppy` conversation protocol entry, if any, with its `description` (1.0: 8.1), the Company's words. */
+  readonly conversations?: { readonly endpoint: string; readonly description?: string };
   readonly apis: readonly {
     readonly type: "openapi" | "mcp";
     readonly url: string;
@@ -122,12 +131,12 @@ export type WebsiteOnly = {
 };
 
 /** Discovery refused a Company. Its message quotes what the Company published (the validator's findings, its name), so a wide event records only its class (`ForeignText`, src/log.ts). */
-export class DiscoveryError extends Error implements ForeignText {
+export class DiscoveryError extends ProblemError implements ForeignText {
   override name = "DiscoveryError";
   readonly [FOREIGN_TEXT] = true as const;
   /** The validator's report, when discovery refused what it read (for the protocol log). */
-  constructor(message: string, readonly report?: CompanyReport) {
-    super(message);
+  constructor(problem: Problem, readonly report?: CompanyReport) {
+    super(problem);
   }
 }
 
@@ -178,14 +187,16 @@ export type Discovered = {
  * limit or reading of ours the message names); or a document that couldn't
  * be fetched. What follows reads fields the validator has checked.
  */
-export async function discover(fetcher: Fetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
+export async function discover(fetcher: IdentifiedFetcher, domain: string, versions: readonly string[] = PROTOCOL_VERSIONS): Promise<Discovered> {
   // 3.4: the newest version both sides speak, from poppy.json or a document its supported_versions links.
   const checked = await validateCompany(fetcher, domain, { versions });
   if (checked.refused || checked.outcome === "indeterminate" || !isObj(checked.poppy)) {
-    throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
+    throw new DiscoveryError(summarize(checked) || ours("poppy.json couldn't be used"), checked);
   }
   const doc = checked.poppy;
-  const version = doc.protocol_version as string;
+  // 3.4: the validator chose a document compatible with a version we speak.
+  const version = implementedVersion(doc.protocol_version as string, versions);
+  if (!version) throw new DiscoveryError(departure(ours("poppy.json's protocol_version"), shown`a version compatible with one this agent speaks (${show.list(versions.map((known) => show.code(known)), "or")})`, show.value(doc.protocol_version)), checked);
   const organization = doc.organization as Obj;
   const orgDomain = (organization.domain as string).toLowerCase();
   const name = str(organization.name) ?? orgDomain;
@@ -202,7 +213,7 @@ export async function discover(fetcher: Fetcher, domain: string, versions: reado
   }
   const issuer = parseIssuer(checked.issuer);
   // The validator has refused anything else already; this keeps the type honest.
-  if (!issuer) throw new DiscoveryError("The issuer isn't an https URL without a query or fragment", checked);
+  if (!issuer) throw new DiscoveryError(departure(ours("the issuer"), ours("an https URL without a query or fragment"), show.url(checked.issuer)), checked);
   const resource = isObj(checked.protectedResource) ? checked.protectedResource : null;
   return { result: company(doc, isObj(doc.auth) ? doc.auth : {}, checked.metadata, resource, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
 }
@@ -212,7 +223,8 @@ function services(doc: Obj, version: string): Pick<Company, "conversations" | "a
   let conversations: Company["conversations"];
   if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
     const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
-    if (entry) conversations = { endpoint: entry.endpoint as string };
+    const description = entry ? str(entry.description)?.trim() : undefined;
+    if (entry) conversations = { endpoint: entry.endpoint as string, ...(description ? { description } : {}) };
   }
   const apis: Company["apis"][number][] = [];
   if (Array.isArray(doc.apis)) {
@@ -309,7 +321,8 @@ function company(doc: Obj, auth: Obj, metadata: Obj | null, resource: Obj | null
         token: metadata.token_endpoint as string,
         revocation: metadata.revocation_endpoint as string,
         ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
-        ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
+        ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {}),
+        ...(signIn.direct && typeof metadata.pushed_authorization_request_endpoint === "string" ? { pushedAuthorization: metadata.pushed_authorization_request_endpoint } : {})
       }
     } : {}),
     signIn,
