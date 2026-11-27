@@ -1,0 +1,28 @@
+> pda@0.0.0 test:tooling
+> node --test scripts/*.test.mjs
+
+✔ stable evidence links work without Vitest or test-title discovery (6.259509ms)
+✔ missing files and scenarios fail; an unlinked test claim fails (2.616959ms)
+✔ references cannot escape the repository (1.074193ms)
+✔ a directory is not a stable requirement-evidence file (1.449125ms)
+✔ all project guides check local fragments, including duplicate headings and explicit aliases (2.912142ms)
+✔ self links and setext headings work, while code and comment examples supply no anchors or links (1.235775ms)
+✔ encoded local paths and fragments are decoded separately and cannot escape the repository (2.162477ms)
+✔ directory links use their README for fragments and project links ignore external services (1.913002ms)
+✔ mixed backtick runs and escaped openers do not hide real links (2.329988ms)
+✔ equal delimiter runs still hide examples, including escaped ticks inside a code span (2.265753ms)
+✔ unmatched backticks cannot hide links across paragraph or block boundaries (2.987446ms)
+✔ HTML aliases inside inline code supply no anchor, while real aliases and code heading text work (0.940141ms)
+✔ backticks cannot cross ordered-list items, while a noninterrupting number remains paragraph text (2.206123ms)
+✔ public preflight verifies provenance and never follows OAuth or sends a business request (52.874012ms)
+✔ public preflight rejects dirty or mismatched deployments before claiming a pass (2.948102ms)
+✔ documentation-only PRs omit runtimes; main always runs everything (1.650648ms)
+✔ frontend changes retain runtime tests; server, config and unknown inputs retain specialist checks (1.549817ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 143.124456
