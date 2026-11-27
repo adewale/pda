@@ -837,3 +837,53 @@ describe("the conversation's history", () => {
     await waitFor(() => expect(pages()).toHaveLength(2));
   });
 });
+
+describe("the agent's frames and errors", () => {
+  const said = (id: number, text: string) => ({ id, conversationId: 1, kind: "pi.user", model: [{ role: "user", content: text, timestamp: id }] });
+  const field = () => screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement;
+
+  it("keeps an error the agent reported while the session goes on changing, until a run starts", () => {
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    socket.receive({ type: "error", id: "stop-1", message: "Nothing to stop" });
+    expect(screen.getByText(/Your agent reported a problem: Nothing to stop/)).toBeTruthy();
+    appended(said(3, "From another tab"));
+    expect(screen.getByText(/Your agent reported a problem: Nothing to stop/)).toBeTruthy();
+    runStarts();
+    expect(screen.queryByText(/Nothing to stop/)).toBeNull();
+  });
+
+  it("follows a reset that a reconnect's gap held, though the newest entries came first", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/task-companies" ? Response.json({ companies: ["shop.example"] }) : Response.json({ workspaceId: "workspace-a" })));
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    socket.close();
+    socket.open();
+    await waitFor(() => expect(screen.queryByText(CONNECTING)).toBeNull());
+    // Away long enough for more than a window: the view starts at 40, after a gap.
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(40, "Latest")], before: 39, docs: { "pi.live": {} } } });
+    expect(field().value).toBe("shop.example");
+    const page = await waitFor(() => {
+      const found = socket.frames.find((frame) => frame.type === "entries");
+      if (!found) throw new Error("no page asked for");
+      return found;
+    });
+    // The gap held the other tab's reset.
+    socket.receive({ type: "result", id: String(page.id), result: { items: [{ id: 20, conversationId: 1, kind: "pi.reset", head: 20 }] } });
+    await waitFor(() => expect(field().value).toBe(""));
+  });
+
+  it("ignores a frame that isn't the shape the protocol gives it", () => {
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    socket.receive({ type: "view", session: "1", view: { entries: "not a list", docs: {} } });
+    socket.receive({ type: "error", message: 42 });
+    expect(screen.getByText("Find me a jumper")).toBeTruthy();
+    expect(screen.queryByText(/Your agent reported a problem/)).toBeNull();
+  });
+});
