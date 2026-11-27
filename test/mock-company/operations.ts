@@ -1,3 +1,4 @@
+import { departure, ours, show, shown } from "../../src/diagnostic";
 import { Company, randomId, type ResourceContext, type Session } from "./core";
 
 function exchangeTerms(price: { amount: string; currency: string }) {
@@ -213,7 +214,9 @@ export class Operations {
       if (version3) this.#checkVersion3(context, approval as Approval & { operation_id: string; revision: string });
       const record = this.#records.get(approval.operation_id);
       // A website's operation is approved only at `endpoint` (0.4 Ops 6): here, as if no approval came.
-      if (record?.web) co.violation("web-operation.approved-elsewhere", `the website's operation ${record.id} was approved at ${action.kind === "prints" ? "the print API" : "an API, MCP server or conversation"}`);
+      if (record?.web) {
+        co.violation("web-operation.approved-elsewhere", departure(shown`the approval of the website's operation ${show.value(record.id)}`, ours("its operations endpoint"), action.kind === "prints" ? ours("the print API") : ours("an API, MCP server or conversation")));
+      }
       // Check 1: a Session that can't approve it is handled as if it had sent no approval.
       if (record && !record.web && record.kind === action.kind && this.#owner(record, context)) {
         record.approvals += 1;
@@ -297,20 +300,20 @@ export class Operations {
     const co = this.company;
     const { approver, approved_at: approvedAt, input_type: inputType, reference } = approval;
     if (approver !== "user" && approver !== "agent") {
-      co.violation("approval.approver", `the approval of ${approval.operation_id} has approver ${JSON.stringify(approver)}, not "user" or "agent"`);
+      co.violation("approval.approver", departure(shown`the approver of ${show.value(approval.operation_id)}`, ours("\"user\" or \"agent\""), show.value(approver)));
     }
     if (approvedAt !== undefined && !Number.isSafeInteger(approvedAt)) {
-      co.violation("approval.approved-at", `approved_at ${JSON.stringify(approvedAt)} isn't an Integer of Unix seconds`);
+      co.violation("approval.approved-at", departure(ours("approved_at"), ours("an Integer of Unix seconds"), show.value(approvedAt)));
     }
     if (inputType !== undefined && approver === "agent") {
-      co.violation("approval.input-type-with-agent", `an agent approval of ${approval.operation_id} has input_type ${JSON.stringify(inputType)}`);
+      co.violation("approval.input-type-with-agent", departure(shown`the agent's approval of ${show.value(approval.operation_id)}`, ours("no input_type"), shown`input_type ${show.value(inputType)}`));
     }
     if (inputType !== undefined && typeof inputType !== "string") {
-      co.violation("approval.input-type", `input_type ${JSON.stringify(inputType)} isn't a String`);
+      co.violation("approval.input-type", departure(ours("input_type"), ours("a String"), show.kind(inputType)));
     }
     if (reference === undefined) return;
     if (typeof reference !== "string" || !ID.test(reference)) {
-      co.violation("approval.reference", `reference ${JSON.stringify(reference)} isn't 1 to 256 URL-safe base64 characters`);
+      co.violation("approval.reference", departure(ours("the approval's reference"), ours("1 to 256 URL-safe base64 characters"), show.value(reference)));
       return;
     }
     // The same approval sent again keeps its reference; another approval needs its own.
@@ -318,7 +321,7 @@ export class Operations {
     const approved = `${approval.operation_id} ${approval.revision}`;
     const earlier = this.#references.get(key);
     if (earlier !== undefined && earlier !== approved) {
-      co.violation("approval.reference-reused", `reference ${reference} approved ${earlier}, then ${approved}`);
+      co.violation("approval.reference-reused", departure(shown`reference ${show.value(reference)}`, shown`the approval it named first, ${show.value(earlier)}`, show.value(approved)));
     }
     this.#references.set(key, approved);
   }
@@ -341,12 +344,12 @@ export class Operations {
   #checkAfterDecline(record: ApprovalRecord, approval: Approval & { readonly operation_id: string; readonly revision: string }, agent: boolean): void {
     const co = this.company;
     if (record.declined.has(declinedKey(approval))) {
-      co.violation("approval.declined-resent", `the declined approval of ${approval.operation_id} revision ${approval.revision} was sent again`);
+      co.violation("approval.declined-resent", departure(shown`the approval of ${show.value(approval.operation_id)} revision ${show.value(approval.revision)}`, ours("never again once declined"), ours("it again")));
     } else if (agent && record.declined.size > 0) {
-      co.violation("approval.agent-after-decline", `after a decline, the agent approved a new revision of ${approval.operation_id} itself, without the User`);
+      co.violation("approval.agent-after-decline", departure(shown`a new revision of ${show.value(approval.operation_id)}, after a decline`, ours("the User's approval"), ours("the agent's own")));
     }
     if (agent && record.afterAgent.has(approval.revision)) {
-      co.violation("approval.agent-after-revision", `the agent approved revision ${approval.revision} of ${approval.operation_id}, which answered its own approval, instead of asking the User`);
+      co.violation("approval.agent-after-revision", departure(shown`revision ${show.value(approval.revision)} of ${show.value(approval.operation_id)}, which answered the agent's own approval`, ours("the User's approval"), ours("the agent's own again")));
     }
   }
 
@@ -428,7 +431,7 @@ export class Operations {
     const co = this.company;
     const record = this.#records.get(ref.split(".")[0] ?? "");
     if (!record?.web || !record.refs.has(ref)) {
-      co.violation("web-operation.unknown-ref", `the reference ${JSON.stringify(ref.slice(0, 80))} came to endpoint, but the website never returned it`);
+      co.violation("web-operation.unknown-ref", departure(ours("the reference sent to endpoint"), ours("one the website returned"), show.value(ref)));
       return { status: 400, body: { error: "invalid_request" } };
     }
     // Ops 3, 4: a challenge for the account, naming what the browser's request needs to perform the

@@ -7,6 +7,7 @@ import {
   type Inbound,
   type ResourceContext
 } from "./core";
+import { departure, ours, show, shown, type Problem } from "../../src/diagnostic";
 import type { Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
@@ -192,7 +193,7 @@ export class Conversations {
     // A different User of the same agent reaching for this conversation is a cross-User breach
     // (8.2; S17): record it, then answer conversation_not_found (8.13) so nothing of User A leaks.
     const crossUser = () => {
-      this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
+      this.company.violation("conversation.cross-user", departure(shown`conversation ${show.value(id)}`, shown`its own User, ${show.value(conversation!.owner.userId)}`, shown`another User, ${show.value(context.session.userId)}`));
       return notFound();
     };
     // 8.2: a conversation belongs to the client_id and the User ID that started it, and, once it
@@ -212,7 +213,7 @@ export class Conversations {
   /** A request's `id` (8.2, 8.3), which a message takes as its own. */
   #requestId(body: Record<string, unknown>): string {
     if (typeof body.id !== "string" || !ID.test(body.id)) {
-      this.company.violation("request.id", `conversation request: id ${JSON.stringify(body.id)} isn't 1-256 base64url characters`);
+      this.company.violation("request.id", departure(ours("the conversation request's id"), ours("1 to 256 base64url characters"), show.value(body.id)));
       throw new HttpError(json({ error: "invalid_request", error_description: "id must be 1-256 base64url characters" }, 400));
     }
     return body.id;
@@ -252,60 +253,68 @@ export class Conversations {
   }
 
   #conflict(id: string): never {
-    this.company.violation("request.id-reused", `request id ${id} reused with a different path or body`);
+    this.company.violation("request.id-reused", departure(shown`request id ${show.value(id)}`, ours("the path and body it was first sent with"), ours("a different path or body")));
     throw new HttpError(json({ error: "request_id_conflict" }, 409));
   }
 
   #validate(message: IncomingMessage | undefined): IncomingMessage {
     const co = this.company;
-    const bad = (id: ViolationId, why: string) => {
-      co.violation(id, `conversation message: ${why}`);
+    /** Records `detail`, and refuses with `why` as the error_description. */
+    const bad = (id: ViolationId, why: string, detail: Problem) => {
+      co.violation(id, detail);
       return new HttpError(json({ error: "invalid_request", error_description: why }, 400));
     };
-    if (!message || typeof message !== "object") throw bad("message.missing", "missing message");
-    if ("sender" in message) co.violation("message.sender-field", "conversation message: sender is 0.2's; 0.3 and later say author.type (8.4)");
+    if (!message || typeof message !== "object") throw bad("message.missing", "missing message", departure(ours("the conversation request's message"), ours("an object"), show.kind(message)));
+    if ("sender" in message) co.violation("message.sender-field", departure(ours("the conversation message"), ours("author.type, as 0.3 and later say"), ours("sender, which is 0.2's")));
     const type = this.#writer(message);
-    if (type !== "agent" && type !== "human") throw bad("message.author", "author.type must be agent or human");
+    if (type !== "agent" && type !== "human") {
+      throw bad("message.author", "author.type must be agent or human", departure(ours("the conversation message's author.type"), ours("agent or human"), show.value(type)));
+    }
     const author = message.author as Record<string, unknown>;
-    if (Object.keys(author).some((key) => key !== "type")) co.violation("message.author", "conversation message: only Company messages name an author's id, name or image (8.4)");
+    const named = Object.keys(author).filter((key) => key !== "type");
+    if (named.length > 0) {
+      co.violation("message.author", departure(ours("the conversation message's author"), ours("only a type: only Company messages name an author's id, name or image"), shown`also ${show.list(named.map((key) => show.code(key)))}`));
+    }
     if (message.text === undefined && message.data === undefined && message.context === undefined && message.extensions === undefined) {
-      throw bad("message.empty", "needs at least one of text, data, context or extensions");
+      throw bad("message.empty", "needs at least one of text, data, context or extensions", departure(ours("the conversation message"), ours("at least one of text, data, context or extensions"), ours("none of them")));
     }
     // 8.4: a side MUST NOT send an extension's content unless the other side lists that extension with the same version.
     if (message.extensions !== undefined && message.extensions !== null && typeof message.extensions === "object") {
       const listed = co.config.operations ? ["operations"] : [];
       for (const name of Object.keys(message.extensions)) {
-        if (!listed.includes(name)) co.violation("message.extension-unlisted", `conversation message: extensions.${name}, which this Company doesn't list (8.4)`);
+        if (!listed.includes(name)) {
+          co.violation("message.extension-unlisted", departure(ours("the conversation message's extensions"), listed.length > 0 ? shown`only those this Company lists: ${show.list(listed.map((entry) => show.code(entry)))}` : ours("none, since this Company lists none"), show.code(name)));
+        }
       }
     }
     if (message.text !== undefined) {
-      if (typeof message.text !== "string") throw bad("message.text-type", "text must be a string");
+      if (typeof message.text !== "string") throw bad("message.text-type", "text must be a string", departure(ours("the conversation message's text"), ours("a string"), show.kind(message.text)));
       const trimmed = message.text.trim();
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
           JSON.parse(trimmed);
-          co.violation("message.json-in-text", "conversation message: JSON in text; use data (8.4)");
+          co.violation("message.json-in-text", departure(ours("the conversation message's text"), ours("words, with JSON in data"), ours("JSON")));
         } catch {
           // Prose that starts with a bracket.
         }
       }
     }
     if (message.data !== undefined && (typeof message.data !== "object" || message.data === null || Array.isArray(message.data))) {
-      throw bad("message.data-type", "data must be a JSON object");
+      throw bad("message.data-type", "data must be a JSON object", departure(ours("the conversation message's data"), ours("a JSON object"), show.kind(message.data)));
     }
     if (message.context !== undefined) {
       const context = message.context as Record<string, unknown>;
-      if (typeof context !== "object" || context === null) throw bad("message.context-type", "context must be an object");
+      if (typeof context !== "object" || context === null) throw bad("message.context-type", "context must be an object", departure(ours("the conversation message's context"), ours("an object"), show.kind(context)));
       // 1.0 (8.4): a field set to null clears it.
       const cleared = (name: string) => context[name] === null && !co.config.protocolVersion.startsWith("0.");
       if ("locale" in context && !cleared("locale") && (typeof context.locale !== "string" || !LOCALE.test(context.locale))) {
-        co.violation("context.locale", `context.locale ${JSON.stringify(context.locale)} is not an RFC 5646 tag`);
+        co.violation("context.locale", departure(ours("the context's locale"), ours("an RFC 5646 language tag"), show.value(context.locale)));
       }
       if ("time_zone" in context && !cleared("time_zone") && (typeof context.time_zone !== "string" || !TIME_ZONE.test(context.time_zone))) {
-        co.violation("context.time-zone", `context.time_zone ${JSON.stringify(context.time_zone)} is not an IANA name`);
+        co.violation("context.time-zone", departure(ours("the context's time_zone"), ours("an IANA time zone name"), show.value(context.time_zone)));
       }
       if ("user_available" in context && !cleared("user_available") && typeof context.user_available !== "boolean") {
-        co.violation("context.user-available", "context.user_available must be a boolean");
+        co.violation("context.user-available", departure(ours("the context's user_available"), ours("a boolean"), show.kind(context.user_available)));
       }
     }
     return message;
@@ -353,9 +362,9 @@ export class Conversations {
     const value = (message as Record<string, unknown>).as_of_cursor;
     if (value === undefined) return;
     if (this.#writer(message) !== "agent") {
-      this.company.violation("message.as-of-human", "conversation message: as_of_cursor on a message with author.type human (8.4)");
+      this.company.violation("message.as-of-human", departure(ours("a message with author.type human"), ours("no as_of_cursor"), shown`as_of_cursor ${show.value(value)}`));
     } else if (typeof value !== "string" || (!conversation.events.some((event) => event.id === value) && !conversation.expired.has(value))) {
-      this.company.violation("message.as-of-cursor", `conversation message: as_of_cursor ${JSON.stringify(value)} isn't a cursor of this conversation (8.4)`);
+      this.company.violation("message.as-of-cursor", departure(ours("the message's as_of_cursor"), ours("a cursor of this conversation"), show.value(value)));
     }
   }
 
@@ -368,7 +377,7 @@ export class Conversations {
     const co = this.company;
     const given = typeof approval === "object" && approval !== null && !Array.isArray(approval) ? (approval as Record<string, unknown>) : null;
     if (!given || typeof given.operation_id !== "string" || typeof given.revision !== "string") {
-      co.violation("approval.message", "a message's approval isn't an object with operation_id and revision strings");
+      co.violation("approval.message", departure(ours("the message's approval"), ours("an object with operation_id and revision strings"), given ? shown`operation_id as ${show.kind(given.operation_id)} and revision as ${show.kind(given.revision)}` : show.kind(approval)));
       return;
     }
     if (!this.operations) return;
@@ -548,7 +557,7 @@ export class Conversations {
     if (parent.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (parent.directChild) throw new HttpError(json({ error: "direct_conversation_open", conversation_id: parent.directChild }, 409));
     if (message && this.#writer(message) !== "human" && message.text !== undefined) {
-      this.company.violation("direct.agent-words", "Direct Conversation opened with words not marked as the User's (sender agent)");
+      this.company.violation("direct.agent-words", departure(ours("the words a Direct Conversation opens with"), ours("the User's, as author.type human"), shown`author.type ${show.value(this.#writer(message))}`));
     }
     const conversation: Conversation = {
       id: randomId("cnv_", 8),
@@ -610,7 +619,7 @@ export class Conversations {
       if (this.#writer(message) !== "human" && message.text !== undefined) {
         this.company.violation(
           "direct.agent-words",
-          "Direct Conversation opened with words not marked as the User's (sender agent)"
+          departure(ours("the words a Direct Conversation opens with"), ours("the User's, as author.type human"), shown`author.type ${show.value(this.#writer(message))}`)
         );
       }
     }
@@ -669,7 +678,7 @@ export class Conversations {
     // (8.4); its own words have no place there (our reading of S12), so they
     // are recorded, though the draft gives the Company no error to return.
     if (conversation.direct && this.#writer(message) !== "human" && (message.text !== undefined || message.data !== undefined)) {
-      this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
+      this.company.violation("direct.agent-words-later", departure(shown`a message to Direct Conversation ${show.value(conversation.id)}`, ours("the User's words, as author.type human"), shown`author.type ${show.value(this.#writer(message))}`));
     }
     this.#remember(context, message.id as string, hash, conversation);
     this.#accept(context, conversation, message);
@@ -727,7 +736,8 @@ export class Conversations {
     this.#params(inbound);
     const retried = this.#retried(inbound, context, body);
     if (Object.keys(body).some((key) => key !== "id")) {
-      this.company.violation(id, `${id.split(".")[0]} body should be only the request id, got ${inbound.bodyText}`);
+      const extra = Object.keys(body).filter((key) => key !== "id").map((key) => show.code(key));
+      this.company.violation(id, departure(shown`the ${id === "handoff.body" ? ours("handoff") : ours("close")} body`, ours("only the request id"), shown`also ${show.list(extra)}`));
     }
     return { body, retried };
   }

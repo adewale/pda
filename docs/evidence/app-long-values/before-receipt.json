@@ -1,0 +1,52 @@
+{
+  "source_sha": "99c35c19963c014f7553cb6af348f1a78ae3ea85",
+  "source_has_uncommitted_changes_in_src": false,
+  "browser": "Google Chrome for Testing 158.0.8127.36",
+  "fixture": "docs/evidence/app-long-values/fixture.tsx",
+  "artifacts": [
+    {
+      "path": "before-notices-phone.png",
+      "scene": "notices",
+      "viewport": "390×1100",
+      "overflow": {
+        "page": 0,
+        "element": 0
+      },
+      "sha256": "ffa1dcccb1d16ef78151b968bbb547a2240ad93051e0e571de0ea510baf0ae0e",
+      "bytes": 186579
+    },
+    {
+      "path": "before-notices-desktop.png",
+      "scene": "notices",
+      "viewport": "1280×900",
+      "overflow": {
+        "page": 0,
+        "element": 0
+      },
+      "sha256": "77641d98c98d4bebe9de931f85869649210640153525007746621ede8b51f3e8",
+      "bytes": 312804
+    },
+    {
+      "path": "before-protocol-phone.png",
+      "scene": "protocol",
+      "viewport": "390×1100",
+      "overflow": {
+        "page": 0,
+        "element": 0
+      },
+      "sha256": "1d87dde80726844ecc76f4ed6d67ea0703d27931bc960ae0c1569c0f933eae18",
+      "bytes": 315657
+    },
+    {
+      "path": "before-protocol-desktop.png",
+      "scene": "protocol",
+      "viewport": "1280×900",
+      "overflow": {
+        "page": 0,
+        "element": 0
+      },
+      "sha256": "ac924f21878a643b34256ccfe3949cd3d895adabb4de9311a002946fc2e3270e",
+      "bytes": 414985
+    }
+  ]
+}

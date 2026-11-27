@@ -25,6 +25,7 @@ import { memorySql } from "./sqlite.ts";
 import { AttachmentError, migrateAttachments, saveAttachment } from "../../../src/attachments.ts";
 import { callMcpTool, callOpenApi, listMcpTools } from "../../../src/poppy/apis.ts";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
+import { departure, ours, shown } from "../../../src/diagnostic.ts";
 import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
 import { browse } from "../../../src/poppy/browser.ts";
 import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
@@ -589,7 +590,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
         buffer += lineEndings.normalize(next.value);
         let split: number;
         while ((split = buffer.indexOf("\n\n")) !== -1 && events.length < max) {
-          if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's stream event is too large", 0);
+          if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(ours("the Company's stream event"), shown`at most ${MAX_SSE_CHARS} characters`, shown`${split}`), 0);
           const block = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);
           let eventId: string | null = null;
@@ -615,7 +616,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
           }
           events.push({ id: eventId, type: eventType, data: payload });
         }
-        if (events.length < max && buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's unfinished stream event is too large", 0);
+        if (events.length < max && buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", departure(ours("the Company's unfinished stream event"), shown`at most ${MAX_SSE_CHARS} characters`, shown`${buffer.length}`), 0);
       }
     } finally {
       await reader.cancel().catch(() => undefined);

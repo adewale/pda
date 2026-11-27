@@ -3,6 +3,7 @@
  * Companies as columns, each cell linking to its steps, checks and HAR.
  * Plain HTML and a little CSS; no script, no framework.
  */
+import { codeSpan, markdownText, markdownWords } from "../../src/rich-text.ts";
 import { checkLevel, levelCounts } from "./attribution.ts";
 import type { Cell, KnownFailure, Manifest, Scenario } from "./types.ts";
 
@@ -54,6 +55,13 @@ ${scenario.requirements?.length ? `<p class=meta>Spec ${escape(scenario.requirem
 </section>`;
 }
 
+/** A check's finding: a departure's subject, then expected and got apart, then what follows; otherwise its sentence. */
+function finding(check: Cell["checks"][number]): string {
+  const parts = check.parts;
+  if (!parts) return escape(check.detail);
+  return `<b>${escape(parts.subject)}</b><br>expected ${escape(parts.expected)}<br>got ${escape(parts.got)}${parts.detail ? `<br>${escape(parts.detail)}` : ""}`;
+}
+
 function details(cell: Cell): string {
   const steps = cell.steps
     .map(
@@ -65,7 +73,7 @@ function details(cell: Cell): string {
     ? `<table><thead><tr><th>check</th><th>side</th><th>severity</th><th>basis</th><th>source</th><th>exchange</th><th>detail</th></tr></thead><tbody>${cell.checks
         .map(
           (check) =>
-            `<tr class="${check.severity}"><td>${escape(check.id)}</td><td>${escape(check.side)}</td><td>${escape(check.severity)}</td><td>${escape(check.basis ? `${check.basis} (${checkLevel(check)})` : "")}</td><td>${escape(check.source)}</td><td>${check.exchange ?? ""}</td><td>${escape(check.detail)}</td></tr>`
+            `<tr class="${check.severity}"><td>${escape(check.id)}</td><td>${escape(check.side)}</td><td>${escape(check.severity)}</td><td>${escape(check.basis ? `${check.basis} (${checkLevel(check)})` : "")}</td><td>${escape(check.source)}</td><td>${check.exchange ?? ""}</td><td class=finding>${finding(check)}</td></tr>`
         )
         .join("\n")}</tbody></table>`
     : "<p>No checks reported anything.</p>";
@@ -137,6 +145,8 @@ td.known { text-decoration: underline dotted; }
 .meta { color: var(--na); margin-top: -0.5rem; }
 details { border-top: 1px solid #8884; padding: 0.5rem 0; }
 code { font-size: 0.9em; }
+td.finding { min-width: 16rem; overflow-wrap: anywhere; }
+td { overflow-wrap: anywhere; }
 </style>
 <h1>Poppy interop run ${escape(summary.run)}</h1>
 <p>Lane ${escape(summary.lane)} · ${escape(summary.spec)} · ${[...counts].map(([outcome, n]) => `${n} ${escape(outcome)}`).join(", ")}.
@@ -157,6 +167,43 @@ ${securityScenarios.map((scenario) => grid(scenario, summary.cells, agents, comp
 ${summary.cells.map(details).join("\n")}
 </html>
 `;
+}
+
+/**
+ * The run as Markdown, to paste into a pull request or an issue: the counts,
+ * each scenario's grid, and every failed or errored cell with its reason and
+ * findings, a departure's expected and got apart. Values are code spans and
+ * other words escaped (src/rich-text.ts), so a peer's text can't become
+ * markup or a link.
+ */
+export function renderMarkdown(summary: RunSummary): string {
+  const companies = summary.implementations.filter((impl) => impl.role === "company" && !impl.adversarial).map((impl) => impl.name);
+  const agents = summary.implementations.filter((impl) => impl.role === "agent" && !impl.adversarial).map((impl) => impl.name);
+  const interop = summary.cells.filter((cell) => !cell.security);
+  const counts = new Map<string, number>();
+  for (const cell of interop) counts.set(cell.outcome, (counts.get(cell.outcome) ?? 0) + 1);
+  const levels = levelCounts(summary.cells);
+  const cellText = (cell: Cell | undefined) => (cell ? markdownWords(label(cell)) : "—");
+  const grids = summary.scenarios
+    .filter((scenario) => !isSecurityScenario(scenario))
+    .map((scenario) => {
+      const header = `| agent \\ Company | ${companies.map(markdownWords).join(" | ")} |\n| --- |${companies.map(() => " --- |").join("")}`;
+      const rows = agents.map((agent) => `| ${markdownWords(agent)} | ${companies.map((company) => cellText(interop.find((c) => c.scenario === scenario.id && c.agent === agent && c.company === company))).join(" | ")} |`);
+      return `### ${markdownWords(`${scenario.id}: ${scenario.title}`)}\n\n${[header, ...rows].join("\n")}`;
+    });
+  const finding = (check: Cell["checks"][number]) =>
+    check.parts
+      ? [`  - ${codeSpan(check.id)} (${markdownWords(check.severity)}, ${markdownWords(check.side)}): ${markdownText(check.parts.subject)}`, `    - Expected: ${markdownText(check.parts.expected)}`, `    - Got: ${markdownText(check.parts.got)}`, ...(check.parts.detail ? [`    - ${markdownText(check.parts.detail)}`] : [])].join("\n")
+      : `  - ${codeSpan(check.id)} (${markdownWords(check.severity)}, ${markdownWords(check.side)}): ${markdownText(check.detail)}`;
+  const failed = summary.cells
+    .filter((cell) => cell.outcome === "fail" || cell.outcome === "error")
+    .map((cell) => [`- **${markdownWords(`${cell.scenario} ${cell.agent} × ${cell.company}`)}**${cell.security ? " (adversarial, not counted above)" : ""}: ${markdownWords(label(cell))}${cell.reason ? `. ${markdownText(cell.reason)}` : ""}`, ...cell.checks.filter((check) => check.severity === "error").map(finding)].join("\n"));
+  return [
+    `# Poppy interop run ${markdownWords(summary.run)}`,
+    `Lane ${markdownWords(summary.lane)} · ${markdownWords(summary.spec)} · ${[...counts].map(([outcome, n]) => `${n} ${markdownWords(outcome)}`).join(", ")}. Checks: ${levels.failure} failures, ${levels.warning} warnings, ${levels.tentative} tentative.`,
+    ...(failed.length ? [`## Failed and errored cells\n\n${failed.join("\n")}`] : []),
+    `## Grids\n\n${grids.join("\n\n")}`
+  ].join("\n\n") + "\n";
 }
 
 export type { Manifest };

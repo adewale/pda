@@ -10,6 +10,7 @@ import { useState } from "react";
 import { approvalResult } from "../poppy/approval-outcome";
 import { cn } from "@cloudflare/kumo";
 import { Status } from "./status";
+import { RichText } from "./rich";
 
 /** An amount as money where it reads as one ("14.50" USD → "$14.50"), else as the Company wrote it. */
 export function money(total: { amount: string; currency: string }): string {
@@ -133,7 +134,7 @@ export function ApprovalCard({ card, send: sendFrame }: { card: Extract<Card, { 
           ))}
         </div>
       ) : null}
-      {card.terms ? <OperationTerms terms={card.terms} company={card.company} /> : <p className="text-base text-pretty break-words">{card.summary}</p>}
+      {card.terms ? <OperationTerms terms={card.terms} company={card.company} /> : <p className="text-base text-pretty break-words"><RichText text={card.summary} /></p>}
     </CardFrame>
   );
 }
@@ -221,7 +222,7 @@ export function BatchApprovalCard({ cards, decided, send: sendFrame, onDecided }
           <BatchTile key={card.approvalId} card={card} ticked={!unticked.has(card.approvalId)} decided={decided} onToggle={() => toggle(card.approvalId)} />
         ))}
       </ul>
-      <p className="text-[13px] text-pretty break-words text-kumo-subtle">Each goes to {first.summary.replace(/^Send your photo “[^”]*” \([^)]*\) to /, "")}</p>
+      <p className="text-[13px] text-pretty break-words text-kumo-subtle">Each goes to <RichText text={first.summary.replace(/^Send your photo “[^”]*” \([^)]*\) to /, "")} /></p>
     </CardFrame>
   );
 }

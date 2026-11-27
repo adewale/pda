@@ -28,8 +28,8 @@ export const systemResolver: Resolver = async (hostname) =>
 const NULL_BODY = new Set([204, 205, 304]);
 
 /** What a fetcher rejects with for a status no `Response` can hold, reported as `invalid-status` (src/validator/fetch.ts). */
-function invalidStatus(message: string): RangeError {
-  return Object.assign(new RangeError(message), { code: INVALID_STATUS });
+function invalidStatus(message: string, status: number): RangeError {
+  return Object.assign(new RangeError(message), { code: INVALID_STATUS, status });
 }
 
 /**
@@ -39,7 +39,7 @@ function invalidStatus(message: string): RangeError {
  */
 export function responseFrom(incoming: IncomingMessage, method: string): Response {
   const status = incoming.statusCode ?? 0;
-  if (status < 200 || status > 599) throw invalidStatus(`the server answered with HTTP status ${status}, which isn't a valid status`);
+  if (status < 200 || status > 599) throw invalidStatus(`the server answered with HTTP status ${status}, which isn't a valid status`, status);
   const headers = new Headers();
   for (const [name, value] of Object.entries(incoming.headers)) {
     for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) headers.append(name, item);
@@ -69,7 +69,7 @@ export function settleWith(outgoing: ClientRequest, method: string): Promise<Res
     });
     outgoing.once("upgrade", (_incoming, socket) => {
       socket.destroy();
-      reject(invalidStatus("the server switched protocols (HTTP 101), which isn't an answer to this request"));
+      reject(invalidStatus("the server switched protocols (HTTP 101), which isn't an answer to this request", 101));
     });
     outgoing.on("error", reject);
     outgoing.end();

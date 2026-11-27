@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { validateTarget, validateText, VALIDATOR, validatorUserAgent, type DocumentKind, type Report } from "../src/validator/index.ts";
 import { addressCheckingFetcher } from "./node-fetcher.ts";
+import { reportMarkdown } from "../src/validator/markdown.ts";
 import { withUserAgent } from "../src/validator/fetch.ts";
 import { PROJECT_URL } from "../src/public/project.ts";
 
@@ -23,6 +24,7 @@ Options:
   --fetched-from <url>  For a client metadata file: the URL that serves it
   --protocol <x.y>      Version for documents that don't declare one: 0.4, or 1.0 (the default)
   --json                Print the JSON report
+  --markdown            Print the report as Markdown, to paste into an issue
   --strict              Fail on warnings too (SHOULDs, the Guides, our readings)
   --quiet               Print errors only
   --version, --help
@@ -48,6 +50,7 @@ try {
       "fetched-from": { type: "string" },
       protocol: { type: "string" },
       json: { type: "boolean" },
+      markdown: { type: "boolean" },
       strict: { type: "boolean" },
       quiet: { type: "boolean" },
       version: { type: "boolean" },
@@ -91,9 +94,11 @@ if (target === "-" || existsSync(target)) {
 
 if (values.json) {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+} else if (values.markdown) {
+  process.stdout.write(reportMarkdown(report));
 } else {
-  const where = (document: DocumentKind) =>
-    report.documents.find((d) => d.kind === document)?.finalUrl ?? report.documents.find((d) => d.kind === document)?.url ?? label;
+  // The URL each document was asked for: where redirects led is in the messages that need it, and in --json.
+  const where = (document: DocumentKind) => report.documents.find((d) => d.kind === document)?.url ?? label;
   for (const message of report.messages) {
     if (values.quiet && message.severity !== "error") continue;
     const position = message.line !== undefined ? `:${message.line}:${message.column}` : "";
@@ -109,7 +114,7 @@ if (values.json) {
   const { error, warning, info } = report.counts;
   const headline =
     report.outcome === "indeterminate"
-      ? "couldn't check: a document couldn't be fetched within the limits"
+      ? "couldn't check: a document wasn't served, or couldn't be fetched within the limits"
       : report.outcome === "invalid"
         ? "not valid"
         : warning > 0

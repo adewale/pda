@@ -12,6 +12,7 @@
  * mock's (test/mock-company/violations.ts), and the tests check they agree.
  */
 import { createHash } from "node:crypto";
+import { departure, ours, partsOf, render, show, shown, type Problem, type Shown } from "../../src/diagnostic.ts";
 import { levelOf, severityOf, type Basis } from "../../src/validator/levels.ts";
 import { authorization, clientIdOf, decodeJwt, direction, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
 import type { Check, Side } from "./types.ts";
@@ -110,10 +111,20 @@ export const TRACE_CHECKS = {
 
 export type TraceCheckId = keyof typeof TRACE_CHECKS;
 
-function check(id: TraceCheckId, exchange: Exchange | null, detail: string): Check {
+/** A check's finding: its detail says what the rule expected and what the recording shows (src/diagnostic.ts). */
+function check(id: TraceCheckId, exchange: Exchange | null, detail: Problem): Check {
   const spec: CheckSpec = TRACE_CHECKS[id];
-  return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail, source: "trace" };
+  const parts = partsOf(detail);
+  return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail: render(detail), ...(parts ? { parts } : {}), source: "trace" };
 }
+
+/** A recorded string shown quoted, as written; anything else by its kind. */
+const quoted = (value: unknown): Shown => (typeof value === "string" ? show.text(value, 200) : show.kind(value));
+/** A recorded URL without its query, or its kind. */
+const urlOrKind = (value: unknown): Shown => (typeof value === "string" ? show.url(value) : show.kind(value));
+/** A response body, quoted and cut short. */
+const body120 = (text: string): Shown => show.text(text, 120);
+/** Parts of one finding, as one phrase: "a; b; c". */
 
 const SIGNING = new Set(["ES256", "PS384"]);
 /** RFC 9449 acceptance window plus clock skew, as the mock allows. */
@@ -136,31 +147,37 @@ export function assertionChecks(all: readonly Exchange[], protocolVersion?: stri
     const clientId = fields.get("client_id");
     const decoded = decodeJwt(jwt);
     if (!decoded) {
-      found.push(check("client-assertion.not-jwt", x, `client assertion at ${withoutQuery(x.url)} isn't a JWT`));
+      found.push(check("client-assertion.not-jwt", x, departure(shown`the client assertion at ${show.url(x.url)}`, ours("a JWT"), ours("a value that doesn't decode as one"))));
       continue;
     }
     const { header, payload } = decoded;
-    if (header.typ !== "JWT") found.push(check("client-assertion.typ", x, `typ is ${JSON.stringify(header.typ)}`));
-    if (typeof header.kid !== "string" || header.kid === "") found.push(check("client-assertion.kid", x, "no kid in the header"));
-    if (!SIGNING.has(String(header.alg))) found.push(check("client-assertion.alg", x, `alg ${JSON.stringify(header.alg)}`));
+    if (header.typ !== "JWT") found.push(check("client-assertion.typ", x, departure(ours("the client assertion's typ"), ours("\"JWT\", as S2 reads it"), show.value(header.typ))));
+    if (typeof header.kid !== "string" || header.kid === "") {
+      found.push(check("client-assertion.kid", x, departure(ours("the client assertion's header"), ours("a kid"), header.kid === undefined ? ours("none") : shown`kid ${show.value(header.kid)}`)));
+    }
+    if (!SIGNING.has(String(header.alg))) found.push(check("client-assertion.alg", x, departure(ours("the client assertion's alg"), ours("ES256 or PS384"), show.value(header.alg))));
     if (typeof payload.iat !== "number" || typeof payload.exp !== "number") {
-      found.push(check("client-assertion.iat-exp-missing", x, "no numeric iat and exp"));
+      found.push(check("client-assertion.iat-exp-missing", x, departure(ours("the client assertion's iat and exp"), ours("two numbers"), shown`iat as ${show.kind(payload.iat)} and exp as ${show.kind(payload.exp)}`)));
     } else {
       const lifetime = payload.exp - payload.iat;
+      const subject = ours("the client assertion's lifetime");
       if (protocolVersion === "1.0") {
-        if (lifetime > 300) found.push(check("client-assertion.lifetime-1.0", x, `lifetime ${lifetime} s exceeds 1.0’s 300-second maximum`));
-      } else if (lifetime > 300) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
-      else if (lifetime > 60) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
+        if (lifetime > 300) found.push(check("client-assertion.lifetime-1.0", x, departure(subject, ours("at most 300 s, as 1.0 requires"), shown`${lifetime} s`)));
+      } else if (lifetime > 300) found.push(check("client-assertion.lifetime", x, departure(subject, ours("at most 300 s, as even lenient Companies allow"), shown`${lifetime} s`)));
+      else if (lifetime > 60) found.push(check("client-assertion.lifetime", x, departure(subject, ours("at most 60 s, as strict Companies allow"), shown`${lifetime} s`)));
     }
-    if (typeof payload.jti !== "string" || payload.jti === "") found.push(check("client-assertion.jti-missing", x, "no jti"));
-    else if (seen.has(payload.jti)) found.push(check("client-assertion.jti-reused", x, `jti ${payload.jti} again`));
+    if (typeof payload.jti !== "string" || payload.jti === "") {
+      found.push(check("client-assertion.jti-missing", x, departure(ours("the client assertion"), ours("a jti"), payload.jti === undefined ? ours("none") : shown`jti ${show.value(payload.jti)}`)));
+    } else if (seen.has(payload.jti)) found.push(check("client-assertion.jti-reused", x, departure(ours("the client assertion's jti"), ours("a jti not used before"), shown`${show.value(payload.jti)} again`)));
     else seen.add(payload.jti);
     // 4.1: aud is the issuer, as a single string, whichever of its endpoints the assertion goes to.
     const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint, doc.pushed_authorization_request_endpoint].includes(x.url.href));
-    if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, "aud is an array"));
-    else if (issuer && payload.aud !== issuer.issuer) found.push({ ...check("client-assertion.aud-array", x, `aud ${JSON.stringify(payload.aud)}, not the issuer ${JSON.stringify(issuer.issuer)}`), id: "client-assertion.aud", basis: "MUST", severity: "error" });
+    if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, departure(ours("the client assertion's aud"), ours("the issuer, as a single string"), ours("an array"))));
+    else if (issuer && payload.aud !== issuer.issuer) {
+      found.push({ ...check("client-assertion.aud-array", x, departure(ours("the client assertion's aud"), shown`the issuer, ${quoted(issuer.issuer)}`, quoted(payload.aud))), id: "client-assertion.aud", basis: "MUST", severity: "error" });
+    }
     if (clientId && (payload.iss !== clientId || payload.sub !== clientId)) {
-      found.push(check("client-assertion.iss-sub", x, `iss ${JSON.stringify(payload.iss)}, sub ${JSON.stringify(payload.sub)}, client_id ${clientId}`));
+      found.push(check("client-assertion.iss-sub", x, departure(ours("the client assertion's iss and sub"), shown`both the client_id, ${quoted(clientId)}`, shown`iss ${quoted(payload.iss)} and sub ${quoted(payload.sub)}`)));
     }
   }
   return found;
@@ -175,24 +192,28 @@ export function dpopChecks(all: readonly Exchange[]): Check[] {
     if (!proof) continue;
     const decoded = decodeJwt(proof);
     if (!decoded) {
-      found.push(check("dpop.not-jwt", x, "DPoP header isn't a JWT"));
+      found.push(check("dpop.not-jwt", x, departure(ours("the DPoP header"), ours("a JWT"), ours("a value that doesn't decode as one"))));
       continue;
     }
     const { header, payload } = decoded;
-    if (header.typ !== "dpop+jwt") found.push(check("dpop.typ", x, `typ ${JSON.stringify(header.typ)}`));
-    if (!header.jwk || typeof header.jwk !== "object") found.push(check("dpop.no-jwk", x, "no jwk"));
-    if (payload.htm !== x.method) found.push(check("dpop.htm", x, `htm ${JSON.stringify(payload.htm)} for ${x.method}`));
+    if (header.typ !== "dpop+jwt") found.push(check("dpop.typ", x, departure(ours("the DPoP proof's typ"), ours("dpop+jwt"), show.value(header.typ))));
+    if (!header.jwk || typeof header.jwk !== "object") found.push(check("dpop.no-jwk", x, departure(ours("the DPoP proof's jwk"), ours("an object"), show.kind(header.jwk))));
+    if (payload.htm !== x.method) found.push(check("dpop.htm", x, departure(ours("the DPoP proof's htm"), shown`the request's method, ${show.value(x.method)}`, show.value(payload.htm))));
     if (typeof payload.htu !== "string" || payload.htu !== withoutQuery(x.url)) {
-      found.push(check("dpop.htu", x, `htu ${JSON.stringify(payload.htu)} for ${withoutQuery(x.url)}`));
+      found.push(check("dpop.htu", x, departure(ours("the DPoP proof's htu"), shown`the request URL without its query, ${show.url(withoutQuery(x.url))}`, urlOrKind(payload.htu))));
     }
     if (typeof payload.iat !== "number" || Math.abs(payload.iat - x.started / 1000) > DPOP_WINDOW_SECONDS) {
-      found.push(check("dpop.iat", x, `iat ${JSON.stringify(payload.iat)}, sent at ${Math.round(x.started / 1000)}`));
+      const sent = Math.round(x.started / 1000);
+      found.push(check("dpop.iat", x, departure(ours("the DPoP proof's iat"), shown`a time within ${DPOP_WINDOW_SECONDS} s of when it was sent, ${sent}`, show.value(payload.iat))));
     }
-    if (typeof payload.jti !== "string" || payload.jti === "") found.push(check("dpop.jti-missing", x, "no jti"));
-    else if (seen.has(payload.jti)) found.push(check("dpop.jti-reused", x, `jti ${payload.jti} again`));
+    if (typeof payload.jti !== "string" || payload.jti === "") {
+      found.push(check("dpop.jti-missing", x, departure(ours("the DPoP proof"), ours("a jti"), payload.jti === undefined ? ours("none") : shown`jti ${show.value(payload.jti)}`)));
+    } else if (seen.has(payload.jti)) found.push(check("dpop.jti-reused", x, departure(ours("the DPoP proof's jti"), ours("a jti not used before"), shown`${show.value(payload.jti)} again`)));
     else seen.add(payload.jti);
     const auth = authorization(x);
-    if (auth?.scheme === "DPoP" && payload.ath !== sha256(auth.token)) found.push(check("dpop.ath", x, "ath isn't the token's hash"));
+    if (auth?.scheme === "DPoP" && payload.ath !== sha256(auth.token)) {
+      found.push(check("dpop.ath", x, departure(ours("the DPoP proof's ath"), ours("the hash of the access token sent"), payload.ath === undefined ? ours("none") : ours("another value"))));
+    }
   }
   return found;
 }
@@ -244,7 +265,7 @@ export function tokenInUrlChecks(all: readonly Exchange[]): Check[] {
     if (x.probe || x.injected || x.direction === "other") continue;
     for (const [name, value] of x.url.searchParams) {
       if (name === "access_token" || tokens.has(value) || sessions.has(value)) {
-        found.push(check("secret.token-in-url", x, `${name}= in ${withoutQuery(x.url)}`));
+        found.push(check("secret.token-in-url", x, departure(ours("the request URL"), ours("no token in its query"), shown`${show.code(name)}= in ${show.url(x.url)}`)));
       }
     }
   }
@@ -373,7 +394,8 @@ export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
       if (!hosts) continue;
       if (described.get(issuer)?.has(x.url.host)) continue;
       if (x.direction !== "to-company" || x.peer !== issuer || !hosts.has(x.url.host)) {
-        found.push(check("token.unlisted-host", x, `a token from ${issuer} sent to ${x.url.host}`));
+        const allowed = [...hosts, ...(described.get(issuer) ?? [])].map((host) => show.name(host));
+        found.push(check("token.unlisted-host", x, departure(shown`a token from ${show.name(issuer)}`, shown`a host its Company's documents list: ${show.list(allowed, "or")}`, shown`${show.name(x.url.host)}${hosts.has(x.url.host) ? ours(", in a request that wasn't to that Company") : ours("")}`)));
       }
     }
   }
@@ -396,7 +418,9 @@ export function redirectChecks(all: readonly Exchange[]): Check[] {
       || (!!session && (later.requestHeaders.has("poppy-session") || requestSessionJwts(later).length > 0
         || [later.url.href, ...later.url.searchParams.values(), later.requestBody, ...later.requestHeaders.values()].some((value) => value.includes(session))))
     ));
-    if (followed) found.push(check("redirect.credentials-followed", followed, `${x.url.href} redirected to ${target}, followed with credentials`));
+    if (followed) {
+      found.push(check("redirect.credentials-followed", followed, departure(shown`the redirect from ${show.url(x.url)} to ${show.url(target)}`, ours("a request without the token, proof or Session JWT"), ours("one that carried them"))));
+    }
   }
   return found;
 }
@@ -419,10 +443,10 @@ export function retryAfterChecks(all: readonly Exchange[]): Check[] {
     const waits = (blocked.get(peer) ?? []).filter((wait) => x.started < wait.until - 100);
     const same = waits.find((wait) => wait.request === request);
     if (same) {
-      found.push(check("rate-limit.retry-after-ignored", x, `sent again ${same.until - x.started} ms before its Retry-After elapsed`));
+      found.push(check("rate-limit.retry-after-ignored", x, departure(shown`${show.name(x.method)} ${show.url(x.url)}`, ours("no repeat until its Retry-After elapsed"), shown`the same request ${same.until - x.started} ms before it did`)));
     } else if (waits.length > 0) {
       const latest = Math.max(...waits.map((wait) => wait.until));
-      found.push(check("rate-limit.shared-limit-ignored", x, `sent ${latest - x.started} ms before an earlier Retry-After at this Company elapsed`));
+      found.push(check("rate-limit.shared-limit-ignored", x, departure(shown`${show.name(x.method)} ${show.url(x.url)}`, ours("no request until an earlier Retry-After at this Company elapsed"), shown`this one ${latest - x.started} ms before it did`)));
     }
     if (x.status === 429) {
       const seconds = Number(x.responseHeaders.get("retry-after"));
@@ -452,29 +476,33 @@ const SEND_PATH = /\/conversations(?:\/[^/]+\/messages)?$/;
 const STATE_FIELDS = [["working", "boolean"], ["handoff", "string"], ["responder", "string"], ["closed", "boolean"]] as const;
 
 function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape"): Check[] {
+  const subject = id === "company.events-shape" ? ours("the events read") : ours("the reply to a send with wait");
+  const expected = ours("a read's body: conversation_id, events, cursor, has_more, working, handoff, responder and closed, each of its type");
   const body = jsonBody(x.responseBody);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return [check(id, x, `not a JSON object: ${x.responseBody.slice(0, 120)}`)];
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return [check(id, x, departure(subject, ours("a JSON object"), shown`${body === undefined ? ours("a body that isn't JSON") : show.kind(body)}: ${body120(x.responseBody)}`))];
+  }
   const read = body as Record<string, unknown>;
-  const problems: string[] = [];
+  const problems: Shown[] = [];
   const events = read.events;
   // 8.5: every successful read MUST include conversation_id.
-  if (typeof read.conversation_id !== "string") problems.push("no string conversation_id");
-  if (!Array.isArray(events)) problems.push("events isn't an array");
-  if (!("has_more" in read)) problems.push("no has_more");
-  else if (typeof read.has_more !== "boolean") problems.push("has_more isn't a boolean");
+  if (typeof read.conversation_id !== "string") problems.push(ours("no string conversation_id"));
+  if (!Array.isArray(events)) problems.push(ours("events isn't an array"));
+  if (!("has_more" in read)) problems.push(ours("no has_more"));
+  else if (typeof read.has_more !== "boolean") problems.push(ours("has_more isn't a boolean"));
   for (const [field, type] of STATE_FIELDS) {
-    if (!(field in read)) problems.push(`no ${field}`);
-    else if (typeof read[field] !== type) problems.push(`${field} isn't a ${type}`);
+    if (!(field in read)) problems.push(shown`no ${ours(field)}`);
+    else if (typeof read[field] !== type) problems.push(shown`${ours(field)} isn't a ${ours(type)}`);
   }
   const requestCursor = x.url.searchParams.get("cursor") ?? x.requestHeaders.get("last-event-id") ?? null;
   const found: Check[] = [];
-  if (!("cursor" in read)) problems.push("no cursor");
+  if (!("cursor" in read)) problems.push(ours("no cursor"));
   else if (typeof read.cursor !== "string") {
-    if (requestCursor !== null) problems.push(`cursor ${JSON.stringify(read.cursor)}, not a string, after a request with a cursor`);
-    else if (Array.isArray(events) && events.length > 0) problems.push(`cursor ${JSON.stringify(read.cursor)}, not a string, with events returned`);
-    else if (read.cursor !== null) found.push(check("company.events-cursor", x, `cursor ${JSON.stringify(read.cursor)} on a first read with no events`));
+    if (requestCursor !== null) problems.push(shown`cursor ${show.value(read.cursor)}, not a string, after a request with a cursor`);
+    else if (Array.isArray(events) && events.length > 0) problems.push(shown`cursor ${show.value(read.cursor)}, not a string, with events returned`);
+    else if (read.cursor !== null) found.push(check("company.events-cursor", x, departure(ours("the cursor of a first read with no events"), ours("a string or null"), show.value(read.cursor))));
   }
-  if (problems.length > 0) found.unshift(check(id, x, `${problems.join("; ")}: ${x.responseBody.slice(0, 120)}`));
+  if (problems.length > 0) found.unshift(check(id, x, departure(subject, expected, shown`${show.join(problems)}: ${body120(x.responseBody)}`)));
   return found;
 }
 
@@ -486,23 +514,26 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
     const fields = form(x);
     const oauth = !!fields && (fields.has("grant_type") || fields.has("client_assertion") || OAUTH_PATH.test(x.url.pathname));
     if (x.status === 401 && auth && !oauth && !x.responseHeaders.has("www-authenticate")) {
-      found.push(check("company.www-authenticate", x, `401 for ${x.method} ${withoutQuery(x.url)}`));
+      found.push(check("company.www-authenticate", x, departure(shown`the HTTP 401 for ${show.name(x.method)} ${show.url(x.url)}`, ours("a WWW-Authenticate header"), ours("none"))));
     }
-    if (x.status === 429 && !x.responseHeaders.has("retry-after")) found.push(check("company.retry-after", x, `429 for ${withoutQuery(x.url)}`));
+    if (x.status === 429 && !x.responseHeaders.has("retry-after")) {
+      found.push(check("company.retry-after", x, departure(shown`the HTTP 429 for ${show.name(x.method)} ${show.url(x.url)}`, ours("a Retry-After header"), ours("none"))));
+    }
     if (oauth && x.status >= 400 && x.status < 500) {
       const body = jsonBody(x.responseBody);
       if (!body || typeof body !== "object" || typeof (body as Record<string, unknown>).error !== "string") {
-        found.push(check("company.oauth-error-body", x, `HTTP ${x.status} from ${withoutQuery(x.url)}: ${x.responseBody.slice(0, 120)}`));
+        found.push(check("company.oauth-error-body", x, departure(shown`the ${show.status(x.status)} from ${show.url(x.url)}`, ours("a JSON object with a string error"), body120(x.responseBody))));
       }
     }
     if (oauth && fields?.has("grant_type") && x.status === 200) {
       const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
       // RFC 6749 5.1: expires_in is only RECOMMENDED, and a token response has no session_id (4.7).
-      const missing = ["access_token", "token_type"].filter((field) => body?.[field] === undefined);
-      if (missing.length) found.push(check("company.token-response", x, `missing ${missing.join(", ")}`));
+      const missing = (["access_token", "token_type"] as const).filter((field) => body?.[field] === undefined).map((field) => ours(field));
+      if (missing.length) found.push(check("company.token-response", x, departure(ours("the token response"), ours("access_token and token_type"), shown`no ${show.list(missing, "or")}`)));
       // RFC 6749 5.1: a response with tokens MUST carry Cache-Control: no-store, or a cache may keep them.
       if (body?.access_token !== undefined && !/(^|,)\s*no-store\s*(,|$)/i.test(x.responseHeaders.get("cache-control") ?? "")) {
-        found.push(check("company.token-no-store", x, `token response from ${withoutQuery(x.url)} without Cache-Control: no-store`));
+        const cacheControl = x.responseHeaders.get("cache-control") ?? null;
+        found.push(check("company.token-no-store", x, departure(shown`the token response from ${show.url(x.url)}`, ours("Cache-Control: no-store"), cacheControl === null ? ours("no Cache-Control") : shown`Cache-Control ${show.text(cacheControl)}`)));
       }
     }
     if (x.method === "GET" && /\/events$/.test(x.url.pathname) && x.status === 200) {
@@ -517,7 +548,7 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
           // `working` and text-delta stream events have no id (8.6).
           const unnumbered = event === "text-delta" || event === "working";
           if (hasData && !unnumbered && !lines.some((line) => line.startsWith("id:"))) {
-            found.push(check("company.sse-event-id", x, `a ${event} event without an id`));
+            found.push(check("company.sse-event-id", x, departure(shown`a streamed ${show.code(event)} event`, ours("an id"), ours("none"))));
             break;
           }
         }
@@ -540,7 +571,7 @@ export function authorizationResponseChecks(callbacks: readonly string[], all: r
   }
   for (const url of urls) {
     try {
-      if (!new URL(url).searchParams.get("iss")) found.push(check("company.iss-missing", null, url));
+      if (!new URL(url).searchParams.get("iss")) found.push(check("company.iss-missing", null, departure(shown`the authorization response to ${show.url(url)}`, ours("an iss parameter"), ours("none"))));
     } catch {
       // Not a URL; the step that produced it failed already.
     }
@@ -586,18 +617,18 @@ export function browserSessionResponseChecks(all: readonly Exchange[]): Check[] 
     const location = x.responseHeaders.get("location");
     const target = location ? new URL(location, x.url).href : null;
     const cookies = setCookies(x);
-    const problems: string[] = [];
-    if (x.status < 300) problems.push(`HTTP ${x.status}, not a redirect`);
-    if (target === null) problems.push("no Location");
-    if (cookies.length === 0) problems.push("no Set-Cookie");
-    if (problems.length > 0) found.push(check("company.browser-session-response", x, problems.join("; ")));
+    const problems: Shown[] = [];
+    if (x.status < 300) problems.push(shown`${show.status(x.status)}, not a redirect`);
+    if (target === null) problems.push(ours("no Location"));
+    if (cookies.length === 0) problems.push(ours("no Set-Cookie"));
+    if (problems.length > 0) found.push(check("company.browser-session-response", x, departure(ours("the answer to a browser join's form"), ours("a redirect with a Location and a Set-Cookie"), show.join(problems))));
     for (const cookie of cookies) {
       const attributes = cookie.split(";").slice(1).map((part) => part.trim().toLowerCase());
       const name = cookie.split("=")[0]!.trim();
       // Clearing the join's own cookie (Max-Age=0) sets nothing to protect.
       if (attributes.includes("max-age=0")) continue;
-      const missing = ["secure", "httponly"].filter((flag) => !attributes.includes(flag));
-      if (missing.length) found.push(check("company.browser-cookie", x, `cookie ${name}: ${missing.map((flag) => `no ${flag === "httponly" ? "HttpOnly" : "Secure"}`).join(", ")}`));
+      const missing = ([["secure", ours("no Secure")], ["httponly", ours("no HttpOnly")]] as const).filter(([flag]) => !attributes.includes(flag)).map(([, said]) => said);
+      if (missing.length) found.push(check("company.browser-cookie", x, departure(shown`cookie ${show.name(name)}`, ours("Secure and HttpOnly"), show.list(missing))));
     }
   }
   return found;
@@ -613,10 +644,10 @@ export function handoffChecks(all: readonly Exchange[]): Check[] {
   for (const x of agentRequests(all)) {
     if (x.method !== "POST" || CONVERSATION_ACTION.exec(x.url.pathname)?.[2] !== "handoff" || x.status < 200 || x.status >= 300) continue;
     const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
-    const problems: string[] = [];
-    if (x.status !== 202) problems.push(`HTTP ${x.status}, not 202`);
-    if (typeof body?.conversation_id !== "string") problems.push("no conversation_id");
-    if (problems.length) found.push(check("company.handoff-response", x, `${problems.join("; ")}: ${x.responseBody.slice(0, 120)}`));
+    const problems: Shown[] = [];
+    if (x.status !== 202) problems.push(shown`${show.status(x.status)}, not 202`);
+    if (typeof body?.conversation_id !== "string") problems.push(ours("no conversation_id"));
+    if (problems.length) found.push(check("company.handoff-response", x, departure(ours("the answer to an accepted handoff"), ours("HTTP 202 with conversation_id"), shown`${show.join(problems)}: ${body120(x.responseBody)}`)));
   }
   return found;
 }
@@ -673,11 +704,11 @@ export function directParentChecks(all: readonly Exchange[]): Check[] {
     const child = open.get(id);
     if (child === undefined || x.method !== "POST") continue;
     if (x.status >= 200 && x.status < 300) {
-      found.push(check("company.direct-parent-open", x, `${action[2]} to ${id} accepted (HTTP ${x.status}) while Direct Conversation ${child} was open`));
+      found.push(check("company.direct-parent-open", x, departure(shown`a ${show.name(action[2]!)} request to ${show.value(id)}`, shown`direct_conversation_open while Direct Conversation ${show.value(child)} is open`, shown`${show.status(x.status)}, accepted`)));
     } else if (x.status === 409) {
       const body = jsonBody(x.responseBody) as { error?: unknown; conversation_id?: unknown } | undefined;
       if (body?.error === "direct_conversation_open" && body.conversation_id !== child) {
-        found.push(check("company.direct-parent-open", x, `direct_conversation_open names ${JSON.stringify(body.conversation_id)}, not ${child}`));
+        found.push(check("company.direct-parent-open", x, departure(ours("direct_conversation_open's conversation_id"), shown`the open Direct Conversation, ${show.value(child)}`, show.value(body.conversation_id))));
       }
     }
   }
@@ -712,8 +743,8 @@ export function metadataFetchChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const x of all) {
     if (x.probe || x.injected || x.direction !== "to-agent" || !(clientIds.has(x.url.href) || jwksUris.has(x.url.href))) continue;
-    const sent = ["authorization", "dpop", "cookie"].filter((name) => x.requestHeaders.has(name));
-    if (sent.length) found.push(check("company.metadata-fetch-credentials", x, `${sent.join(", ")} on the fetch of ${x.url.href}`));
+    const sent = (["authorization", "dpop", "cookie"] as const).filter((name) => x.requestHeaders.has(name)).map((name) => ours(name));
+    if (sent.length) found.push(check("company.metadata-fetch-credentials", x, departure(shown`the Company's fetch of ${show.url(x.url)}`, ours("no credentials"), show.list(sent))));
   }
   return found;
 }

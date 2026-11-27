@@ -1,4 +1,5 @@
-import { array, boolean, DecodeError, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
+import { array, boolean, integer, literal, nullable, number, object, optional, record, refuse, string, tagged, type Decoder } from "../decode";
+import { ours, shown } from "../diagnostic";
 import { APPROVAL_READ_LIMIT, isApprovalId, isDiagnosticFlowId } from "./approval-outcome";
 import type { HistoryFrame } from "../history";
 import { issuerDecoder } from "./issuer";
@@ -12,21 +13,24 @@ import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
 
 const decision = literal("approve", "decline");
 const approvalIds: Decoder<readonly string[]> = (value, at) => {
-  if (!Array.isArray(value) || value.length > APPROVAL_READ_LIMIT) throw new DecodeError("Invalid approval lookup");
+  if (!Array.isArray(value) || value.length > APPROVAL_READ_LIMIT) refuse(at, shown`a list of at most ${APPROVAL_READ_LIMIT} approval ids`, value);
   const ids = array(string)(value, at);
-  if (ids.some(id => !isDiagnosticFlowId(id))) throw new DecodeError("Invalid approval lookup");
+  const bad = ids.find(id => !isDiagnosticFlowId(id));
+  if (bad !== undefined) refuse(at, ours("approval ids"), bad);
   return ids;
 };
 
 const flowId: Decoder<string> = (value, at) => {
   const decoded = string(value, at);
-  if (!isDiagnosticFlowId(decoded)) throw new DecodeError("Invalid diagnostic flow ID");
+  if (!isDiagnosticFlowId(decoded)) refuse(at, ours("a diagnostic flow id"), decoded);
   return decoded;
 };
 const linkChecks: Decoder<Extract<PoppyClientFrame, { type: "poppy.result_links.checked" }>["checks"]> = (value, at) => {
-  if (!Array.isArray(value) || value.length > 12) throw new DecodeError("Invalid link checks");
+  if (!Array.isArray(value) || value.length > 12) refuse(at, ours("a list of at most 12 link checks"), value);
   const checks = array(object({ index: integer, attribute_equal: boolean, resolved_equal: boolean }))(value, at);
-  if (checks.some(check => check.index < 0 || check.index >= 12) || new Set(checks.map(check => check.index)).size !== checks.length) throw new DecodeError("Invalid link checks");
+  // The index that breaks the rule, as the value got: out of range, or repeated.
+  const stray = checks.find((check, position) => check.index < 0 || check.index >= 12 || checks.findIndex(other => other.index === check.index) !== position);
+  if (stray !== undefined) refuse(at, ours("link checks with distinct indexes from 0 to 11"), stray.index);
   return checks;
 };
 

@@ -1,9 +1,13 @@
 import { base64url, fromBase64url } from "./base64url";
 import type { Provider } from "./config";
+import { ours, ProblemError, type Problem } from "./diagnostic";
 
 /** A request without a valid session. */
-export class AuthError extends Error {
+export class AuthError extends ProblemError {
   override name = "AuthError";
+  constructor(problem: Problem) {
+    super(problem);
+  }
 }
 
 export type Identity = {
@@ -130,9 +134,9 @@ export async function verifySession(
   secret: string
 ): Promise<BrowserIdentity> {
   const token = readCookie(request, SESSION_COOKIE);
-  if (!token) throw new AuthError("No session cookie");
+  if (!token) throw new AuthError(ours("No session cookie"));
   const payload = await unsign<SessionPayload>(token, secret);
-  if (!payload) throw new AuthError("Bad session signature");
+  if (!payload) throw new AuthError(ours("Bad session signature"));
   if (
     (payload.provider !== "google" && payload.provider !== "github") ||
     typeof payload.sub !== "string" ||
@@ -141,9 +145,9 @@ export async function verifySession(
     typeof payload.sid !== "string" || !/^[0-9a-f-]{36}$/.test(payload.sid)
     || (payload.iat !== undefined && (!Number.isSafeInteger(payload.iat) || payload.iat > Date.now()))
   ) {
-    throw new AuthError("Malformed session");
+    throw new AuthError(ours("Malformed session"));
   }
-  if (payload.exp * 1000 <= Date.now()) throw new AuthError("Session expired");
+  if (payload.exp * 1000 <= Date.now()) throw new AuthError(ours("Session expired"));
   return {
     sessionCreatedAt: payload.iat ?? payload.exp * 1000 - SESSION_TTL_SECONDS * 1000,
     sessionId: payload.sid,

@@ -11,7 +11,8 @@
  * approval goes unused. Tools may read instructions; nothing but the page's
  * own frames writes them.
  */
-import { array, DecodeError, integer, jsonText, literal, nullable, object, optional, string, tagged, tryDecode, type Decoder } from "../decode";
+import { array, integer, jsonText, literal, nullable, object, optional, refuse as refuseValue, string, tagged, tryDecode, type Decoder } from "../decode";
+import { departure, ours, ProblemError, sentence, show, shown, type Problem, type Shown } from "../diagnostic";
 import { one, rows } from "../rows";
 import { scopeSet, type PoppyClient } from "./client";
 import { BROWSER_SIGN_IN, type Company } from "./discovery";
@@ -48,22 +49,22 @@ export type Instruction = {
   readonly withdrawnAt: number | null;
 };
 
-function refuse(at: string, expected: string): never {
-  throw new DecodeError(`${at || "the value"}: expected ${expected}`);
+function refuse(at: string, expected: Shown, value?: unknown): never {
+  return refuseValue(at, expected, value);
 }
 const plain: Decoder<Plain> = (value, at) => typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
-  ? value : refuse(at, "a string, number or true or false");
+  ? value : refuse(at, ours("a string, number or true or false"), value);
 const path: Decoder<readonly string[]> = (value, at) => {
   const names = array(string)(value, at);
-  return names.length === 0 || names.length > 8 || names.some((name) => name.length === 0 || name.length > 128) ? refuse(at, "one to eight member names") : names;
+  return names.length === 0 || names.length > 8 || names.some((name) => name.length === 0 || name.length > 128) ? refuse(at, ours("one to eight member names"), value) : names;
 };
 const amount: Decoder<string> = (value, at) => {
   const text = string(value, at);
-  return DECIMAL.test(text) ? text : refuse(at, "a decimal amount such as 20.00");
+  return DECIMAL.test(text) ? text : refuse(at, ours("a decimal amount such as 20.00"), value);
 };
 const currency: Decoder<string> = (value, at) => {
   const text = string(value, at);
-  return /^[A-Z]{3}$/.test(text) ? text : refuse(at, "a three-letter currency code");
+  return /^[A-Z]{3}$/.test(text) ? text : refuse(at, ours("a three-letter currency code"), value);
 };
 export const conditionDecoder: Decoder<Condition> = tagged("kind", {
   at_most: object({ kind: literal("at_most"), path, amount, currency }),
@@ -136,14 +137,14 @@ export function instruction(client: PoppyClient, id: string): Instruction | unde
  */
 export function addInstruction(client: PoppyClient, input: NewInstruction, now = Date.now()): Instruction {
   const text = input.text.trim();
-  if (!text || text.length > 500) throw new InstructionRefused("Write the instruction in your own words, in at most 500 characters.");
-  if (input.conditions.length === 0 || input.conditions.length > 10) throw new InstructionRefused("An instruction needs one to ten conditions on the Company's terms.");
+  if (!text || text.length > 500) throw new InstructionRefused(departure(ours("the instruction"), ours("your own words, in at most 500 characters"), text ? shown`${text.length} characters` : ours("none")));
+  if (input.conditions.length === 0 || input.conditions.length > 10) throw new InstructionRefused(departure(ours("the instruction's conditions"), ours("one to ten conditions on the Company's terms"), shown`${input.conditions.length}`));
   const limits = input.conditions.filter((condition) => condition.kind === "at_most");
   const budget = input.budget ?? null;
   if (budget) {
-    if (limits.length !== 1) throw new InstructionRefused("A limit over a period needs exactly one amount condition to count against.");
-    if (budget.currency !== limits[0]!.currency) throw new InstructionRefused("A limit over a period must be in the same currency as the amount condition.");
-    if (budget.days < 1 || budget.days > 366) throw new InstructionRefused("A period is 1 to 366 days.");
+    if (limits.length !== 1) throw new InstructionRefused(departure(ours("a limit over a period"), ours("exactly one amount condition to count against"), shown`${limits.length}`));
+    if (budget.currency !== limits[0]!.currency) throw new InstructionRefused(departure(ours("the limit's currency"), shown`the amount condition's, ${show.code(limits[0]!.currency)}`, show.code(budget.currency)));
+    if (budget.days < 1 || budget.days > 366) throw new InstructionRefused(departure(ours("the period"), ours("1 to 366 days"), shown`${budget.days}`));
   }
   const id = randomId("ins_");
   client.sql.exec(
@@ -160,7 +161,13 @@ export function withdrawInstruction(client: PoppyClient, id: string, now = Date.
   client.sql.exec("UPDATE poppy_instruction_spend SET state = 'released' WHERE instruction_id = ? AND state = 'reserved' AND approval_id IN (SELECT id FROM poppy_approvals WHERE status IN ('pending', 'declined', 'failed', 'refused'))", id);
 }
 
-export class InstructionRefused extends Error {}
+/** An instruction the User's page asked for that can't be kept; its message is a sentence, for the page. */
+export class InstructionRefused extends ProblemError {
+  constructor(problem: Problem) {
+    super(problem);
+    this.message = sentence(problem);
+  }
+}
 
 // ---------------------------------------------------------------- The check
 

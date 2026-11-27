@@ -2,6 +2,7 @@
 import { type Company } from "./discovery";
 import { type ApprovalAuthority, sameAuthority, sessionAuthority } from "./authority";
 import { PoppyClient, PoppyError, type TokenOptions } from "./client";
+import { ours, show, shown } from "../diagnostic";
 import { type ApprovalExecution } from "./operations";
 import { approvesAcrossSessions } from "./operations-v2";
 import { isTaskRequest } from "./approval-outcome";
@@ -20,7 +21,7 @@ export function bindingSnapshot(client: PoppyClient, company: Company, label: st
 function checkApprovalBinding(client: PoppyClient, company: Company, label: string, binding: ApprovalBinding): void {
   const session = client.session(company.issuer, label);
   if (!sameAuthority(binding, sessionAuthority(session), approvesAcrossSessions(company))) {
-    throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
+    throw new PoppyError("approval_changed", ours("The account or Session changed. Review a fresh request before sending it."), 0);
   }
 }
 
@@ -40,7 +41,7 @@ export function requestGuard(client: PoppyClient, company: Company, label: strin
     binding: () => expected,
     beforeDispatch: check,
     ...(allowRestart || approvesAcrossSessions(company) ? { onSessionRestart: (previousSessionId: string, nextSessionId: string) => {
-      if (expected.sessionId !== previousSessionId) throw new PoppyError("approval_changed", "The task's Session changed before its known refusal could be recovered. Nothing was resent.", 0);
+      if (expected.sessionId !== previousSessionId) throw new PoppyError("approval_changed", ours("The task's Session changed before its known refusal could be recovered. Nothing was resent."), 0);
       expected = { ...expected, sessionId: nextSessionId };
       check();
     } } : {})
@@ -57,6 +58,6 @@ export function hasTaskCall(client: PoppyClient, callId: string): boolean {
 
 export function findApi(company: Company, type: Api["type"], url?: string): Api {
   const matches = company.apis.filter((api) => api.type === type && (!url || api.url === url));
-  if (matches.length === 0) throw new PoppyError("no_api", `${company.name} lists no ${type} API${url ? ` at ${url}` : ""}`, 0);
+  if (matches.length === 0) throw new PoppyError("no_api", shown`${show.name(company.name)} lists no ${ours(type)} API${url ? shown` at ${show.url(url, url)}` : ours("")}`, 0);
   return matches[0]!;
 }

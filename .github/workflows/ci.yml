@@ -52,6 +52,10 @@ jobs:
       - if: steps.scope.outputs.runtime == 'true'
         run: npm run typecheck
 
+      # The deploy check under Node's type stripping, which Vite-run tests can't see; it needs npm ci.
+      - if: steps.scope.outputs.runtime == 'true'
+        run: npm run test:node-runtime
+
       # Keep whole-runtime resets in the durability suite as an explicit policy.
       # File workers are currently isolated; this boundary also permits future pooling.
       - name: Whole-runtime resets belong in durability tests

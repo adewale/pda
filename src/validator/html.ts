@@ -3,6 +3,9 @@
  * message. Plain server-rendered HTML with no scripts, so it works anywhere
  * and results can be linked to (`/validator?url=example.com`).
  */
+import { show } from "../diagnostic.ts";
+import { pieces, shortSegment, urlParts } from "../rich-text.ts";
+import { reportMarkdown } from "./markdown.ts";
 import { MESSAGES, type MessageId } from "./messages.ts";
 import type { Message } from "./primitives.ts";
 import { PROFILES } from "./profiles/index.ts";
@@ -37,7 +40,12 @@ button{margin-top:14px;font:inherit;font-weight:600;color:#fff;background:var(--
 .outcome strong{font-size:1.1rem}
 .outcome.valid strong{color:var(--ok)}.outcome.invalid strong{color:var(--error)}.outcome.indeterminate strong{color:var(--warn)}
 ul.messages{list-style:none;padding:0;margin:0}
-ul.messages li{border-top:1px solid var(--line);padding:10px 0}
+ul.messages li{border-top:1px solid var(--line);padding:10px 0;overflow-wrap:anywhere}
+code.url{overflow-wrap:anywhere}code.url b{font-weight:600}
+.subject{font-weight:600}.detail{margin:4px 0 0}
+details.full,details.markdown{margin:4px 0}details.full summary,details.markdown summary{cursor:pointer;color:var(--muted);font-size:.9rem}
+details.markdown pre{white-space:pre-wrap;overflow-wrap:anywhere}
+dl.sides{display:grid;grid-template-columns:max-content 1fr;align-items:baseline;gap:2px 12px;margin:6px 0 0;font-size:.95em}dl.sides dt{margin:0;color:var(--muted);font-weight:600}dl.sides dd{margin:0;color:inherit;overflow-wrap:anywhere}
 .sev{font-weight:600}
 .sev.error{color:var(--error)}.sev.warning{color:var(--warn)}.sev.info{color:var(--info)}
 .where{color:var(--muted);font-size:.9rem}
@@ -49,6 +57,31 @@ dl{margin:0}dt{font-weight:600;margin-top:8px}dd{margin:0 0 4px;color:var(--mute
 .doc p{margin:2px 0;overflow-wrap:anywhere}
 section.msg{border-top:1px solid var(--line);padding:12px 0}
 `;
+
+/** Where a long URL may break: after each slash, question mark, ampersand and equals sign, never inside a word. */
+function breakable(text: string): string {
+  return escape(text).replace(/(\/|\?|&#38;|=)/g, "$1<wbr>");
+}
+
+/**
+ * A URL as a value: in code, its host in bold (where it leads is usually the
+ * point), a break opportunity between segments, and a segment longer than
+ * the eye needs shortened in its middle, with the whole URL in the tooltip.
+ */
+function urlHtml(url: string): string {
+  const parts = urlParts(url);
+  if (!parts) return `<code class="url">${breakable(url)}</code>`;
+  const path = parts.segments.map((segment) => `/<wbr>${escape(shortSegment(segment))}`).join("");
+  const shortened = parts.segments.some((segment) => shortSegment(segment) !== segment);
+  return `<code class="url"${shortened ? ` title="${escape(url)}"` : ""}>${escape(parts.scheme)}<b>${escape(parts.host)}</b>${path}${parts.suffix ? `<wbr>${breakable(parts.suffix)}` : ""}</code>`;
+}
+
+/** Shown text with each URL in it set as a value. */
+function rich(text: string): string {
+  return pieces(text)
+    .map((piece) => (piece.kind === "url" ? urlHtml(piece.url) : escape(piece.text)))
+    .join("");
+}
 
 function page(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)}</title><style>${STYLE}</style></head><body><main>${body}</main></body></html>`;
@@ -96,7 +129,7 @@ ${forms()}
 <h2>Use it from code</h2>
 <pre>curl -s ${escape(origin)}/validator/api -H 'Content-Type: application/json' \\
   -d '{"url": "example.com"}'</pre>
-<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors break a requirement (a MUST, an RFC's MUST, or a normative rule without a key word); warnings depart from a recommendation (a SHOULD, the Guides) or our reading of an open question; info is worth knowing but harmless. Each message names its basis, and the report says separately whether our own agent refuses the documents.</p>`
+<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. Add <code>"format": "markdown"</code> (or <code>&amp;format=markdown</code> to a GET) for the report as Markdown, to paste into an issue. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors break a requirement (a MUST, an RFC's MUST, or a normative rule without a key word); warnings depart from a recommendation (a SHOULD, the Guides) or our reading of an open question; info is worth knowing but harmless. Each message names its basis, and the report says separately whether our own agent refuses the documents.</p>`
   );
 }
 
@@ -115,7 +148,12 @@ function messageItem(message: Message, source: string | undefined): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return `<li><span class="sev ${message.severity}">${SEVERITY_NAMES[message.severity]}</span> ${escape(message.text)}
+  // A departure: its subject, then the two sides apart, then what follows. The sentence that says all three is in the JSON and the CLI; here it would say each value twice.
+  const body =
+    message.subject !== undefined && message.expected !== undefined && message.got !== undefined
+      ? `<span class="subject">${rich(message.subject)}</span><dl class="sides"><dt>Expected</dt><dd>${rich(message.expected)}</dd><dt>Got</dt><dd>${rich(message.got)}</dd></dl>${message.detail !== undefined ? `<p class="detail">${rich(message.detail)}</p>` : ""}`
+      : rich(message.text);
+  return `<li><span class="sev ${message.severity}">${SEVERITY_NAMES[message.severity]}</span> ${body}
 <div class="where">${where ? `${where} · ` : ""}${escape(basisLabel(message))} · <a href="${escape(message.ref.url)}">${escape(message.ref.label)}</a> · <a href="/validator/messages#${message.id}">${escape(message.id)}</a></div>${excerpt(source, message)}</li>`;
 }
 
@@ -134,7 +172,7 @@ export function resultPage(
   const { error, warning, info } = result.counts;
   const headline =
     result.outcome === "indeterminate"
-      ? "Couldn't check: a document couldn't be fetched within the limits"
+      ? "Couldn't check: a document wasn't served, or couldn't be fetched within the limits"
       : result.outcome === "invalid"
         ? `Not valid: ${error} error${error === 1 ? "" : "s"}`
         : warning > 0
@@ -162,8 +200,11 @@ export function resultPage(
   const documents = result.documents
     .map((doc) => {
       const messages = result.messages.filter((m) => m.document === doc.kind);
+      // Where the redirects led, without its query, as messages show it; whenever that isn't the whole URL (a query cut, or a long path), the whole is a click away, and in the JSON report.
+      const final = doc.finalUrl && doc.finalUrl !== doc.url ? show.url(doc.finalUrl, doc.url) : undefined;
+      const full = final !== undefined && final !== doc.finalUrl ? `<details class="full"><summary>The whole URL</summary><code class="url">${breakable(doc.finalUrl!)}</code></details>` : "";
       const facts = [
-        doc.url ? `<p>${escape(doc.url)}${doc.finalUrl && doc.finalUrl !== doc.url ? ` → ${escape(doc.finalUrl)}` : ""}</p>` : "",
+        doc.url ? `<p>${urlHtml(show.url(doc.url, doc.url))}${final !== undefined ? ` → ${urlHtml(final)}` : ""}</p>${full}` : "",
         doc.status !== undefined ? `<p class="where">HTTP ${doc.status}${doc.contentType ? ` · ${escape(doc.contentType)}` : ""}${doc.maxAgeSeconds != null ? ` · cacheable for ${doc.maxAgeSeconds} s` : ""}</p>` : ""
       ].join("");
       const list = messages.length
@@ -175,7 +216,10 @@ export function resultPage(
   const skipped = result.skipped.length
     ? `<h2>Not checked</h2><ul>${result.skipped.map((s) => `<li>${escape(s.check)}. ${escape(s.reason)}</li>`).join("")}</ul>`
     : "";
-  const json = input.url ? `<p><a href="/validator/api?url=${encodeURIComponent(input.url)}">This report as JSON</a></p>` : "";
+  // A URL's report can be fetched again as JSON or Markdown; a pasted document's can't, so its Markdown is on the page.
+  const json = input.url
+    ? `<p><a href="/validator/api?url=${encodeURIComponent(input.url)}">This report as JSON</a> · <a href="/validator/api?url=${encodeURIComponent(input.url)}&amp;format=markdown">This report as Markdown</a></p>`
+    : `<details class="markdown"><summary>This report as Markdown</summary><pre>${escape(reportMarkdown(result))}</pre></details>`;
   return page(
     "Poppy Validator results",
     `<h1><a href="/validator" style="color:inherit;text-decoration:none">Poppy Validator</a></h1>
@@ -200,11 +244,11 @@ export function messagesPage(): string {
 <h2 id="output">The JSON report</h2>
 <dl>
 <dt>outputVersion</dt><dd>1. Changes that break readers of the report get a new number.</dd>
-<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document couldn't be fetched, or not within the limits the Guides recommend, so it couldn't be checked).</dd>
+<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document wasn't served, or couldn't be fetched within the limits the Guides recommend, so it couldn't be checked).</dd>
 <dt>refused</dt><dd>Whether our Personal Agent refuses these documents: an error it doesn't tolerate, a warning it refuses, or a document it couldn't check.</dd>
 <dt>checkedAgainst</dt><dd>The protocol version whose rules were applied, chosen from poppy.json's protocol_version.</dd>
 <dt>documents</dt><dd>Each document checked: kind, url, finalUrl after redirects, status, contentType, maxAgeSeconds, and the parsed value.</dd>
-<dt>messages</dt><dd>id, basis (MUST, RFC, Rule, SHOULD, Guides or Reading), severity, refuses (whether our agent refuses the documents over it), document, pointer (a JSON Pointer), line and column (1-based) when known, text, and ref (the section of the specification or RFC).</dd>
+<dt>messages</dt><dd>id, basis (MUST, RFC, Rule, SHOULD, Guides or Reading), severity, refuses (whether our agent refuses the documents over it), document, pointer (a JSON Pointer), line and column (1-based) when known, text, subject, expected, got and detail, and ref (the section of the specification or RFC). For a departure, which is every error and warning but a few that report a fact (such as a fetch that got no answer), text reads "subject: expected X, got Y." and subject, expected and got hold its parts apart, with detail for what follows when there is something: what the rule wants, in its words, and what the document or the fetch gave, with values quoted and bounded and a URL a redirect led to shown without its query. Notes have neither.</dd>
 <dt>skipped</dt><dd>Checks that needed something the input didn't give, such as the domain a pasted poppy.json was served from.</dd>
 </dl>
 <h2>Messages</h2>${entries}`

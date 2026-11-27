@@ -5,16 +5,20 @@ import { compatibleVersions, protocolRevision } from "../poppy/protocol-version.
  * CLI, the HTTP endpoint and the form, and our own Poppy client uses
  * `validateCompany` to decide what it will ingest.
  */
+import { departure, ours, show, shown, withoutStop, type Shown } from "../diagnostic.ts";
 import { fetchDocument, metadataUrl, type Fetched, type IdentifiedFetcher } from "./fetch.ts";
 import { parseJson } from "./json.ts";
-import { MESSAGES, refFor } from "./messages.ts";
+import { refFor } from "./messages.ts";
 import { Checker, isHostname, isObject, type DocumentKind, type Message } from "./primitives.ts";
 import { pointer } from "./json.ts";
 import { LATEST, PROFILES, profileForVersion } from "./profiles/index.ts";
 import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
 // 1.1.0: who answered a fetch is reported apart from what the Company served, so a 520, a bot refusal or a 429 is http-failed, no longer http-status.
-export const VALIDATOR = { name: "poppy-validator", version: "1.1.0" } as const;
+// 1.2.0: a web page where a document should be is http-web-page, no longer json-syntax, and an unsettled issuer is noted (prm-unsettled).
+// 1.3.0: every error and warning but a fact says what was expected and what was got, in its text and as the message's expected and got.
+// 1.4.0: a departure also carries its subject and, when it has one, its detail, so a reader can show each part on its own.
+export const VALIDATOR = { name: "poppy-validator", version: "1.4.0" } as const;
 
 /**
  * The validator's name, for a Company's logs and bot rules, with where to read
@@ -72,7 +76,7 @@ export type Report = {
 };
 
 /** Messages after which the document wasn't fetched or read, so nothing in it was checked. */
-const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
+const UNREACHABLE = new Set(["http-failed", "http-status", "http-web-page", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
   // Each link goes to the pages of the version the documents were checked against.
@@ -103,26 +107,14 @@ function report(profile: Profile, documents: DocumentResult[], checkers: Checker
 function parse(c: Checker, text: string): unknown {
   const parsed = parseJson(text);
   if (!parsed.ok) {
-    const id = parsed.resourceLimit ? "json-resource-limit" : "json-syntax";
-    const definition = MESSAGES[id];
-    c.messages.push({
-      id,
-      basis: definition.basis,
-      severity: definition.severity,
-      refuses: definition.refuses,
-      document: c.document,
-      pointer: "",
-      line: parsed.position.line,
-      column: parsed.position.column,
-      text: `${parsed.error}.`,
-      ref: definition.ref
-    });
+    const { line, column } = parsed.position;
+    c.report(parsed.resourceLimit ? "json-resource-limit" : "json-syntax", "", departure(shown`line ${line}, column ${column}`, parsed.expected, parsed.got), undefined, parsed.position);
     return undefined;
   }
   c.usePositions(parsed.positions);
-  if (parsed.bom) c.report("json-bom", "", "The document starts with a byte order mark.");
+  if (parsed.bom) c.report("json-bom", "", departure(ours("the document"), ours("JSON text without a byte order mark"), ours("one at the start")));
   for (const duplicate of parsed.duplicates) {
-    c.report("json-duplicate-member", duplicate.pointer, `${JSON.stringify(duplicate.name)} appears twice in the same object.`, undefined, duplicate.position);
+    c.report("json-duplicate-member", duplicate.pointer, departure(show.path(duplicate.pointer.slice(0, duplicate.pointer.lastIndexOf("/"))), ours("each member name once"), shown`${show.value(duplicate.name)} twice`), undefined, duplicate.position);
   }
   return parsed.value;
 }
@@ -133,19 +125,19 @@ function parse(c: Checker, text: string): unknown {
  */
 function profileFor(c: Checker, doc: unknown): Profile | undefined {
   if (!isObject(doc) || !("protocol_version" in doc)) {
-    if (isObject(doc)) c.report("missing-member", "/protocol_version", 'protocol_version is required, such as "0.4".');
+    if (isObject(doc)) c.report("missing-member", "/protocol_version", departure(ours("protocol_version"), ours('a version, such as "1.0"'), ours("none")));
     return LATEST;
   }
   const version = doc.protocol_version;
   const match = typeof version === "string" ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version) : null;
   if (!match) {
-    c.report("version-format", "/protocol_version", `protocol_version must be major.minor, like "0.4", not ${JSON.stringify(version)}.`);
+    c.report("version-format", "/protocol_version", departure(ours("protocol_version"), ours('major.minor, like "1.0"'), show.value(version)));
     return LATEST;
   }
   const profile = profileForVersion(version as string);
   if (!profile) {
-    const known = PROFILES.map((p) => p.version).join(", ");
-    c.report(Number(match[1]) === 0 ? "version-unsupported" : "version-unsupported-major", "/protocol_version", `poppy.json is protocol version ${version}; this validator supports ${known}.`);
+    const known = show.list(PROFILES.map((p) => show.code(p.version)), "or");
+    c.report(Number(match[1]) === 0 ? "version-unsupported" : "version-unsupported-major", "/protocol_version", departure(ours("protocol_version"), shown`a version this validator supports (${known})`, show.value(version)));
     return undefined;
   }
   newerMinor(c, version as string, profile);
@@ -154,7 +146,10 @@ function profileFor(c: Checker, doc: unknown): Profile | undefined {
 
 /** From 1.0, a newer minor version is checked with its major version's newest rules we know (3.4). */
 function newerMinor(c: Checker, version: string, profile: Profile): void {
-  if (profile.version !== version) c.report("version-newer-minor", "/protocol_version", `poppy.json is protocol version ${version}; it is checked with ${profile.version}'s rules, as a ${profile.version} Personal Agent uses it.`);
+  if (profile.version !== version) {
+    const rules = show.code(profile.version);
+    c.report("version-newer-minor", "/protocol_version", shown`poppy.json is protocol version ${show.code(version)}; it is checked with ${rules}'s rules, as a ${rules} Personal Agent uses it`);
+  }
 }
 
 function documentResult(kind: DocumentKind, fetched: Fetched | undefined, value: unknown): DocumentResult {
@@ -184,14 +179,14 @@ export type TextOptions = {
 
 function profileByOption(option: string | undefined, c: Checker): Profile | undefined {
   const profile = option === undefined ? LATEST : profileForVersion(option);
-  if (!profile) c.report("version-unsupported", "", `Unsupported protocol context ${JSON.stringify(option)}.`);
+  if (!profile) c.report("version-unsupported", "", departure(ours("the protocol version asked for"), shown`one this validator supports (${show.list(PROFILES.map((p) => show.code(p.version)), "or")})`, show.value(option)));
   return profile;
 }
 
 /** Validate one pasted document. Checks that need other documents or a URL are listed as skipped. */
 export function validateText(kind: DocumentKind, text: string, options: TextOptions = {}): Report {
   const c = new Checker(kind);
-  if (new TextEncoder().encode(text).byteLength > 100_000) c.report("http-too-large", "", "The document is larger than 100 KB, which agents won't read.");
+  if (new TextEncoder().encode(text).byteLength > 100_000) c.report("http-too-large", "", departure(ours("the document"), ours("at most 100 KB"), ours("more"), ours("Agents won't read it")));
   const value = parse(c, text);
   const skipped: Skipped[] = [];
   let profile = profileByOption(options.protocolVersion, c);
@@ -271,23 +266,25 @@ function linkedVersions(c: Checker, doc: Record<string, unknown>, own: unknown, 
   if (!("supported_versions" in doc)) return linked;
   const map = doc.supported_versions;
   if (!isObject(map)) {
-    c.report("supported-version-unusable", "/supported_versions", "supported_versions must be an object mapping each version to its document's URL.");
+    c.report("supported-version-unusable", "/supported_versions", departure(ours("supported_versions"), ours("an object mapping each version to its document's URL"), show.kind(map)));
     return linked;
   }
   for (const [version, url] of Object.entries(map)) {
     const at = pointer("/supported_versions", version);
+    const named = show.value(version);
+    const skip = ours("Agents skip it");
     const problem = !VERSION.test(version)
-      ? `${JSON.stringify(version)} isn't a version as major.minor`
+      ? departure(ours("a supported_versions key"), ours("a version as major.minor"), named, skip)
       : version === own
-        ? `${version} is this document's own protocol_version`
+        ? departure(shown`${named} in supported_versions`, ours("a version other than this document's own protocol_version"), ours("the same version"), skip)
         : typeof url !== "string" || !URL.canParse(url)
-          ? `${version}'s document isn't a URL`
+          ? departure(shown`${named}'s document`, ours("a URL"), show.value(url), skip)
           : new URL(url).protocol !== "https:"
-            ? `${version}'s document ${url} isn't HTTPS`
+            ? departure(shown`${named}'s document`, ours("an https URL"), show.url(url), skip)
             : new URL(url).hostname.toLowerCase() !== host.toLowerCase()
-              ? `${version}'s document is on ${new URL(url).hostname}, not ${host}, which served poppy.json`
+              ? departure(shown`${named}'s document`, shown`a URL on ${show.name(host)}, which served poppy.json`, shown`one on ${show.name(new URL(url).hostname)}`, skip)
               : undefined;
-    if (problem) c.report("supported-version-unusable", at, `${problem}, so agents skip it.`);
+    if (problem) c.report("supported-version-unusable", at, problem);
     else linked.set(version, url as string);
   }
   return linked;
@@ -307,7 +304,7 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
   const checkers = [poppyChecker];
   const documents: DocumentResult[] = [];
   if (!isHostname(requested)) {
-    poppyChecker.report("domain-invalid", "", `${JSON.stringify(domain)} isn't a domain name.`);
+    poppyChecker.report("domain-invalid", "", departure(ours("the domain asked for"), ours("a domain name"), show.value(domain)));
     return { ...report(LATEST, documents, checkers, []), maxAgeSeconds: null };
   }
   const served = await fetchDocument(fetcher, `https://${requested}/.well-known/poppy.json`, poppyChecker);
@@ -340,7 +337,7 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
       // 3.4: never follow a redirect from a linked document.
       const linkedFetched = await fetchDocument(fetcher, url, linkedChecker, { followRedirects: false });
       if (linkedFetched.status !== undefined && linkedFetched.status >= 300 && linkedFetched.status < 400) {
-        poppyChecker.report("supported-version-unusable", at, `${candidate}'s document at ${url} redirects, so agents skip it.`);
+        poppyChecker.report("supported-version-unusable", at, departure(shown`${show.value(candidate)}'s document at ${show.url(url)}`, ours("the document, served at that URL (3.4)"), shown`a redirect (${show.status(linkedFetched.status)})`, ours("Agents skip it")));
         continue;
       }
       checkers.push(linkedChecker);
@@ -351,17 +348,17 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
       version = candidate;
       if (doc === undefined) break;
       if (isObject(doc) && doc.protocol_version !== candidate) {
-        linkedChecker.report("linked-document-version", "/protocol_version", `The document listed for ${candidate} has protocol_version ${JSON.stringify(doc.protocol_version)}.`);
+        linkedChecker.report("linked-document-version", "/protocol_version", departure(shown`the protocol_version of the document listed for ${show.value(candidate)}`, show.value(candidate), show.value(doc.protocol_version)));
         version = undefined;
         break;
       }
       if (isObject(doc) && "supported_versions" in doc) {
-        linkedChecker.report("linked-document-supported-versions", "/supported_versions", "Only poppy.json lists supported_versions; agents ignore it here.");
+        linkedChecker.report("linked-document-supported-versions", "/supported_versions", departure(ours("the linked document"), ours("no supported_versions, which only poppy.json lists"), ours("one"), ours("Agents ignore it here")));
       }
       const rootDomain = isObject(root) && isObject(root.organization) ? root.organization.domain : undefined;
       const linkedDomain = isObject(doc) && isObject(doc.organization) ? doc.organization.domain : undefined;
       if (typeof rootDomain === "string" && typeof linkedDomain === "string" && rootDomain.toLowerCase() !== linkedDomain.toLowerCase()) {
-        linkedChecker.report("linked-document-domain", "/organization/domain", `The ${candidate} document's organization.domain is ${linkedDomain}, but poppy.json's is ${rootDomain}.`);
+        linkedChecker.report("linked-document-domain", "/organization/domain", departure(shown`the ${show.value(candidate)} document's organization.domain`, shown`${show.value(rootDomain)}, as in poppy.json`, show.value(linkedDomain)));
       }
       profile = profileForVersion(candidate)!;
       newerMinor(linkedChecker, candidate, profile);
@@ -372,7 +369,7 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
       // Nothing the caller speaks: poppy.json's own version decides what is reported.
       const chosen = profileFor(poppyChecker, root);
       if (chosen && typeof own === "string" && !spoken(own)) {
-        poppyChecker.report("version-unsupported", "/protocol_version", `poppy.json is protocol version ${own}, and lists no version this agent speaks (${speaks.join(", ")}).`);
+        poppyChecker.report("version-unsupported", "/protocol_version", departure(ours("poppy.json's versions"), shown`one this agent speaks (${show.list(speaks.map((v) => show.code(v)), "or")})`, shown`${show.value(own)}, and no other usable one`));
       } else if (chosen) {
         profile = chosen;
         facts = profile.poppy(poppyChecker, root, { requestedDomain: servedHost });
@@ -389,7 +386,7 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
     // A redirect may change the host, never the path (3).
     const final = new URL(served.finalUrl);
     if (final.pathname !== "/.well-known/poppy.json" || final.search !== "") {
-      poppyChecker.report("poppy-redirect-path", "", `The document came from ${final.origin}${final.pathname}${final.search ? " with a query" : ""}, not /.well-known/poppy.json.`);
+      poppyChecker.report("poppy-redirect-path", "", departure(ours("where the redirects led"), ours("/.well-known/poppy.json, on any host, with no query"), show.url(final)));
     }
     // The issuer is the one the domain's protected resource metadata names (3.2).
     const named = facts.issuer;
@@ -398,7 +395,10 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
       const prmChecker = new Checker("protected-resource");
       checkers.push(prmChecker);
       // 3.2: a 404 means the Company has no issuer; any other failure settles nothing.
-      const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker, { notFoundIsAnswer: true });
+      const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker, {
+        notFoundIsAnswer: true,
+        expected: ours("HTTP 404 (no issuer), or protected resource metadata as application/json")
+      });
       protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
       documents.push(documentResult("protected-resource", prmFetched, protectedResource));
       // 3.2, 4.7: it may list the scopes agents can request, as well as or instead of the issuer.
@@ -414,6 +414,13 @@ export async function validateCompany(fetcher: IdentifiedFetcher, domain: string
         const settled = profile.protectedResource(prmChecker, protectedResource, context);
         if (settled === null) issuerless = true;
         else facts.issuer = settled;
+      } else {
+        // 3.2: nothing that parsed as metadata, and not a 404: what came back is reported above; this is what it means to an agent.
+        prmChecker.report(
+          "prm-unsettled",
+          "",
+          shown`Agents can't tell from ${show.url(prmFetched.url, prmFetched.url)} whether the Company has an OAuth issuer, so they don't fall back to ${show.url(`https://${facts.domain.toLowerCase()}`, `https://${facts.domain.toLowerCase()}`)} as its identifier and can't ${facts.usesSessions ? ours("open Sessions with it") : ours("sign in with it")}`
+        );
       }
     }
   }
@@ -488,9 +495,8 @@ export async function validateTarget(fetcher: IdentifiedFetcher, target: string,
 }
 
 /** One line per message our client refuses the documents over (every error but the tolerated ones, and the refusing warnings), for exceptions and logs. */
-export function summarize(result: Report, limit = 3): string {
+export function summarize(result: Report, limit = 3): Shown {
   const errors = result.messages.filter((m) => m.refuses);
-  const shown = errors.slice(0, limit).map((m) => m.text.replace(/\.$/, ""));
-  const more = errors.length > limit ? ` (and ${errors.length - limit} more)` : "";
-  return `${shown.join("; ")}${more}`;
+  const said = show.join(errors.slice(0, limit).map((m) => withoutStop(m.text)));
+  return errors.length > limit ? shown`${said} (and ${errors.length - limit} more)` : said;
 }

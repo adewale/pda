@@ -1,5 +1,6 @@
 import { ConfigError, readSignup, type ConfigEnv } from "./config.ts";
 import type { Identity } from "./session";
+import { departure, ours, show, shown, type Problem } from "./diagnostic.ts";
 
 /**
  * Lists of people, as Wrangler vars. Three use this format:
@@ -37,48 +38,50 @@ export type ListEnv = ConfigEnv & {
   readonly DEMO_ALLOWLIST?: unknown;
 };
 
-function strings(name: string, value: unknown, key: string): string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new ConfigError(`${name} .${key} must be a list of strings`);
-  }
+function strings(name: string, value: unknown, key: "emails" | "domains"): string[] {
+  if (!Array.isArray(value)) throw new ConfigError(departure(shown`${show.name(name)}.${ours(key)}`, ours("a list of strings"), show.kind(value)));
+  const other = value.find((entry) => typeof entry !== "string");
+  if (other !== undefined) throw new ConfigError(departure(shown`${show.name(name)}.${ours(key)}`, ours("a list of strings"), shown`a list with ${show.kind(other)}`));
   return (value as string[]).map((entry) => entry.trim().toLowerCase());
 }
 
 /** One list; missing or malformed is a config error naming `name`. Empty lets nobody in. */
 export function parseAllowlist(name: string, raw: unknown, options: { domains?: boolean } = {}): Allowlist {
-  const fail = (detail: string): never => {
-    throw new ConfigError(`${name} ${detail}`);
+  const setting = show.name(name);
+  const fail = (problem: Problem): never => {
+    throw new ConfigError(problem);
   };
   const withDomains = options.domains ?? true;
   if (typeof raw === "string") {
     try {
       raw = JSON.parse(raw);
     } catch {
-      fail("is not valid JSON");
+      // Not the text itself: it lists people's addresses, and a config error is served to whoever asked.
+      fail(departure(setting, ours("JSON"), ours("text that isn't JSON")));
     }
   }
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    fail(withDomains ? "must be an object with emails, domains and github" : "must be an object with emails and github");
-  }
+  const keys = withDomains ? ours("an object with emails, domains and github") : ours("an object with emails and github");
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) fail(departure(setting, keys, show.kind(raw)));
   const { emails, domains, github, ...extra } = raw as Record<string, unknown>;
   const unknown = Object.keys(extra);
   if (!withDomains && domains !== undefined) unknown.unshift("domains");
-  if (unknown.length > 0) fail(`has unknown keys: ${unknown.join(", ")}`);
+  if (unknown.length > 0) fail(departure(setting, keys, shown`one with ${show.list(unknown.map((key) => show.value(key)))} too`));
 
   const emailList = strings(name, emails, "emails");
-  for (const email of emailList) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(`.emails has an invalid address: ${email}`);
-  }
+  emailList.forEach((email, index) => {
+    // Its position, not the address: a config error is served to whoever asked (above).
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(departure(shown`${setting}.emails`, ours("email addresses"), shown`entry ${index}, which isn't one`));
+  });
   const domainList = withDomains ? strings(name, domains, "domains") : [];
   for (const domain of domainList) {
-    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) fail(`.domains has an invalid domain: ${domain}`);
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) fail(departure(shown`${setting}.domains`, ours("domain names, such as example.com"), show.value(domain)));
   }
   if (typeof github !== "object" || github === null || Array.isArray(github)) {
-    fail(".github must be an object of login: numeric id");
+    fail(departure(shown`${setting}.github`, ours("an object of login: numeric id"), show.kind(github)));
   }
   const githubIds = Object.entries(github as Record<string, unknown>).map(([login, id]) => {
     if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
-      fail(`.github.${login} must be the account's numeric id`);
+      fail(departure(shown`${setting}.github.${show.name(login)}`, ours("the account's numeric id"), show.value(id)));
     }
     return String(id);
   });
@@ -93,7 +96,7 @@ export function parseAllowlist(name: string, raw: unknown, options: { domains?: 
 export function readOwners(env: ListEnv): Allowlist {
   const owners = parseAllowlist("OWNERS", env.OWNERS, { domains: false });
   if (owners.emails.size === 0 && owners.githubIds.size === 0) {
-    throw new ConfigError("OWNERS is empty: name this deployment's operators (an email or a GitHub id)");
+    throw new ConfigError(departure(ours("OWNERS"), ours("at least one operator (an email or a GitHub id)"), ours("nobody"), ours("Name this deployment's operators")));
   }
   return owners;
 }

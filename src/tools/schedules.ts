@@ -10,6 +10,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi, ToolRegistration } from "@earendil-works/pi-durable";
 import type { Scheduler } from "../schedules";
+import { ours } from "../diagnostic";
 import { checkZone, TimeError, viewMoment } from "./clock";
 import type { TrustedTurnCheck, UserTaskReader } from "./turn-authority";
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, MAX_SCHEDULE_CHARS, PAUSE_AFTER_FAILURES, ScheduleError, scheduleLine, WEEKDAYS, type Schedule, type ScheduleKind, type WhenInput } from "./schedule-store";
@@ -96,7 +97,7 @@ export function scheduleExtension(options: ScheduleToolsOptions): Extension {
     const user = options.userTimeZone();
     if (user) return checkZone(user);
     if (when.in !== undefined && when.at === undefined && when.every === undefined) return "UTC";
-    throw new ScheduleError("The User's time zone isn't known yet (their page hasn't reported it). Ask them where they are, and pass time_zone");
+    throw new ScheduleError(ours("The User's time zone isn't known yet (their page hasn't reported it). Ask them where they are, and pass time_zone"));
   };
 
   const create = async (kind: ScheduleKind, text: string, when: WhenInput, zone: string | undefined, api: ToolExecutionApi, context: Context): Promise<Result> => {
