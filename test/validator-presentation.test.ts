@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeSpan, markdownText, pieces, shortSegment, urlParts } from "../src/rich-text";
+import { codeSpan, markdownText, markdownWords, pieces, shortSegment, urlParts } from "../src/rich-text";
 import { handleValidator, type ValidatorHttpOptions } from "../src/validator/http";
 import { resultPage } from "../src/validator/html";
 import { reportMarkdown } from "../src/validator/markdown";
@@ -123,6 +123,16 @@ describe("the report as Markdown", () => {
     expect(markdownText("Ask @octocat or @acme/support (see #12), or ftp://files.example/x.")).toBe("Ask `@octocat` or `@acme/support` (see `#12`), or `ftp://files.example/x`.");
     // Not a mention or a reference: an address's @, a fragment's #, a word with # inside.
     expect(markdownText("a@b and x#1 and C#")).toBe("a@b and x#1 and C#");
+  });
+
+  it("escapes a list number with a backslash Markdown honours, so a version doesn't read \\1.4.0", async () => {
+    // Markdown escapes only punctuation: a backslash before a digit is shown as written.
+    expect(markdownWords("1.4.0")).toBe("1\\.4.0");
+    expect(markdownWords("2) two")).toBe("2\\) two");
+    expect(markdownWords("# heading")).toBe("\\# heading");
+    const markdown = reportMarkdown(await validateCompany(catchAll(), "example.com"));
+    expect(markdown).toMatch(/Checked by poppy-validator \d+\\\.\d+\.\d+ against/);
+    expect(markdown).not.toMatch(/\\\d/);
   });
 
   it("fences a code span with more backticks than its value holds", () => {
