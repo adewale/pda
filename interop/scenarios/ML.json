@@ -19,7 +19,8 @@
         "${d.apis}": {
           "$contains": "mcp"
         }
-      }
+      },
+      "offers": true
     },
     {
       "agent": "mcp_list",

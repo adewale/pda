@@ -1,0 +1,70 @@
+{
+  "base": "b2fc42893ce719023681ff0df14a2b485e6d75d3",
+  "head": "3f240b5f43c97a6012b612f1d0f4e2e0cb7e15e9",
+  "fixture": "Company offers neither conversations nor MCP",
+  "networkRequests": 0,
+  "rendererSha256": {
+    "interop/runner/report.ts": "22cef42a6b0dade87ec68e65801d6cf846bb22561562533f9a2766fea1e5c8f2",
+    "interop/runner/attribution.ts": "698a2ccd3ff6839e86242b8b40f052a5b33427aa8e5d8768e49f5c73add18463",
+    "interop/runner/readings.ts": "b4ccfbcb8b23e3ca8a701ea026ee6d8f785109e988b5d003bf1a3c41c997670d",
+    "interop/runner/har.ts": "390051f871f513c51642fe8cf5267d63d23501f89cde5a04c934caadf67a1b02",
+    "src/validator/levels.ts": "b9c4a2105f4c074d99b7286d36948754bb48c545ee61ef836e2e4356e27c965a",
+    "src/poppy/protocol-version.ts": "65f5a43f15def3c37ceb30dd00525c1c974983c53ac7fcd5dc3fb6f40649e59b"
+  },
+  "stages": [
+    {
+      "stage": "before",
+      "source": "b2fc42893ce719023681ff0df14a2b485e6d75d3",
+      "cells": [
+        {
+          "company": "fixture-live",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-live",
+          "scenario": "ML",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "ML",
+          "outcome": "fail"
+        }
+      ],
+      "htmlSha256": "fb033ca5c7347b02dc988ced1b56d48ca1604b076a7797e781e98664b93d5f19"
+    },
+    {
+      "stage": "after",
+      "source": "3f240b5f43c97a6012b612f1d0f4e2e0cb7e15e9",
+      "cells": [
+        {
+          "company": "fixture-live",
+          "scenario": "CL",
+          "outcome": "unsupported"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-live",
+          "scenario": "ML",
+          "outcome": "unsupported"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "ML",
+          "outcome": "fail"
+        }
+      ],
+      "htmlSha256": "973270946333dfda3d5a4d542fd9a8fd34aec95b99423e57078f8a6c81d30c2b"
+    }
+  ]
+}

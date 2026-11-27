@@ -6,7 +6,7 @@
   "needs": { "agent": ["discover", "send", "read", "close"] },
   "steps": [
     { "agent": "discover", "save": "d" },
-    { "expect": { "${d.conversations}": true } },
+    { "expect": { "${d.conversations}": true }, "offers": true },
     { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m", "note": "In the live lane the greeting says it is a test and needs no action (cli.ts LIVE_GREETING)." },
     { "expect": { "${m.conversation}": { "$exists": true }, "${m.message_id}": { "$exists": true } } },
     { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
