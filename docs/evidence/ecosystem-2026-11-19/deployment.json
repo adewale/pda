@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "observedAt": "2026-11-19T19:15:16.654681+00:00",
+  "source": "https://poppydemoagent.dev/api/build-info",
+  "method": "One public unauthenticated GET of the intentionally public build-info endpoint. No deployment, OAuth completion, model request or Company action. This is a build observation, not a complete live release preflight.",
+  "buildInfo": {
+    "commit": "d9323da",
+    "dirty": false,
+    "workerVersion": "a31f3b3e-c615-430d-a075-9adbc6983208",
+    "protocolVersions": [
+      "0.4",
+      "1.0"
+    ],
+    "protocolRevision": "2026-11-13",
+    "protocolRevisions": {
+      "0.4": "2026-11-11",
+      "1.0": "2026-11-13"
+    }
+  },
+  "interpretation": "The served source reports 0.4 and 1.0, with 1.0 pinned to the 13 November draft snapshot. The repository final-1.0 pin retrieved on 19 November is not served by this observed build."
+}

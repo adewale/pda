@@ -1,0 +1,393 @@
+{
+  "version": 1,
+  "checked": "2026-11-19",
+  "run": "2026-11-19T18:51:04Z",
+  "lane": "local",
+  "isolation": {
+    "network": "poppy-interop-58813b",
+    "internal": true,
+    "probe": {
+      "tcp 1.1.1.1:443": "ENETUNREACH",
+      "tcp 8.8.8.8:53": "ENETUNREACH",
+      "dns example.com": "EAI_AGAIN"
+    }
+  },
+  "agentSourceCommit": "848df6b2ce82d497794964f251885644aa45f4ef",
+  "company": {
+    "repository": "spenciefy/print-with-poppy",
+    "commit": "f4b839e8d4a08dc33d7e17fd2721fae4ac8ad802",
+    "protocolVersion": "0.4",
+    "maintainedPeerPin": "20a3d563faca4ffd480ec9677a6f4f4d22dd2d4e",
+    "changedFilesSincePeerPin": [
+      "src/main.tsx",
+      "src/style.css"
+    ]
+  },
+  "method": "Current Company HEAD built unpatched in its APP_MODE=demo on the harness internal network. Payments, fulfillment and email simulated; provider credentials absent. The temporary worktree changed only the tracked registry Company commit and COMMIT build argument, and linked the main checkout\u2019s node_modules for the runner. The runner therefore marked our agent commit dirty. No agent source changed, and the maintained registry pin was not moved for a homepage-only change. Three honest agents, ten required scenarios each. No live authenticated requests or real purchases.",
+  "command": "npm run interop -- --image-tag ecosystem-2026-11-19 --agents pda,lenient-personal-agent,strict-personal-agent --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS",
+  "implementations": [
+    {
+      "name": "pda",
+      "role": "agent",
+      "commit": "848df6b-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "lenient-personal-agent",
+      "role": "agent",
+      "commit": "848df6b-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "either",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "strict-personal-agent",
+      "role": "agent",
+      "commit": "848df6b-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "print-with-poppy",
+      "role": "company",
+      "commit": "f4b839e8d4a08dc33d7e17fd2721fae4ac8ad802",
+      "readings": {
+        "S1": "issuer",
+        "S2": "lenient-300s",
+        "S3": "either"
+      },
+      "relaxations": [
+        "APP_MODE=demo, upstream's local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store's own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.",
+        "ALLOW_INTEROP_TEST_HOSTS=true, upstream's own setting for this grid (since 3360d8b): its private-address check lets an agent's client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.",
+        "Sign-in codes: demo mode stores each code email in the store's SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store's access token records."
+      ]
+    }
+  ],
+  "summary": {
+    "pass": 30
+  },
+  "levels": {
+    "failure": 0,
+    "warning": 0,
+    "tentative": 0
+  },
+  "flaky": [],
+  "staleKnown": [],
+  "cells": [
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "D",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "D",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "D",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "S0",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "S0",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "S0",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SD",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SD",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SD",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SMC",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SMC",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SMC",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SX",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SX",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SX",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "SO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "AO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "AO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "AO",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "AS",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "AS",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "AS",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "CM",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "lenient-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "CM",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    },
+    {
+      "agent": "strict-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "CM",
+      "outcome": "pass",
+      "protocolVersion": "0.4",
+      "specificationRevision": "2026-11-11",
+      "blame": null,
+      "rule": null
+    }
+  ]
+}
