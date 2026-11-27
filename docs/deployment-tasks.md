@@ -110,6 +110,7 @@ Each requires the configured deployment/account or a real device; local failures
   - An agent created before the upgrade opens, keeps its whole conversation, and answers; its first wake migrates pi's task table once.
   - The page after a reload: the conversation since the last reset loads in full, a summary in place; a tab open during the deploy reloads into the new socket protocol.
   - An agent hibernates while a pi task sleeps (a retry backoff) and wakes on its alarm.
+  - A deploy while an answer streams: the agent answers afterwards, and Workers Logs show no repeated `pi.report` with code `storage_failed` for it ([earendil-works/pi#12181](https://github.com/earendil-works/pi/issues/12181); repair in the [upgrade record](pi-1.6-upgrade.md#what-others-reported-upstream)).
 - [x] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each (12 October: the owner's OpenAI key, and an Anthropic key created inside a workspace; an organisation-wide Anthropic key needs a workspace ID, which Settings now takes).
 - [x] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a refused key shows the vendor's reason (12 October).
 - [x] The demo: Claude Sonnet 5.5 through the AI binding on Unified Billing, through `dpa-gateway` (12 October, after credits were loaded). Every demo call carries the `anthropic-beta` header the compaction fix adds, so the gateway passes it through.
