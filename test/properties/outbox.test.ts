@@ -8,13 +8,21 @@ vi.mock("agents/react", () => ({ useAgent: () => { throw new Error("no socket in
 type Entry = { text: string; whenBusy: "followUp" | "steer"; phase: "queued" | "inflight" | "rejected"; error?: string };
 const STATES = { queued: "waiting", inflight: "sent", rejected: "failed" } as const;
 
+describe("retryFailed", () => {
+  it("tries a refused message again only in the conversation it was written in", () => {
+    const refused: Outgoing = { id: "op", text: "Buy the blue one", whenBusy: "followUp", conversation: 0, state: "failed", error: "Refused" };
+    expect(retryFailed([refused], "op", 0)).toEqual([{ id: "op", text: "Buy the blue one", whenBusy: "followUp", conversation: 0, state: "waiting" }]);
+    expect(retryFailed([refused], "op", 1)).toEqual([refused]);
+  });
+});
+
 describe("outbox reconnect model", () => {
   it("keeps a mixed 100,000-message backlog intact across reconnects within linear input-traversal budgets", () => {
     // An overload regression, not a claimed supported queue size or a timed
     // benchmark. Count input visits instead of using machine-dependent ms.
     const count = 100_000;
     const initial: readonly Outgoing[] = Object.freeze(Array.from({ length: count }, (_, i) => Object.freeze({
-      id: `scale-${i}`, text: `message ${i} café 🚲`, whenBusy: i % 2 ? "steer" as const : "followUp" as const,
+      id: `scale-${i}`, text: `message ${i} café 🚲`, whenBusy: i % 2 ? "steer" as const : "followUp" as const, conversation: 0,
       state: i % 3 === 0 ? "waiting" as const : i % 3 === 1 ? "sent" as const : "failed" as const,
       ...(i % 3 === 2 ? { error: `refused-${i}` } : {})
     })));
@@ -55,16 +63,16 @@ describe("outbox reconnect model", () => {
       for (const [id, item] of expected) if (item.state === "sent") expected.set(id, { ...item, state: "waiting" });
       agrees(); // failed entries stay failed and acknowledged entries stay absent
     }
-    actual = bounded(actual, 1, (items) => retryFailed(items, "scale-2"));
+    actual = bounded(actual, 1, (items) => retryFailed(items, "scale-2", 0));
     const retried = expected.get("scale-2")!;
-    expected.set("scale-2", { id: retried.id, text: retried.text, whenBusy: retried.whenBusy, state: "waiting" });
+    expected.set("scale-2", { id: retried.id, text: retried.text, whenBusy: retried.whenBusy, conversation: 0, state: "waiting" });
     actual = bounded(actual, 1, (items) => dismissFailed(items, "scale-5"));
     expected.delete("scale-5");
     actual = bounded(actual, 1, (items) => answered(items, "scale-1", "connection refused"));
     expected.set("scale-1", { ...expected.get("scale-1")!, state: "failed", error: "connection refused" });
     agrees();
     // Frozen inputs also expose mutation; check the original payload and state.
-    expect(initial[0]).toEqual({ id: "scale-0", text: "message 0 café 🚲", whenBusy: "followUp", state: "waiting" });
+    expect(initial[0]).toEqual({ id: "scale-0", text: "message 0 café 🚲", whenBusy: "followUp", conversation: 0, state: "waiting" });
     expect(initial[2]).toMatchObject({ state: "failed", error: "refused-2" });
   });
 
@@ -107,7 +115,7 @@ describe("outbox reconnect model", () => {
         const text = tc.draw(gs.text({ maxSize: 200 }));
         const whenBusy = tc.draw(gs.sampledFrom(["followUp", "steer"] as const));
         expected.set(fresh, { text, whenBusy, phase: "queued" });
-        actual = [...actual, { id: fresh, text, whenBusy, state: "waiting" }];
+        actual = [...actual, { id: fresh, text, whenBusy, conversation: 0, state: "waiting" }];
       } else if (command === "send") {
         const shouldSend: string[] = [];
         for (const [key, entry] of expected) if (entry.phase === "queued") {
@@ -140,7 +148,7 @@ describe("outbox reconnect model", () => {
         const entry = expected.get(id);
         changed = entry?.phase === "rejected";
         if (changed) { entry!.phase = "queued"; delete entry!.error; }
-        actual = retryFailed(actual, id);
+        actual = retryFailed(actual, id, 0);
       } else {
         changed = expected.get(id)?.phase === "rejected";
         if (changed) { expected.delete(id); removed.add(id); }
@@ -150,7 +158,7 @@ describe("outbox reconnect model", () => {
       counts[transition] = (counts[transition] ?? 0) + 1;
       expect(prior).toEqual(before);
       expect(actual).toEqual([...expected].map(([key, entry]) => ({
-        id: key, text: entry.text, whenBusy: entry.whenBusy, state: STATES[entry.phase],
+        id: key, text: entry.text, whenBusy: entry.whenBusy, conversation: 0, state: STATES[entry.phase],
         ...(entry.error !== undefined ? { error: entry.error } : {})
       })));
       expect(actual.some((item) => removed.has(item.id))).toBe(false);

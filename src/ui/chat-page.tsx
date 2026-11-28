@@ -77,8 +77,11 @@ function Working({ session }: { session: PiSession }) {
 /**
  * What the User sent that the agent hasn't taken yet: shown under the
  * conversation, each with why it is still here, until the agent answers.
+ * One refused before the chat was cleared, here or in another tab, isn't
+ * tried again with the Companies it had: Send again puts it back in the
+ * composer, to go with what the composer shows now.
  */
-function Pending({ session }: { session: PiSession }) {
+function Pending({ session, onReview }: { session: PiSession; onReview: (text: string) => void }) {
   const { outbox, status } = session;
   if (outbox.length === 0) return null;
   return (
@@ -91,9 +94,18 @@ function Pending({ session }: { session: PiSession }) {
           {item.state === "failed" ? (
             <div role="alert" className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
               <p className="text-[13px] text-pretty text-kumo-danger">Your agent didn't take this message: {item.error}</p>
-              <Action variant="secondary" disabled={status === "unauthenticated"} onClick={() => session.resend(item.id)}>
-                Try again
-              </Action>
+              {item.conversation < session.conversation ? (
+                <>
+                  <p className="basis-full text-right text-[13px] text-pretty text-kumo-subtle">The chat was cleared after you wrote it.</p>
+                  <Action variant="secondary" onClick={() => { onReview(item.text); session.discard(item.id); }}>
+                    Send again
+                  </Action>
+                </>
+              ) : (
+                <Action variant="secondary" disabled={status === "unauthenticated"} onClick={() => session.resend(item.id)}>
+                  Try again
+                </Action>
+              )}
               <Action variant="ghost" onClick={() => session.discard(item.id)}>
                 Remove
               </Action>
@@ -195,7 +207,7 @@ export function ChatPage({
               events={events}
               {...(onProtocol ? { onProtocol } : {})}
             />
-            <Pending session={session} />
+            <Pending session={session} onReview={reviewMessage} />
             <Working session={session} />
             {error ? (
               <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-kumo-danger-tint px-4 py-3">

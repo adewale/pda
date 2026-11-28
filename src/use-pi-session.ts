@@ -81,6 +81,13 @@ export type Outgoing = {
   readonly text: string;
   readonly taskAccess?: TaskAccess;
   readonly whenBusy: "followUp" | "steer";
+  /**
+   * The conversation it was written in (resets seen, as `conversation` counts
+   * them). A refused one from before a reset goes back to the composer rather
+   * than again with its old Companies: Clear chat is a demo convenience, so
+   * the page settles this case, not the agent.
+   */
+  readonly conversation: number;
   /** `waiting`: not on an open socket yet. `sent`: on one, no answer yet. `failed`: the agent answered with an error. */
   readonly state: "waiting" | "sent" | "failed";
   readonly error?: string;
@@ -108,10 +115,10 @@ export function answered(outbox: readonly Outgoing[], id: string, error?: string
   return outbox.map((item) => (item.id === id ? { ...item, state: "failed", error } : item));
 }
 
-/** Retry a failed submit with its original operation id and payload. */
-export function retryFailed(outbox: readonly Outgoing[], id: string): readonly Outgoing[] {
-  return outbox.map((item) => item.id === id && item.state === "failed"
-    ? { id: item.id, text: item.text, ...(item.taskAccess ? { taskAccess: item.taskAccess } : {}), whenBusy: item.whenBusy, state: "waiting" } : item);
+/** Retry a failed submit with its original operation id and payload, only in the conversation it was written in. */
+export function retryFailed(outbox: readonly Outgoing[], id: string, conversation: number): readonly Outgoing[] {
+  return outbox.map((item) => item.id === id && item.state === "failed" && item.conversation === conversation
+    ? { id: item.id, text: item.text, ...(item.taskAccess ? { taskAccess: item.taskAccess } : {}), whenBusy: item.whenBusy, conversation: item.conversation, state: "waiting" } : item);
 }
 
 /** A User may dismiss only a failed submit; pending work stays in the outbox. */
@@ -215,6 +222,9 @@ export function usePiSession(workspaceId: string) {
     setState(current => ({ ...current, status: "unauthenticated" }));
     try { agentRef.current?.close?.(1000, "Sign in again"); } catch { /* All send paths remain blocked. */ }
   };
+  /** The conversation as it is now, for callbacks made once; `state.resets.epoch` is its copy for rendering. */
+  const conversationRef = useRef(0);
+  conversationRef.current = state.resets.epoch;
   /** The outbox as it is now, for the socket's handlers; `state.outbox` is its copy for rendering. */
   const outboxRef = useRef<readonly Outgoing[]>([]);
   const setOutbox = (next: readonly Outgoing[]) => {
@@ -389,14 +399,14 @@ export function usePiSession(workspaceId: string) {
    * now if the socket is open, or as soon as one opens.
    */
   const submit = useCallback((text: string, whenBusy: "followUp" | "steer" = "followUp", taskAccess?: TaskAccess) => {
-    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, ...(taskAccess ? { taskAccess: readTaskAccess(taskAccess) } : {}), state: "waiting" }]);
+    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, ...(taskAccess ? { taskAccess: readTaskAccess(taskAccess) } : {}), conversation: conversationRef.current, state: "waiting" }]);
     flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Sends a message the agent refused again, with the same operation id. */
+  /** Sends a message the agent refused again, with the same operation id; not one from before a reset. */
   const resend = useCallback((id: string) => {
-    setOutbox(retryFailed(outboxRef.current, id));
+    setOutbox(retryFailed(outboxRef.current, id, conversationRef.current));
     flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

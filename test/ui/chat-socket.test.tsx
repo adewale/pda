@@ -399,6 +399,32 @@ describe("Clear chat", () => {
     expect(clear()).not.toBeNull();
   });
 
+  it("puts a message refused before a reset in another tab back in the composer, rather than trying it again with its old Companies", async () => {
+    remembered(["shop.example"]);
+    render(<Page />);
+    socket.open();
+    snapshot(said(2, "Find me a jumper"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    type("Buy the blue one");
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(1));
+    const refused = socket.submits()[0]!;
+    socket.receive({ type: "error", id: String(refused.id), message: "Refused" });
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    resetArrives(3);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByText("The chat was cleared after you wrote it.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Send again" }));
+    expect(box().value).toBe("Buy the blue one");
+    expect(screen.queryByText("The chat was cleared after you wrote it.")).toBeNull();
+    expect(socket.submits()).toHaveLength(1);
+    SEND_WITH.Enter();
+    await waitFor(() => expect(socket.submits()).toHaveLength(2));
+    // A new message, with what the composer shows now: no Companies since the reset.
+    expect(socket.submits()[1]).toMatchObject({ input: "Buy the blue one", taskAccess: { companies: [], uploads: [] } });
+    expect(socket.submits()[1]!.id).not.toBe(refused.id);
+  });
+
   it("doesn't send on a socket that has just closed, and says so", () => {
     render(<Page />);
     socket.open();

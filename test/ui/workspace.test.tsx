@@ -457,8 +457,8 @@ describe("chat", () => {
       session({
         status: "closed",
         outbox: [
-          { id: "op-1", text: "Book the table", whenBusy: "followUp", state: "waiting" },
-          { id: "op-2", text: "And a taxi", whenBusy: "followUp", state: "failed", error: "Unknown pi session 7" }
+          { id: "op-1", text: "Book the table", whenBusy: "followUp", conversation: 0, state: "waiting" },
+          { id: "op-2", text: "And a taxi", whenBusy: "followUp", conversation: 0, state: "failed", error: "Unknown pi session 7" }
         ],
         resend: (id: string) => void resent.push(id),
         discard: (id: string) => void discarded.push(id)
