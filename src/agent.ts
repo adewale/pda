@@ -831,7 +831,7 @@ export class PersonalAgent extends DurableObject<Env> {
   async setModelKey(identity: Caller, provider: unknown, key: unknown, workspace?: unknown): Promise<KeyResult> {
     await this.recordIdentity(identity);
     if (!isKeyProvider(provider)) {
-      return { ok: false, status: 400, error: "Choose Anthropic or OpenAI." };
+      return { ok: false, status: 400, error: "Choose Anthropic, OpenAI or Gemini." };
     }
     if (typeof key !== "string") return { ok: false, status: 400, error: "Paste a key." };
     const trimmed = key.trim();
@@ -956,7 +956,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   async #keyRefusedNotice(provider: KeyProvider): Promise<void> {
     await this.#showModelCard(
-      `${PROVIDER_LABEL[provider]} refused your key (401), so your agent has stopped calling the model. It won't use the demo instead. Add a working key in Settings.`,
+      `${PROVIDER_LABEL[provider]} refused your key, so your agent has stopped calling the model. It won't use the demo instead. Add a working key in Settings.`,
       true
     );
   }

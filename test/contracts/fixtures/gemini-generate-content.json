@@ -1,0 +1,45 @@
+{
+  "wire": "gemini-generate-content",
+  "request": {
+    "method": "POST",
+    "path": "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:streamGenerateContent",
+    "headers": [
+      "content-type",
+      "x-goog-api-client",
+      "x-goog-api-key"
+    ],
+    "body": [
+      "contents[].parts[].text: string",
+      "contents[].role: =user",
+      "generationConfig.maxOutputTokens: number",
+      "generationConfig.thinkingConfig.includeThoughts: boolean",
+      "generationConfig.thinkingConfig.thinkingLevel: string",
+      "systemInstruction.parts[].text: string",
+      "systemInstruction.role: =user",
+      "tools[].functionDeclarations[].description: string",
+      "tools[].functionDeclarations[].name: string",
+      "tools[].functionDeclarations[].parametersJsonSchema.properties.expression.type: =string",
+      "tools[].functionDeclarations[].parametersJsonSchema.required[]: string",
+      "tools[].functionDeclarations[].parametersJsonSchema.type: =object"
+    ]
+  },
+  "response": {
+    "source": "fake",
+    "stream": {
+      "data": [
+        "candidates[].content.parts[].text: string",
+        "candidates[].content.parts[].thought: boolean",
+        "candidates[].content.parts[].thoughtSignature: string",
+        "candidates[].content.role: =model",
+        "candidates[].finishReason: string",
+        "candidates[].index: number",
+        "modelVersion: string",
+        "responseId: string",
+        "usageMetadata.candidatesTokenCount: number",
+        "usageMetadata.promptTokenCount: number",
+        "usageMetadata.thoughtsTokenCount: number",
+        "usageMetadata.totalTokenCount: number"
+      ]
+    }
+  }
+}

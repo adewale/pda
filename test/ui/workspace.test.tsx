@@ -760,12 +760,19 @@ describe("model settings", () => {
     expect(screen.getByText(/set a spending limit on the key with your provider/)).toBeTruthy();
   });
 
-  it("offers a pasted Anthropic or OpenAI key, and nothing else", async () => {
+  it("offers a pasted Anthropic, OpenAI or Gemini key, and nothing else", async () => {
     stubFetch(NO_KEY);
     const { container } = open("/settings");
-    await screen.findByLabelText("API key");
+    const keyInput = (await screen.findByLabelText("API key")) as HTMLInputElement;
     const providers = screen.getAllByRole("radio").filter((radio) => radio.getAttribute("name") === "model-key-provider");
-    expect(providers.map((radio) => radio.getAttribute("value"))).toEqual(["anthropic", "openai"]);
+    expect(providers.map((radio) => radio.getAttribute("value"))).toEqual(["anthropic", "openai", "google"]);
+    expect(screen.queryByLabelText(/Workspace ID/)).toBeTruthy();
+
+    const geminiRadio = providers.find((radio) => radio.getAttribute("value") === "google")!;
+    fireEvent.click(geminiRadio);
+    expect(screen.queryByLabelText(/Workspace ID/)).toBeNull();
+    expect(keyInput.placeholder).toBe("AIza…");
+
     expect(container.querySelector('a[href^="/auth/"]')).toBeNull();
     expect(container.textContent).not.toMatch(/openrouter/i);
   });

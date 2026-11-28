@@ -1,5 +1,6 @@
-import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider, StreamOptions } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { ConfigError, readModelConfig, type ConfigEnv, type KeyProvider } from "./config.ts";
@@ -17,12 +18,54 @@ import { departure, ours, show, shown } from "./diagnostic.ts";
 /** The setting that names each own key's model. */
 export const OWN_KEY_SETTING: Readonly<Record<KeyProvider, string>> = {
   anthropic: "ANTHROPIC_MODEL_ID",
-  openai: "OPENAI_MODEL_ID"
+  openai: "OPENAI_MODEL_ID",
+  google: "GEMINI_MODEL_ID"
 };
 
-/** pi-ai's Anthropic and OpenAI providers: straight to each vendor, with the person's key. */
+/**
+ * Google's documented value for a function call Gemini didn't make, which
+ * has no thought signature of its own: the conversation started on the demo's
+ * Claude, or on another vendor's key. pi-ai 1.6.1 sends such a call unsigned,
+ * and Gemini 3 and later can refuse the whole request for it
+ * (earendil-works/pi#12420, #10467).
+ */
+export const FOREIGN_CALL_SIGNATURE = "skip_thought_signature_validator";
+
+/** A Generative Language request body with every unsigned function call in a model turn given `FOREIGN_CALL_SIGNATURE`. */
+export function signForeignCalls(payload: unknown): unknown {
+  const contents = (payload as { contents?: unknown } | null)?.contents;
+  if (!Array.isArray(contents)) return payload;
+  let changed = false;
+  const signed = contents.map((content: unknown) => {
+    const turn = content as { role?: unknown; parts?: unknown };
+    if (turn?.role !== "model" || !Array.isArray(turn.parts)) return content;
+    const parts = turn.parts.map((part: unknown) => {
+      const each = part as { functionCall?: unknown; thoughtSignature?: unknown };
+      if (!each?.functionCall || typeof each.thoughtSignature === "string") return part;
+      changed = true;
+      return { ...each, thoughtSignature: FOREIGN_CALL_SIGNATURE };
+    });
+    return { ...turn, parts };
+  });
+  return changed ? { ...(payload as object), contents: signed } : payload;
+}
+
+/** pi-ai's Google provider, with `signForeignCalls` after any `onPayload` the caller passed. */
+function withForeignCallSignatures(provider: Provider): Provider {
+  const signing = <T extends StreamOptions | undefined>(options: T): T => ({
+    ...options,
+    onPayload: async (payload: unknown, model: Model<Api>) => signForeignCalls((await options?.onPayload?.(payload, model)) ?? payload)
+  }) as T;
+  return {
+    ...provider,
+    stream: (model, context, options) => provider.stream(model, context, signing(options)),
+    streamSimple: (model, context, options) => provider.streamSimple(model, context, signing(options))
+  };
+}
+
+/** pi-ai's Anthropic, OpenAI and Google providers: straight to each vendor, with the person's key. */
 export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider()];
+  return [anthropicProvider(), openaiProvider(), withForeignCallSignatures(googleProvider())];
 }
 
 /** `createAI`'s settings, for metadata only: no binding is ever called. */

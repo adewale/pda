@@ -20,7 +20,7 @@ import { nextUtcMidnight, utcDay, type BudgetCall, type Ledger, type SharedBudge
 import { ConfigError, readModelConfig, readDemoCaps, type ConfigEnv, type KeyProvider } from "./config";
 import { demoCatalogModel, nativeProviders, OWN_KEY_SETTING, withVendorCompat } from "./model-catalog";
 
-export { demoCatalogModel, nativeProviders, withVendorCompat } from "./model-catalog";
+export { demoCatalogModel, FOREIGN_CALL_SIGNATURE, nativeProviders, signForeignCalls, withVendorCompat } from "./model-catalog";
 import {
   ANTHROPIC_WORKSPACE_HEADER,
   isKeyRefused,
@@ -42,7 +42,7 @@ import { departure, ours, show, shown } from "./diagnostic";
  *    the provider through pi-ai's own provider, never through the operator's
  *    gateway, so a request that lost its key can never be billed to the
  *    operator.
- * 2. A key the provider refused (401) stops model calls until it is replaced.
+ * 2. A key the provider refused stops model calls until it is replaced.
  *    It never falls back to the demo.
  * 3. The demo, for owners and people on `DEMO_ALLOWLIST`, while today's
  *    spend is under both the per-person and the per-domain cap: the AI
@@ -153,7 +153,7 @@ export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "e
   if (message.stopReason !== "error") return null;
   const text = message.errorMessage ?? "";
   if (isKeyRefused(text) || /refused your key/.test(text)) return "key_refused";
-  if (/prompt is too long|context.{0,20}(length|window)|too many tokens/i.test(text)) return "context_too_long";
+  if (/prompt is too long|context.{0,20}(length|window)|too many tokens|input token count.*exceeds|maximum number of tokens/i.test(text)) return "context_too_long";
   if (/timed? ?out|timeout/i.test(text)) return "timeout";
   const status = /\b([45]\d\d)\b/.exec(text)?.[1];
   return status ? `http_${status}` : "error";
@@ -172,7 +172,7 @@ export function refusalText(entitlement: Entitlement): string {
   const key = entitlement.key ? PROVIDER_LABEL[entitlement.key.provider] : "";
   switch (entitlement.reason) {
     case "key_invalid":
-      return `Model calls are stopped: ${key} refused your key (401). Add a working key in Settings.`;
+      return `Model calls are stopped: ${key} refused your key. Add a working key in Settings.`;
     case "user_cap":
       return "Model calls are paused: you've used today's demo allowance. It resets at midnight UTC, or add your own key in Settings.";
     case "domain_cap":
@@ -464,7 +464,7 @@ export class ModelAccess {
       const explanation = this.#options.keys.isCurrent(lane.version)
         ? "Model calls are stopped until you add a working key in Settings."
         : "This call used an earlier key. Your current key has not been changed.";
-      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key (401). ${explanation}` };
+      return { ...message, errorMessage: `${PROVIDER_LABEL[lane.provider]} refused your key. ${explanation}` };
     }
     return message.errorMessage === undefined ? message : { ...message, errorMessage: redactKeys(message.errorMessage) };
   }

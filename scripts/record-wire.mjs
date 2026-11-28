@@ -8,7 +8,8 @@
  * fails when a fake sends what the real API doesn't. Run it again after a
  * pi upgrade, or when a vendor changes its wire.
  *
- * Keys come from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), are
+ * Keys come from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+ * `GEMINI_API_KEY`), are
  * sent only to their vendor, and are never written: a fixture holds shapes.
  * A vendor without a key is skipped. Each call is one short answer (a few
  * cents at most).
@@ -19,6 +20,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { streamShape } from "../test/contracts/shape.ts";
 
@@ -26,7 +28,8 @@ const root = path.resolve(import.meta.dirname, "..");
 const fixtures = path.join(root, "test", "contracts", "fixtures");
 const VENDORS = [
   { wire: "anthropic-messages", key: "ANTHROPIC_API_KEY", provider: anthropicProvider, model: "claude-sonnet-5-5" },
-  { wire: "openai-responses", key: "OPENAI_API_KEY", provider: openaiProvider, model: "gpt-6.1-sol" }
+  { wire: "openai-responses", key: "OPENAI_API_KEY", provider: openaiProvider, model: "gpt-6.1-sol" },
+  { wire: "gemini-generate-content", key: "GEMINI_API_KEY", provider: googleProvider, model: "gemini-4-hydrogen" }
 ];
 
 const context = normalizeContext({

@@ -27,7 +27,7 @@ function committed(name) {
 
 test("the committed models resolve in the catalogs this install ships, and a renamed one is caught before a deploy", async () => {
   const { modelCatalogProblems } = await import("../src/model-catalog.ts");
-  const vars = Object.fromEntries(["DEMO_GATEWAY_ID", "DEMO_MODEL_ID", "ANTHROPIC_MODEL_ID", "OPENAI_MODEL_ID", "THINKING_LEVEL"].map((name) => [name, committed(name)]));
+  const vars = Object.fromEntries(["DEMO_GATEWAY_ID", "DEMO_MODEL_ID", "ANTHROPIC_MODEL_ID", "OPENAI_MODEL_ID", "GEMINI_MODEL_ID", "THINKING_LEVEL"].map((name) => [name, committed(name)]));
   assert.deepEqual(modelCatalogProblems(vars), []);
   // The spelling AI Gateway's catalog stopped answering to, as pi 1.3 and agents 0.28 accepted it.
   const dashed = modelCatalogProblems({ ...vars, DEMO_MODEL_ID: "anthropic/claude-sonnet-5-5" });

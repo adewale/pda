@@ -24,7 +24,7 @@ import { normalizeContext, type Api, type AssistantMessage, type Context, type M
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
-import { withVendorCompat } from "../../src/model-catalog";
+import { nativeProviders, withVendorCompat } from "../../src/model-catalog";
 import { fakeModels } from "../fake-models";
 import { inventedBy, paths, shapeOf, streamShape } from "./shape";
 
@@ -150,6 +150,11 @@ describe("the wires the fakes stand in for", () => {
 
   it("OpenAI Responses, on a person's own key", async () => {
     check(await ownKeyTurn("openai-responses", openaiProvider(), "gpt-6.1-sol", "sk-test-good-contract"));
+  });
+
+  it("Gemini's Generative Language API, on a person's own key, through the agent's provider", async () => {
+    const google = nativeProviders().find((provider) => provider.id === "google")!;
+    check(await ownKeyTurn("gemini-generate-content", google, "gemini-4-hydrogen", "AIza-test-good-contract"));
   });
 
   it("the AI binding, for the demo lane's gateway model, and nothing else of it", async () => {

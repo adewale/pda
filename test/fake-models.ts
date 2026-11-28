@@ -1,13 +1,14 @@
 /**
- * Fake Anthropic and OpenAI, for the outbound service beside the fake Google
- * and GitHub (`fake-providers.ts`). Web APIs only, like it.
+ * Fake Anthropic, OpenAI and Google Gemini, for the outbound service beside
+ * the fake Google OAuth and GitHub (`fake-providers.ts`). Web APIs only, like
+ * it.
  *
  * Which keys work is in the key itself, so the fakes need no shared state:
- * Anthropic `sk-ant-test-…` and OpenAI `sk-test-…` keys work, unless one of
- * their `-`-separated segments is `bad` (refused everywhere, so they can't be
- * saved) or `revoked` (they pass the key check, then every model call is
- * refused with a 401, as a key revoked after it was saved would be). Whole
- * segments, so a random suffix can't spell either by chance.
+ * Anthropic `sk-ant-test-…`, OpenAI `sk-test-…` and Gemini `AIza-test-…` keys
+ * work, unless one of their `-`-separated segments is `bad` (refused
+ * everywhere, so they can't be saved) or `revoked` (they pass the key check,
+ * then every model call is refused, as a key revoked after it was saved would
+ * be). Whole segments, so a random suffix can't spell either by chance.
  *
  * Model calls stream a real answer in the vendor's own wire format, saying
  * who answered and echoing the last user message. A request carrying AI
@@ -93,6 +94,64 @@ async function anthropic(request: Request): Promise<Response> {
   return anthropicStream(body.model ?? "?", `fake Anthropic (${body.model}) answers: ${lastUserText(body.messages)}`);
 }
 
+// ---------------------------------------------------------------- Directives
+
+type DirectiveCall = { readonly name: string; readonly argumentsJson: string };
+type DirectiveReply = { readonly calls: DirectiveCall[] } | { readonly text: string };
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Provider-agnostic prompt-directive interpreter shared by `openai` and
+ * `fakeGemini`: obeys `@@obey <tool> <base64url-args>` lines in `freshText`
+ * (once per canonical call, for offered tools only), answers `<conversation>`
+ * compaction prompts and toolless `<untrusted-page>` reader prompts, and
+ * otherwise echoes `lastUserPrompt`.
+ */
+function planDirectiveReply(options: {
+  readonly speaker: string;
+  readonly model: string;
+  readonly offeredTools: ReadonlySet<string>;
+  readonly freshText: string;
+  readonly alreadyMade: ReadonlySet<string>;
+  readonly lastUserPrompt: string;
+}): DirectiveReply {
+  const made = new Set(options.alreadyMade);
+  const calls: DirectiveCall[] = [];
+  for (const [, name, encoded] of options.freshText.matchAll(/@@obey (\w+) ([A-Za-z0-9_-]+)/g)) {
+    if (!options.offeredTools.has(name!)) continue;
+    const parsed: unknown = JSON.parse(atob(encoded!.replace(/-/g, "+").replace(/_/g, "/")));
+    const canonical = `${name} ${canonicalJson(parsed)}`;
+    if (made.has(canonical)) continue;
+    made.add(canonical);
+    calls.push({ name: name!, argumentsJson: JSON.stringify(parsed) });
+  }
+  if (calls.length) return { calls };
+  const prompt = options.lastUserPrompt;
+  const conversation = /<conversation>\n([\s\S]*)\n<\/conversation>/.exec(prompt)?.[1];
+  if (conversation !== undefined) {
+    const lines = conversation.split("\n").filter(Boolean);
+    return { text: `Faux summary of ${lines.length} lines.` };
+  }
+  const page = /<untrusted-page>\n([\s\S]*?)\n<\/untrusted-page>/.exec(prompt)?.[1];
+  if (options.offeredTools.size === 0 && page !== undefined) {
+    return { text: `reader: ${page.slice(0, 1_500)}` };
+  }
+  const echoed = prompt.length > 2000 ? `${prompt.slice(0, 200)}… (${prompt.length} characters)` : prompt;
+  return { text: `${options.speaker} (${options.model}) answers: ${echoed}` };
+}
+
+function extractContextTokens(lastUserPrompt: string): number {
+  return Number(/\[context (\d+)\]/.exec(lastUserPrompt)?.[1] ?? 12);
+}
+
 // ---------------------------------------------------------------- OpenAI
 
 /*
@@ -165,42 +224,35 @@ function offeredTools(body: { tools?: unknown }, input: readonly ResponsesItem[]
   return [...listed, ...added].filter((tool) => tool.type === "function");
 }
 
-/** Calls for the `@@obey` lines in everything since the model last produced something, each made once per input, to offered tools only. */
-function openaiObeyed(input: readonly ResponsesItem[], offered: ReadonlySet<string>): { name: string; arguments: string }[] {
+/** What the fake OpenAI says: calls to make, or text. */
+function openaiAnswer(body: { model?: string; tools?: unknown }, input: readonly ResponsesItem[]): DirectiveReply {
+  const offered = offeredTools(body, input);
   let last = input.length - 1;
   while (last >= 0 && !produced(input[last]!)) last--;
-  const fresh = input.slice(last + 1).map(itemText).join("\n");
-  const made = new Set(input.filter((item) => item.type === "function_call").map((item) => `${String(item.name)} ${String(item.arguments)}`));
-  const calls = [];
-  for (const [, name, encoded] of fresh.matchAll(/@@obey (\w+) ([A-Za-z0-9_-]+)/g)) {
-    if (!offered.has(name!)) continue;
-    const args = JSON.stringify(JSON.parse(atob(encoded!.replace(/-/g, "+").replace(/_/g, "/"))));
-    if (made.has(`${name} ${args}`)) continue;
-    made.add(`${name} ${args}`);
-    calls.push({ name: name!, arguments: args });
-  }
-  return calls;
-}
-
-/** What the fake OpenAI says: calls to make, or text. */
-function openaiAnswer(body: { model?: string; tools?: unknown }, input: readonly ResponsesItem[]): { calls: { name: string; arguments: string }[] } | { text: string } {
-  const offered = offeredTools(body, input);
-  const calls = openaiObeyed(input, new Set(offered.map((tool) => String(tool.name))));
-  if (calls.length) return { calls };
-  const prompt = lastUserText(input);
-  const conversation = /<conversation>\n([\s\S]*)\n<\/conversation>/.exec(prompt)?.[1];
-  if (conversation !== undefined) {
-    const lines = conversation.split("\n").filter(Boolean);
-    return { text: `Faux summary of ${lines.length} lines.` };
-  }
-  const page = /<untrusted-page>\n([\s\S]*?)\n<\/untrusted-page>/.exec(prompt)?.[1];
-  if (offered.length === 0 && page !== undefined) return { text: `reader: ${page.slice(0, 1_500)}` };
-  const echoed = prompt.length > 2000 ? `${prompt.slice(0, 200)}… (${prompt.length} characters)` : prompt;
-  return { text: `fake OpenAI (${body.model}) answers: ${echoed}` };
+  const freshText = input.slice(last + 1).map(itemText).join("\n");
+  const alreadyMade = new Set(
+    input
+      .filter((item) => item.type === "function_call")
+      .map((item) => {
+        try {
+          return `${String(item.name)} ${canonicalJson(JSON.parse(String(item.arguments ?? "{}")))}`;
+        } catch {
+          return `${String(item.name)} ${String(item.arguments)}`;
+        }
+      })
+  );
+  return planDirectiveReply({
+    speaker: "fake OpenAI",
+    model: body.model ?? "?",
+    offeredTools: new Set(offered.map((tool) => String(tool.name))),
+    freshText,
+    alreadyMade,
+    lastUserPrompt: lastUserText(input)
+  });
 }
 
 /** A Responses stream: a reasoning item, then the calls or the message. */
-function openaiStream(answer: ReturnType<typeof openaiAnswer>, inputTokens: number): Response {
+function openaiStream(answer: DirectiveReply, inputTokens: number): Response {
   const token = `fake_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const reasoning = { type: "reasoning", id: `rs_${token}`, summary: [], encrypted_content: `enc_${token}` };
   const items: ResponsesItem[] = [reasoning];
@@ -209,12 +261,12 @@ function openaiStream(answer: ReturnType<typeof openaiAnswer>, inputTokens: numb
   events.push(["response.output_item.done", { type: "response.output_item.done", output_index: 0, item: reasoning }]);
   if ("calls" in answer) {
     answer.calls.forEach((call, i) => {
-      const item = { type: "function_call", id: `fc_${token}_${i}`, call_id: `call_${token}_${i}`, name: call.name, arguments: call.arguments, status: "completed" };
+      const item = { type: "function_call", id: `fc_${token}_${i}`, call_id: `call_${token}_${i}`, name: call.name, arguments: call.argumentsJson, status: "completed" };
       const index = i + 1;
       items.push(item);
       events.push(["response.output_item.added", { type: "response.output_item.added", output_index: index, item: { ...item, arguments: "", status: "in_progress" } }]);
-      events.push(["response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", output_index: index, item_id: item.id, delta: call.arguments }]);
-      events.push(["response.function_call_arguments.done", { type: "response.function_call_arguments.done", output_index: index, item_id: item.id, arguments: call.arguments }]);
+      events.push(["response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", output_index: index, item_id: item.id, delta: call.argumentsJson }]);
+      events.push(["response.function_call_arguments.done", { type: "response.function_call_arguments.done", output_index: index, item_id: item.id, arguments: call.argumentsJson }]);
       events.push(["response.output_item.done", { type: "response.output_item.done", output_index: index, item }]);
     });
   } else {
@@ -244,16 +296,336 @@ async function openai(request: Request, url: URL): Promise<Response> {
     const input = Array.isArray(body.input) ? (body.input as ResponsesItem[]) : [];
     const refusal = openaiRefusal(input, offeredTools(body, input));
     if (refusal) return Response.json({ error: { message: refusal, type: "invalid_request_error", param: "input", code: null } }, { status: 400 });
-    const context = Number(/\[context (\d+)\]/.exec(lastUserText(input))?.[1] ?? 12);
+    const context = extractContextTokens(lastUserText(input));
     return openaiStream(openaiAnswer(body, input), context);
   }
   return Response.json({ error: { message: "Not found" } }, { status: 404 });
 }
 
+// ---------------------------------------------------------------- Google Gemini
+
+/*
+ * The fake Gemini speaks Google's Generative Language v1beta SSE API
+ * (`:streamGenerateContent?alt=sse`), sharing `planDirectiveReply` with OpenAI.
+ * Every streamed answer starts with a `thought: true` part carrying a base64
+ * `thoughtSignature`, followed by `functionCall` or text parts and
+ * `usageMetadata`. It refuses (400) requests that pass `?key=` in the URL,
+ * alter a thinking part's `thoughtSignature`, send a `functionCall` with
+ * neither its turn's verified thinking part nor Google's documented skip
+ * value, send a `functionResponse` without a matching `functionCall`, or send
+ * malformed `inlineData` parts.
+ */
+
+type GeminiPart = {
+  readonly text?: unknown;
+  readonly thought?: unknown;
+  readonly thoughtSignature?: unknown;
+  readonly functionCall?: { readonly id?: unknown; readonly name?: unknown; readonly args?: unknown };
+  readonly functionResponse?: { readonly id?: unknown; readonly name?: unknown; readonly response?: unknown; readonly parts?: unknown };
+  readonly inlineData?: { readonly mimeType?: unknown; readonly data?: unknown };
+};
+
+type GeminiContent = {
+  readonly role?: unknown;
+  readonly parts?: unknown;
+};
+
+type GeminiBody = {
+  readonly contents?: unknown;
+  readonly tools?: unknown;
+  readonly systemInstruction?: unknown;
+  readonly generationConfig?: unknown;
+};
+
+const INVALID_KEY_GOOGLE = () =>
+  Response.json(
+    {
+      error: {
+        code: 400,
+        message: "API key not valid. Please pass a valid API key.",
+        status: "INVALID_ARGUMENT",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID", domain: "googleapis.com" }]
+      }
+    },
+    { status: 400 }
+  );
+
+const EXPIRED_KEY_GOOGLE = () =>
+  Response.json(
+    {
+      error: {
+        code: 400,
+        message: "API key expired. Please renew the API key.",
+        status: "INVALID_ARGUMENT",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_EXPIRED", domain: "googleapis.com" }]
+      }
+    },
+    { status: 400 }
+  );
+
+const geminiError = (code: number, status: string, message: string) =>
+  Response.json({ error: { code, message, status } }, { status: code });
+
+function isValidBase64(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
+function inlineDataRefusal(inlineData: unknown): string | null {
+  if (!inlineData || typeof inlineData !== "object") return "Invalid inlineData part: expected object.";
+  const { mimeType, data } = inlineData as { mimeType?: unknown; data?: unknown };
+  if (typeof mimeType !== "string" || mimeType.trim() === "") return "Invalid inlineData part: mimeType is required.";
+  if (!isValidBase64(data)) return "Invalid inlineData part: data must be non-empty base64.";
+  return null;
+}
+
+/** What Google Gemini would refuse about `contents`, or null. */
+function geminiRefusal(contents: readonly GeminiContent[]): string | null {
+  const callsById = new Map<string, string>();
+  const calledNames = new Set<string>();
+  for (const item of contents) {
+    if (!item || typeof item !== "object" || !Array.isArray(item.parts)) {
+      return "Each entry in contents must have a parts array.";
+    }
+    const parts = item.parts as GeminiPart[];
+    let turnThoughtVerified = false;
+    for (const part of parts) {
+      if (!part || typeof part !== "object") return "Invalid content part.";
+      if (part.inlineData !== undefined) {
+        const problem = inlineDataRefusal(part.inlineData);
+        if (problem) return problem;
+      }
+      if (Array.isArray(part.functionResponse?.parts)) {
+        for (const nested of part.functionResponse.parts as GeminiPart[]) {
+          if (nested?.inlineData !== undefined) {
+            const problem = inlineDataRefusal(nested.inlineData);
+            if (problem) return problem;
+          }
+        }
+      }
+      if (item.role === "model") {
+        if (part.thought === true) {
+          if (!isValidBase64(part.thoughtSignature)) {
+            return "Model thinking part is missing a valid base64 thoughtSignature.";
+          }
+          let decoded = "";
+          try {
+            decoded = atob(part.thoughtSignature);
+          } catch {
+            return "Model thinking part has an unreadable thoughtSignature.";
+          }
+          const text = typeof part.text === "string" ? part.text : "";
+          if (!decoded.startsWith("gemini-sig:") || (text.startsWith("thinking ") && decoded !== `gemini-sig:${text.slice("thinking ".length)}`)) {
+            return "Model thinking part thoughtSignature could not be verified.";
+          }
+          turnThoughtVerified = true;
+        }
+        if (part.functionCall) {
+          const callName = typeof part.functionCall.name === "string" ? part.functionCall.name : "";
+          if (!callName) return "Model functionCall part is missing its name.";
+          // Gemini 3+ wants a signature on a function call: its turn's own, or Google's documented skip value for a
+          // call another model made.
+          if (!turnThoughtVerified && part.thoughtSignature !== "skip_thought_signature_validator") {
+            return `Function call '${callName}' in model turn is missing its preceding thought part and thoughtSignature.`;
+          }
+          const callId = typeof part.functionCall.id === "string" ? part.functionCall.id : "";
+          if (callId) callsById.set(callId, callName);
+          calledNames.add(callName);
+        }
+      } else if (item.role === "user" && part.functionResponse) {
+        const respName = typeof part.functionResponse.name === "string" ? part.functionResponse.name : "";
+        const respId = typeof part.functionResponse.id === "string" ? part.functionResponse.id : "";
+        const matched = respId ? callsById.get(respId) === respName : Boolean(respName) && calledNames.has(respName);
+        if (!matched) {
+          return `Function response for '${respName}' (${respId || "no id"}) has no matching prior functionCall.`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function geminiOfferedTools(body: GeminiBody): Set<string> {
+  const names = new Set<string>();
+  if (!Array.isArray(body.tools)) return names;
+  for (const group of body.tools) {
+    if (!group || typeof group !== "object") continue;
+    const decls = (group as { functionDeclarations?: unknown }).functionDeclarations;
+    if (!Array.isArray(decls)) continue;
+    for (const decl of decls) {
+      if (decl && typeof decl === "object" && typeof (decl as { name?: unknown }).name === "string") {
+        names.add((decl as { name: string }).name);
+      }
+    }
+  }
+  return names;
+}
+
+function geminiPartText(part: GeminiPart): string {
+  if (typeof part.text === "string" && part.thought !== true) return part.text;
+  const resp = part.functionResponse?.response;
+  if (resp && typeof resp === "object") {
+    const out = (resp as { output?: unknown; error?: unknown }).output ?? (resp as { error?: unknown }).error;
+    if (typeof out === "string") return out;
+  }
+  return "";
+}
+
+/** The latest true user message's text (skipping user-role `functionResponse` turns). */
+function geminiLastUserText(contents: readonly GeminiContent[]): string {
+  for (let i = contents.length - 1; i >= 0; i--) {
+    const item = contents[i]!;
+    if (item.role !== "user" || !Array.isArray(item.parts)) continue;
+    const parts = item.parts as GeminiPart[];
+    if (parts.length > 0 && parts.every((part) => Boolean(part?.functionResponse))) continue;
+    return parts.map((part) => (part && typeof part.text === "string" ? part.text : "")).join("");
+  }
+  return "";
+}
+
+function geminiStream(model: string, answer: DirectiveReply, inputTokens: number): Response {
+  const token = `fake_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const signature = btoa(`gemini-sig:${token}`);
+  const chunks: unknown[] = [
+    {
+      responseId: `resp_${token}`,
+      modelVersion: model,
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: "model",
+            parts: [{ thought: true, text: `thinking ${token}`, thoughtSignature: signature }]
+          }
+        }
+      ]
+    }
+  ];
+  const usageMetadata = {
+    promptTokenCount: inputTokens,
+    candidatesTokenCount: 8,
+    thoughtsTokenCount: 4,
+    totalTokenCount: inputTokens + 12
+  };
+  if ("calls" in answer) {
+    chunks.push({
+      responseId: `resp_${token}`,
+      modelVersion: model,
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: "model",
+            parts: answer.calls.map((call, index) => ({
+              functionCall: {
+                id: `call_${token}_${index}`,
+                name: call.name,
+                args: JSON.parse(call.argumentsJson) as Record<string, unknown>
+              },
+              thoughtSignature: signature
+            }))
+          },
+          finishReason: "STOP"
+        }
+      ],
+      usageMetadata
+    });
+  } else {
+    chunks.push({
+      responseId: `resp_${token}`,
+      modelVersion: model,
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: "model",
+            parts: [{ text: answer.text, thoughtSignature: signature }]
+          },
+          finishReason: "STOP"
+        }
+      ],
+      usageMetadata
+    });
+  }
+  const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("");
+  return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+}
+
+function fakeGemini(url: URL, method: string, headers: Headers, rawBody: string): Response {
+  if (url.searchParams.has("key")) {
+    return geminiError(400, "INVALID_ARGUMENT", "Pass the API key in the x-goog-api-key header, not the URL query string.");
+  }
+  const key = headers.get("x-goog-api-key") ?? "";
+  const state = keyState(key, "AIza-test-");
+  if (url.pathname === "/v1beta/models" && method === "GET") {
+    if (key.split("-").includes("broke")) {
+      return geminiError(400, "FAILED_PRECONDITION", `Billing not enabled for key ${key}`);
+    }
+    return state === "refused" ? INVALID_KEY_GOOGLE() : Response.json({ models: [{ name: "models/gemini-4-hydrogen" }] });
+  }
+  const streamMatch = /^\/v1beta\/models\/([^/:]+):streamGenerateContent$/.exec(url.pathname);
+  if (streamMatch && method === "POST") {
+    if (url.searchParams.get("alt") !== "sse") {
+      return geminiError(400, "INVALID_ARGUMENT", "streamGenerateContent requires alt=sse.");
+    }
+    if (state !== "ok") return INVALID_KEY_GOOGLE();
+    // `expired`: a key that passed its check and has since expired, which Google refuses with 400 `API_KEY_EXPIRED`.
+    if (key.split("-").includes("expired")) return EXPIRED_KEY_GOOGLE();
+    let body: GeminiBody;
+    try {
+      body = JSON.parse(rawBody || "{}") as GeminiBody;
+    } catch {
+      return geminiError(400, "INVALID_ARGUMENT", "Malformed JSON request body.");
+    }
+    const contents = Array.isArray(body.contents) ? (body.contents as GeminiContent[]) : [];
+    const refusal = geminiRefusal(contents);
+    if (refusal) return geminiError(400, "INVALID_ARGUMENT", refusal);
+
+    let lastModel = contents.length - 1;
+    while (lastModel >= 0 && contents[lastModel]?.role !== "model") lastModel--;
+    const freshText = contents
+      .slice(lastModel + 1)
+      .flatMap((item) => (Array.isArray(item.parts) ? (item.parts as GeminiPart[]).map(geminiPartText) : []))
+      .join("\n");
+    if (freshText.includes("[bad-request]")) {
+      return geminiError(400, "INVALID_ARGUMENT", "Request contains an invalid argument.");
+    }
+    const alreadyMade = new Set(
+      contents.flatMap((item) =>
+        item.role === "model" && Array.isArray(item.parts)
+          ? (item.parts as GeminiPart[]).flatMap((part) =>
+              part.functionCall && typeof part.functionCall.name === "string"
+                ? [`${part.functionCall.name} ${canonicalJson(part.functionCall.args ?? {})}`]
+                : []
+            )
+          : []
+      )
+    );
+    const prompt = geminiLastUserText(contents);
+    const model = decodeURIComponent(streamMatch[1]!);
+    const answer = planDirectiveReply({
+      speaker: "fake Gemini",
+      model,
+      offeredTools: geminiOfferedTools(body),
+      freshText,
+      alreadyMade,
+      lastUserPrompt: prompt
+    });
+    return geminiStream(model, answer, extractContextTokens(prompt));
+  }
+  return geminiError(404, "NOT_FOUND", "Not found");
+}
+
 /** The fake vendors, or null for a request that isn't theirs. */
 export async function fakeModels(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
-  const vendor = url.origin === "https://api.anthropic.com" ? "anthropic" : url.origin === "https://api.openai.com" ? "openai" : null;
+  const vendor =
+    url.origin === "https://api.anthropic.com"
+      ? "anthropic"
+      : url.origin === "https://api.openai.com"
+        ? "openai"
+        : url.origin === "https://generativelanguage.googleapis.com"
+          ? "google"
+          : null;
   if (!vendor) return null;
   if (request.headers.has("cf-aig-authorization")) {
     return Response.json({ error: "own-key traffic must not carry AI Gateway credentials" }, { status: 400 });
@@ -275,6 +647,9 @@ export async function fakeModels(request: Request): Promise<Response | null> {
     }
     if (url.pathname === "/v1/messages" && request.method === "POST") return anthropic(request);
     return Response.json({ type: "error", error: { type: "not_found_error" } }, { status: 404 });
+  }
+  if (vendor === "google") {
+    return fakeGemini(url, request.method, request.headers, await request.text());
   }
   return openai(request, url);
 }

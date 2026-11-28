@@ -34,6 +34,7 @@
     "DEMO_DAILY_USD_PER_DOMAIN": 1.5,
     "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",
     "OPENAI_MODEL_ID": "gpt-6.1-sol",
+    "GEMINI_MODEL_ID": "gemini-4-hydrogen",
     "SIGNUP": "allowlist",
     // Which sign-in providers the page offers; a provider left out has no
     // button, and its /auth/<provider> routes answer 404 (docs/setup.md).
