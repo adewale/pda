@@ -248,8 +248,16 @@ export class AgentLog extends LifecycleCapability implements Units {
       if (tally.reasons.length < 5) tally.reasons.push(literal(compaction.trigger));
       tally.blocking ||= compaction.blocking;
     }
+    // A compaction that started and ended between two views shows only by the summary it placed.
+    const summaries = view.entries.filter((entry) => Number(entry.id) > prev.entry && entry.kind === "pi.compaction").length;
+    const folded = prev.compactions.size === 0 && next.compactions.size === 0 && summaries > 0;
+    if (folded) {
+      const turn = this.#openTurn("compaction");
+      const tally = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
+      tally.count += summaries;
+    }
     // A compaction outside any run is a turn of its own, which ends with it.
-    if (prev.compactions.size > 0 && next.compactions.size === 0 && this.#turn && !this.#turn.run && this.#turn.event.fields.trigger === "compaction") this.#endTurn();
+    if (((prev.compactions.size > 0 && next.compactions.size === 0) || folded) && this.#turn && !this.#turn.run && this.#turn.event.fields.trigger === "compaction") this.#endTurn();
     if (!replaced && failed && TASK_FAILURES.has(failed.reason)) failTurn(this.#openTurn("unknown"));
     if ((prev.run || unseen) && !next.run) this.#endTurn();
   }

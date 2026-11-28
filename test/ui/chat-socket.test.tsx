@@ -831,6 +831,8 @@ describe("the conversation's history", () => {
     socket.receive({ type: "error", id: String(pages()[0]!.id), message: "Invalid maxEntryId" });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
     expect(pages()).toHaveLength(1);
+    // The mirror's own request: its failure stalls the history, and isn't shown beside the chat.
+    expect(screen.queryByText(/Your agent reported a problem/)).toBeNull();
     socket.close();
     socket.open();
     socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [], before: 60, docs: { "pi.live": {} } } });

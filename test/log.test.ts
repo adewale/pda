@@ -154,6 +154,15 @@ describe("turns from pi's view", () => {
     });
   });
 
+  it("writes a turn for a compaction that started and ended between two views, from the summary it placed", async () => {
+    await withLog(async (log, turns) => {
+      await log.onPiView(idle);
+      await log.onPiView(viewOf({}, [{ id: 7, conversationId: 1, kind: "pi.compaction", model: [{ role: "user", content: "<summary>x</summary>" }] }]));
+      expect(turns()).toHaveLength(1);
+      expect(turns()[0]).toMatchObject({ trigger: "compaction", compaction: { count: 1 } });
+    });
+  });
+
   it("ends a run and starts the next when one replaces the other in a commit", async () => {
     await withLog(async (log, turns) => {
       await log.onPiView(idle);
@@ -197,6 +206,20 @@ describe("turn events", () => {
       expect(ended).toMatchObject({ tool_count: 1, tool_calls: [{ call_id: "late-result", error_code: "invalid_client" }], errors: [{ type: "PoppyError", code: "invalid_client" }] });
       expect(lines.join("\n")).not.toContain("private-company-refusal");
     });
+  });
+
+  it("writes an event for a transcript page the agent couldn't give, and none for one it gave", async () => {
+    const a = await agent();
+    const mark = await a.stub.poppyLogMark();
+    const { socket, client } = await connect(a.identity);
+    socket.send(JSON.stringify({ type: "entries", id: "page-good", query: { order: "descending" }, limit: 10 }));
+    socket.send(JSON.stringify({ type: "entries", id: "page-bad", query: { order: "descending" }, limit: 0 }));
+    await client.until(() => client.frames.some((frame) => frame.type === "error" && (frame as { id?: string }).id === "page-bad"));
+    expect(client.frames.some((frame) => frame.type === "result" && (frame as { id?: string }).id === "page-good")).toBe(true);
+    const failed = await until(async () => (await eventsOf(a, mark)).filter((event) => event.kind === "ws" && event.frame === "entries"));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ outcome: "error", errors: [{ type: "EntriesFailed" }] });
+    socket.close();
   });
 
   it("writes one for the User's message, naming the socket's request and the model call", async () => {

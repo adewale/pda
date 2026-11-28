@@ -324,8 +324,8 @@ export class PersonalAgent extends DurableObject<Env> {
           if (this.data.deleting) { connection.close(1008, "Agent deletion is in progress"); return; }
           if (!this.browserSessions.protect(connection)) return;
           let forwarded = message;
+          let parsed: unknown;
           if (typeof message === "string") {
-            let parsed: unknown;
             try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && (parsed.type === "abort" || parsed.type === "reset")) this.turnAuthority.withdraw();
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "reset") this.turnAuthority.forgetCompanies();
@@ -343,6 +343,28 @@ export class PersonalAgent extends DurableObject<Env> {
               const { taskAccess: _access, ...submission } = input;
               forwarded = JSON.stringify({ ...submission, operationId });
             }
+          }
+          const pageId = typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "entries" && "id" in parsed && typeof parsed.id === "string" ? parsed.id : null;
+          if (pageId !== null) {
+            // A transcript page the page asked for: one that worked needs no event; one that failed gets its own,
+            // as the history reads before pi 1.6 did. The upstream socket code answers the page and logs nothing.
+            const watched = new Proxy(connection, {
+              get: (target, key) => {
+                if (key === "send") {
+                  return (data: string) => {
+                    const sent = (() => { try { return JSON.parse(data) as { type?: unknown; id?: unknown; message?: unknown }; } catch { return null; } })();
+                    if (sent?.type === "error" && sent.id === pageId) {
+                      const failure = Object.assign(new Error(typeof sent.message === "string" ? sent.message : "The page couldn't be read"), { name: "EntriesFailed" });
+                      void this.log.frame(literal("entries"), {}, async (event) => void event.fail(failure));
+                    }
+                    target.send(data);
+                  };
+                }
+                const value: unknown = Reflect.get(target, key, target);
+                return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+              }
+            });
+            return socketOptions.handlers?.onMessage?.(watched, forwarded);
           }
           return socketOptions.handlers?.onMessage?.(connection, forwarded);
         }

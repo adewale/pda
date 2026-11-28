@@ -210,6 +210,12 @@ export function usePiSession(workspaceId: string) {
   }))));
   /** A page load failed on this socket: wait for the next one instead of asking again at once. */
   const historyStalled = useRef(false);
+  /**
+   * The ids of the transcript pages the mirror asked for and hasn't had: an
+   * `error` for one is the mirror's to settle (it stalls the history until
+   * the next socket), not a problem to show beside the chat.
+   */
+  const pageRequests = useRef(new Set<string>());
   const agentRef = useRef<{ send(data: string): void; close?(code?: number, reason?: string): void; readonly readyState: number } | null>(null);
   const accessEnded = useRef(false);
   const connectionEpoch = useRef(0);
@@ -262,7 +268,10 @@ export function usePiSession(workspaceId: string) {
         historyStalled.current = false;
         setState((current) => ({ ...current, status: "open", socketError: null }));
         // Watch the session from after the newest entry the page has.
-        mirror.open((message) => agentRef.current?.send(JSON.stringify(message)));
+        mirror.open((message) => {
+          if (message.type === "entries") pageRequests.current.add(message.id);
+          agentRef.current?.send(JSON.stringify(message));
+        });
         const frame: PoppyClientFrame = {
           type: "poppy.context",
           locale: navigator.language,
@@ -289,6 +298,7 @@ export function usePiSession(workspaceId: string) {
       const epoch = ++connectionEpoch.current;
       verifiedSocket.current = false;
       mirror.close();
+      pageRequests.current.clear();
       if (event.code === 1008) accessEnded.current = true;
       setOutbox(unanswered(outboxRef.current));
       setState((current) => ({ ...current, status: accessEnded.current ? "unauthenticated" : "closed" }));
@@ -327,11 +337,13 @@ export function usePiSession(workspaceId: string) {
           return;
         case "result": {
           const { id } = message;
+          pageRequests.current.delete(id);
           if (outboxRef.current.some((item) => item.id === id)) setOutbox(answered(outboxRef.current, id));
           return;
         }
         case "error": {
           const { id, message: text } = message;
+          if (id !== undefined && pageRequests.current.delete(id)) return;
           if (id !== undefined && outboxRef.current.some((item) => item.id === id)) {
             setOutbox(answered(outboxRef.current, id, text));
             return;
