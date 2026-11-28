@@ -1,0 +1,104 @@
+{
+  "wire": "ai-binding-run",
+  "request": {
+    "call": [
+      "model: anthropic/claude-sonnet-5.5",
+      "options.extraHeaders.anthropic-beta: string",
+      "options.gateway.id: string",
+      "options.gateway.metadata.d: string",
+      "options.gateway.metadata.u: string",
+      "options.openaiEndpoint: string",
+      "options.returnRawResponse: boolean"
+    ],
+    "body": [
+      "max_tokens: number",
+      "messages[].content: string",
+      "messages[].role: =user",
+      "messages[].content[]: empty",
+      "messages[].output_config.effort: string",
+      "messages[].role: =system",
+      "messages[].content[].cache_control.type: =ephemeral",
+      "messages[].content[].text: string",
+      "messages[].content[].type: =text",
+      "messages[].role: =user",
+      "messages[].content[].content: string",
+      "messages[].content[].is_error: boolean",
+      "messages[].content[].tool_use_id: string",
+      "messages[].content[].type: =tool_result",
+      "messages[].role: =user",
+      "messages[].content[].id: string",
+      "messages[].content[].input.expression: string",
+      "messages[].content[].name: string",
+      "messages[].content[].type: =tool_use",
+      "messages[].content[].signature: string",
+      "messages[].content[].thinking: string",
+      "messages[].content[].type: =thinking",
+      "messages[].content[].text: string",
+      "messages[].content[].type: =text",
+      "messages[].role: =assistant",
+      "output_config.effort: string",
+      "stream: boolean",
+      "system[].cache_control.type: =ephemeral",
+      "system[].text: string",
+      "system[].type: =text",
+      "thinking.block_binding.prefix_mismatch_behavior: string",
+      "thinking.display: string",
+      "thinking.type: =adaptive",
+      "tools[].cache_control.type: =ephemeral",
+      "tools[].description: string",
+      "tools[].eager_input_streaming: boolean",
+      "tools[].input_schema.properties.expression.type: =string",
+      "tools[].input_schema.required[]: string",
+      "tools[].input_schema.type: =object",
+      "tools[].name: string",
+      "tools[].defer_loading: boolean",
+      "tools[].description: string",
+      "tools[].input_schema.properties: {}",
+      "tools[].input_schema.required[]: empty",
+      "tools[].input_schema.type: =object",
+      "tools[].name: string"
+    ]
+  },
+  "response": {
+    "source": "fake",
+    "stream": {
+      "content_block_delta": [
+        "delta.text: string",
+        "delta.type: =text_delta",
+        "index: number",
+        "type: =content_block_delta"
+      ],
+      "content_block_start": [
+        "content_block.text: string",
+        "content_block.type: =text",
+        "index: number",
+        "type: =content_block_start"
+      ],
+      "content_block_stop": [
+        "index: number",
+        "type: =content_block_stop"
+      ],
+      "message_delta": [
+        "delta.stop_reason: =end_turn",
+        "delta.stop_sequence: null",
+        "type: =message_delta",
+        "usage.output_tokens: number"
+      ],
+      "message_start": [
+        "message.content[]: empty",
+        "message.id: string",
+        "message.model: string",
+        "message.role: =assistant",
+        "message.stop_reason: null",
+        "message.stop_sequence: null",
+        "message.type: =message",
+        "message.usage.input_tokens: number",
+        "message.usage.output_tokens: number",
+        "type: =message_start"
+      ],
+      "message_stop": [
+        "type: =message_stop"
+      ]
+    }
+  }
+}

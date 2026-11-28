@@ -28,7 +28,7 @@
   "vars": {
     "THINKING_LEVEL": "medium",
     "DEMO_GATEWAY_ID": "demo",
-    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5-5",
+    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5.5",
     // Small caps, spent only by test/model-access.test.ts, in domains of its own.
     "DEMO_DAILY_USD_PER_USER": 1,
     "DEMO_DAILY_USD_PER_DOMAIN": 1.5,

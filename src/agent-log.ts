@@ -5,8 +5,9 @@
  * (with the protocol log) from Activity and hand them to the operator.
  *
  * Turns: one `turn` event per pi run (from its first input to idle), built
- * from pi's own agent events (`run_start`, `run_end`, retries, compactions)
- * and from the sub-steps that report here: each model call (the router's
+ * from pi's conversation view (`session.watch()`: the run, retries,
+ * compactions and failures in `pi.live`, and the answers appended to the
+ * transcript) and from the sub-steps that report here: each model call (the router's
  * `onCall`), each tool call (every tool is wrapped by `instrument`), and
  * everything a tool does at a Company (through the tool's scope). Who
  * started a turn (the User, a Company message, a scheduled task, a held
@@ -18,7 +19,8 @@
  * are never read into an event. Tool outcomes come from `isError` and the
  * result's `details` codes; read_url's from its status and how it read.
  */
-import type { AgentEvent, AgentEventStream, Extension, ToolRegistration } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { ConversationView, ConversationWatch, Extension, LiveState, SubmissionId, ToolRegistration } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
 import { LifecycleCapability } from "agents/lifecycle";
 import { code, currentEvent, domain, id, inScope, join, LIMITS, literal, modelId, toolName, unit, wideEvent, type EventKind, type Fields, type Safe, type ToolCall, type Units, type WideEvent } from "./log";
@@ -96,11 +98,13 @@ export class AgentLog extends LifecycleCapability implements Units {
   #turn: TurnState | null = null;
   /** Our own submissions, by operation id: who started them. Bounded. */
   readonly #registered = new Map<string, Registered>();
-  /** pi's submission ids to their operation ids, from pi's `submission` events. Bounded. */
+  /** pi's submission ids to their operation ids, read from pi when a run starts. Bounded. */
   readonly #submissions = new Map<string, string>();
+  /** What the last view showed, to tell what changed; null before the first. */
+  #seen: SeenView | null = null;
   /** The request that opened the page's socket, for the User's turns: its last `submit`. */
   #userRequestId: Safe<"id"> | null = null;
-  #watch: AgentEventStream | null = null;
+  #watch: ConversationWatch | null = null;
 
   constructor(options: AgentLogOptions) {
     super("log");
@@ -154,82 +158,108 @@ export class AgentLog extends LifecycleCapability implements Units {
     bound(this.#registered, 200);
   }
 
-  /** Follow the root session's pi events: runs, retries, compactions. Idempotent; called at startup. */
+  /** Follow the root session's view: runs, retries, compactions, failures. Idempotent; called at startup. */
   async watch(harness: PiHarness): Promise<void> {
     if (this.#watch) return;
-    const stream = await harness.session().events();
-    this.#watch = stream;
-    this.onPiEvents([stream.snapshot]);
-    stream.start(async (events) => {
+    const watch = await harness.session().watch();
+    this.#watch = watch;
+    const resolve = (inputs: readonly SubmissionId[]) => submissionOperations(harness, inputs);
+    this.#seen = null;
+    await this.onPiView(watch.value, resolve);
+    watch.start(async (call) => {
+      if (call.kind !== "value") return;
       try {
-        this.onPiEvents(events);
+        await this.onPiView(call.value, resolve);
       } catch {
         // The log follows the run; it never stops it.
       }
     });
-    void stream.closed.then(() => {
-      if (this.#watch === stream) this.#watch = null;
+    void watch.closed.then(() => {
+      if (this.#watch === watch) this.#watch = null;
     });
   }
 
-  /** Stop following pi's events (tests that reopen the harness). */
+  /** Stop following pi's view (tests that reopen the harness). */
   async unwatch(): Promise<void> {
     const watch = this.#watch;
     this.#watch = null;
     await watch?.stop();
   }
 
-  /** One batch of pi's agent events. */
-  onPiEvents(events: readonly AgentEvent[]): void {
-    for (const event of events) {
-      switch (event.type) {
-        case "snapshot":
-          // Restarted mid-run: the run goes on, so its turn starts again here.
-          if (event.run && !this.#turn?.run) this.#startRun(event.run.inputs, true);
-          break;
-        case "submission":
-          if (event.record.requestId) {
-            this.#submissions.set(String(event.record.id), event.record.requestId);
-            bound(this.#submissions, 200);
-          }
-          break;
-        case "run_start":
-          this.#startRun(event.inputs, false);
-          break;
-        case "turn_start":
-          this.#turn?.event.count("model_rounds");
-          break;
-        case "auto_retry_start":
-          if (this.#turn) this.#turn.model.retries++;
-          break;
-        case "message_end": {
-          const message = event.entry.model?.[0];
-          if (this.#turn && message?.role === "assistant") this.#turn.stopReason = literal(message.stopReason);
-          break;
-        }
-        case "task_failed":
-          // pi's message is the task's error's, which may be a tool's and so a Company's words: the task's kind only.
-          this.#openTurn("unknown").event.fail(named("TaskFailed", "A pi task faulted or was orphaned"), { code: code(event.kind) ?? literal("task_failed") });
-          break;
-        case "compaction_start": {
-          const turn = this.#openTurn("compaction");
-          const compaction = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
-          compaction.count++;
-          if (compaction.reasons.length < 5) compaction.reasons.push(literal(event.reason));
-          compaction.blocking ||= event.blocking;
-          break;
-        }
-        case "compaction_end":
-          // A compaction outside any run is a turn of its own.
-          if (this.#turn && !this.#turn.run && this.#turn.event.fields.trigger === "compaction") this.#endTurn();
-          break;
-        case "run_end":
-          this.#endTurn();
-          break;
-        default:
-          break;
-      }
+  /**
+   * One view of the root session, compared with the last: a run that
+   * started or ended, answers appended, a retry, a compaction that started
+   * or ended, a run that failed. The first view starts the turn of a run
+   * already going (the object restarted mid-run). A watch folds the commits
+   * made while this runs into one view, so a run can also start and end
+   * between two views; its answers or its failure show it ran. `resolve`
+   * reads the operation ids of a run's inputs; without it they are pi's own
+   * ids.
+   */
+  async onPiView(view: ConversationView, resolve?: (inputs: readonly SubmissionId[]) => Promise<ReadonlyMap<string, string>>): Promise<void> {
+    const live = (view.docs["pi.live"] ?? {}) as LiveState;
+    const prev = this.#seen;
+    const newest = view.entries.at(-1)?.id;
+    const next: SeenView = {
+      run: live.run !== undefined,
+      entry: newest === undefined ? (prev?.entry ?? 0) : Math.max(Number(newest), prev?.entry ?? 0),
+      retryAt: live.generation?.retry?.at ?? null,
+      compactions: new Set((live.compactions ?? []).map((compaction) => Number(compaction.taskId))),
+      failure: live.runFailure ? Number(live.runFailure.taskId) : null
+    };
+    this.#seen = next;
+    if (prev === null) {
+      // Restarted mid-run: the run goes on, so its turn starts again here.
+      if (live.run && !this.#turn?.run) await this.#startRun(live.run.inputs, true, resolve);
+      return;
     }
+    const failed = next.failure !== null && next.failure !== prev.failure ? live.runFailure : undefined;
+    // pi's detail is the task's error's, which may be a tool's and so a Company's words: the reason only.
+    const failTurn = (turn: TurnState) => {
+      if (failed && TASK_FAILURES.has(failed.reason)) turn.event.fail(named("TaskFailed", "A pi task faulted, was orphaned or was cut off"), { code: literal(failed.reason) });
+    };
+    const answers = view.entries.filter((entry) => Number(entry.id) > prev.entry && entry.model?.[0]?.role === "assistant");
+    const count = (turn: TurnState) => {
+      for (const entry of answers) {
+        const message = entry.model?.[0];
+        if (message?.role !== "assistant") continue;
+        turn.event.count("model_rounds");
+        turn.stopReason = literal(message.stopReason);
+      }
+    };
+    // A run ended and another started in the same commit (a reset with queued input, or a continue after a failure):
+    // the failure is the ended run's.
+    const replaced = prev.run && next.run && failed !== undefined;
+    if (replaced && this.#turn) {
+      failTurn(this.#turn);
+      this.#endTurn();
+    }
+    if (live.run && (!prev.run || replaced)) await this.#startRun(live.run.inputs, false, resolve);
+    // A run that started and ended between two views has no run in either: its answers or its failure are its trace.
+    const unseen = !prev.run && !next.run && (answers.length > 0 || failed !== undefined);
+    if (unseen && !this.#turn?.run) await this.#startRun(failed?.inputs ?? [], false, resolve);
+    if (this.#turn) count(this.#turn);
+    if (next.retryAt !== null && next.retryAt !== prev.retryAt && this.#turn) this.#turn.model.retries++;
+    for (const compaction of live.compactions ?? []) {
+      if (prev.compactions.has(Number(compaction.taskId))) continue;
+      const turn = this.#openTurn("compaction");
+      const tally = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
+      tally.count++;
+      if (tally.reasons.length < 5) tally.reasons.push(literal(compaction.trigger));
+      tally.blocking ||= compaction.blocking;
+    }
+    // A compaction that started and ended between two views shows only by the summary it placed.
+    const summaries = view.entries.filter((entry) => Number(entry.id) > prev.entry && entry.kind === "pi.compaction").length;
+    const folded = prev.compactions.size === 0 && next.compactions.size === 0 && summaries > 0;
+    if (folded) {
+      const turn = this.#openTurn("compaction");
+      const tally = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
+      tally.count += summaries;
+    }
+    // A compaction outside any run is a turn of its own, which ends with it.
+    if (((prev.compactions.size > 0 && next.compactions.size === 0) || folded) && this.#turn && !this.#turn.run && this.#turn.event.fields.trigger === "compaction") this.#endTurn();
+    if (!replaced && failed && TASK_FAILURES.has(failed.reason)) failTurn(this.#openTurn("unknown"));
+    if ((prev.run || unseen) && !next.run) this.#endTurn();
   }
 
   /** The turn running now, opened if there is none (a call that came before its run's event). */
@@ -252,9 +282,18 @@ export class AgentLog extends LifecycleCapability implements Units {
     return this.#turn;
   }
 
-  #startRun(inputs: readonly unknown[], resumed: boolean): void {
-    // A run that began without ending the last one (a lost `run_end`): write that one first.
+  async #startRun(inputs: readonly SubmissionId[], resumed: boolean, resolve?: (inputs: readonly SubmissionId[]) => Promise<ReadonlyMap<string, string>>): Promise<void> {
+    // A run that began without ending the last one: write that one first.
     if (this.#turn?.run) this.#endTurn();
+    const unknown = inputs.filter((input) => !this.#submissions.has(String(input)));
+    if (resolve && unknown.length > 0) {
+      try {
+        for (const [input, operation] of await resolve(unknown)) this.#submissions.set(input, operation);
+        bound(this.#submissions, 200);
+      } catch {
+        // Without pi's records, the turn names pi's own ids.
+      }
+    }
     const operations = inputs.map((id) => this.#submissions.get(String(id)) ?? String(id));
     const first = operations[0];
     const registered = first !== undefined ? this.#registered.get(first) : undefined;
@@ -525,4 +564,30 @@ function bound<K, V>(map: Map<K, V>, max: number): void {
 
 function round(usd: number): number {
   return Math.round(usd * 1e6) / 1e6;
+}
+
+/** What `onPiView` remembers of a view. */
+type SeenView = {
+  /** Whether a run was going. */
+  readonly run: boolean;
+  /** The newest entry id seen. */
+  readonly entry: number;
+  readonly retryAt: number | null;
+  readonly compactions: ReadonlySet<number>;
+  /** The task of the newest run that failed. */
+  readonly failure: number | null;
+};
+
+/** The run failures that are a task's, not the model's or the User's: the turn records them as errors. */
+const TASK_FAILURES: ReadonlySet<string> = new Set(["faulted", "orphaned", "interrupted", "restart_limit"]);
+
+/** The operation ids of pi's submissions `inputs`, each looked up by its id. */
+async function submissionOperations(harness: PiHarness, inputs: readonly SubmissionId[]): Promise<ReadonlyMap<string, string>> {
+  const pi = await harness.pi();
+  const found = new Map<string, string>();
+  for (const input of inputs) {
+    const record = await (await pi.submission(input, BACKGROUND_CONTEXT))?.status(BACKGROUND_CONTEXT);
+    if (record?.requestId !== undefined) found.set(String(input), record.requestId);
+  }
+  return found;
 }

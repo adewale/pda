@@ -1,16 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
+import type { EntryId, EntryRecord } from "@earendil-works/pi-durable";
 import type { TranscriptMessage } from "../../src/protocol";
 import { projectEntries } from "../../src/transcript";
-import { FIRST_CONVERSATION, followResets, historyFromEvents, SUMMARY_NOTICE, withEarlier } from "../../src/ui/history";
+import { FIRST_CONVERSATION, firstGap, followResets, shownMessages, SUMMARY_NOTICE } from "../../src/ui/history";
 import { Transcript } from "../../src/ui/transcript";
 
 /**
- * The page after a compaction (`src/ui/history.ts`): pi gives the model its
- * summary as a user message, and the page shows it as a notice instead;
- * after a reload, pi's snapshot starts at the summary, so the page asks the
- * agent for the messages before it and shows them above it.
+ * The page's history (`src/ui/history.ts`): pi gives the model its summary
+ * as a user message in a `pi.compaction` entry, which the example projects
+ * as a `summary` message and the page shows as a notice, where pi placed it;
+ * the page follows resets as they arrive, not as paging back finds them.
  */
 
 const SUMMARY_TEXT =
@@ -28,74 +28,74 @@ const earlier = [entry(2, "pi.user", "user", "Find me a jumper"), entry(3, "pi.a
 const kept = [entry(5, "pi.user", "user", "Size L"), entry(6, "pi.assistant", "assistant", "Found one.")];
 const summary = entry(9, "pi.compaction", "user", SUMMARY_TEXT, 5);
 const after = entry(10, "pi.user", "user", "Buy it");
-
-function snapshot(entries: EntryRecord[]): AgentEvent {
-  return { type: "snapshot", entries, tools: [], compactions: [], inbox: [], agent: {}, usage: {} } as unknown as AgentEvent;
-}
-
-describe("historyFromEvents", () => {
-  it("asks for the entries before the first one a summary kept, when a snapshot starts with a summary", () => {
-    expect(historyFromEvents([snapshot([summary, ...kept, after])])).toEqual({ summaries: ["9"], askBefore: 5, clear: true });
-  });
-
-  it("asks for nothing when the snapshot has no summary, and still clears what was fetched", () => {
-    expect(historyFromEvents([snapshot([...kept, after])])).toEqual({ summaries: [], askBefore: null, clear: true });
-  });
-
-  it("names a summary that arrives live, without clearing anything", () => {
-    expect(historyFromEvents([{ type: "entry_appended", entry: summary } as unknown as AgentEvent])).toEqual({ summaries: ["9"], askBefore: null, clear: false });
-  });
-
-  it("clears on a reset, as pi's own view does", () => {
-    const reset = { id: 12, conversationId: 1, kind: "pi.reset", head: 12 } as unknown as EntryRecord;
-    expect(historyFromEvents([{ type: "entry_appended", entry: reset } as unknown as AgentEvent]).clear).toBe(true);
-  });
-});
+const reset = (id: number) => ({ id, conversationId: 1, kind: "pi.reset", head: id }) as unknown as EntryRecord;
+const gap = (after: number, upTo: number): TranscriptMessage => ({ id: `gap-${after}-${upTo}`, role: "gap", parts: [], timestamp: 0, after: after as EntryId, upTo: upTo as EntryId });
 
 describe("followResets", () => {
-  const reset = (id: number) => ({ id, conversationId: 1, kind: "pi.reset", head: id }) as unknown as EntryRecord;
-  const appended = (entry: EntryRecord) => ({ type: "entry_appended", entry }) as unknown as AgentEvent;
-
-  it("starts where the first snapshot is, even after a reset made before the page loaded", () => {
-    expect(followResets(FIRST_CONVERSATION, [snapshot([reset(4), after])])).toEqual({ epoch: 0, newest: 4 });
-    expect(followResets(FIRST_CONVERSATION, [snapshot([...kept, after])])).toEqual({ epoch: 0, newest: null });
+  it("starts where the first view is, even after a reset made before the page loaded", () => {
+    expect(followResets(FIRST_CONVERSATION, projectEntries([reset(4), after]))).toMatchObject({ epoch: 0, newest: 4, seen: 10 });
+    expect(followResets(FIRST_CONVERSATION, projectEntries([...kept, after]))).toMatchObject({ epoch: 0, newest: null, seen: 10 });
   });
 
-  it("moves on for a reset that arrives live, or in a reconnect's snapshot, once each", () => {
-    const loaded = followResets(FIRST_CONVERSATION, [snapshot([...kept, after])]);
-    const live = followResets(loaded, [appended(reset(12))]);
-    expect(live).toEqual({ epoch: 1, newest: 12 });
-    expect(followResets(live, [snapshot([reset(12), after])])).toEqual(live);
-    expect(followResets(live, [snapshot([reset(20)])])).toEqual({ epoch: 2, newest: 20 });
+  it("starts from an empty first view, and counts what turns up before a later window as new", () => {
+    const empty = followResets(FIRST_CONVERSATION, []);
+    expect(empty).toEqual({ epoch: 0, newest: null, seen: 0, whole: true });
+    // Back after another tab cleared chat and wrote on: the view starts at 2, with entry 1 still to load.
+    const back = followResets(empty, projectEntries([entry(2, "pi.user", "user", "One"), entry(3, "pi.user", "user", "Two")]), true);
+    expect(back).toMatchObject({ epoch: 0, seen: 0 });
+    expect(followResets(back, projectEntries([reset(1), entry(2, "pi.user", "user", "One"), entry(3, "pi.user", "user", "Two")]))).toMatchObject({ epoch: 1, newest: 1, seen: 3 });
   });
 
-  it("never goes back, when a later snapshot no longer holds the reset", () => {
-    const live = followResets(followResets(FIRST_CONVERSATION, [snapshot([])]), [appended(reset(12))]);
-    expect(followResets(live, [snapshot([summary, after])])).toEqual(live);
+  it("pages back without starting anything when the first view held only the newest entries", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([after]), true);
+    expect(loaded).toEqual({ epoch: 0, newest: null, seen: 10, whole: false });
+    expect(followResets(loaded, projectEntries([reset(4), ...kept, after]), false)).toMatchObject({ epoch: 0, newest: null });
+  });
+
+  it("moves on for a reset that arrives live, or after a reconnect, once each", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
+    const live = followResets(loaded, projectEntries([...kept, after, reset(12)]));
+    expect(live).toMatchObject({ epoch: 1, newest: 12, seen: 12 });
+    expect(followResets(live, projectEntries([reset(12), entry(13, "pi.user", "user", "Hello")]))).toMatchObject({ epoch: 1, newest: 12, seen: 13 });
+    expect(followResets(live, projectEntries([reset(20)]))).toMatchObject({ epoch: 2, newest: 20, seen: 20 });
+  });
+
+  it("starts nothing for a reset found by paging back, older than what the page had", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
+    expect(followResets(loaded, projectEntries([reset(4), ...kept, after]))).toMatchObject({ epoch: 0, newest: null, seen: 10 });
+  });
+
+  it("moves on for a reset found in the gap a reconnect left, newer than what the page had", () => {
+    const loaded = followResets(FIRST_CONVERSATION, projectEntries([...kept, after]));
+    // Back after a while: the view starts at 40, with what lies between 10 and 40 still to load.
+    const back = followResets(loaded, [...projectEntries([...kept, after]), gap(10, 40), ...projectEntries([entry(40, "pi.user", "user", "Latest")])]);
+    expect(back).toMatchObject({ epoch: 0, newest: null, seen: 10 });
+    // Loading the gap finds the other tab's reset at 20: from it on is the conversation now.
+    expect(followResets(back, projectEntries([reset(20), entry(40, "pi.user", "user", "Latest")]))).toMatchObject({ epoch: 1, newest: 20, seen: 40 });
+  });
+
+  it("never goes back, when a later view no longer holds the reset", () => {
+    const live = followResets(followResets(FIRST_CONVERSATION, projectEntries([after])), projectEntries([after, reset(12)]));
+    expect(followResets(live, projectEntries([summary, after]))).toEqual(live);
   });
 });
 
-describe("withEarlier", () => {
-  it("puts the earlier messages first and the summary where it was made, once each, as it does live", () => {
-    const fromSnapshot = projectEntries([summary, ...kept, after]);
-    const merged = withEarlier(projectEntries(earlier), fromSnapshot);
-    expect(merged.map((message) => message.id)).toEqual(["2", "3", "5", "6", "9", "10"]);
-    const live = projectEntries([...earlier, ...kept, summary, after]);
-    expect(withEarlier([], live).map((message) => message.id)).toEqual(merged.map((message) => message.id));
-    expect(withEarlier(projectEntries(earlier), [...projectEntries(earlier), ...fromSnapshot]).map((message) => message.id)).toEqual(["2", "3", "5", "6", "9", "10"]);
-  });
-
-  it("returns the view's own list when there is nothing to merge or reorder", () => {
-    const messages = projectEntries([...kept, after]);
-    expect(withEarlier([], messages)).toBe(messages);
+describe("gaps", () => {
+  it("shows no gap, and names the first one to load", () => {
+    const messages = [...projectEntries(kept), gap(6, 9), ...projectEntries([after]), gap(10, 12)];
+    expect(shownMessages(messages).map((message) => message.id)).toEqual(["5", "6", "10"]);
+    expect(firstGap(messages)?.id).toBe("gap-6-9");
+    const none = projectEntries([...kept, after]);
+    expect(shownMessages(none)).toBe(none);
+    expect(firstGap(none)).toBeNull();
   });
 });
 
 describe("the transcript after a compaction", () => {
-  const messages: TranscriptMessage[] = [...withEarlier(projectEntries(earlier), projectEntries([summary, ...kept, after]))];
+  const messages: TranscriptMessage[] = projectEntries([...earlier, ...kept, summary, after]);
 
   it("shows the summary as a notice, not as something the User said, with the messages before it still there", () => {
-    const { container } = render(<Transcript messages={messages} live={null} runningTools={[]} summaries={new Set(["9"])} />);
+    const { container } = render(<Transcript messages={messages} live={null} runningTools={[]} />);
     expect(screen.getByText(SUMMARY_NOTICE)).toBeTruthy();
     expect(SUMMARY_NOTICE).toBe("Earlier conversation summarised");
     expect(screen.getByText("Find me a jumper")).toBeTruthy();
@@ -111,8 +111,9 @@ describe("the transcript after a compaction", () => {
     expect(text.indexOf(SUMMARY_NOTICE)).toBeLessThan(text.indexOf("Buy it"));
   });
 
-  it("shows a user message as the User's when it isn't a summary", () => {
-    const { container } = render(<Transcript messages={messages} live={null} runningTools={[]} />);
+  it("shows a user message as the User's when it isn't a summary, whatever it says", () => {
+    const said = projectEntries([entry(9, "pi.user", "user", SUMMARY_TEXT)]);
+    const { container } = render(<Transcript messages={said} live={null} runningTools={[]} />);
     expect(screen.queryByText(SUMMARY_NOTICE)).toBeNull();
     expect(container.textContent).toContain("The conversation history before this point was compacted");
   });

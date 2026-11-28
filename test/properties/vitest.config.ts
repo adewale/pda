@@ -26,7 +26,8 @@ export default defineConfig({
   test: {
     name: "properties",
     environment: "node",
-    include: [path.join(here, "**/*.test.ts")],
+    // The fakes' contracts (test/contracts/) run here too: in Node, as the outbound fakes do.
+    include: [path.join(here, "**/*.test.ts"), path.join(root, "test/contracts/**/*.test.ts")],
     testTimeout: deep ? 0 : 30_000
   }
 });

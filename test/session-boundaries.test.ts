@@ -119,7 +119,7 @@ describe("application browser session boundaries", () => {
     socket.accept();
     const client = follow(socket);
     try {
-      await client.until(() => client.frames.some(frame => frame.type === "events"));
+      await client.until(() => client.frames.some(frame => frame.type === "view"));
       await chat(socket, client, "Header cannot select a revoked session");
       const unauthenticated = wsRequest();
       unauthenticated.headers.set(BROWSER_SESSION_HEADER, identity.sessionId);

@@ -15,7 +15,6 @@ import { describe, expect, it } from "vitest";
 import { createAI } from "agents/models/pi-ai";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { budgetWindow, CONTEXT_BUDGET, serializeForSummary, SUMMARY_SYSTEM_PROMPT, summaryRequest } from "../src/compaction";
-import type { HistoryFrame } from "../src/history";
 import type { Entitlement } from "../src/model-router";
 import { gatewayDemoLane } from "../src/model-router";
 import { agentNameFor, type Identity } from "../src/session";
@@ -149,22 +148,19 @@ describe("compaction", () => {
     await send(first, "summarised");
     first.socket.close();
 
-    // A reload: pi's snapshot starts at the summary, which names the first entry it kept.
+    // A reload: pi's view is a window over the whole transcript, the summary
+    // where pi placed it; the page pages in what lies before the window.
     const page = await connect(identity);
-    const snapshot = page.client.frames.find((frame) => frame.type === "events") as unknown as { events: Array<{ type: string; entries: Array<{ id: number; kind: string; head?: number }> }> };
-    const head = snapshot.events[0]!.entries[0]!;
-    expect(head.kind).toBe("pi.compaction");
-    expect(page.client.texts().some((text) => text.startsWith("user: first:"))).toBe(false);
-
-    page.socket.send(JSON.stringify({ type: "history.before", before: head.head }));
-    await page.client.until(() => page.client.frames.some((frame) => frame.type === "history"));
-    const history = page.client.frames.find((frame) => frame.type === "history") as unknown as HistoryFrame;
-    expect(history.before).toBe(head.head);
-    expect(history.more).toBe(false);
-    const texts = history.entries.map((entry) => JSON.stringify(entry.model ?? []));
-    expect(texts.some((text) => text.includes("first: find me a jumper in size L"))).toBe(true);
-    expect(texts.some((text) => text.includes("echo: first: find me a jumper in size L"))).toBe(true);
-    expect(history.entries.every((entry) => entry.kind !== "pi.system" && Number(entry.id) < head.head!)).toBe(true);
+    for (let pages = 0; page.client.view().earlier && pages < 20; pages++) await page.client.mirror.loadEarlier();
+    expect(page.client.view().earlier).toBe(false);
+    const messages = page.client.view().messages;
+    const asked = messages.findIndex((message) => message.parts.some((part) => part.type === "text" && part.text === "first: find me a jumper in size L"));
+    const summary = messages.findIndex((message) => message.role === "summary");
+    expect(asked).toBeGreaterThanOrEqual(0);
+    expect(page.client.texts()).toContain("assistant: echo: first: find me a jumper in size L (turn 1)");
+    // By entry id the summary sits where it was made, after the messages it summarised.
+    expect(summary).toBeGreaterThan(asked);
+    expect(messages.some((message) => message.role === "gap")).toBe(false);
     expect((await stub.activeEntries())[0]!.kind).toBe("pi.compaction");
     page.socket.close();
   });
@@ -432,8 +428,13 @@ describe("compaction and Poppy", () => {
 });
 
 describe("the demo lane's request after a compaction (preserved thinking)", () => {
-  /** An AI binding that records each universal request and answers with a short Anthropic stream. */
-  function recordingGateway(requests: Array<{ headers: Record<string, string>; query: Record<string, any> }>): Ai {
+  /**
+   * An AI binding that records each gateway model request (`env.AI.run` with
+   * a `gateway` option: the model as AI Gateway's catalog names it, the
+   * vendor's request body, its headers) and answers with a short Anthropic
+   * stream.
+   */
+  function recordingGateway(requests: Array<{ model: string; headers: Record<string, string>; query: Record<string, any>; options: Record<string, any> }>): Ai {
     const sse = [
       ["message_start", { type: "message_start", message: { id: "m", type: "message", role: "assistant", content: [], model: "claude-sonnet-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }],
       ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
@@ -443,12 +444,10 @@ describe("the demo lane's request after a compaction (preserved thinking)", () =
       ["message_stop", { type: "message_stop" }]
     ].map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
     return {
-      gateway: () => ({
-        run: async (request: { headers: Record<string, string>; query: Record<string, any> }) => {
-          requests.push(request);
-          return new Response(sse, { headers: { "Content-Type": "text/event-stream" } });
-        }
-      })
+      run: async (model: string, input: Record<string, any>, options: Record<string, any> = {}) => {
+        requests.push({ model, query: input, headers: (options.extraHeaders ?? {}) as Record<string, string>, options });
+        return new Response(sse, { headers: { "Content-Type": "text/event-stream" } });
+      }
     } as unknown as Ai;
   }
 
@@ -478,12 +477,14 @@ describe("the demo lane's request after a compaction (preserved thinking)", () =
   }
 
   it("asks Anthropic to drop thinking blocks whose prefix changed, as the own-key lane does, and keeps their signatures", async () => {
-    const requests: Array<{ headers: Record<string, string>; query: Record<string, any> }> = [];
+    const requests: Array<{ model: string; headers: Record<string, string>; query: Record<string, any>; options: Record<string, any> }> = [];
     const { provider, model } = gatewayDemoLane({ ...testEnv, AI: recordingGateway(requests) }, { u: "agent", d: "compaction.example" });
     const message = await provider.streamSimple(model, compacted(model) as never, { reasoning: "medium" }).result();
     expect(message.stopReason).toBe("stop");
-    const { headers, query } = requests[0]!;
-    expect(query.model).toBe("claude-sonnet-5-5");
+    const { model: asked, headers, query, options } = requests[0]!;
+    // The model as AI Gateway's catalog names it; the body is Anthropic's, through the gateway, tagged for the spend rules.
+    expect(asked).toBe("anthropic/claude-sonnet-5.5");
+    expect(options).toMatchObject({ gateway: { id: "demo", metadata: { u: "agent", d: "compaction.example" } }, openaiEndpoint: "/v1/messages" });
     expect(query.thinking).toMatchObject({ type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
     expect(headers["anthropic-beta"]).toContain("thinking-binding-controls-2026-08-01");
     const assistant = (query.messages as Array<{ role: string; content: unknown }>).find((item) => item.role === "assistant")!;
@@ -491,7 +492,7 @@ describe("the demo lane's request after a compaction (preserved thinking)", () =
   });
 
   it("would not, with pi-ai's gateway catalog entry as it is", async () => {
-    const requests: Array<{ headers: Record<string, string>; query: Record<string, any> }> = [];
+    const requests: Array<{ model: string; headers: Record<string, string>; query: Record<string, any>; options: Record<string, any> }> = [];
     const ai = createAI({ binding: recordingGateway(requests), id: testEnv.DEMO_GATEWAY_ID });
     const model = ai(testEnv.DEMO_MODEL_ID) as Model<Api>;
     await ai.provider.streamSimple(model, compacted(model) as never, { reasoning: "medium" }).result();

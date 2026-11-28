@@ -5,7 +5,7 @@
  * key or credential, and none reaches the Poppy client. Only read_url calls
  * a model: a reader with no tools, in a conversation of its own.
  */
-import { Type, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type TSchema } from "typebox";
 import type { Context } from "@earendil-works/chord/context";
 import { configure, type Extension, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
 import { calculate, CalcError } from "./calculate";
@@ -36,7 +36,7 @@ function failure(error: unknown, details: Json = null): Result {
   return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
-type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;
+type Args<T extends TSchema> = import("@earendil-works/pi-schema").Static<T>;
 
 function tool<T extends TSchema>(
   definition: { name: string; description: string; parameters: T; replay: "safe" | "unsafe" },

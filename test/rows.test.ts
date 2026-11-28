@@ -28,7 +28,8 @@ describe("decoded rows", () => {
     const schema = await runInDurableObject(a.stub, (_, state) => {
       new RenderLimiter(state.storage.sql, () => Date.now());
       const sql = state.storage.sql;
-      const names = sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => String(row.name));
+      // `_cf_` tables are the runtime's own, which an object may not read.
+      const names = sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().map((row) => String(row.name)).filter((name) => !name.startsWith("_cf_"));
       return Object.fromEntries(names.map((name) => [name, sql.exec(`PRAGMA table_info("${name}")`).toArray() as unknown as Info[]]));
     });
     const declared = new Map(TABLES.map((table) => [table.name, table]));

@@ -29,7 +29,7 @@ npm run deploy                                     # builds, checks the build is
 - **GitHub accounts** are `login: numeric id`, and only the id is checked, because logins change hands. Find one with `gh api users/<login> --jq .id`.
 - **Any other var** `wrangler.jsonc` declares can be overridden here too, such as `"DEMO_GATEWAY_ID": "default"` (section 3) or `"SIGNUP": "open"`. A name the template doesn't declare is refused.
 
-`vite` lays the file over the template's vars; `scripts/check-deployment.ts` stops the deploy before anything is uploaded if the build still says nobody owns it. So deploying from a checkout without the file fails instead of replacing your production values.
+`vite` lays the file over the template's vars; `scripts/check-deployment.ts` stops the deploy before anything is uploaded if the build still says nobody owns it. So deploying from a checkout without the file fails instead of replacing your production values. The same check resolves `DEMO_MODEL_ID` and each own key's model in the catalogs the build installed (`src/model-catalog.ts`), and stops the deploy when a dependency upgrade has renamed one or dropped the demo model's compaction flags.
 
 `PUBLIC_ORIGIN` is your Poppy `client_id`'s home forever; see the spec's "Our agent's identity" before changing it.
 

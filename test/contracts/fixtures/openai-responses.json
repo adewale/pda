@@ -1,0 +1,106 @@
+{
+  "wire": "openai-responses",
+  "request": {
+    "method": "POST",
+    "path": "https://api.openai.com/v1/responses",
+    "headers": [
+      "accept",
+      "authorization",
+      "content-type",
+      "x-stainless-arch",
+      "x-stainless-lang",
+      "x-stainless-os",
+      "x-stainless-package-version",
+      "x-stainless-runtime",
+      "x-stainless-runtime-version"
+    ],
+    "body": [
+      "include[]: string",
+      "input[].content: string",
+      "input[].role: =developer",
+      "input[].content[].text: string",
+      "input[].content[].type: =input_text",
+      "input[].role: =user",
+      "input[].reasoning.effort: string",
+      "input[].type: =configuration_update",
+      "input[].role: =developer",
+      "input[].tools[].description: string",
+      "input[].tools[].name: string",
+      "input[].tools[].parameters.properties.expression.type: =string",
+      "input[].tools[].parameters.required[]: string",
+      "input[].tools[].parameters.type: =object",
+      "input[].tools[].strict: boolean",
+      "input[].tools[].type: =function",
+      "input[].type: =additional_tools",
+      "max_output_tokens: number",
+      "model: string",
+      "reasoning.effort: string",
+      "reasoning.summary: string",
+      "store: boolean",
+      "stream: boolean"
+    ]
+  },
+  "response": {
+    "source": "fake",
+    "stream": {
+      "response.completed": [
+        "response.id: string",
+        "response.output[].content[].annotations[]: empty",
+        "response.output[].content[].text: string",
+        "response.output[].content[].type: =output_text",
+        "response.output[].encrypted_content: string",
+        "response.output[].id: string",
+        "response.output[].role: =assistant",
+        "response.output[].status: =completed",
+        "response.output[].summary[]: empty",
+        "response.output[].type: =message",
+        "response.output[].type: =reasoning",
+        "response.status: =completed",
+        "response.usage.input_tokens: number",
+        "response.usage.input_tokens_details.cached_tokens: number",
+        "response.usage.output_tokens: number",
+        "response.usage.output_tokens_details.reasoning_tokens: number",
+        "response.usage.total_tokens: number",
+        "type: =response.completed"
+      ],
+      "response.created": [
+        "response.id: string",
+        "response.output[]: empty",
+        "response.status: =in_progress",
+        "type: =response.created"
+      ],
+      "response.output_item.added": [
+        "item.content[]: empty",
+        "item.id: string",
+        "item.role: =assistant",
+        "item.status: =in_progress",
+        "item.summary[]: empty",
+        "item.type: =message",
+        "item.type: =reasoning",
+        "output_index: number",
+        "type: =response.output_item.added"
+      ],
+      "response.output_item.done": [
+        "item.content[].annotations[]: empty",
+        "item.content[].text: string",
+        "item.content[].type: =output_text",
+        "item.encrypted_content: string",
+        "item.id: string",
+        "item.role: =assistant",
+        "item.status: =completed",
+        "item.summary[]: empty",
+        "item.type: =message",
+        "item.type: =reasoning",
+        "output_index: number",
+        "type: =response.output_item.done"
+      ],
+      "response.output_text.delta": [
+        "content_index: number",
+        "delta: string",
+        "item_id: string",
+        "output_index: number",
+        "type: =response.output_text.delta"
+      ]
+    }
+  }
+}

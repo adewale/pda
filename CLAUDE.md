@@ -30,6 +30,8 @@ Use Node 24 (`.nvmrc`) and `npm ci --legacy-peer-deps`.
 - `npm run test:properties`: ordinary property cases; deep runs stay local.
 - `npm run test:hypothesis`: occasional independent Python check after protocol or major mock changes; not a feature-by-feature maintenance obligation.
 - `npm run check:approval-crashes`: actual process termination and replay checks.
+- `npm run deps:dry-run`: before moving the pi family or `agents`, the newest compatible pair, the breaking changes between, open upstream issues (with `GITHUB_TOKEN`) and a trial typecheck and `npm test` in a throwaway worktree; `--no-install` reads upstream only.
+- `npm run record:wire`: with a vendor's key in the environment, one small real call per vendor, recorded as shapes in `test/contracts/fixtures/`, which `test/contracts/wire.test.ts` then holds the fakes to; after a pi upgrade or a vendor's wire change.
 - `npm run interop -- --agents pda --companies lenient-company`: Docker grid.
 - `npm run deploy`: configured build and deploy; see deployment-tasks before promotion.
 
@@ -40,10 +42,10 @@ CI runs documentation references on every PR. Runtime checks run for code/config
 - No authentication bypass, including development and tests. Identity, Company, account and approval authority come from trusted state, never model arguments.
 - Only the person's interface can approve a Company's exact terms: directly, or under 0.4 through a standing instruction the person wrote there, matched to the exact terms by a deterministic check ([decision 44](docs/decisions.md#44-operations-3-with-agent-approvals-a-real-browser-and-the-fetch-browser-under-04)). Content from a Company, a page or the model never approves. Task-selected photos need no extra disclosure click; unselected files and website forms retain local consent. Preserve unknown-outcome holds and durable replay/notification state.
 - Every error we build is a `Problem` from `src/diagnostic.ts`: a departure says what was expected and what was got, and values reach text only through `show.*` ([decision 54](docs/decisions.md#54-every-diagnostic-says-what-was-expected-and-what-was-got)). Internal invariants stay plain `Error`s.
-- Credentials never reach models, tools, transcripts or logs. Use `src/log.ts`, its safe constructors and redaction; no other source `console` calls. Decode boundary data and SQL rows through the existing decoders.
+- Credentials never reach models, tools, transcripts or logs. Use `src/log.ts`, its safe constructors and redaction; no other source `console` calls (the unchanged Cloudflare example copies below keep their own, as `test/log.test.ts` lists). Decode boundary data and SQL rows through the existing decoders.
 - Poppy tests fail on unexpected strict-mock violations or warnings. A new protocol check needs its stable id/basis in `violations.ts` and a negative `TAMPERS` case; [Company testing](docs/company-testing.md) explains why. Keep independent oracles independent.
 - Whole-runtime Durable Object resets belong only in `test/durability/`. Ordinary tests fake external services. Interop-only fault injection stays in adapters.
-- `src/protocol.ts`, `src/sockets.ts`, `src/view.ts` and `src/transcript.ts` are unchanged Cloudflare example copies; re-sync instead of editing them.
+- `src/protocol.ts`, `src/sockets.ts`, `src/view.ts`, `src/transcript.ts` and `src/mirror.ts` are unchanged Cloudflare example copies; re-sync instead of editing them.
 - Deployment identities stay in untracked `deployment.local.json`; never commit private configuration. Regenerate `env.d.ts` after changing Wrangler bindings. Preserve pinned Docker digests.
 - Ambiguous protocol readings belong in [readings](docs/readings.md), distinguishing requirements from recommendations and local policy. Use the pinned text, never dynamic rules at runtime.
 - Findings in others' code follow [SECURITY.md](SECURITY.md): private disclosure first, and owner approval before any external post or email. Preparing a draft does not authorize sending it.

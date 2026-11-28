@@ -398,7 +398,7 @@ describe("chat", () => {
   });
 
   it("shows a single status while the agent works, and no streaming cursor", () => {
-    const { container } = open("/", session({ running: true, tools: [{ callId: "c", name: "poppy_discover", output: "" }] }));
+    const { container } = open("/", session({ running: true, tools: [{ callId: "c", name: "poppy_discover", output: "", parked: false }] }));
     expect(screen.getAllByRole("status").filter((node) => node.textContent?.includes("Working"))).toHaveLength(1);
     expect(container.querySelector(".streaming-cursor")).toBeNull();
     // One spinner (Kumo's Loader, an SVG), in that status; no other animation.

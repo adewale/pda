@@ -13,13 +13,14 @@ import {
   type TranscriptContext
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, maySignIn, onDemo, type ListEnv } from "./allowlist";
 import { budgetWindow } from "./compaction";
 import { nextUtcMidnight, utcDay, type BudgetCall, type Ledger, type SharedBudget } from "./budget";
 import { ConfigError, readModelConfig, readDemoCaps, type ConfigEnv, type KeyProvider } from "./config";
+import { demoCatalogModel, nativeProviders, OWN_KEY_SETTING, withVendorCompat } from "./model-catalog";
+
+export { demoCatalogModel, nativeProviders, withVendorCompat } from "./model-catalog";
 import {
   ANTHROPIC_WORKSPACE_HEADER,
   isKeyRefused,
@@ -158,16 +159,6 @@ export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "e
   return status ? `http_${status}` : "error";
 }
 
-/** The demo model's catalog entry: its name, limits and prices. Builds metadata only; nothing is called. */
-export function demoCatalogModel(env: ConfigEnv): Model<Api> {
-  const config = readModelConfig(env);
-  const model = createAI({ binding: {} as Ai, id: config.demo.gatewayId })(config.demo.modelId) as Model<Api>;
-  if (!model.cost || model.cost.input <= 0 || model.cost.output <= 0) {
-    throw new ConfigError(departure(ours("DEMO_MODEL_ID"), ours("a model with a known price in pi-ai's catalog"), show.value(config.demo.modelId), ours("Without one, the demo's caps couldn't be enforced")));
-  }
-  return model;
-}
-
 /** The production demo lane: the AI binding, through the demo gateway, tagged with who spent. */
 export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   const config = readModelConfig(env);
@@ -175,29 +166,6 @@ export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   return { provider: ai.provider, model: withVendorCompat(ai(config.demo.modelId) as Model<Api>, config.demo.modelId) };
 }
 
-/**
- * A gateway model with the compat flags of the vendor's own catalog entry for
- * the same model, so the demo lane sends Anthropic the request the own-key
- * lane sends. pi-ai's gateway entry for Claude Sonnet 5.5 lacks
- * `supportsMidConvoEffort`, and without it pi-ai doesn't ask Anthropic to
- * drop thinking blocks whose prefix changed (`block_binding:
- * { prefix_mismatch_behavior: "drop_block" }`), as a compacted history's do.
- * Models of other vendors, and ones pi-ai's Anthropic catalog doesn't list,
- * are left as they are.
- */
-export function withVendorCompat(model: Model<Api>, specifier: string): Model<Api> {
-  const slash = specifier.indexOf("/");
-  if (slash === -1 || specifier.slice(0, slash) !== "anthropic" || model.api !== "anthropic-messages") return model;
-  const vendorId = specifier.slice(slash + 1);
-  const vendor = anthropicProvider().getModels().find((candidate) => candidate.id === vendorId);
-  if (!vendor?.compat) return model;
-  return { ...model, compat: { ...model.compat, ...vendor.compat } } as Model<Api>;
-}
-
-/** pi-ai's Anthropic and OpenAI providers: straight to each vendor, with the person's key. */
-export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider()];
-}
 
 /** A text explaining a refusal: the model error pi records, and the notice the person sees. */
 export function refusalText(entitlement: Entitlement): string {
@@ -272,8 +240,7 @@ export class ModelAccess {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
-      const name = ({ anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" } as const)[provider];
-      throw new ConfigError(departure(ours(name), shown`a model in pi-ai's ${show.name(PROVIDER_LABEL[provider])} catalog`, show.value(id)));
+      throw new ConfigError(departure(show.name(OWN_KEY_SETTING[provider]), shown`a model in pi-ai's ${show.name(PROVIDER_LABEL[provider])} catalog`, show.value(id)));
     }
     // A key that belongs to a whole Anthropic organisation names its workspace on every request.
     return provider === "anthropic" && workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;

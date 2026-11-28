@@ -54,6 +54,29 @@ class FakeSocket {
 
 let socket: FakeSocket;
 
+/** The entries of the last view the page was sent, so an append lands at its end. */
+let viewEntries: object[] = [];
+
+/** The agent's view of the session, as a watch starts with it: these entries, nothing running. */
+function view(...entries: object[]) {
+  viewEntries = entries;
+  socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries, docs: { "pi.live": {} } } });
+}
+
+/** pi's operations for an entry appended to the view. */
+function appended(entry: object) {
+  socket.receive({ type: "ops", session: "1", ops: [["p", ["entries"], viewEntries.length, 0, [entry]]] });
+  viewEntries = [...viewEntries, entry];
+}
+
+/** pi's operations for a run that starts, or ends. */
+function runStarts() {
+  socket.receive({ type: "ops", session: "1", ops: [["s", ["docs", "pi.live", "run"], { taskId: 1, inputs: [], turns: 0 }]] });
+}
+function runEnds() {
+  socket.receive({ type: "ops", session: "1", ops: [["d", ["docs", "pi.live", "run"]]] });
+}
+
 vi.mock("agents/react", () => ({
   useAgent: (options: Handlers) => {
     socket.handlers = options;
@@ -78,6 +101,7 @@ function type(text: string) {
 
 beforeEach(() => {
   socket = new FakeSocket();
+  viewEntries = [];
   window.history.replaceState(null, "", "/");
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/me" ? Response.json({ workspaceId: "workspace-a" }) : new Response("Not found", { status: 404 })));
 });
@@ -274,8 +298,8 @@ describe("the Companies your agent can contact", () => {
 describe("Clear chat", () => {
   const said = (id: number, text: string) => ({ id, conversationId: 1, kind: "pi.user", model: [{ role: "user", content: text, timestamp: id }] });
   const reset = (id: number) => ({ id, conversationId: 1, kind: "pi.reset", head: id });
-  const snapshot = (...entries: object[]) => socket.receive({ type: "events", session: "1", events: [{ type: "snapshot", entries, tools: [], compactions: [], inbox: [], agent: {}, usage: {} }] });
-  const resetArrives = (id: number) => socket.receive({ type: "events", session: "1", events: [{ type: "entry_appended", entry: reset(id) }] });
+  const snapshot = view;
+  const resetArrives = (id: number) => appended(reset(id));
   const field = () => screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement;
   const clear = () => screen.queryByRole("button", { name: "Clear chat" });
   const confirmation = () => screen.queryByRole("group", { name: "Clear chat?" });
@@ -319,7 +343,7 @@ describe("Clear chat", () => {
     expect(socket.submits()[0]).toMatchObject({ taskAccess: { companies: [], uploads: [] } });
   });
 
-  it("follows a reset made in another tab while this one was away, from the reconnect's snapshot", async () => {
+  it("follows a reset made in another tab while this one was away, from the reconnect's view", async () => {
     remembered(["shop.example"]);
     render(<Page />);
     socket.open();
@@ -368,7 +392,7 @@ describe("Clear chat", () => {
     socket.open();
     snapshot(said(2, "Find me a jumper"));
     fireEvent.click(clear()!);
-    socket.receive({ type: "events", session: "1", events: [{ type: "entry_appended", entry: said(3, "Sent from another tab") }] });
+    appended(said(3, "Sent from another tab"));
     expect(confirmation()).toBeNull();
     expect(clear()).not.toBeNull();
   });
@@ -379,9 +403,9 @@ describe("Clear chat", () => {
     snapshot(said(2, "Find me a jumper"));
     fireEvent.click(clear()!);
     expect(confirmation()).not.toBeNull();
-    socket.receive({ type: "events", session: "1", events: [{ type: "run_start" }] });
+    runStarts();
     expect(clear()).toBeNull();
-    socket.receive({ type: "events", session: "1", events: [{ type: "run_end" }] });
+    runEnds();
     expect(confirmation()).toBeNull();
     expect(clear()).not.toBeNull();
   });
@@ -450,7 +474,7 @@ describe("sending before the socket is open", () => {
     expect(socket.frames).toEqual([]);
 
     socket.open();
-    expect(socket.frames.map((frame) => frame.type)).toEqual(["poppy.context", "submit"]);
+    expect(socket.frames.map((frame) => frame.type)).toEqual(["watch", "poppy.context", "submit"]);
     const [submit] = socket.submits();
     expect(submit).toMatchObject({ type: "submit", input: "Book a table for two", whenBusy: "followUp" });
     expect(submit!.operationId).toBe(submit!.id);
@@ -613,9 +637,9 @@ function cardButtons(title: string): HTMLButtonElement[] {
   return within(card(title)).getAllByRole("button") as HTMLButtonElement[];
 }
 
-/** Every frame but the ones the page sends by itself (its locale, presence). */
+/** Every frame but the ones the page sends by itself (its watch, locale, presence). */
 function decisions() {
-  return socket.frames.filter((frame) => frame.type !== "poppy.context" && frame.type !== "poppy.activity");
+  return socket.frames.filter((frame) => frame.type !== "watch" && frame.type !== "poppy.context" && frame.type !== "poppy.activity");
 }
 
 /** The page with the three cards, the socket open and the cards delivered. */
@@ -671,7 +695,8 @@ describe("card actions on a socket that has just closed, before the page heard",
   it("doesn't send Stop, and says so", () => {
     render(<Page />);
     socket.open();
-    socket.receive({ type: "events", session: "1", events: [{ type: "run_start" }] });
+    view();
+    runStarts();
     const stop = screen.queryByRole("button", { name: "Stop the agent" });
     if (!stop) return expect.fail("the agent should be running");
     socket.readyState = WebSocket.CLOSED;
@@ -750,5 +775,117 @@ describe("a message the agent refuses", () => {
     socket.close();
     socket.open();
     expect(socket.submits()).toHaveLength(1);
+  });
+});
+
+describe("the conversation's history", () => {
+  const said = (id: number, text: string) => ({ id, conversationId: 1, kind: "pi.user", model: [{ role: "user", content: text, timestamp: id }] });
+  const pages = () => socket.frames.filter((frame) => frame.type === "entries");
+  const answer = (page: Frame, items: object[], next?: string) =>
+    socket.receive({ type: "result", id: String(page.id), result: { items, ...(next === undefined ? {} : { next }) } });
+  const shown = (text: string) => screen.queryByText(text) !== null;
+
+  it("loads the entries before the view's window, a page at a time, until the start", async () => {
+    render(<Page />);
+    socket.open();
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(60, "Newest")], before: 59, docs: { "pi.live": {} } } });
+    await waitFor(() => expect(pages()).toHaveLength(1));
+    expect(pages()[0]).toMatchObject({ query: { maxEntryId: 59, order: "descending" } });
+    answer(pages()[0]!, [said(59, "Older"), said(58, "Oldest")], "more");
+    await waitFor(() => expect(pages()).toHaveLength(2));
+    expect(pages()[1]).toMatchObject({ query: { maxEntryId: 57, order: "descending" } });
+    answer(pages()[1]!, []);
+    await waitFor(() => expect(shown("Oldest")).toBe(true));
+    const text = document.body.textContent!;
+    expect(text.indexOf("Oldest")).toBeLessThan(text.indexOf("Older"));
+    expect(text.indexOf("Older")).toBeLessThan(text.indexOf("Newest"));
+    // At the start: nothing more to ask for.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(pages()).toHaveLength(2);
+  });
+
+  it("resumes after the newest entry on a reconnect, and loads the entries it skipped", async () => {
+    render(<Page />);
+    socket.open();
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(1, "First"), said(2, "Second")], docs: { "pi.live": {} } } });
+    await waitFor(() => expect(shown("Second")).toBe(true));
+    socket.close();
+    socket.open();
+    await waitFor(() => expect(socket.frames.filter((frame) => frame.type === "watch").at(-1)).toEqual({ type: "watch", from: 3 }));
+    // More than a window happened while away: the view starts after a gap.
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(9, "Latest")], before: 8, docs: { "pi.live": {} } } });
+    await waitFor(() => expect(pages()).toHaveLength(1));
+    expect(pages()[0]).toMatchObject({ query: { minEntryId: 3, maxEntryId: 8, order: "ascending" } });
+    answer(pages()[0]!, [said(5, "Missed")]);
+    await waitFor(() => expect(shown("Missed")).toBe(true));
+    const text = document.body.textContent!;
+    expect(text.indexOf("Second")).toBeLessThan(text.indexOf("Missed"));
+    expect(text.indexOf("Missed")).toBeLessThan(text.indexOf("Latest"));
+  });
+
+  it("asks no more on a socket whose page failed, and tries again on the next", async () => {
+    render(<Page />);
+    socket.open();
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(60, "Newest")], before: 59, docs: { "pi.live": {} } } });
+    await waitFor(() => expect(pages()).toHaveLength(1));
+    socket.receive({ type: "error", id: String(pages()[0]!.id), message: "Invalid maxEntryId" });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(pages()).toHaveLength(1);
+    // The mirror's own request: its failure stalls the history, and isn't shown beside the chat.
+    expect(screen.queryByText(/Your agent reported a problem/)).toBeNull();
+    socket.close();
+    socket.open();
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [], before: 60, docs: { "pi.live": {} } } });
+    await waitFor(() => expect(pages()).toHaveLength(2));
+  });
+});
+
+describe("the agent's frames and errors", () => {
+  const said = (id: number, text: string) => ({ id, conversationId: 1, kind: "pi.user", model: [{ role: "user", content: text, timestamp: id }] });
+  const field = () => screen.getByRole("textbox", { name: "Companies your agent can contact" }) as HTMLInputElement;
+
+  it("keeps an error the agent reported while the session goes on changing, until a run starts", () => {
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    socket.receive({ type: "error", id: "stop-1", message: "Nothing to stop" });
+    expect(screen.getByText(/Your agent reported a problem: Nothing to stop/)).toBeTruthy();
+    appended(said(3, "From another tab"));
+    expect(screen.getByText(/Your agent reported a problem: Nothing to stop/)).toBeTruthy();
+    runStarts();
+    expect(screen.queryByText(/Nothing to stop/)).toBeNull();
+  });
+
+  it("follows a reset that a reconnect's gap held, though the newest entries came first", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/task-companies" ? Response.json({ companies: ["shop.example"] }) : Response.json({ workspaceId: "workspace-a" })));
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    await waitFor(() => expect(field().value).toBe("shop.example"));
+    socket.close();
+    socket.open();
+    await waitFor(() => expect(screen.queryByText(CONNECTING)).toBeNull());
+    // Away long enough for more than a window: the view starts at 40, after a gap.
+    socket.receive({ type: "view", session: "1", view: { conversation: { id: 1 }, entries: [said(40, "Latest")], before: 39, docs: { "pi.live": {} } } });
+    expect(field().value).toBe("shop.example");
+    const page = await waitFor(() => {
+      const found = socket.frames.find((frame) => frame.type === "entries");
+      if (!found) throw new Error("no page asked for");
+      return found;
+    });
+    // The gap held the other tab's reset.
+    socket.receive({ type: "result", id: String(page.id), result: { items: [{ id: 20, conversationId: 1, kind: "pi.reset", head: 20 }] } });
+    await waitFor(() => expect(field().value).toBe(""));
+  });
+
+  it("ignores a frame that isn't the shape the protocol gives it", () => {
+    render(<Page />);
+    socket.open();
+    view(said(2, "Find me a jumper"));
+    socket.receive({ type: "view", session: "1", view: { entries: "not a list", docs: {} } });
+    socket.receive({ type: "error", message: 42 });
+    expect(screen.getByText("Find me a jumper")).toBeTruthy();
+    expect(screen.queryByText(/Your agent reported a problem/)).toBeNull();
   });
 });

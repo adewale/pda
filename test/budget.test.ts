@@ -18,10 +18,11 @@ describe("durable model admission and accounting", () => {
     const namespace = `budget-test-${crypto.randomUUID()}`;
     await runInDurableObject(probes.get(probes.newUniqueId()), async (_, state) => {
       const requests: Array<{ query: { max_tokens: number } }> = [];
-      const binding = { gateway: () => ({ run: async (request: { query: { max_tokens: number } }) => {
-        requests.push(request);
+      // `agents` runs a gateway model through the binding: the model, the vendor's body, the gateway as an option.
+      const binding = { run: async (_model: string, query: { max_tokens: number }) => {
+        requests.push({ query });
         return Response.json({ type: "error", error: { type: "rate_limit_error", message: "synthetic rate limit" } }, { status: 429 });
-      } }) } as unknown as Ai;
+      } } as unknown as Ai;
       const access = new ModelAccess({
         env: testEnv,
         keys: new ModelKeys(state.storage.sql, () => new Sealer(testEnv), state.id.toString()), ledger: new Ledger(state.storage.sql),

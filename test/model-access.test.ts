@@ -223,7 +223,7 @@ describe("precedence and who pays", () => {
   });
 
   it("tags demo calls with the agent and its budget domain, on the demo gateway, and prices them by pi-ai's catalog", async () => {
-    const calls: Array<{ id: string; options: unknown }> = [];
+    const calls: Array<{ model: string; options: { gateway?: { id?: string } } }> = [];
     // The demo model speaks Anthropic Messages through the gateway; its stream reports usage.
     const usage = { input_tokens: 1_234, output_tokens: 567 };
     const sse = [
@@ -234,18 +234,18 @@ describe("precedence and who pays", () => {
       ["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: usage.output_tokens } }],
       ["message_stop", { type: "message_stop" }]
     ].map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+    // `agents` runs a gateway model through the binding, with the gateway and its metadata as options.
     const binding = {
-      gateway: (id: string) => ({
-        run: async (_request: unknown, options: unknown) => {
-          calls.push({ id, options });
-          return new Response(sse, { headers: { "Content-Type": "text/event-stream" } });
-        }
-      })
+      run: async (model: string, _input: unknown, options: { gateway?: { id?: string } }) => {
+        calls.push({ model, options });
+        return new Response(sse, { headers: { "Content-Type": "text/event-stream" } });
+      }
     } as unknown as Ai;
     const { provider, model } = gatewayDemoLane({ ...env, AI: binding }, { u: "agent-hash", d: "corp.example" });
     const stream = provider.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] } as never);
     const message = await stream.result();
-    expect(calls[0]?.id).toBe("demo");
+    expect(calls[0]?.model).toBe("anthropic/claude-sonnet-5.5");
+    expect(calls[0]?.options.gateway?.id).toBe("demo");
     expect(JSON.stringify(calls[0]?.options)).toContain('"metadata":{"u":"agent-hash","d":"corp.example"}');
     expect(message.stopReason).toBe("stop");
     expect(message.usage).toMatchObject({ input: usage.input_tokens, output: usage.output_tokens });

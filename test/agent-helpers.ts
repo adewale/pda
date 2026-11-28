@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect } from "vitest";
 import type { Provider } from "../src/config";
 import type { PiServerMessage } from "../src/protocol";
 import { agentNameFor, createSession, type Identity } from "../src/session";
-import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
+import { PiSessionMirror } from "../src/mirror";
 import { kitSchemaErrors } from "./kit-schemas";
 import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from "./mock-company";
 import type { AgentPayload } from "./mock-company/types";
@@ -72,23 +72,25 @@ export async function fetchWorker(request: Request, overrides: Partial<Env> = {}
   return worker.fetch(request, { ...env, ...overrides });
 }
 
-/** Folds every `events` frame into a view, as the browser hook does. */
+/**
+ * Watches the session and keeps its view with the example's
+ * `PiSessionMirror`, as the browser hook does: a `watch` when the socket
+ * opens, then the server's view and pi's operations.
+ */
 export function follow(socket: WebSocket) {
-  let view: PiSessionView = EMPTY_VIEW;
+  const mirror = new PiSessionMirror(() => undefined);
   const frames: Array<PiServerMessage | { type: string; name?: string }> = [];
   const waiters: Array<() => void> = [];
   socket.addEventListener("message", (event) => {
     if (typeof event.data !== "string") return;
     const message = JSON.parse(event.data) as PiServerMessage | { type: string };
     frames.push(message);
-    if (message.type === "events") {
-      view = reduceEvents(
-        view,
-        (message as Extract<PiServerMessage, { type: "events" }>).events
-      );
-    }
+    mirror.receive(message as PiServerMessage);
     for (const waiter of waiters.splice(0)) waiter();
   });
+  socket.addEventListener("close", () => mirror.close());
+  mirror.open((message) => socket.send(JSON.stringify(message)));
+  const view = () => mirror.view;
   const until = async (check: () => boolean) => {
     for (let i = 0; i < 500 && !check(); i++) {
       await new Promise<void>((resolve) => {
@@ -99,12 +101,12 @@ export function follow(socket: WebSocket) {
     if (!check()) throw new Error("Condition never held");
   };
   const texts = () =>
-    view.messages.flatMap((message) =>
+    view().messages.flatMap((message) =>
       message.parts.flatMap((part) =>
         part.type === "text" ? [`${message.role}: ${part.text}`] : []
       )
     );
-  return { view: () => view, frames, until, texts };
+  return { view, frames, until, texts, mirror };
 }
 
 export async function connect(identity: Identity | string, query = "") {
@@ -115,7 +117,7 @@ export async function connect(identity: Identity | string, query = "") {
   const socket = response.webSocket!;
   socket.accept();
   const client = follow(socket);
-  await client.until(() => client.frames.some((f) => f.type === "events"));
+  await client.until(() => client.frames.some((f) => f.type === "view"));
   return { socket, client };
 }
 

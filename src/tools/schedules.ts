@@ -6,7 +6,7 @@
  * call: injected material read during a user turn is still untrusted.
  * None of these tools calls a model or reaches the Poppy client.
  */
-import { Type, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type TSchema } from "typebox";
 import type { Context } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi, ToolRegistration } from "@earendil-works/pi-durable";
 import type { Scheduler } from "../schedules";
@@ -73,7 +73,7 @@ function view(schedule: Schedule): { [key: string]: Json } {
 
 function tool<T extends TSchema>(
   definition: { name: string; description: string; parameters: T },
-  run: (args: import("@earendil-works/pi-ai").Static<T>, api: ToolExecutionApi, context: Context) => Promise<Result>
+  run: (args: import("@earendil-works/pi-schema").Static<T>, api: ToolExecutionApi, context: Context) => Promise<Result>
 ): ToolRegistration<T> {
   return {
     ...definition,

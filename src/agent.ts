@@ -22,7 +22,6 @@ import { AuthError, type BrowserIdentity } from "./session";
 import { ours, sentence } from "./diagnostic";
 import { TurnAuthority } from "./tools/turn-authority";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
-import { TranscriptHistory } from "./history";
 import { agentId as pseudonym, code, configureLog, currentEvent, id, literal, type Safe } from "./log";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
 import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL, workspaceProblem } from "./model-keys";
@@ -151,11 +150,11 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly browserSessions: BrowserSessions;
   readonly turnAuthority: TurnAuthority;
   readonly registry = createRegistry();
+  #extensionsInstalled = false;
   readonly harness: PiHarness;
   readonly sockets: PiSessionSockets;
   readonly webSockets: WebSockets;
   readonly poppy: PoppyCapability;
-  readonly history: TranscriptHistory;
   readonly lifecycle: Lifecycle;
   readonly keys: ModelKeys;
   readonly access: ModelAccess;
@@ -265,29 +264,10 @@ export class PersonalAgent extends DurableObject<Env> {
       scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone, fromUser: this.turnAuthority.isUser, userTask: this.turnAuthority.userTask })
     ];
     this.harness = new PiHarness({
-      harness: async ({ storage, context }) => {
-        this.registry.install({
-          name: "persona",
-          sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
-          tools: []
-        });
-        // Every tool's call is counted on its turn's wide event (src/agent-log.ts).
-        this.registry.install(
-          this.log.instrument(
-            poppyExtension(
-              () => this.poppy.client,
-              () => this.poppy.browser,
-              this.turnAuthority.userTask,
-              this.turnAuthority.isUser
-            )
-          )
-        );
-        // read_url, memory, time and maths, reminders and tasks: useful outside Poppy, and kept apart from it.
-        for (const extension of this.generalTools) this.registry.install(this.log.instrument(extension));
-        // The User's attached photos, shown to the model as images in the messages that name them.
-        this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql, () => this.clockNow())));
-        // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
-        this.registry.install(compactionExtension(ROUTER_MODEL, (outcome) => this.log.compactionSummary(outcome)));
+      harness: async ({ storage, context, onWake }) => {
+        // The factory runs again whenever the harness reopens pi (after a
+        // storage error), and the registry refuses an extension twice.
+        if (!this.#extensionsInstalled) this.#installExtensions();
         // One provider, the router: it picks the lane at every call (model-router.ts).
         const models = createModels({ authContext: NO_AMBIENT_AUTH });
         models.setProvider(router);
@@ -309,15 +289,17 @@ export class PersonalAgent extends DurableObject<Env> {
               documentRetentionMs: 0,
               contextRetentionMs: 0
             },
-            // pi's own background reports: an event of their own, at level error.
-            onReport: (error) => void this.log.event("job", { job: literal("pi.report"), outcome: literal("error") }).fail(error).emit()
+            // When pi's next sleeping task is due, so the harness's alarm, not a timer, wakes the object.
+            onWake,
+            // pi's own background reports: an event of their own, at level error, named by the report's kind.
+            onReport: (report) => void this.log.event("job", { job: literal("pi.report"), outcome: literal("error") }).fail(report.error, { code: literal(report.kind) }).emit()
           },
           context
         );
         // A storage error closes pi for good: every later call fails. Reset
         // the object, so the next request opens pi again from storage.
         void pi.closed.then((end) => {
-          if (end.reason === "failed") this.#piFailed(end.error);
+          if (end.kind === "failed") this.#piFailed(end.error);
         });
         return pi;
       },
@@ -342,8 +324,8 @@ export class PersonalAgent extends DurableObject<Env> {
           if (this.data.deleting) { connection.close(1008, "Agent deletion is in progress"); return; }
           if (!this.browserSessions.protect(connection)) return;
           let forwarded = message;
+          let parsed: unknown;
           if (typeof message === "string") {
-            let parsed: unknown;
             try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && (parsed.type === "abort" || parsed.type === "reset")) this.turnAuthority.withdraw();
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "reset") this.turnAuthority.forgetCompanies();
@@ -362,19 +344,39 @@ export class PersonalAgent extends DurableObject<Env> {
               forwarded = JSON.stringify({ ...submission, operationId });
             }
           }
+          const pageId = typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "entries" && "id" in parsed && typeof parsed.id === "string" ? parsed.id : null;
+          if (pageId !== null) {
+            // A transcript page the page asked for: one that worked needs no event; one that failed gets its own,
+            // as the history reads before pi 1.6 did. The upstream socket code answers the page and logs nothing.
+            const watched = new Proxy(connection, {
+              get: (target, key) => {
+                if (key === "send") {
+                  return (data: string) => {
+                    const sent = (() => { try { return JSON.parse(data) as { type?: unknown; id?: unknown; message?: unknown }; } catch { return null; } })();
+                    if (sent?.type === "error" && sent.id === pageId) {
+                      const failure = Object.assign(new Error(typeof sent.message === "string" ? sent.message : "The page couldn't be read"), { name: "EntriesFailed" });
+                      void this.log.frame(literal("entries"), {}, async (event) => void event.fail(failure));
+                    }
+                    target.send(data);
+                  };
+                }
+                const value: unknown = Reflect.get(target, key, target);
+                return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+              }
+            });
+            return socketOptions.handlers?.onMessage?.(watched, forwarded);
+          }
           return socketOptions.handlers?.onMessage?.(connection, forwarded);
         }
       }
     });
-    this.history = new TranscriptHistory(this.harness, this.log);
-    // The log first, to see the chat's frames; then Poppy and the page's history, so they see theirs before the chat socket does.
+    // The log first, to see the chat's frames; then Poppy, so it sees its frames before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
       .use(this.browserSessions)
       .use(this.log)
       .use(this.poppy)
       .use(this.schedules)
       .use(this.attachmentExpiry)
-      .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
 
@@ -439,6 +441,34 @@ export class PersonalAgent extends DurableObject<Env> {
     } catch {
       // abort() may throw in the caller as well as resetting the object.
     }
+  }
+
+  /** pi's extensions, into this object's registry: once, however often the harness opens pi. */
+  #installExtensions(): void {
+    this.registry.install({
+      name: "persona",
+      sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
+      tools: []
+    });
+    // Every tool's call is counted on its turn's wide event (src/agent-log.ts).
+    this.registry.install(
+      this.log.instrument(
+        poppyExtension(
+          () => this.poppy.client,
+          () => this.poppy.browser,
+          this.turnAuthority.userTask,
+          this.turnAuthority.isUser
+        )
+      )
+    );
+    // read_url, memory, time and maths, reminders and tasks: useful outside Poppy, and kept apart from it.
+    for (const extension of this.generalTools) this.registry.install(this.log.instrument(extension));
+    // The User's attached photos, shown to the model as images in the messages that name them.
+    this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql, () => this.clockNow())));
+    // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
+    this.registry.install(compactionExtension(ROUTER_MODEL, (outcome) => this.log.compactionSummary(outcome)));
+    // Only now: an install that throws leaves the flag unset, so the next open fails the same way, not without tools.
+    this.#extensionsInstalled = true;
   }
 
   /** pi's storage, as the harness opens it. Tests wrap it to make a write fail. */
